@@ -3,25 +3,45 @@ phase: phase-3
 title: Implement JPA entities for the domain model
 depends_on: [task-002]
 description: |
-  Create JPA entities matching the domain model. Use Panache with a
-  consistent style (active record OR repository - pick one). Add a
-  BaseEntity mapped superclass with id (UUID), created_at, updated_at.
+  Create JPA entities matching the domain model defined in plan.yaml.
+  Use Panache repository pattern (not active record) for separation of concerns.
+  Add a BaseEntity mapped superclass with id (UUID), created_at, updated_at.
 steps:
-  - create com.company.estimation.domain.BaseEntity (@MappedSuperclass)
+  - create io.github.theestimator.domain.BaseEntity (@MappedSuperclass)
+      - id: UUID, generated with GenerationType.UUID
+      - createdAt: Instant, set on @PrePersist
+      - updatedAt: Instant, set on @PreUpdate
+  - create enum io.github.theestimator.domain.ProjectStatus (ACTIVE, ARCHIVED)
+  - create enum io.github.theestimator.domain.EstimationVersionStatus (DRAFT, SUBMITTED)
   - create entities:
-      - Project
-      - Estimation
-      - EstimationVersion (with @Enumerated status: DRAFT, SUBMITTED, APPROVED, REJECTED)
-      - EstimationItem
-      - User
-      - AuditLog
+      - Project: name (String, required), description (String), client (String), status (ProjectStatus), owner (User)
+      - Estimation: offer (String, required), description (String), project (Project), currentVersion (EstimationVersion)
+      - EstimationVersion: versionNumber (Integer, required), status (EstimationVersionStatus), createdBy (User), totalEffort (Double), notes (String)
+        constraints: unique(estimation, versionNumber)
+      - EstimationItem: description (String, required), category (String), optimistic (Double), likely (Double), pessimistic (Double), assumptions (String)
+      - User: entraSubjectId (String, unique), displayName (String, required)
+      - AuditLog: userId (UUID), entityType (String), entityId (UUID), action (String), payload (String/JSON)
+        note: AuditLog only extends for createdAt, no updatedAt needed
   - configure relationships:
-      - Project 1..* Estimation
-      - Estimation 1..* EstimationVersion
-      - EstimationVersion 1..* EstimationItem
-  - add Bean Validation constraints on required fields
+      - Project 1..* Estimation (bidirectional, cascade ALL, orphanRemoval)
+      - Project *..1 User (owner, unidirectional ManyToOne)
+      - Estimation 1..* EstimationVersion (bidirectional, cascade ALL, orphanRemoval)
+      - Estimation *..1 EstimationVersion (currentVersion, unidirectional ManyToOne, nullable)
+      - EstimationVersion 1..* EstimationItem (bidirectional, cascade ALL, orphanRemoval)
+      - EstimationVersion *..1 User (createdBy, unidirectional ManyToOne)
+  - add Bean Validation constraints (@NotBlank, @NotNull, @Email) on required fields
+  - add @Table annotations with explicit table names (snake_case)
+  - add @Column annotations for non-nullable and unique constraints
 validation:
-  - project compiles
-  - "./mvnw test" passes (entities load without mapping errors)
+  - project compiles: mvn compile -Pdev-local
+  - "./mvnw test" passes (entities load without mapping errors in H2)
 outputs:
-  - backend/src/main/java/com/company/estimation/domain/*.java
+  - src/backend/implementation/src/main/kotlin/io/github/theestimator/domain/BaseEntity.kt
+  - src/backend/implementation/src/main/kotlin/io/github/theestimator/domain/ProjectStatus.kt
+  - src/backend/implementation/src/main/kotlin/io/github/theestimator/domain/EstimationVersionStatus.kt
+  - src/backend/implementation/src/main/kotlin/io/github/theestimator/domain/Project.kt
+  - src/backend/implementation/src/main/kotlin/io/github/theestimator/domain/Estimation.kt
+  - src/backend/implementation/src/main/kotlin/io/github/theestimator/domain/EstimationVersion.kt
+  - src/backend/implementation/src/main/kotlin/io/github/theestimator/domain/EstimationItem.kt
+  - src/backend/implementation/src/main/kotlin/io/github/theestimator/domain/User.kt
+  - src/backend/implementation/src/main/kotlin/io/github/theestimator/domain/AuditLog.kt

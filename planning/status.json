@@ -51,10 +51,10 @@
       "notes": ""
     },
     "task-009": {
-      "status": "pending",
-      "started_at": null,
-      "completed_at": null,
-      "notes": ""
+      "status": "done",
+      "started_at": "2026-05-03T18:35:00+02:00",
+      "completed_at": "2026-05-03T18:46:00+02:00",
+      "notes": "JPA entities implemented in Kotlin. BaseEntity, 2 enums, 6 entities with relationships and validation. Compiles and starts with H2."
     },
     "task-010": {
       "status": "pending",
