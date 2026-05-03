@@ -32,5 +32,17 @@ class EstimationVersion : BaseEntity() {
     var estimation: Estimation? = null
 
     @OneToMany(mappedBy = "version", cascade = [CascadeType.ALL], orphanRemoval = true)
-    var items: MutableList<EstimationItem> = mutableListOf()
+    var parameters: MutableList<EstimationParameter> = mutableListOf()
+
+    @OneToMany(mappedBy = "version", cascade = [CascadeType.ALL], orphanRemoval = true)
+    var effortDrivers: MutableList<EffortDriver> = mutableListOf()
+
+    @OneToMany(mappedBy = "version", cascade = [CascadeType.ALL], orphanRemoval = true)
+    var phases: MutableList<ProjectPhase> = mutableListOf()
+
+    @OneToMany(mappedBy = "version", cascade = [CascadeType.ALL], orphanRemoval = true)
+    var additionalCosts: MutableList<AdditionalCost> = mutableListOf()
+
+    @OneToMany(mappedBy = "version", cascade = [CascadeType.ALL], orphanRemoval = true)
+    var itemGroups: MutableList<EstimationItemGroup> = mutableListOf()
 }

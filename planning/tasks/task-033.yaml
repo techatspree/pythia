@@ -4,31 +4,94 @@ title: Adapt domain model to Excel-based estimation model
 depends_on: [task-009]
 description: |
   Refactor the Estimation/EstimationItem JPA entities to match the structure
-  defined in the reference Excel spreadsheet. The spreadsheet defines the
-  categories, line items, calculation logic, and hierarchical grouping used
-  for cost estimations. This task bridges the gap between the generic domain
-  model and the real-world estimation structure.
+  defined in the reference Excel spreadsheet (planning/inputdata/reference-spreadsheet.xlsx).
+  The spreadsheet uses three-point estimation (Min/Erwartet/Max) with PERT-like
+  statistical calculations (mean, variance, standard deviation, risk surcharge)
+  and effort drivers (Aufwandstreiber) as percentage-based add-ons.
+
+  Spreadsheet structure summary:
+  - Header (rows 1-3): metadata (org unit, classification, target audience)
+  - "Projektstrukturplan" (PSP): hierarchical estimation items grouped by
+    category (Fachlich/Technisch/Sicherheit/PM/UX), each with Min/Erwartet/Max
+    in person-days. Groups have subtotals. Lower section has time-relative
+    items (hours/week over project duration).
+  - "Zusatzkosten": one-time and recurring costs, each assigned to a package.
+  - "Pakete": summary per project phase (name, abbreviation, duration in weeks,
+    effort PT, development cost, additional costs, offer price with sales surcharge).
+  - "Parameter": global parameters (standard deviation factor, daily rate, sales surcharge).
+  - "Aufwandstreiber": effort drivers as factors applied to the base estimate
+    (e.g., warranty 5%, internationalization, domain expertise).
+  - "Kontrolle": invariants/consistency checks (sums must match, differences = 0).
+  - "Hinweise": documentation about the estimation method.
+
 steps:
-  - analyze the Excel spreadsheet structure (sheets, columns, formulas, groupings) of planning/inputdata/reference-spreadsheet.xslx. The data in the sheet is written in German.
-  - map spreadsheet concepts to domain entities:
-      - sheet "Projektstrukturplan" → List of EstimationItems, each item is associated with a project phase, in the lower section of the sheet there are estimation items which are defined per week
-      - sheet "Zusatzkosten" -> additional items for an EstimationVersion
-      - sheet "Parameter" -> parameters for an EstimationVersion
-      - sheet "Aufwandstreiber" -> parameters for an EstimationVersion
-      - sheet "Kontrolle" -> these tests define the correct state of the domain models and should be converted to invariants
-      - sheet "Hinweise" -> domain information
-      - shett "Pakete" -> the result of the estimations for different project phases and the length of the project phase
-      - calculated totals → derived fields or formula definitions
-  - create/adapt JPA entities:
-      - ProjectPhase
-      - EstimationItem (quantity, unit, unit_price, total, notes, risk_factor, etc.)
-  - add Bean Validation constraints matching spreadsheet rules
-  - write unit tests verifying the entity structure matches the spreadsheet layout
+  - create/adapt domain entities (all in Kotlin):
+      - EstimationParameter: name, value (Double), comment — global config per EstimationVersion
+      - EffortDriver (Aufwandstreiber): description, factor (Double), comment — per EstimationVersion
+      - ProjectPhase (Paket): name, abbreviation, durationWeeks (Double), assigned to EstimationVersion
+      - AdditionalCost (Zusatzkosten): description, amount (Double), type (ONE_TIME, RECURRING),
+        amountPerWeek (Double, nullable), phase (ProjectPhase)
+      - adapt EstimationItem:
+          - add: code (String, e.g. "U01", "T01", "S01"),
+            minEffort (Double), expectedEffort (Double), maxEffort (Double),
+            phase (ProjectPhase),
+            assumptions (String),
+            create two subclasses from an abstract superclass, one for time relative items and one for fixed items,
+          - remove: optimistic, likely, pessimistic fields (replaced by min/expected/max)
+          - derived/calculated fields (persisted, computed in domain layer):
+              mean, variance, riskSurcharge, driverSurcharge, offerPT, cost, offerPrice
+      - EstimationItemGroup: , title (String), phase — groups items for subtotals
+  - configure relationships:
+      - EstimationVersion 1..* EstimationParameter
+      - EstimationVersion 1..* EffortDriver
+      - EstimationVersion 1..* ProjectPhase
+      - EstimationVersion 1..* AdditionalCost
+      - EstimationVersion 1..* EstimationItemGroup
+      - EstimationItemGroup 1..* EstimationItem
+      - AdditionalCost *..1 ProjectPhase
+      - EstimationItem *..1 ProjectPhase
+  - implement calculation service (EstimationCalculator):
+      - PERT mean: (min + 4*expected + max) / 6
+      - variance: ((max - min) / 6)^2
+      - standard deviation: sqrt(sum of variances)
+      - risk surcharge: stddev * stddev_factor (from Parameter)
+      - driver surcharge: base_effort * sum_of_driver_factors
+      - offer PT: mean + risk_surcharge + driver_surcharge
+      - cost: offer_PT * daily_rate (from Parameter)
+      - offer price: cost * (1 + sales_surcharge) (from Parameter)
+  - implement invariants from "Kontrolle" sheet as validation methods:
+      - total offer PT == sum of all item offer PTs
+      - sum with risk in PSP == sum from calculation
+      - sum over packages == sum over subtotals
+      - offer PT == offer PT per group
+      - cost in PSP == cost in package overview
+      - sum of variances == sum of group variances
+  - create Excel importer (Apache POI):
+      - reads reference-spreadsheet.xlsx format
+      - produces an EstimationVersion with all items, groups, phases, parameters, drivers, costs
+  - create Excel exporter (Apache POI):
+      - writes an EstimationVersion back to the spreadsheet format
+      - preserves formulas where possible
+  - add Apache POI dependency to pom.xml
+  - write unit tests:
+      - calculation logic (mean, variance, risk, drivers, totals)
+      - invariant checks pass for valid estimation
+      - import reference spreadsheet and verify invariants hold
 validation:
-  - project compiles
-  - "./mvnw test" passes
-  - entity structure can represent all rows/sections from the reference spreadsheet
+  - mvn compile -Pdev-local succeeds
+  - mvn test -Pdev-local passes
+  - importing the reference spreadsheet produces a valid EstimationVersion
+  - all 7 Kontrolle invariants pass on the imported data
 outputs:
-  - backend/src/main/java/io/github/theestimator/domain/ProjectPhase.kt
-  - backend/src/main/java/io/github/theestimator/domain/EstimationTemplate.kt
-  - updated EstimationItem.java with spreadsheet-aligned fields
+  - src/backend/implementation/src/main/kotlin/io/github/theestimator/domain/EstimationParameter.kt
+  - src/backend/implementation/src/main/kotlin/io/github/theestimator/domain/EffortDriver.kt
+  - src/backend/implementation/src/main/kotlin/io/github/theestimator/domain/ProjectPhase.kt
+  - src/backend/implementation/src/main/kotlin/io/github/theestimator/domain/AdditionalCost.kt
+  - src/backend/implementation/src/main/kotlin/io/github/theestimator/domain/AdditionalCostType.kt
+  - src/backend/implementation/src/main/kotlin/io/github/theestimator/domain/EstimationItemGroup.kt
+  - src/backend/implementation/src/main/kotlin/io/github/theestimator/domain/EstimationItem.kt (updated)
+  - src/backend/implementation/src/main/kotlin/io/github/theestimator/service/EstimationCalculator.kt
+  - src/backend/implementation/src/main/kotlin/io/github/theestimator/service/ExcelImporter.kt
+  - src/backend/implementation/src/main/kotlin/io/github/theestimator/service/ExcelExporter.kt
+  - src/backend/implementation/src/test/kotlin/io/github/theestimator/service/EstimationCalculatorTest.kt
+  - src/backend/implementation/src/test/kotlin/io/github/theestimator/service/ExcelImporterTest.kt
