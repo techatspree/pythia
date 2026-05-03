@@ -1,29 +1,33 @@
 id: task-003
 phase: phase-1
-title: Bootstrap React frontend project
+title: Bootstrap Svelte frontend project
 depends_on: [task-001]
 description: |
-  Initialize a React + TypeScript SPA under /frontend using Vite, with the
-  baseline dependencies for routing, server state, MSAL auth, and Tailwind.
+  Initialize a SvelteKit + TypeScript SPA under src/frontend using Vite, with the
+  baseline dependencies for MSAL auth and Tailwind. Configured as a static SPA
+  (no SSR) since all routes require client-side MSAL authentication.
 steps:
-  - cd frontend
-  - npm create vite@latest . -- --template react-ts
+  - cd src/frontend
+  - npx sv create . (select Skeleton project, TypeScript, ESLint, Prettier)
+  - npm install
   - install dependencies:
-      - react-router-dom
-      - "@tanstack/react-query"
       - "@azure/msal-browser"
-      - "@azure/msal-react"
-      - axios
   - install dev dependencies:
-      - tailwindcss postcss autoprefixer
-      - openapi-typescript-codegen
-  - run "npx tailwindcss init -p" and configure content paths
-  - add Tailwind directives to src/index.css
+      - tailwindcss @tailwindcss/vite
+      - "@sveltejs/adapter-static"
+      - openapi-fetch openapi-typescript
+  - configure adapter-static in svelte.config.js with fallback "index.html"
+  - add "export const ssr = false" to src/routes/+layout.ts
+  - configure Tailwind via the Vite plugin in vite.config.ts
+  - add Tailwind import to src/app.css
   - verify "npm run dev" serves the app on port 5173
 validation:
-  - http://localhost:5173 loads the Vite default page
-  - Tailwind class "text-red-500" renders correctly in App.tsx
+  - http://localhost:5173 loads the SvelteKit default page
+  - Tailwind class "text-red-500" renders correctly in src/routes/+page.svelte
+  - "npm run build" produces a static build in build/ directory
 outputs:
-  - frontend/package.json
-  - frontend/vite.config.ts
-  - frontend/tailwind.config.js
+  - src/frontend/package.json
+  - src/frontend/vite.config.ts
+  - src/frontend/svelte.config.js
+  - src/frontend/src/app.css
+  - src/frontend/src/routes/+layout.ts
