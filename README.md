@@ -47,12 +47,26 @@ The project provides two development stages:
 
 Backend and frontend run locally on your machine. The backend uses an H2 in-memory database (no Docker or PostgreSQL needed).
 
+Quick start (runs both backend and frontend):
+```bash
+./scripts/dev-local.sh
+```
+
+Or start them individually:
+
+Start the backend:
 ```bash
 cd src/backend/implementation
 mvn quarkus:dev -Pdev-local
 ```
 
-The backend is available at http://localhost:8080. No container image is built.
+Start the frontend (in a second terminal):
+```bash
+cd src/frontend
+npm run dev
+```
+
+The backend is available at http://localhost:8080, the frontend at http://localhost:5173. The frontend proxies API requests to the locally running backend. No Docker or container image is needed.
 
 #### dev-minikube — Full stack on Minikube
 
