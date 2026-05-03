@@ -1,0 +1,17 @@
+id: task-018
+phase: phase-5
+title: Build estimation detail and version list
+depends_on: [task-017]
+description: |
+  Show all versions of a given estimation with their status, totals,
+  and authorship. Allow creating a new version (cloning the latest).
+steps:
+  - route /estimations/:id
+  - timeline-style list of versions with status badges
+  - "Create new version" button (calls POST /versions)
+  - clicking a version navigates to the editor (next task)
+validation:
+  - new version appears at the top of the list with status DRAFT
+  - cloned items are visible when opening the new version
+outputs:
+  - frontend src/pages/EstimationDetailPage.tsx

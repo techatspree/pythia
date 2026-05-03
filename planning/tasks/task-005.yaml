@@ -1,0 +1,23 @@
+id: task-005
+phase: phase-2
+title: Register applications in Microsoft Entra ID
+depends_on: [task-002, task-003]
+description: |
+  Create two Entra ID app registrations - one for the backend API and one
+  for the SPA frontend. Configure scopes, redirect URIs, and app roles.
+manual_steps_required: true
+steps:
+  - register backend app "estimation-tool-api"
+      - expose API with scope "access" (full identifier api://<client-id>/access)
+      - define app roles: viewer, estimator, admin
+  - register frontend app "estimation-tool-spa"
+      - platform type "Single-page application"
+      - redirect URIs: http://localhost:5173, https://estimation.local
+      - grant API permission to estimation-tool-api scope "access"
+      - grant admin consent if required by tenant policy
+  - record tenant_id, api_client_id, spa_client_id in a secure place (NOT git)
+validation:
+  - both app registrations visible in Entra ID portal
+  - SPA can request a token from the tenant (test via MSAL playground or curl)
+outputs:
+  - docs/entra-setup.md (without secrets, only setup procedure)

@@ -1,0 +1,19 @@
+id: task-032
+phase: phase-8
+title: Documentation and handover
+depends_on: [task-030, task-031]
+description: |
+  Wrap up with the documentation that future maintainers and users will
+  actually need. Less is more - keep it scoped and current.
+deliverables:
+  - docs/architecture.md - one diagram, key decisions, why
+  - docs/local-setup.md - get a developer up and running in 30 min
+  - docs/user-guide.md - how an estimator uses the tool day-to-day
+  - docs/runbook.md - common incidents and fixes
+  - docs/api.md - auto-generated from OpenAPI, linked from README
+validation:
+  - a new developer can follow local-setup.md and have a running instance
+  - an end user can complete a full estimation workflow following the guide
+outputs:
+  - docs/**
+  - updated README with links to all docs

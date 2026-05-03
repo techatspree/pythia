@@ -1,0 +1,18 @@
+id: task-016
+phase: phase-4
+title: Generate TypeScript client from OpenAPI
+depends_on: [task-015]
+description: |
+  Use the generated OpenAPI spec to produce a typed TypeScript client
+  for the frontend, so the contract stays in sync.
+steps:
+  - export OpenAPI JSON from running backend (/q/openapi)
+  - in frontend, add npm script "gen:api" running openapi-typescript-codegen
+  - output to frontend/src/api/generated/
+  - add to .gitignore OR commit (recommend committing for reproducibility)
+validation:
+  - generated client compiles
+  - a sample call to listProjects() returns typed Project[]
+outputs:
+  - frontend/src/api/generated/*
+  - frontend npm script "gen:api"

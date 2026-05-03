@@ -1,0 +1,198 @@
+{
+  "plan_version": "0.1.0",
+  "started_at": "2026-05-03T09:05:48.570738+00:00",
+  "tasks": {
+    "task-001": {
+      "status": "pending",
+      "started_at": null,
+      "completed_at": null,
+      "notes": ""
+    },
+    "task-002": {
+      "status": "pending",
+      "started_at": null,
+      "completed_at": null,
+      "notes": ""
+    },
+    "task-003": {
+      "status": "pending",
+      "started_at": null,
+      "completed_at": null,
+      "notes": ""
+    },
+    "task-004": {
+      "status": "pending",
+      "started_at": null,
+      "completed_at": null,
+      "notes": ""
+    },
+    "task-005": {
+      "status": "pending",
+      "started_at": null,
+      "completed_at": null,
+      "notes": ""
+    },
+    "task-006": {
+      "status": "pending",
+      "started_at": null,
+      "completed_at": null,
+      "notes": ""
+    },
+    "task-007": {
+      "status": "pending",
+      "started_at": null,
+      "completed_at": null,
+      "notes": ""
+    },
+    "task-008": {
+      "status": "pending",
+      "started_at": null,
+      "completed_at": null,
+      "notes": ""
+    },
+    "task-009": {
+      "status": "pending",
+      "started_at": null,
+      "completed_at": null,
+      "notes": ""
+    },
+    "task-010": {
+      "status": "pending",
+      "started_at": null,
+      "completed_at": null,
+      "notes": ""
+    },
+    "task-011": {
+      "status": "pending",
+      "started_at": null,
+      "completed_at": null,
+      "notes": ""
+    },
+    "task-012": {
+      "status": "pending",
+      "started_at": null,
+      "completed_at": null,
+      "notes": ""
+    },
+    "task-013": {
+      "status": "pending",
+      "started_at": null,
+      "completed_at": null,
+      "notes": ""
+    },
+    "task-014": {
+      "status": "pending",
+      "started_at": null,
+      "completed_at": null,
+      "notes": ""
+    },
+    "task-015": {
+      "status": "pending",
+      "started_at": null,
+      "completed_at": null,
+      "notes": ""
+    },
+    "task-016": {
+      "status": "pending",
+      "started_at": null,
+      "completed_at": null,
+      "notes": ""
+    },
+    "task-017": {
+      "status": "pending",
+      "started_at": null,
+      "completed_at": null,
+      "notes": ""
+    },
+    "task-018": {
+      "status": "pending",
+      "started_at": null,
+      "completed_at": null,
+      "notes": ""
+    },
+    "task-019": {
+      "status": "pending",
+      "started_at": null,
+      "completed_at": null,
+      "notes": ""
+    },
+    "task-020": {
+      "status": "pending",
+      "started_at": null,
+      "completed_at": null,
+      "notes": ""
+    },
+    "task-021": {
+      "status": "pending",
+      "started_at": null,
+      "completed_at": null,
+      "notes": ""
+    },
+    "task-022": {
+      "status": "pending",
+      "started_at": null,
+      "completed_at": null,
+      "notes": ""
+    },
+    "task-023": {
+      "status": "pending",
+      "started_at": null,
+      "completed_at": null,
+      "notes": ""
+    },
+    "task-024": {
+      "status": "pending",
+      "started_at": null,
+      "completed_at": null,
+      "notes": ""
+    },
+    "task-025": {
+      "status": "pending",
+      "started_at": null,
+      "completed_at": null,
+      "notes": ""
+    },
+    "task-026": {
+      "status": "pending",
+      "started_at": null,
+      "completed_at": null,
+      "notes": ""
+    },
+    "task-027": {
+      "status": "pending",
+      "started_at": null,
+      "completed_at": null,
+      "notes": ""
+    },
+    "task-028": {
+      "status": "pending",
+      "started_at": null,
+      "completed_at": null,
+      "notes": ""
+    },
+    "task-029": {
+      "status": "pending",
+      "started_at": null,
+      "completed_at": null,
+      "notes": ""
+    },
+    "task-030": {
+      "status": "pending",
+      "started_at": null,
+      "completed_at": null,
+      "notes": ""
+    },
+    "task-031": {
+      "status": "pending",
+      "started_at": null,
+      "completed_at": null,
+      "notes": ""
+    },
+    "task-032": {
+      "status": "pending",
+      "started_at": null,
+      "completed_at": null,
+      "notes": ""
+    }
+  }
+}

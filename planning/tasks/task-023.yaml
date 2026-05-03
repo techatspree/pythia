@@ -1,0 +1,21 @@
+id: task-023
+phase: phase-6
+title: Build frontend container image
+depends_on: [task-021]
+description: |
+  Multi-stage Dockerfile that builds the SPA with Node and serves it
+  with nginx. Use a minimal nginx config that serves index.html for
+  all unknown routes (SPA fallback).
+steps:
+  - create frontend/Dockerfile:
+      stage 1: node:20-alpine, "npm ci && npm run build"
+      stage 2: nginx:alpine, copy dist/ to /usr/share/nginx/html
+  - create frontend/nginx.conf with try_files $uri /index.html
+  - "docker build -t company/estimation-frontend:0.1.0 ."
+  - "minikube image load company/estimation-frontend:0.1.0"
+validation:
+  - container starts and serves the SPA on port 80
+  - deep-link routes (/projects/123) load correctly
+outputs:
+  - frontend/Dockerfile
+  - frontend/nginx.conf

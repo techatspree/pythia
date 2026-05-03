@@ -1,0 +1,19 @@
+id: task-017
+phase: phase-5
+title: Build project list and project detail screens
+depends_on: [task-016, task-008]
+description: |
+  Create the entry-point screens of the application: a list of all
+  projects and a detail view showing each project's estimations.
+steps:
+  - set up routes /projects and /projects/:id with react-router
+  - implement useProjects() and useProject(id) hooks via TanStack Query
+  - ProjectListPage with search, status filter, and "New project" button
+  - ProjectDetailPage showing project metadata and a table of estimations
+  - a "New estimation" button that opens a creation dialog
+validation:
+  - listing renders data from the API
+  - creating a project from the UI persists and refreshes the list
+outputs:
+  - frontend src/pages/ProjectListPage.tsx
+  - frontend src/pages/ProjectDetailPage.tsx

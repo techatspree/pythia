@@ -1,0 +1,21 @@
+id: task-011
+phase: phase-3
+title: Implement repositories and core services
+depends_on: [task-009, task-010]
+description: |
+  Add Panache repositories (or active-record finders) and CDI service
+  beans encapsulating business rules, especially around versioning.
+steps:
+  - create ProjectService, EstimationService, EstimationVersionService
+  - implement createNewVersion(estimationId) that:
+      - finds latest version
+      - creates a new version with version_number = latest + 1
+      - clones items from the latest version
+      - sets status DRAFT
+  - implement submit(versionId) and approve(versionId) with status transitions
+  - reject edits to versions whose status is not DRAFT (throw IllegalStateException)
+  - emit AuditLog rows on every state change
+validation:
+  - unit tests for createNewVersion, submit, approve, reject-edit-of-submitted
+outputs:
+  - backend/src/main/java/com/company/estimation/service/*.java

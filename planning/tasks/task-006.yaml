@@ -1,0 +1,22 @@
+id: task-006
+phase: phase-2
+title: Configure Quarkus OIDC for Entra ID
+depends_on: [task-005]
+description: |
+  Wire up quarkus-oidc to validate access tokens issued by Entra ID. Map
+  Entra ID app roles to Quarkus security roles for use with @RolesAllowed.
+steps:
+  - in application.properties set:
+      quarkus.oidc.auth-server-url=https://login.microsoftonline.com/<tenant-id>/v2.0
+      quarkus.oidc.client-id=<api-client-id>
+      quarkus.oidc.application-type=service
+      quarkus.oidc.token.audience=api://<api-client-id>
+      quarkus.oidc.roles.role-claim-path=roles
+  - create a /api/me endpoint returning the SecurityIdentity principal name and roles
+  - test with a token acquired from MSAL or az cli
+validation:
+  - request to /api/me without token returns 401
+  - request with a valid token returns user info and assigned roles
+outputs:
+  - backend application.properties OIDC section
+  - backend MeResource.java

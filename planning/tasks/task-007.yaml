@@ -1,0 +1,21 @@
+id: task-007
+phase: phase-2
+title: Integrate MSAL authentication on the frontend
+depends_on: [task-005, task-003]
+description: |
+  Set up MSAL for the React SPA: PKCE auth code flow, token acquisition,
+  and a Bearer token interceptor for API calls. Add a login screen and a
+  protected route wrapper.
+steps:
+  - create src/auth/msalConfig.ts with clientId, authority, redirectUri from env
+  - wrap the app in MsalProvider in main.tsx
+  - create useAuth hook that exposes login, logout, account, and getToken
+  - create AuthenticatedRoute component that redirects unauthenticated users
+  - configure axios interceptor to attach Authorization header
+  - create LoginPage and a basic AppShell with user dropdown
+validation:
+  - unauthenticated visit to / redirects to login
+  - after login, user info from /api/me is displayed in the shell
+outputs:
+  - frontend/src/auth/*
+  - frontend/src/api/client.ts

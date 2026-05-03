@@ -1,0 +1,29 @@
+id: task-003
+phase: phase-1
+title: Bootstrap React frontend project
+depends_on: [task-001]
+description: |
+  Initialize a React + TypeScript SPA under /frontend using Vite, with the
+  baseline dependencies for routing, server state, MSAL auth, and Tailwind.
+steps:
+  - cd frontend
+  - npm create vite@latest . -- --template react-ts
+  - install dependencies:
+      - react-router-dom
+      - "@tanstack/react-query"
+      - "@azure/msal-browser"
+      - "@azure/msal-react"
+      - axios
+  - install dev dependencies:
+      - tailwindcss postcss autoprefixer
+      - openapi-typescript-codegen
+  - run "npx tailwindcss init -p" and configure content paths
+  - add Tailwind directives to src/index.css
+  - verify "npm run dev" serves the app on port 5173
+validation:
+  - http://localhost:5173 loads the Vite default page
+  - Tailwind class "text-red-500" renders correctly in App.tsx
+outputs:
+  - frontend/package.json
+  - frontend/vite.config.ts
+  - frontend/tailwind.config.js

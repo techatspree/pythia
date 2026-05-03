@@ -1,0 +1,23 @@
+id: task-019
+phase: phase-5
+title: Build the version editor (the heart of the app)
+depends_on: [task-018]
+description: |
+  Implement the editable items grid where users do the actual estimating.
+  Speed and ergonomics matter - this is where users spend most of their time.
+features:
+  - editable table with columns: description, category, optimistic, likely, pessimistic, expected (calculated), assumptions
+  - PERT formula for expected: (O + 4M + P) / 6
+  - inline add row, delete row, drag to reorder
+  - keyboard navigation (Tab/Enter/Arrow keys)
+  - debounced auto-save while status is DRAFT
+  - read-only mode when status != DRAFT
+  - footer showing totals (sum of expected, optimistic, pessimistic)
+  - "Submit" button that transitions to SUBMITTED
+validation:
+  - editing a numeric field updates the expected value live
+  - a SUBMITTED version is fully read-only with a banner explaining this
+  - auto-save survives a page reload
+outputs:
+  - frontend src/pages/VersionEditorPage.tsx
+  - frontend src/components/EstimationGrid.tsx

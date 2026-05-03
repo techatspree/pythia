@@ -1,0 +1,23 @@
+id: task-025
+phase: phase-6
+title: Configure Ingress and local hostname routing
+depends_on: [task-024]
+description: |
+  Set up the ingress so the frontend and backend share a hostname,
+  with the frontend at / and the backend at /api. This avoids CORS
+  issues entirely.
+steps:
+  - configure Ingress with paths:
+      / -> frontend service
+      /api -> backend service
+      /q -> backend service (health and OpenAPI for dev only)
+  - add to /etc/hosts: "<minikube ip>  estimation.local"
+  - update Entra ID redirect URI list to include https://estimation.local
+  - generate a self-signed TLS cert for estimation.local OR use the ingress addon's default
+validation:
+  - browsing https://estimation.local loads the SPA
+  - login flow completes against Entra ID
+  - API calls succeed without CORS errors
+outputs:
+  - k8s/base/ingress.yaml
+  - docs/local-setup.md

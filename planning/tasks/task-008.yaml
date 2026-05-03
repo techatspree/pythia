@@ -1,0 +1,19 @@
+id: task-008
+phase: phase-2
+title: Verify end-to-end authentication flow
+depends_on: [task-006, task-007]
+description: |
+  Confirm a real user can log in via Entra ID, receive a token, call the
+  backend, and see role-based access enforced. This is the auth gate -
+  do not proceed to feature work until it is solid.
+steps:
+  - assign different roles (viewer, estimator, admin) to test users in Entra ID
+  - add a /api/admin/ping endpoint guarded by @RolesAllowed("admin")
+  - log in as each test user and verify access matches role
+  - document the test results in docs/auth-verification.md
+validation:
+  - viewer cannot reach admin endpoint (403)
+  - admin can reach admin endpoint (200)
+  - all users can reach /api/me
+outputs:
+  - docs/auth-verification.md

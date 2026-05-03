@@ -1,0 +1,20 @@
+id: task-001
+phase: phase-1
+title: Initialize repository structure
+depends_on: []
+description: |
+  Create the monorepo layout with separate directories for backend, frontend,
+  Kubernetes manifests, and documentation. Initialize git and add .gitignore.
+steps:
+  - mkdir src
+  - mkdir -p src/backend src/frontend src/k8s docs scripts
+  - git init
+  - create .gitignore covering node_modules, target, .idea, .vscode, .env*, *.log
+  - create README.md with project overview
+validation:
+  - directory structure matches the layout above
+  - "git status" runs without error
+outputs:
+  - .gitignore
+  - README.md
+  - directory tree

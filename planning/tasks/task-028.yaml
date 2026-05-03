@@ -1,0 +1,19 @@
+id: task-028
+phase: phase-7
+title: Set up CD pipeline to staging and production
+depends_on: [task-027, task-024]
+description: |
+  Continuous deployment using the Kustomize overlays. Staging deploys
+  automatically on main; production requires manual approval.
+steps:
+  - on successful main build, run "kubectl apply -k k8s/overlays/staging"
+  - manual approval gate before production deploy
+  - tag git commit on production deploy for traceability
+  - smoke-test the deployment by hitting /q/health/ready and a known endpoint
+validation:
+  - merge to main results in a working staging deployment
+  - production deploy requires explicit approval
+outputs:
+  - .github/workflows/cd.yaml
+  - k8s/overlays/staging/
+  - k8s/overlays/production/

@@ -1,0 +1,25 @@
+id: task-027
+phase: phase-7
+title: Set up CI pipeline
+depends_on: [task-022, task-023]
+description: |
+  Continuous integration that runs on every push and PR. The pipeline
+  should be fast on PRs (lint + tests) and produce images on main.
+stages:
+  - lint:
+      backend: "./mvnw verify -DskipTests=false"
+      frontend: "npm run lint && npm run typecheck"
+  - test:
+      backend: "./mvnw verify"
+      frontend: "npm test -- --run"
+  - build_images:
+      condition: "branch == main"
+      steps: build backend (jib) and frontend (docker), push to registry
+  - security_scan:
+      - mvn dependency-check (or Trivy on the image)
+      - npm audit --production
+validation:
+  - PR triggers lint and test stages only
+  - merge to main produces tagged images in the registry
+outputs:
+  - .github/workflows/ci.yaml (or equivalent for other CI systems)

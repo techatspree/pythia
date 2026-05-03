@@ -1,0 +1,21 @@
+id: task-004
+phase: phase-1
+title: Set up Minikube and deploy PostgreSQL
+depends_on: [task-001]
+description: |
+  Start Minikube with required addons and deploy a PostgreSQL instance
+  inside the cluster for backend development.
+steps:
+  - minikube start --cpus=4 --memory=8192 --driver=docker
+  - minikube addons enable ingress
+  - minikube addons enable metrics-server
+  - kubectl create namespace estimation-tool
+  - apply k8s/postgres/ manifests (StatefulSet, Service, PVC, Secret)
+  - verify pod is Running and accepts connections via "kubectl exec ... psql"
+validation:
+  - "kubectl get pods -n estimation-tool" shows postgres pod Running
+  - psql can connect from inside the cluster
+outputs:
+  - k8s/postgres/statefulset.yaml
+  - k8s/postgres/service.yaml
+  - k8s/postgres/secret.yaml

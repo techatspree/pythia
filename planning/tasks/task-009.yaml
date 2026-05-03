@@ -1,0 +1,27 @@
+id: task-009
+phase: phase-3
+title: Implement JPA entities for the domain model
+depends_on: [task-002]
+description: |
+  Create JPA entities matching the domain model. Use Panache with a
+  consistent style (active record OR repository - pick one). Add a
+  BaseEntity mapped superclass with id (UUID), created_at, updated_at.
+steps:
+  - create com.company.estimation.domain.BaseEntity (@MappedSuperclass)
+  - create entities:
+      - Project
+      - Estimation
+      - EstimationVersion (with @Enumerated status: DRAFT, SUBMITTED, APPROVED, REJECTED)
+      - EstimationItem
+      - User
+      - AuditLog
+  - configure relationships:
+      - Project 1..* Estimation
+      - Estimation 1..* EstimationVersion
+      - EstimationVersion 1..* EstimationItem
+  - add Bean Validation constraints on required fields
+validation:
+  - project compiles
+  - "./mvnw test" passes (entities load without mapping errors)
+outputs:
+  - backend/src/main/java/com/company/estimation/domain/*.java

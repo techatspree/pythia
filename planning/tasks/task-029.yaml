@@ -1,0 +1,23 @@
+id: task-029
+phase: phase-7
+title: Security hardening pass
+depends_on: [task-026, task-025]
+description: |
+  Sweep through the application looking for common security weaknesses
+  before exposing it to real users.
+checklist:
+  - all endpoints behind @Authenticated or @RolesAllowed (no accidental public ones)
+  - input validation on all DTOs (@NotBlank, @Size, @Min, @Max, ...)
+  - CORS configured strictly (only the frontend origin)
+  - rate limiting at ingress (e.g. nginx limit_req)
+  - secrets only in Kubernetes Secrets, never in ConfigMaps or git
+  - TLS enforced - HTTP redirects to HTTPS
+  - HSTS, X-Frame-Options, X-Content-Type-Options headers set
+  - Postgres requires SSL connections in production
+  - container images run as non-root (jib defaults to non-root, verify)
+  - read-only root filesystem in pod security context
+validation:
+  - run OWASP ZAP baseline scan against staging
+  - run "kubectl auth can-i" checks for service accounts
+outputs:
+  - docs/security-checklist.md (filled in)

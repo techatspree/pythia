@@ -1,0 +1,83 @@
+project:
+  name: estimation-tool
+  description: Project effort estimation tool for software development tasks
+  version: 0.1.0
+
+stack:
+  frontend:
+    framework: react
+    language: typescript
+    build: vite
+    state: tanstack-query
+    auth: msal-react
+    styling: tailwind
+  backend:
+    framework: quarkus
+    language: java
+    java_version: "21"
+    persistence: hibernate-orm-panache
+    migrations: flyway
+    auth: quarkus-oidc
+  database:
+    engine: postgresql
+    version: "16"
+  platform:
+    orchestrator: kubernetes
+    local: minikube
+    manifests: kustomize
+    image_build: jib
+
+domain_entities:
+  - name: Project
+    fields: [id, name, description, client, status, owner, created_at, updated_at]
+  - name: Estimation
+    fields: [id, project_id, title, description, current_version_id, created_at, updated_at]
+  - name: EstimationVersion
+    fields: [id, estimation_id, version_number, status, created_by, created_at, total_effort, notes]
+    constraints: [unique(estimation_id, version_number), immutable_when_status_not_draft]
+  - name: EstimationItem
+    fields: [id, version_id, description, category, optimistic, likely, pessimistic, assumptions]
+  - name: User
+    fields: [id, entra_subject_id, email, display_name, roles]
+  - name: AuditLog
+    fields: [id, user_id, entity_type, entity_id, action, payload, created_at]
+
+phases:
+  - id: phase-1
+    name: Foundation and Local Environment
+    duration_weeks: 1
+    tasks: [task-001, task-002, task-003, task-004]
+  - id: phase-2
+    name: Authentication with Entra ID
+    duration_weeks: 1
+    tasks: [task-005, task-006, task-007, task-008]
+  - id: phase-3
+    name: Core Domain and Persistence
+    duration_weeks: 1
+    tasks: [task-009, task-010, task-011, task-012]
+  - id: phase-4
+    name: REST API and Business Logic
+    duration_weeks: 1
+    tasks: [task-013, task-014, task-015, task-016]
+  - id: phase-5
+    name: Frontend Application
+    duration_weeks: 2
+    tasks: [task-017, task-018, task-019, task-020, task-021]
+  - id: phase-6
+    name: Containerization and Kubernetes
+    duration_weeks: 1
+    tasks: [task-022, task-023, task-024, task-025]
+  - id: phase-7
+    name: Observability, CI/CD, Hardening
+    duration_weeks: 1
+    tasks: [task-026, task-027, task-028, task-029]
+  - id: phase-8
+    name: Polish and Production Readiness
+    duration_weeks: 1
+    tasks: [task-030, task-031, task-032]
+
+execution:
+  task_format: tasks/<task-id>.yaml
+  status_file: status.json
+  default_state: pending
+  states: [pending, in_progress, blocked, done, skipped]

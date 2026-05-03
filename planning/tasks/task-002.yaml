@@ -1,0 +1,28 @@
+id: task-002
+phase: phase-1
+title: Bootstrap Quarkus backend project
+depends_on: [task-001]
+description: |
+  Generate a new Quarkus project under /backend with the extensions needed
+  for REST, persistence, OIDC authentication, migrations, and OpenAPI docs.
+steps:
+  - cd backend
+  - run Quarkus CLI to create project with groupId com.company.estimation, artifactId backend
+  - add extensions:
+      - resteasy-reactive-jackson
+      - hibernate-orm-panache
+      - jdbc-postgresql
+      - oidc
+      - smallrye-openapi
+      - flyway
+      - container-image-jib
+      - smallrye-health
+      - micrometer-registry-prometheus
+  - configure application.properties for dev profile (local Postgres on port 5432)
+  - verify "./mvnw quarkus:dev" starts and serves /q/health
+validation:
+  - GET http://localhost:8080/q/health returns 200
+  - GET http://localhost:8080/q/swagger-ui loads
+outputs:
+  - backend/pom.xml
+  - backend/src/main/resources/application.properties

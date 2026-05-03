@@ -1,0 +1,19 @@
+id: task-031
+phase: phase-8
+title: Build admin UI for users and audit log
+depends_on: [task-019]
+description: |
+  Admins need to see who has done what. Add a simple admin section
+  surfacing the audit log and the user list (synced from Entra ID
+  on first login).
+features:
+  - /admin/users - list of users with their roles and last login
+  - /admin/audit - filterable, paginated audit log view
+  - role assignment is done in Entra ID, not in this UI (avoid duplicating)
+validation:
+  - viewer/estimator users get 403 on /admin/*
+  - admin can browse the audit log and filter by user, entity, date range
+outputs:
+  - frontend src/pages/AdminUsersPage.tsx
+  - frontend src/pages/AdminAuditPage.tsx
+  - backend AdminResource.java

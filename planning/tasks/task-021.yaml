@@ -1,0 +1,18 @@
+id: task-021
+phase: phase-5
+title: Add export to Excel and CSV
+depends_on: [task-019]
+description: |
+  Allow exporting a version to .xlsx or .csv for sharing with stakeholders
+  who do not use the tool. Server-side rendering of the file is preferred
+  over client-side because it is easier to keep formatting consistent.
+steps:
+  - add quarkus dependency on Apache POI for xlsx generation
+  - implement GET /api/estimations/{id}/versions/{n}/export?format=xlsx|csv
+  - frontend "Export" dropdown in version editor and detail views
+validation:
+  - downloaded xlsx opens cleanly in Excel and LibreOffice Calc
+  - sums in the file match what is shown in the UI
+outputs:
+  - backend ExportResource.java
+  - frontend export buttons

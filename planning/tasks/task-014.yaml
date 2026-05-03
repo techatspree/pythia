@@ -1,0 +1,21 @@
+id: task-014
+phase: phase-4
+title: Implement EstimationVersion REST endpoints
+depends_on: [task-013]
+description: |
+  Build the version-related endpoints, including the state transitions
+  (submit, approve) and the version-creation logic that clones items.
+endpoints:
+  - GET /api/estimations/{id}/versions
+  - POST /api/estimations/{id}/versions (estimator, admin)
+  - GET /api/estimations/{id}/versions/{n}
+  - PUT /api/estimations/{id}/versions/{n} (only if DRAFT)
+  - POST /api/estimations/{id}/versions/{n}/submit
+  - POST /api/estimations/{id}/versions/{n}/approve (admin)
+  - DELETE /api/estimations/{id}/versions/{n} (only if DRAFT, admin)
+validation:
+  - PUT on a SUBMITTED version returns 409 Conflict
+  - approve on a DRAFT version returns 409 (must submit first)
+  - new version copies items from the previous version
+outputs:
+  - backend EstimationVersionResource.java

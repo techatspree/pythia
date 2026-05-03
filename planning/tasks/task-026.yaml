@@ -1,0 +1,19 @@
+id: task-026
+phase: phase-7
+title: Add observability - logs, metrics, traces
+depends_on: [task-025]
+description: |
+  Wire up structured logging with correlation IDs, Prometheus metrics,
+  and optionally OpenTelemetry tracing.
+steps:
+  - configure JSON logging via quarkus-logging-json (so log aggregators can parse)
+  - add a request filter that propagates X-Correlation-ID header
+  - verify /q/metrics returns Prometheus-format metrics
+  - add quarkus-opentelemetry if a collector is available
+  - on the frontend, add a simple error boundary that logs to console (and later to a service)
+validation:
+  - logs are JSON with correlationId field
+  - /q/metrics shows http_server_requests_seconds_count among others
+outputs:
+  - backend logging config
+  - backend CorrelationIdFilter.java

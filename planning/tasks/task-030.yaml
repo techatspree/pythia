@@ -1,0 +1,18 @@
+id: task-030
+phase: phase-8
+title: Implement backups and disaster recovery
+depends_on: [task-028]
+description: |
+  Production data needs a backup story. Set up scheduled Postgres dumps
+  to object storage and document the restore procedure.
+steps:
+  - create a CronJob that runs pg_dump nightly and uploads to S3 / Azure Blob / MinIO
+  - retain daily for 14 days, weekly for 8 weeks, monthly for 12 months
+  - test restore: spin up a fresh DB and restore the latest dump
+  - document the restore procedure step-by-step in docs/runbook-restore.md
+validation:
+  - a successful test restore brings up a working clone of production
+  - on-call engineer can follow the runbook without assistance
+outputs:
+  - k8s/base/backup-cronjob.yaml
+  - docs/runbook-restore.md

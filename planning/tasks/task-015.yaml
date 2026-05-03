@@ -1,0 +1,19 @@
+id: task-015
+phase: phase-4
+title: Implement version comparison endpoint
+depends_on: [task-014]
+description: |
+  Add an endpoint that diffs two versions of the same estimation and
+  returns added, removed, and modified items. Items must have stable
+  identifiers across versions to make diffing meaningful.
+steps:
+  - decide on stable item identity:
+      use a "logical_id" (UUID) that is preserved when an item is cloned
+      to the next version, while the row primary key changes
+  - implement GET /api/estimations/{id}/versions/{a}/compare/{b}
+  - returns: { added: [...], removed: [...], modified: [{ before, after, changedFields }] }
+validation:
+  - comparing v1 to v2 where one item changed shows it under "modified"
+  - removing an item then adding a different one produces one "removed" + one "added"
+outputs:
+  - backend ComparisonService.java and DTOs

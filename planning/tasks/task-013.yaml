@@ -1,0 +1,22 @@
+id: task-013
+phase: phase-4
+title: Implement Project and Estimation REST endpoints
+depends_on: [task-011]
+description: |
+  Build the resource classes for projects and estimations. Use DTOs
+  rather than exposing entities directly, and validate inputs with
+  Bean Validation.
+endpoints:
+  - GET /api/projects
+  - POST /api/projects (estimator, admin)
+  - GET /api/projects/{id}
+  - PUT /api/projects/{id} (estimator, admin)
+  - DELETE /api/projects/{id} (admin)
+  - GET /api/projects/{id}/estimations
+  - POST /api/projects/{id}/estimations (estimator, admin)
+validation:
+  - OpenAPI doc shows all endpoints with correct request/response schemas
+  - integration tests cover happy path and 401/403 cases
+outputs:
+  - backend ProjectResource.java, EstimationResource.java
+  - DTO classes

@@ -1,0 +1,16 @@
+id: task-012
+phase: phase-3
+title: Set up integration tests with Testcontainers
+depends_on: [task-011]
+description: |
+  Configure Testcontainers for Postgres so integration tests run against
+  a real database. Add tests covering the version state machine.
+steps:
+  - add quarkus-test-h2 OR testcontainers-postgresql to pom.xml (prefer testcontainers)
+  - configure %test.quarkus.datasource.devservices.enabled=true (Quarkus Dev Services)
+  - write @QuarkusTest classes for service-layer behavior
+  - add a CI-friendly test profile
+validation:
+  - "./mvnw verify" runs all integration tests green
+outputs:
+  - backend/src/test/java/com/company/estimation/**/*.java

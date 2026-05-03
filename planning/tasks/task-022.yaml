@@ -1,0 +1,20 @@
+id: task-022
+phase: phase-6
+title: Build backend container image with Jib
+depends_on: [task-014]
+description: |
+  Configure Jib to produce a container image without requiring a Dockerfile.
+  Make the build deterministic and registry-pushable.
+steps:
+  - in application.properties:
+      quarkus.container-image.builder=jib
+      quarkus.container-image.group=company
+      quarkus.container-image.name=estimation-backend
+      quarkus.container-image.tag=${project.version}
+  - "./mvnw package -Dquarkus.container-image.build=true"
+  - load into Minikube: "minikube image load company/estimation-backend:0.1.0"
+validation:
+  - "docker images" or "minikube image ls" shows the image
+  - image runs and serves /q/health when started manually
+outputs:
+  - container image company/estimation-backend

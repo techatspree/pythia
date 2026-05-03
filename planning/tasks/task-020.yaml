@@ -1,0 +1,20 @@
+id: task-020
+phase: phase-5
+title: Build the version comparison view
+depends_on: [task-019, task-015]
+description: |
+  Two-pane diff view showing the differences between two versions of
+  the same estimation. Highlight added, removed, and changed items.
+steps:
+  - route /estimations/:id/compare?a=<n>&b=<m>
+  - call GET /api/estimations/{id}/versions/{a}/compare/{b}
+  - render side-by-side table with color-coded rows:
+      green = added in B
+      red = removed in B (only in A)
+      yellow = modified, with field-level highlight
+  - summary header: total effort delta, item count delta
+validation:
+  - comparing identical versions shows "no differences"
+  - changing one effort value highlights only that cell
+outputs:
+  - frontend src/pages/VersionComparePage.tsx

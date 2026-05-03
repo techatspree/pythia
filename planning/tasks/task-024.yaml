@@ -1,0 +1,30 @@
+id: task-024
+phase: phase-6
+title: Author Kubernetes manifests with Kustomize
+depends_on: [task-022, task-023]
+description: |
+  Layout manifests in k8s/ with a base/ directory and overlays per
+  environment. The same manifests should work for Minikube and prod.
+structure:
+  - k8s/base/
+      - namespace.yaml
+      - postgres/ (statefulset, service, pvc, secret)
+      - backend/ (deployment, service, configmap, secret-ref, hpa)
+      - frontend/ (deployment, service, configmap)
+      - ingress.yaml
+      - kustomization.yaml
+  - k8s/overlays/minikube/
+      - kustomization.yaml (patches images, hostnames, replica counts)
+  - k8s/overlays/production/
+      - kustomization.yaml (TLS, replicas, resource limits)
+config_principles:
+  - DB credentials from Kubernetes Secret
+  - OIDC tenant/client IDs from ConfigMap (not secret - they are public)
+  - readiness probe /q/health/ready, liveness probe /q/health/live
+  - resource requests: backend 512Mi/500m, frontend 64Mi/100m
+validation:
+  - "kubectl apply -k k8s/overlays/minikube" deploys cleanly
+  - all pods reach Ready state
+outputs:
+  - k8s/base/**
+  - k8s/overlays/minikube/**
