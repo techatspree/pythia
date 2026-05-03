@@ -15,6 +15,10 @@
         <quarkus.platform.version>3.35.1</quarkus.platform.version>
         <skipITs>true</skipITs>
         <surefire-plugin.version>3.5.4</surefire-plugin.version>
+        <quarkus.container-image.build>true</quarkus.container-image.build>
+        <quarkus.container-image.group>theestimator</quarkus.container-image.group>
+        <quarkus.container-image.name>estimation-backend</quarkus.container-image.name>
+        <quarkus.jib.docker-environment-type>local</quarkus.jib.docker-environment-type>
     </properties>
 
     <dependencyManagement>
