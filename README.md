@@ -8,20 +8,21 @@ TheEstimator helps teams create, manage, and track effort estimations for softwa
 
 ## Tech Stack
 
-| Layer    | Technology                     |
-|----------|--------------------------------|
-| Frontend | React + TypeScript (Vite)      |
-| Backend  | Quarkus (Java 21)              |
-| Database | PostgreSQL 16                  |
-| Platform | Kubernetes (Minikube for local)|
-| Auth     | Microsoft Entra ID (OIDC)      |
+| Layer    | Technology                      |
+|----------|---------------------------------|
+| Frontend | SvelteKit + TypeScript (Vite)   |
+| Styling  | Tailwind CSS 4                  |
+| Backend  | Quarkus (Java 21)               |
+| Database | PostgreSQL 16 (H2 for dev-local)|
+| Platform | Kubernetes (Minikube for local) |
+| Auth     | Microsoft Entra ID (MSAL/OIDC)  |
 
 ## Repository Structure
 
 ```
 src/
   backend/    — Quarkus REST API
-  frontend/   — React SPA
+  frontend/   — SvelteKit SPA
   k8s/        — Kubernetes manifests (Kustomize)
 docs/         — Architecture and design documents
 scripts/      — Helper scripts for local development
@@ -38,38 +39,52 @@ planning/     — Project plan and task definitions
 - Minikube
 - kubectl
 
-### Build the Backend
+### Development Profiles
+
+The project provides two development stages:
+
+#### dev-local — Local with H2 in-memory database
+
+Backend and frontend run locally on your machine. The backend uses an H2 in-memory database (no Docker or PostgreSQL needed).
 
 ```bash
 cd src/backend/implementation
-mvn package
+mvn quarkus:dev -Pdev-local
 ```
 
-This compiles the application and builds a Docker image `theestimator/estimation-backend:1.0.0-SNAPSHOT` into your local Docker daemon.
+The backend is available at http://localhost:8080. No container image is built.
 
-### Deploy to Minikube
+#### dev-minikube — Full stack on Minikube
 
-1. Start minikube (if not running):
+Backend, frontend, and PostgreSQL run as pods on your local Minikube cluster.
+
+1. Build the container image:
+   ```bash
+   cd src/backend/implementation
+   mvn package -Pdev-minikube
+   ```
+
+2. Start minikube (if not running):
    ```bash
    minikube start
    ```
 
-2. Load the locally-built Docker image into minikube:
+3. Load the image into minikube:
    ```bash
    minikube image load theestimator/estimation-backend:1.0.0-SNAPSHOT
    ```
 
-3. Deploy:
+4. Deploy:
    ```bash
    kubectl apply -k src/backend/k8s/base/
    ```
 
-4. Check status:
+5. Check status:
    ```bash
    kubectl -n estimation get pods
    ```
 
-5. Access the backend:
+6. Access the backend:
    ```bash
    kubectl -n estimation port-forward svc/backend 8080:8080
    ```

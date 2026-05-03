@@ -15,7 +15,7 @@
         <quarkus.platform.version>3.35.1</quarkus.platform.version>
         <skipITs>true</skipITs>
         <surefire-plugin.version>3.5.4</surefire-plugin.version>
-        <quarkus.container-image.build>true</quarkus.container-image.build>
+        <quarkus.container-image.build>false</quarkus.container-image.build>
         <quarkus.container-image.group>theestimator</quarkus.container-image.group>
         <quarkus.container-image.name>estimation-backend</quarkus.container-image.name>
         <quarkus.jib.docker-environment-type>local</quarkus.jib.docker-environment-type>
@@ -53,6 +53,10 @@
         <dependency>
             <groupId>io.quarkus</groupId>
             <artifactId>quarkus-jdbc-postgresql</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>io.quarkus</groupId>
+            <artifactId>quarkus-jdbc-h2</artifactId>
         </dependency>
         <dependency>
             <groupId>io.quarkus</groupId>
@@ -139,6 +143,20 @@
     </build>
 
     <profiles>
+        <profile>
+            <id>dev-local</id>
+            <properties>
+                <quarkus.profile>dev-local</quarkus.profile>
+                <quarkus.container-image.build>false</quarkus.container-image.build>
+            </properties>
+        </profile>
+        <profile>
+            <id>dev-minikube</id>
+            <properties>
+                <quarkus.profile>dev-minikube</quarkus.profile>
+                <quarkus.container-image.build>true</quarkus.container-image.build>
+            </properties>
+        </profile>
         <profile>
             <id>native</id>
             <activation>
