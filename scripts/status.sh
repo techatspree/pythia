@@ -32,8 +32,8 @@ echo ""
 echo "  Project Status"
 echo "  [$bar] $pct% ($done_count/$total done)"
 echo ""
-printf "  %-10s %-12s %-50s %s\n" "TASK" "STATUS" "TITLE" "PHASE"
-printf "  %-10s %-12s %-50s %s\n" "----" "------" "-----" "-----"
+printf "  %-10s %-12s %-40s %-14s %s\n" "TASK" "STATUS" "TITLE" "PHASE" "DEPENDS ON"
+printf "  %-10s %-12s %-40s %-14s %s\n" "----" "------" "-----" "-----" "----------"
 
 jq -r '.tasks | keys_unsorted[]' "$STATUS_FILE" | sort -t'-' -k2 -n | while read -r task_id; do
   status=$(jq -r ".tasks[\"$task_id\"].status" "$STATUS_FILE")
@@ -41,9 +41,11 @@ jq -r '.tasks | keys_unsorted[]' "$STATUS_FILE" | sort -t'-' -k2 -n | while read
 
   title=""
   phase=""
+  deps=""
   if [[ -f "$task_file" ]]; then
     title=$(grep "^title:" "$task_file" | sed 's/^title: *//')
     phase=$(grep "^phase:" "$task_file" | sed 's/^phase: *//')
+    deps=$(grep "^depends_on:" "$task_file" | sed 's/^depends_on: *\[//;s/\]//;s/ //g')
   fi
 
   case "$status" in
@@ -56,7 +58,11 @@ jq -r '.tasks | keys_unsorted[]' "$STATUS_FILE" | sort -t'-' -k2 -n | while read
   # pad status column manually since color codes mess up printf width
   pad=$((12 - ${#status}))
   printf '%*s' "$pad" ""
-  printf "%-50s %s\n" "$title" "$phase"
+  if [[ -n "$deps" ]]; then
+    printf "%-40s %-14s %s\n" "$title" "$phase" "← $deps"
+  else
+    printf "%-40s %-14s %s\n" "$title" "$phase" ""
+  fi
 done
 
 echo ""
