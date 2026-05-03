@@ -9,10 +9,10 @@
       "notes": "Repo initialized with monorepo layout, .gitignore, and README.md. Commit 428916e."
     },
     "task-002": {
-      "status": "pending",
-      "started_at": null,
-      "completed_at": null,
-      "notes": ""
+      "status": "done",
+      "started_at": "2026-05-03T15:45:00+02:00",
+      "completed_at": "2026-05-03T16:27:00+02:00",
+      "notes": "Quarkus project bootstrapped with all extensions. Dev services via Testcontainers. End2end test subproject with HealthEndpointIT. K8s manifests added."
     },
     "task-003": {
       "status": "pending",
