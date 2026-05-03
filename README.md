@@ -72,34 +72,31 @@ The backend is available at http://localhost:8080, the frontend at http://localh
 
 Backend, frontend, and PostgreSQL run as pods on your local Minikube cluster.
 
-1. Build the container image:
+Quick start (setup, build, and deploy):
+```bash
+./scripts/minikube-setup.sh
+./scripts/minikube-deploy.sh
+```
+
+Or step by step:
+
+1. Set up Minikube with addons:
    ```bash
-   cd src/backend/implementation
-   mvn package -Pdev-minikube
+   ./scripts/minikube-setup.sh
    ```
 
-2. Start minikube (if not running):
+2. Build and deploy everything:
    ```bash
-   minikube start
+   ./scripts/minikube-deploy.sh
    ```
 
-3. Load the image into minikube:
-   ```bash
-   minikube image load theestimator/estimation-backend:1.0.0-SNAPSHOT
-   ```
-
-4. Deploy:
-   ```bash
-   kubectl apply -k src/backend/k8s/base/
-   ```
-
-5. Check status:
-   ```bash
-   kubectl -n estimation get pods
-   ```
-
-6. Access the backend:
+3. Access the backend:
    ```bash
    kubectl -n estimation port-forward svc/backend 8080:8080
    ```
    Then open http://localhost:8080/q/health or http://localhost:8080/q/swagger-ui
+
+4. Reset (stop and delete Minikube):
+   ```bash
+   ./scripts/minikube-reset.sh
+   ```

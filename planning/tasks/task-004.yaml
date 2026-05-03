@@ -9,13 +9,18 @@ steps:
   - minikube start --cpus=4 --memory=8192 --driver=docker
   - minikube addons enable ingress
   - minikube addons enable metrics-server
-  - kubectl create namespace estimation-tool
-  - apply k8s/postgres/ manifests (StatefulSet, Service, PVC, Secret)
+  - separate src/backend/k8s/postgres/postgres.yaml in 3 different manifests:  statefulset.yaml, service.yaml, secret.yaml
+  - apply src/k8s/namespace.yaml
+  - apply src/backend/k8s/postgres manifests (StatefulSet, Service, PVC, Secret)
   - verify pod is Running and accepts connections via "kubectl exec ... psql"
+  - shutdown and cleanup the minicube system
+  - create a script for Mac in scripts/ to set up the minikube
+  - create a script for Mac in scripts/ to deploy the kubernetes configuration in minikube
+  - create a script for Mac in scripts/ to reset the local minikube
 validation:
-  - "kubectl get pods -n estimation-tool" shows postgres pod Running
+  - after executing the scripts to create and deploy the kubernetes configuration use "kubectl get pods -n estimation" shows postgres pod Running
   - psql can connect from inside the cluster
 outputs:
-  - k8s/postgres/statefulset.yaml
-  - k8s/postgres/service.yaml
-  - k8s/postgres/secret.yaml
+  - src/backend/k8s/postgres/statefulset.yaml
+  - src/backend/k8s/postgres/service.yaml
+  - src/backend/k8s/postgres/secret.yaml

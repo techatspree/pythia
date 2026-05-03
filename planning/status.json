@@ -21,10 +21,10 @@
       "notes": "SvelteKit + TypeScript SPA bootstrapped under src/frontend. Adapter-static with SPA fallback, Tailwind v4 via @tailwindcss/vite, MSAL browser, openapi-fetch/openapi-typescript installed. SSR disabled globally."
     },
     "task-004": {
-      "status": "pending",
-      "started_at": null,
-      "completed_at": null,
-      "notes": ""
+      "status": "done",
+      "started_at": "2026-05-03T17:30:00+02:00",
+      "completed_at": "2026-05-03T18:15:00+02:00",
+      "notes": "Postgres StatefulSet deployed to estimation namespace. Scripts: minikube-setup.sh, minikube-deploy.sh, minikube-reset.sh. Validated pod running + psql connection."
     },
     "task-005": {
       "status": "pending",
@@ -189,6 +189,12 @@
       "notes": ""
     },
     "task-032": {
+      "status": "pending",
+      "started_at": null,
+      "completed_at": null,
+      "notes": ""
+    },
+    "task-033": {
       "status": "pending",
       "started_at": null,
       "completed_at": null,

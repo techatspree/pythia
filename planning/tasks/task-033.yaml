@@ -1,0 +1,34 @@
+id: task-033
+phase: phase-3
+title: Adapt domain model to Excel-based estimation model
+depends_on: [task-009]
+description: |
+  Refactor the Estimation/EstimationItem JPA entities to match the structure
+  defined in the reference Excel spreadsheet. The spreadsheet defines the
+  categories, line items, calculation logic, and hierarchical grouping used
+  for cost estimations. This task bridges the gap between the generic domain
+  model and the real-world estimation structure.
+steps:
+  - analyze the Excel spreadsheet structure (sheets, columns, formulas, groupings)
+  - map spreadsheet concepts to domain entities:
+      - sheet/section → EstimationCategory
+      - row → EstimationItem (with fields matching spreadsheet columns)
+      - calculated totals → derived fields or formula definitions
+  - create/adapt JPA entities:
+      - EstimationCategory (hierarchical, ordered)
+      - EstimationItem (quantity, unit, unit_price, total, notes, risk_factor, etc.)
+      - EstimationTemplate (stores the spreadsheet structure as a reusable template)
+  - update relationships:
+      - EstimationVersion 1..* EstimationCategory
+      - EstimationCategory 1..* EstimationItem
+      - EstimationCategory 0..* EstimationCategory (sub-categories)
+  - add Bean Validation constraints matching spreadsheet rules
+  - write unit tests verifying the entity structure matches the spreadsheet layout
+validation:
+  - project compiles
+  - "./mvnw test" passes
+  - entity structure can represent all rows/sections from the reference spreadsheet
+outputs:
+  - backend/src/main/java/com/company/estimation/domain/EstimationCategory.java
+  - backend/src/main/java/com/company/estimation/domain/EstimationTemplate.java
+  - updated EstimationItem.java with spreadsheet-aligned fields
