@@ -7,7 +7,7 @@ description: |
   for REST, persistence, OIDC authentication, migrations, and OpenAPI docs.
 steps:
   - cd backend
-  - run Quarkus CLI to create project with groupId com.company.estimation, artifactId backend
+  - run Quarkus CLI to create a subproject named implementation with groupId com.company.estimation, artifactId backend
   - add extensions:
       - resteasy-reactive-jackson
       - hibernate-orm-panache
@@ -20,9 +20,14 @@ steps:
       - micrometer-registry-prometheus
   - configure application.properties for dev profile (local Postgres on port 5432)
   - verify "./mvnw quarkus:dev" starts and serves /q/health
+  - create a testsuite for end-to-end tests as separate Maven subproject
+  - create an end-to-end test in this testsuite that starts the backend server in the develeper stage using minikube and cheks for the /q/health endpoint
 validation:
   - GET http://localhost:8080/q/health returns 200
   - GET http://localhost:8080/q/swagger-ui loads
+  - execute test suite with only passing tests
 outputs:
   - backend/pom.xml
-  - backend/src/main/resources/application.properties
+  - backend/implementation/pom.xml
+  - backend/implementation/src/main/resources/application.properties
+  - backend/end2end/pom.xml

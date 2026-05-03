@@ -3,10 +3,10 @@
   "started_at": "2026-05-03T09:05:48.570738+00:00",
   "tasks": {
     "task-001": {
-      "status": "pending",
-      "started_at": null,
-      "completed_at": null,
-      "notes": ""
+      "status": "done",
+      "started_at": "2026-05-03T15:30:00+02:00",
+      "completed_at": "2026-05-03T15:35:00+02:00",
+      "notes": "Repo initialized with monorepo layout, .gitignore, and README.md. Commit 428916e."
     },
     "task-002": {
       "status": "pending",
