@@ -9,19 +9,19 @@ description: |
   for cost estimations. This task bridges the gap between the generic domain
   model and the real-world estimation structure.
 steps:
-  - analyze the Excel spreadsheet structure (sheets, columns, formulas, groupings)
+  - analyze the Excel spreadsheet structure (sheets, columns, formulas, groupings) of planning/inputdata/reference-spreadsheet.xslx. The data in the sheet is written in German.
   - map spreadsheet concepts to domain entities:
-      - sheet/section → EstimationCategory
-      - row → EstimationItem (with fields matching spreadsheet columns)
+      - sheet "Projektstrukturplan" → List of EstimationItems, each item is associated with a project phase, in the lower section of the sheet there are estimation items which are defined per week
+      - sheet "Zusatzkosten" -> additional items for an EstimationVersion
+      - sheet "Parameter" -> parameters for an EstimationVersion
+      - sheet "Aufwandstreiber" -> parameters for an EstimationVersion
+      - sheet "Kontrolle" -> these tests define the correct state of the domain models and should be converted to invariants
+      - sheet "Hinweise" -> domain information
+      - shett "Pakete" -> the result of the estimations for different project phases and the length of the project phase
       - calculated totals → derived fields or formula definitions
   - create/adapt JPA entities:
-      - EstimationCategory (hierarchical, ordered)
+      - ProjectPhase
       - EstimationItem (quantity, unit, unit_price, total, notes, risk_factor, etc.)
-      - EstimationTemplate (stores the spreadsheet structure as a reusable template)
-  - update relationships:
-      - EstimationVersion 1..* EstimationCategory
-      - EstimationCategory 1..* EstimationItem
-      - EstimationCategory 0..* EstimationCategory (sub-categories)
   - add Bean Validation constraints matching spreadsheet rules
   - write unit tests verifying the entity structure matches the spreadsheet layout
 validation:
@@ -29,6 +29,6 @@ validation:
   - "./mvnw test" passes
   - entity structure can represent all rows/sections from the reference spreadsheet
 outputs:
-  - backend/src/main/java/com/company/estimation/domain/EstimationCategory.java
-  - backend/src/main/java/com/company/estimation/domain/EstimationTemplate.java
+  - backend/src/main/java/io/github/theestimator/domain/ProjectPhase.kt
+  - backend/src/main/java/io/github/theestimator/domain/EstimationTemplate.kt
   - updated EstimationItem.java with spreadsheet-aligned fields
