@@ -57,10 +57,10 @@
       "notes": "JPA entities implemented in Kotlin. BaseEntity, 2 enums, 6 entities with relationships and validation. Compiles and starts with H2."
     },
     "task-010": {
-      "status": "pending",
-      "started_at": null,
-      "completed_at": null,
-      "notes": ""
+      "status": "done",
+      "started_at": "2026-05-04T10:44:00+02:00",
+      "completed_at": "2026-05-04T10:48:00+02:00",
+      "notes": "V1__initial_schema.sql with 11 tables, FK indexes, unique constraints. Flyway + Hibernate validate configured for dev-minikube and prod. Verified against PostgreSQL 18."
     },
     "task-011": {
       "status": "pending",

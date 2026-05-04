@@ -1,20 +1,38 @@
 id: task-010
 phase: phase-3
 title: Create Flyway migration for initial schema
-depends_on: [task-009]
+depends_on: [task-009, task-033]
 description: |
-  Author V1__initial_schema.sql with the full schema for projects,
-  estimations, versions, items, users, and audit_log. Add the unique
-  constraint on (estimation_id, version_number) and indexes on FKs.
+  Author V1__initial_schema.sql covering all JPA entities from the domain model.
+  The schema must exactly match the Hibernate-generated DDL so that
+  hibernate-orm.database.generation=validate passes on startup.
+
+  Tables to create (derived from entity annotations):
+    - users (id UUID PK, entra_subject_id UNIQUE, display_name NOT NULL, created_at, updated_at)
+    - projects (id UUID PK, name NOT NULL, description, client, status VARCHAR NOT NULL DEFAULT 'ACTIVE', owner_id FK→users, created_at, updated_at)
+    - estimations (id UUID PK, offer NOT NULL, description, project_id FK→projects NOT NULL, current_version_id FK→estimation_versions, created_at, updated_at)
+    - estimation_versions (id UUID PK, version_number INT NOT NULL, status VARCHAR NOT NULL, total_effort, notes, estimation_id FK→estimations NOT NULL, created_by_id FK→users, created_at, updated_at; UNIQUE(estimation_id, version_number))
+    - estimation_parameters (id UUID PK, name NOT NULL, value DOUBLE NOT NULL, comment, version_id FK→estimation_versions NOT NULL, created_at, updated_at)
+    - effort_drivers (id UUID PK, description NOT NULL, factor DOUBLE NOT NULL, comment, version_id FK→estimation_versions NOT NULL, created_at, updated_at)
+    - project_phases (id UUID PK, name NOT NULL, abbreviation NOT NULL, duration_weeks, version_id FK→estimation_versions NOT NULL, created_at, updated_at)
+    - estimation_item_groups (id UUID PK, title NOT NULL, phase_id FK→project_phases, version_id FK→estimation_versions NOT NULL, created_at, updated_at)
+    - estimation_items (id UUID PK, item_type VARCHAR(31) NOT NULL — discriminator, description NOT NULL, code, min_effort, expected_effort, max_effort, assumptions, mean, variance, risk_surcharge, driver_surcharge, offer_pt, cost, offer_price, unit, phase_id FK→project_phases, group_id FK→estimation_item_groups NOT NULL, created_at, updated_at)
+    - additional_costs (id UUID PK, description NOT NULL, amount DOUBLE NOT NULL, type VARCHAR NOT NULL, amount_per_week, phase_id FK→project_phases, version_id FK→estimation_versions NOT NULL, created_at, updated_at)
+    - audit_logs (id UUID PK, user_id UUID, entity_type, entity_id UUID, action, payload TEXT, created_at NOT NULL)
+
 steps:
-  - create src/main/resources/db/migration/V1__initial_schema.sql
-  - tables: projects, estimations, estimation_versions, estimation_items, users, audit_log
-  - add UNIQUE (estimation_id, version_number) on estimation_versions
-  - add indexes on all foreign key columns
-  - configure quarkus.flyway.migrate-at-start=true for dev profile
-  - configure quarkus.hibernate-orm.database.generation=validate (NOT update)
+  - create src/backend/implementation/src/main/resources/db/migration/V1__initial_schema.sql
+  - "tables in order respecting FK dependencies: users → projects → estimations → estimation_versions → estimation_parameters, effort_drivers, project_phases → estimation_item_groups → estimation_items → additional_costs → audit_logs"
+  - add UNIQUE constraint on (estimation_id, version_number) in estimation_versions
+  - add UNIQUE constraint on entra_subject_id in users
+  - add indexes on all foreign key columns (project_id, estimation_id, version_id, phase_id, group_id, owner_id, current_version_id, created_by_id)
+  - configure quarkus.flyway.migrate-at-start=true for dev-minikube and prod (already done)
+  - configure quarkus.hibernate-orm.database.generation=validate for dev-minikube and prod profiles
+  - keep dev-local and test profiles with drop-and-create + flyway.enabled=false (unchanged)
+  - add quarkus-flyway extension to pom.xml if not already present
 validation:
-  - app starts cleanly against an empty database
-  - schema matches entity mappings (validation succeeds)
+  - app starts with dev-minikube profile against empty PostgreSQL — Flyway runs migration, Hibernate validates schema
+  - all existing tests still pass (they use H2 with drop-and-create, no Flyway)
+  - "mvn quarkus:dev -Dquarkus.profile=dev-local" still starts successfully
 outputs:
-  - backend/src/main/resources/db/migration/V1__initial_schema.sql
+  - src/backend/implementation/src/main/resources/db/migration/V1__initial_schema.sql
