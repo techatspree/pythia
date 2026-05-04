@@ -1,21 +1,54 @@
 id: task-011
 phase: phase-3
-title: Implement repositories and core services
-depends_on: [task-009, task-010]
+title: Implement Panache repositories and core services
+depends_on: [task-009, task-010, task-033]
 description: |
-  Add Panache repositories (or active-record finders) and CDI service
-  beans encapsulating business rules, especially around versioning.
+  Add Panache Kotlin repositories for all domain entities and CDI service beans
+  encapsulating business logic around project/estimation lifecycle and versioning.
+
+  Repositories (extend PanacheRepositoryBase<Entity, UUID>):
+    - UserRepository
+    - ProjectRepository (finder: findByStatus)
+    - EstimationRepository (finder: findByProjectId)
+    - EstimationVersionRepository (finder: findByEstimationId, findLatestByEstimationId)
+    - AuditLogRepository
+
+  Services:
+    - ProjectService: CRUD for projects, set status ACTIVE/ARCHIVED
+    - EstimationService: create estimation within project, link current version
+    - EstimationVersionService: version lifecycle (create, clone, submit, approve)
+
+  EstimationVersionService key operations:
+    - createNewVersion(estimationId): find latest version, create new with versionNumber=latest+1,
+      deep-clone all parameters/effortDrivers/phases/itemGroups/items/additionalCosts,
+      set status=DRAFT, recalculate via EstimationCalculator
+    - importFromExcel(estimationId, inputStream): use ExcelImporter, calculate, persist
+    - submit(versionId): transition DRAFT → SUBMITTED, set as estimation.currentVersion, reject if not DRAFT
+    - reject edits to versions whose status is SUBMITTED (throw IllegalStateException)
+
+  AuditLogService:
+    - log(userId, entityType, entityId, action, payload): create AuditLog entry
+    - Called by EstimationVersionService on state transitions
+
+  All services are @ApplicationScoped, use @Transactional where appropriate.
 steps:
-  - create ProjectService, EstimationService, EstimationVersionService
-  - implement createNewVersion(estimationId) that:
-      - finds latest version
-      - creates a new version with version_number = latest + 1
-      - clones items from the latest version
-      - sets status DRAFT
-  - implement submit(versionId) and approve(versionId) with status transitions
-  - reject edits to versions whose status is not DRAFT (throw IllegalStateException)
-  - emit AuditLog rows on every state change
+  - create repository package: io.github.theestimator.repository
+  - implement UserRepository, ProjectRepository, EstimationRepository, EstimationVersionRepository, AuditLogRepository
+  - create ProjectService with CRUD + archive/activate
+  - create EstimationService with create + findByProject
+  - create EstimationVersionService with createNewVersion, importFromExcel, submit
+  - create AuditLogService for audit trail
+  - write unit tests for version lifecycle (create, clone, submit, approve, reject-edit-of-submitted)
+  - write unit test for deep-clone correctness (all child entities cloned with new IDs)
+  - ensure all existing tests still pass
 validation:
-  - unit tests for createNewVersion, submit, approve, reject-edit-of-submitted
+  - unit tests cover: createNewVersion clones all child entities, submit transitions DRAFT→SUBMITTED and sets currentVersion, editing SUBMITTED version throws IllegalStateException
+  - app starts with dev-local profile
+  - all 17 existing tests still pass
 outputs:
-  - backend/src/main/java/com/company/estimation/service/*.java
+  - src/backend/implementation/src/main/kotlin/io/github/theestimator/repository/*.kt
+  - src/backend/implementation/src/main/kotlin/io/github/theestimator/service/ProjectService.kt
+  - src/backend/implementation/src/main/kotlin/io/github/theestimator/service/EstimationService.kt
+  - src/backend/implementation/src/main/kotlin/io/github/theestimator/service/EstimationVersionService.kt
+  - src/backend/implementation/src/main/kotlin/io/github/theestimator/service/AuditLogService.kt
+  - src/backend/implementation/src/test/kotlin/io/github/theestimator/service/EstimationVersionServiceTest.kt

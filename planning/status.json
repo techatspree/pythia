@@ -63,10 +63,10 @@
       "notes": "V1__initial_schema.sql with 11 tables, FK indexes, unique constraints. Flyway + Hibernate validate configured for dev-minikube and prod. Verified against PostgreSQL 18."
     },
     "task-011": {
-      "status": "pending",
-      "started_at": null,
-      "completed_at": null,
-      "notes": ""
+      "status": "done",
+      "started_at": "2026-05-04T11:50:00+02:00",
+      "completed_at": "2026-05-04T12:02:00+02:00",
+      "notes": "5 Panache repositories, 4 services (ProjectService, EstimationService, EstimationVersionService, AuditLogService). Deep-clone versioning, submit workflow, ensureDraft guard. 14 new unit tests, 31 total pass."
     },
     "task-012": {
       "status": "pending",
