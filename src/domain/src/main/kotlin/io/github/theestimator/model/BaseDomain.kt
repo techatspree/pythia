@@ -4,8 +4,8 @@ import java.time.Instant
 import java.util.UUID
 
 @DomainEntity
-abstract class BaseDomain {
-    var id: UUID? = null
-    var createdAt: Instant? = null
+abstract class BaseDomain(
+    var id: UUID?,
+    var createdAt: Instant?,
     var updatedAt: Instant? = null
-}
+)

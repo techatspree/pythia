@@ -1,7 +1,13 @@
 package io.github.theestimator.model
 
+import java.time.Instant
+import java.util.UUID
+
 @DomainEntity
-abstract class EstimationItem : BaseDomain() {
+abstract class EstimationItem(
+    id: UUID? = null,
+    createdAt: Instant? = null
+) : BaseDomain(id, createdAt) {
     var description: String? = null
     var code: String? = null
     var minEffort: Double? = null

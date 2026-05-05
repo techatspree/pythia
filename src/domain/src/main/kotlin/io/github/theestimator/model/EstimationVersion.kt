@@ -1,7 +1,13 @@
 package io.github.theestimator.model
 
+import java.time.Instant
+import java.util.UUID
+
 @DomainEntity
-class EstimationVersion : BaseDomain() {
+class EstimationVersion(
+    id: UUID? = null,
+    createdAt: Instant? = null
+) : BaseDomain(id, createdAt) {
     var versionNumber: Int? = null
     var status: EstimationVersionStatus = EstimationVersionStatus.DRAFT
     var createdBy: User? = null

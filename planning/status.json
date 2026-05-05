@@ -87,8 +87,8 @@
       "notes": ""
     },
     "task-015": {
-      "status": "pending",
-      "started_at": null,
+      "status": "in_progress",
+      "started_at": "2026-05-05T14:07:05+00:00",
       "completed_at": null,
       "notes": ""
     },
