@@ -205,6 +205,12 @@
       "started_at": "2026-05-05T10:15:00+02:00",
       "completed_at": "2026-05-05T10:20:00+02:00",
       "notes": "Top-level Maven reactor build. Frontend via frontend-maven-plugin (Node 22.14.0). Profiles dev-local/dev-minikube propagated. Skip frontend with -Dskip.frontend=true. End2end ITs skipped by default. 31 tests pass."
+    },
+    "task-035": {
+      "status": "done",
+      "started_at": "2026-05-05T10:55:00+02:00",
+      "completed_at": "2026-05-05T11:10:00+02:00",
+      "notes": "Domain module (io.github.theestimator.model) with pure Kotlin classes + EstimationCalculator. TypeScript generated via typescript-generator-maven-plugin, packaged as zip classifier artifact. Frontend unpacks from Maven repo via maven-dependency-plugin. Backend depends on domain jar. All 52 tests pass, full reactor build green."
     }
   }
 }

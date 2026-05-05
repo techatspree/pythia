@@ -13,8 +13,45 @@
         <skip.frontend>false</skip.frontend>
     </properties>
 
+    <dependencies>
+        <dependency>
+            <groupId>io.github.theestimator</groupId>
+            <artifactId>domain</artifactId>
+            <version>1.0.0-SNAPSHOT</version>
+            <type>zip</type>
+            <classifier>typescript</classifier>
+        </dependency>
+    </dependencies>
+
     <build>
         <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-dependency-plugin</artifactId>
+                <version>3.8.1</version>
+                <executions>
+                    <execution>
+                        <id>unpack-typescript-types</id>
+                        <phase>generate-sources</phase>
+                        <goals>
+                            <goal>unpack</goal>
+                        </goals>
+                        <configuration>
+                            <skip>${skip.frontend}</skip>
+                            <artifactItems>
+                                <artifactItem>
+                                    <groupId>io.github.theestimator</groupId>
+                                    <artifactId>domain</artifactId>
+                                    <version>1.0.0-SNAPSHOT</version>
+                                    <type>zip</type>
+                                    <classifier>typescript</classifier>
+                                    <outputDirectory>${project.basedir}/src/lib/types/generated</outputDirectory>
+                                </artifactItem>
+                            </artifactItems>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
             <plugin>
                 <groupId>com.github.eirslett</groupId>
                 <artifactId>frontend-maven-plugin</artifactId>

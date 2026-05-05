@@ -8,6 +8,7 @@
     <name>The Estimator</name>
 
     <modules>
+        <module>src/domain</module>
         <module>src/frontend</module>
         <module>src/backend</module>
     </modules>

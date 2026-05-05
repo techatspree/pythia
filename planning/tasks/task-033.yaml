@@ -29,14 +29,11 @@ steps:
       - EstimationParameter: name, value (Double), comment — global config per EstimationVersion
       - EffortDriver (Aufwandstreiber): description, factor (Double), comment — per EstimationVersion
       - ProjectPhase (Paket): name, abbreviation, durationWeeks (Double), assigned to EstimationVersion
-      - AdditionalCost (Zusatzkosten): description, amount (Double), type (ONE_TIME, RECURRING),
-        amountPerWeek (Double, nullable), phase (ProjectPhase)
+      - AdditionalCost (Zusatzkosten):
+          description, amount (Double), type (ONE_TIME, RECURRING), amountPerWeek (Double, nullable), phase (ProjectPhase)
       - adapt EstimationItem:
-          - add: code (String, e.g. "U01", "T01", "S01"),
-            minEffort (Double), expectedEffort (Double), maxEffort (Double),
-            phase (ProjectPhase),
-            assumptions (String),
-            create two subclasses from an abstract superclass, one for time relative items and one for fixed items,
+          - add:
+              code (String, e.g. "U01", "T01", "S01"), minEffort (Double), expectedEffort (Double), maxEffort (Double),phase (ProjectPhase), assumptions (String), create two subclasses from an abstract superclass, one for time relative items and one for fixed items,
           - remove: optimistic, likely, pessimistic fields (replaced by min/expected/max)
           - derived/calculated fields (persisted, computed in domain layer):
               mean, variance, riskSurcharge, driverSurcharge, offerPT, cost, offerPrice

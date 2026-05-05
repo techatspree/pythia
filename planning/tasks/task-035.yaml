@@ -1,0 +1,104 @@
+id: task-035
+phase: phase-3
+title: Extract shared domain model subproject with TypeScript generation
+depends_on: [task-009, task-033, task-034]
+description: |
+  Extract the domain model (entities + domain logic like EstimationCalculator) into a
+  dedicated Kotlin subproject that is shared between backend and frontend.
+
+  Goals:
+    - Single source of truth for domain classes and calculation logic
+    - Backend JPA entities extend/delegate to the shared domain classes
+    - TypeScript interfaces/classes are generated from the Kotlin domain model
+      and published as a Maven artifact, consumed by the frontend via dependency unpacking
+
+  Architecture:
+    src/domain/                 — new Kotlin-only subproject (no JPA, no Quarkus)
+      src/main/kotlin/io/github/theestimator/domain/
+        - Pure domain classes (data classes / open classes): Project, Estimation,
+          EstimationVersion, EstimationItem, FixedEstimationItem, TimeRelativeEstimationItem,
+          EstimationItemGroup, EstimationParameter, EffortDriver, ProjectPhase,
+          AdditionalCost, User, AuditLog
+        - Enums: ProjectStatus, EstimationVersionStatus, AdditionalCostType
+        - Domain logic: EstimationCalculator, InvariantResult
+        - No JPA annotations, no Jakarta dependencies
+        - Use kotlinx-serialization or plain data classes for clean serialization
+      Produces two artifacts:
+        1. domain-1.0.0-SNAPSHOT.jar — Kotlin classes for backend consumption
+        2. domain-1.0.0-SNAPSHOT-typescript.zip — generated TypeScript interfaces
+           (attached as secondary artifact via classifier "typescript")
+
+    src/backend/implementation/ — JPA entities extend/wrap domain classes
+      - JPA entities import from domain jar and add @Entity, @Column, etc.
+      - Alternatively: JPA entities implement interfaces defined in domain, or
+        use delegation/composition to reuse domain logic
+
+    src/frontend/              — consumes TypeScript types from Maven artifact
+      - frontend pom.xml declares dependency on domain:typescript classifier
+      - maven-dependency-plugin unpacks the TypeScript zip into src/lib/types/generated/
+      - Generated types directory is .gitignored (reproducible from Maven build)
+
+  Kotlin-to-TypeScript generation approach:
+    Best fit for Maven: typescript-generator-maven-plugin (cz.habarta.typescript-generator)
+      - Reads compiled .class files from domain module, generates TypeScript interfaces
+      - Supports Kotlin data classes, enums, inheritance
+      - Configured in src/domain/pom.xml
+      - Output packaged into a zip and attached with classifier "typescript"
+        using maven-assembly-plugin or build-helper-maven-plugin
+
+  Module dependencies (Maven):
+    - domain: standalone Kotlin library (kotlin-stdlib only)
+    - backend/implementation: depends on domain (jar, compile scope)
+    - frontend: depends on domain (zip, classifier=typescript) — unpacked at initialize phase
+
+  Reactor module order: src/domain → src/frontend → src/backend
+
+  Key design decisions:
+    - Domain classes are NOT JPA entities — they are pure Kotlin (portable, testable)
+    - JPA entities in backend either extend domain classes (open classes + no-arg) or
+      compose them (JPA entity has a val domain: DomainClass field)
+    - EstimationCalculator moves to domain subproject — usable in both backend and
+      potentially in TypeScript (if logic is simple enough to mirror)
+    - The TypeScript generated types are interfaces (not classes) — no runtime logic,
+      just type-safe shapes for API payloads
+    - Clean Maven dependency management: no cross-module file copying, no hardcoded paths
+      between subprojects, everything flows through the local Maven repository
+    - Frontend only needs `mvn initialize` (or full build) to get the latest types
+
+steps:
+  - create src/domain/pom.xml (Kotlin-only library, packaging: jar)
+  - add src/domain as first module in top-level pom.xml (before src/frontend and src/backend)
+  - extract pure domain classes from backend into src/domain (remove JPA annotations)
+  - extract EstimationCalculator + InvariantResult into src/domain
+  - refactor backend JPA entities to extend/use domain classes (add JPA annotations in backend layer)
+  - add domain jar dependency to src/backend/implementation/pom.xml
+  - configure typescript-generator-maven-plugin in src/domain/pom.xml to generate .ts files
+  - package generated TypeScript as zip artifact with classifier "typescript" (assembly or build-helper)
+  - in src/frontend/pom.xml, add dependency on domain:zip:typescript
+  - in src/frontend/pom.xml, configure maven-dependency-plugin (unpack goal, initialize phase)
+    to extract TypeScript zip into src/frontend/src/lib/types/generated/
+  - add src/frontend/src/lib/types/generated/ to .gitignore
+  - verify backend compiles and all tests pass
+  - verify TypeScript types are generated and packaged correctly
+  - verify frontend unpacks and can import generated types
+  - run full reactor build from project root
+validation:
+  - `mvn clean install` from root succeeds (domain → frontend → backend all build)
+  - domain artifact installed in local Maven repo (~/.m2/repository/io/github/theestimator/domain/)
+  - domain-*-typescript.zip artifact installed alongside jar
+  - frontend unpacks TypeScript types from Maven artifact during build
+  - backend JPA entities correctly use domain base classes
+  - all existing tests (52) still pass
+  - generated types include: Project, Estimation, EstimationVersion, EstimationItem, enums etc.
+  - frontend compiles with generated types (svelte-check passes)
+  - EstimationCalculator is importable from both backend and domain subproject
+  - no hardcoded cross-module file paths — everything flows through Maven dependency resolution
+outputs:
+  - src/domain/pom.xml (with typescript-generator + assembly/build-helper)
+  - src/domain/src/main/kotlin/io/github/theestimator/domain/*.kt (pure domain classes)
+  - src/domain/src/main/kotlin/io/github/theestimator/service/EstimationCalculator.kt
+  - modified: src/frontend/pom.xml (dependency on domain:typescript + unpack)
+  - modified: src/backend/implementation/pom.xml (dependency on domain jar)
+  - modified: src/backend/implementation JPA entities (now extend domain classes)
+  - modified: top-level pom.xml (new module src/domain first)
+  - modified: .gitignore (src/frontend/src/lib/types/generated/)
