@@ -11,7 +11,7 @@ class EstimationParameter : BaseEntity() {
     @Column(nullable = false)
     var name: String? = null
 
-    @Column(nullable = false)
+    @Column(name = "\"value\"", nullable = false)
     var value: Double = 0.0
 
     var comment: String? = null
