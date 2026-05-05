@@ -75,9 +75,9 @@
       "notes": "PostgreSQL Testcontainers via Dev Services for %test profile. Flyway + Hibernate validate tested. 3 IT classes (RepositoryIT, ProjectServiceIT, EstimationVersionServiceIT). 52 total tests pass (31 unit + 21 integration)."
     },
     "task-013": {
-      "status": "pending",
-      "started_at": null,
-      "completed_at": null,
+      "status": "done",
+      "started_at": "2026-05-05T13:47:46+00:00",
+      "completed_at": "2026-05-05T13:48:08+00:00",
       "notes": ""
     },
     "task-014": {
