@@ -1,19 +1,83 @@
 id: task-017
 phase: phase-5
 title: Build project list and project detail screens
-depends_on: [task-016, task-008, task-033]
+depends_on: [task-016, task-033]
 description: |
-  Create the entry-point screens of the application: a list of all
-  projects and a detail view showing each project's estimations.
+  Create the entry-point screens of the application: a list of all projects and
+  a detail view showing each project's estimations. This requires a backend REST
+  endpoint for projects (currently only a service exists, no resource).
+
+  Current state:
+    - Frontend: SvelteKit 2 with Svelte 5 (runes), TailwindCSS 4, static adapter (SPA mode)
+    - Routes: only "/" exists with placeholder content
+    - API client: openapi-fetch with generated schema.d.ts
+    - Backend: ProjectService exists but no REST resource endpoint
+    - Domain: Project has name, description, client, status, owner, estimations
+
+  Backend work:
+    - Create ProjectResource (REST endpoint) at /api/projects:
+        GET /api/projects            — list all projects (optional ?status= filter)
+        POST /api/projects           — create new project
+        GET /api/projects/{id}       — get project with its estimations
+        PUT /api/projects/{id}       — update project metadata
+        POST /api/projects/{id}/archive  — archive project
+    - Create ProjectDto, ProjectCreateDto, ProjectUpdateDto
+    - Regenerate openapi.json after adding the endpoint
+
+  Frontend work:
+    - SvelteKit routes (file-based routing):
+        /projects        — project list page (redirect "/" to "/projects")
+        /projects/[id]   — project detail page
+    - Components:
+        ProjectList.svelte     — table/list of projects with status badge, search
+        ProjectDetail.svelte   — project header + list of estimation versions
+        CreateProjectDialog.svelte — modal/dialog for creating a new project
+    - Use the generated API client (openapi-fetch) for all backend calls
+    - Simple loading/error states using Svelte 5 $state/$derived
+
+  Test data:
+    - Add import.sql for dev-local profile with:
+        2 projects ("Webshop Redesign", "Mobile App MVP")
+        Each project has 1 estimation with 2 versions (v1 SUBMITTED, v2 DRAFT)
+        Versions have a few items/groups so the detail view shows something meaningful
+
 steps:
-  - set up routes /projects and /projects/:id with react-router
-  - implement useProjects() and useProject(id) hooks via TanStack Query
-  - ProjectListPage with search, status filter, and "New project" button
-  - ProjectDetailPage showing project metadata and a table of estimations
-  - a "New estimation" button that opens a creation dialog
+  - create ProjectResource.kt with GET/POST/PUT endpoints at /api/projects
+  - create ProjectDto, ProjectCreateDto, ProjectUpdateDto in rest/dto package
+  - create project mapper extension functions
+  - write integration test ProjectResourceIT for list, get, create, update, archive
+  - regenerate openapi.json and schema.d.ts
+  - redirect "/" to "/projects" in SvelteKit
+  - create /projects route with ProjectList component
+  - create /projects/[id] route with ProjectDetail component
+  - create CreateProjectDialog component
+  - create import.sql with dev-local test data (2 projects, estimations, versions, items)
+  - verify svelte-check passes
+  - verify full reactor build succeeds
+
 validation:
-  - listing renders data from the API
-  - creating a project from the UI persists and refreshes the list
+  - GET /api/projects returns list of projects
+  - GET /api/projects/{id} returns project with estimations
+  - POST /api/projects creates project and returns 201
+  - project list page renders projects from API
+  - clicking a project navigates to detail page showing estimations
+  - creating a project from the dialog persists and refreshes the list
+  - dev-local profile loads test data on startup
+  - all existing tests still pass
+  - svelte-check passes
+  - mvn clean install succeeds
+
 outputs:
-  - frontend src/pages/ProjectListPage.tsx
-  - frontend src/pages/ProjectDetailPage.tsx
+  - src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/ProjectResource.kt
+  - src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/dto/ProjectDtos.kt
+  - src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/dto/ProjectMapper.kt
+  - src/backend/implementation/src/test/kotlin/io/github/theestimator/rest/ProjectResourceIT.kt
+  - src/backend/implementation/src/main/resources/import.sql (dev-local test data)
+  - src/frontend/src/routes/projects/+page.svelte
+  - src/frontend/src/routes/projects/[id]/+page.svelte
+  - src/frontend/src/lib/components/ProjectList.svelte
+  - src/frontend/src/lib/components/ProjectDetail.svelte
+  - src/frontend/src/lib/components/CreateProjectDialog.svelte
+  - modified: src/frontend/src/routes/+page.svelte (redirect to /projects)
+  - modified: src/frontend/src/lib/api/openapi.json (new project endpoints)
+  - modified: src/frontend/src/lib/api/schema.d.ts (regenerated)

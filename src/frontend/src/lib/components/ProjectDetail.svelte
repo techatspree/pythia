@@ -1,0 +1,63 @@
+<script lang="ts">
+	let { project, loading, error }: { project: any | null; loading: boolean; error: string } = $props();
+</script>
+
+{#if loading}
+	<p class="text-gray-500">Loading project...</p>
+{:else if error}
+	<p class="text-red-600">{error}</p>
+{:else if project}
+	<div class="mb-6">
+		<div class="flex items-center gap-3 mb-2">
+			<h1 class="text-2xl font-bold">{project.name}</h1>
+			<span class="px-2 py-0.5 text-xs rounded-full {project.status === 'ACTIVE' ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-600'}">
+				{project.status}
+			</span>
+		</div>
+		{#if project.description}
+			<p class="text-gray-600 mb-1">{project.description}</p>
+		{/if}
+		{#if project.client}
+			<p class="text-sm text-gray-500">Client: {project.client}</p>
+		{/if}
+	</div>
+
+	<h2 class="text-lg font-semibold mb-3">Estimations</h2>
+
+	{#if project.estimations.length === 0}
+		<p class="text-gray-500">No estimations yet.</p>
+	{:else}
+		<div class="overflow-x-auto">
+			<table class="w-full text-sm text-left">
+				<thead class="text-xs uppercase bg-gray-50 border-b">
+					<tr>
+						<th class="px-4 py-3">Offer</th>
+						<th class="px-4 py-3">Description</th>
+						<th class="px-4 py-3">Versions</th>
+						<th class="px-4 py-3">Current Version</th>
+						<th class="px-4 py-3">Created</th>
+					</tr>
+				</thead>
+				<tbody>
+					{#each project.estimations as estimation}
+						<tr class="border-b hover:bg-gray-50">
+							<td class="px-4 py-3 font-medium">{estimation.offer}</td>
+							<td class="px-4 py-3 text-gray-600">{estimation.description || '—'}</td>
+							<td class="px-4 py-3">{estimation.versionCount}</td>
+							<td class="px-4 py-3">
+								{#if estimation.currentVersionNumber}
+									v{estimation.currentVersionNumber}
+								{:else}
+									—
+								{/if}
+							</td>
+							<td class="px-4 py-3 text-gray-500">
+								{estimation.createdAt ? new Date(estimation.createdAt).toLocaleDateString() : '—'}
+							</td>
+						</tr>
+					{/each}
+				</tbody>
+			</table>
+		</div>
+	{/if}
+{/if}
