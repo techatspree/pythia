@@ -7,6 +7,7 @@ import io.github.theestimator.rest.dto.*
 import io.github.theestimator.service.EstimationCalculator
 import io.github.theestimator.service.EstimationVersionService
 import io.github.theestimator.service.ExcelExporter
+import io.github.theestimator.service.VersionComparisonService
 import jakarta.enterprise.context.ApplicationScoped
 import jakarta.transaction.Transactional
 import jakarta.ws.rs.*
@@ -25,7 +26,8 @@ class EstimationVersionResource(
     private val estimationRepository: EstimationRepository,
     private val versionRepository: EstimationVersionRepository,
     private val excelExporter: ExcelExporter,
-    private val calculator: EstimationCalculator
+    private val calculator: EstimationCalculator,
+    private val comparisonService: VersionComparisonService
 ) {
 
     @GET
@@ -159,6 +161,19 @@ class EstimationVersionResource(
         }
         versionRepository.delete(version)
         return Response.noContent().build()
+    }
+
+    @GET
+    @Path("/{versionA}/compare/{versionB}")
+    fun compareVersions(
+        @PathParam("estimationId") estimationId: UUID,
+        @PathParam("versionA") versionA: Int,
+        @PathParam("versionB") versionB: Int
+    ): Response {
+        val verA = findVersion(estimationId, versionA)
+        val verB = findVersion(estimationId, versionB)
+        val comparison = comparisonService.compare(verA, verB)
+        return Response.ok(comparison).build()
     }
 
     private fun ensureEstimationExists(estimationId: UUID) {

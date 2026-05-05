@@ -4,80 +4,120 @@ title: Implement version comparison endpoint
 depends_on: [task-014]
 description: |
   Add an endpoint that diffs two versions of the same estimation and returns
-  added, removed, and modified items. Requires stable identifiers across versions.
+  added, removed, and modified items.
 
   Stable identity approach:
     - Add a `logicalId` (UUID) field to EstimationItem and EstimationItemGroup
-    - When an item/group is first created (import or manual), a new logicalId is generated
-    - When items are cloned via deepClone (createNewVersion), the logicalId is preserved
-    - The primary key (id) changes per version, but logicalId stays the same across versions
+    - logicalId is a stable identifier that persists across version cloning
+    - The primary key (id) changes per version, but logicalId stays the same
     - This allows matching "the same item" across two versions for comparison
+
+  Domain model changes (immutable data classes in src/domain):
+    - Add `logicalId: UUID` parameter to sealed class EstimationItem (non-nullable, required)
+    - Add `logicalId: UUID` parameter to data class EstimationItemGroup (non-nullable, required)
+    - Update FixedEstimationItem and TimeRelativeEstimationItem data classes accordingly
+    - logicalId must be propagated through withCalculationParameters()
+
+  Backend JPA entity changes (src/backend):
+    - Add `logicalId: UUID` column to EstimationItem entity
+    - Add `logicalId: UUID` column to EstimationItemGroup entity
+    - Add Flyway migration V2__add_logical_id.sql with:
+        ALTER TABLE estimation_items ADD COLUMN logical_id UUID;
+        UPDATE estimation_items SET logical_id = id WHERE logical_id IS NULL;
+        ALTER TABLE estimation_items ALTER COLUMN logical_id SET NOT NULL;
+        ALTER TABLE estimation_item_groups ADD COLUMN logical_id UUID;
+        UPDATE estimation_item_groups SET logical_id = id WHERE logical_id IS NULL;
+        ALTER TABLE estimation_item_groups ALTER COLUMN logical_id SET NOT NULL;
+    - Update deepClone in EstimationVersionService to preserve logicalId
+    - Update ExcelImporter to generate logicalId (UUID.randomUUID()) on import
 
   Endpoint:
     GET /api/estimations/{estimationId}/versions/{versionA}/compare/{versionB}
-      - Compares version A to version B
-      - Response: VersionComparisonDto
+      - Compares version A to version B (by version number)
+      - Returns VersionComparisonDto
 
   Response structure:
     VersionComparisonDto:
-      versionA: int (version number)
-      versionB: int (version number)
-      addedItems: List<EstimationItemDto>        — items in B not in A (by logicalId)
-      removedItems: List<EstimationItemDto>      — items in A not in B (by logicalId)
+      versionA: Int
+      versionB: Int
+      addedItems: List<ComparisonItemDto>        — items in B not in A (by logicalId)
+      removedItems: List<ComparisonItemDto>      — items in A not in B (by logicalId)
       modifiedItems: List<ItemModificationDto>   — items in both but with changed values
-      addedGroups: List<EstimationItemGroupDto>  — groups in B not in A
-      removedGroups: List<EstimationItemGroupDto>— groups in A not in B
+      addedGroups: List<ComparisonGroupDto>      — groups in B not in A (by logicalId)
+      removedGroups: List<ComparisonGroupDto>    — groups in A not in B (by logicalId)
       parameterChanges: List<ParameterChangeDto> — changed/added/removed parameters
+
+    ComparisonItemDto:
+      logicalId: UUID
+      description: String
+      minEffort: Double?
+      expectedEffort: Double?
+      maxEffort: Double?
+      offerPT: Double?
+      groupTitle: String?
+
+    ComparisonGroupDto:
+      logicalId: UUID
+      title: String
 
     ItemModificationDto:
       logicalId: UUID
       description: String
-      before: EstimationItemDto
-      after: EstimationItemDto
+      before: ComparisonItemDto
+      after: ComparisonItemDto
       changedFields: List<String>  — field names that differ (e.g. ["minEffort", "maxEffort"])
 
     ParameterChangeDto:
       name: String
       oldValue: Double?
       newValue: Double?
-      changeType: "ADDED" | "REMOVED" | "MODIFIED"
+      changeType: String  — "ADDED", "REMOVED", or "MODIFIED"
 
   Implementation:
-    - VersionComparisonService: takes two EstimationVersion objects, produces VersionComparisonDto
-    - Matching logic: group items by logicalId, then diff field-by-field
-    - Parameters matched by name (not id)
-    - Groups matched by logicalId
+    - VersionComparisonService (new class in backend):
+        - compare(versionA: EstimationVersion, versionB: EstimationVersion): VersionComparisonDto
+        - Match items by logicalId, groups by logicalId, parameters by name
+        - Detect added/removed/modified for each category
+        - changedFields: compare minEffort, expectedEffort, maxEffort, description, code, assumptions
+    - Add GET endpoint to EstimationVersionResource
+    - Endpoint calls findVersion for both version numbers, then delegates to VersionComparisonService
 
 steps:
-  - add logicalId (UUID) field to EstimationItem entity (nullable for migration, with default generation)
-  - add logicalId (UUID) field to EstimationItemGroup entity
-  - add logicalId to domain model classes (src/domain)
-  - add logicalId column to Flyway migration (V2__add_logical_id.sql)
+  - add logicalId (UUID) field to domain model EstimationItem sealed class
+  - add logicalId (UUID) field to domain model EstimationItemGroup data class
+  - update FixedEstimationItem and TimeRelativeEstimationItem to include logicalId
+  - ensure withCalculationParameters() preserves logicalId
+  - add logicalId column to backend JPA EstimationItem entity
+  - add logicalId column to backend JPA EstimationItemGroup entity
+  - create Flyway migration V2__add_logical_id.sql
   - update deepClone in EstimationVersionService to preserve logicalId
   - update ExcelImporter to generate logicalId on import
-  - create VersionComparisonService with compare(versionA, versionB) method
-  - create VersionComparisonDto, ItemModificationDto, ParameterChangeDto
-  - add GET endpoint to EstimationVersionResource
-  - write unit tests for VersionComparisonService (added, removed, modified detection)
-  - write integration test for the comparison endpoint
+  - create VersionComparisonDto, ComparisonItemDto, ComparisonGroupDto, ItemModificationDto, ParameterChangeDto in rest/dto package
+  - create VersionComparisonService with compare() method
+  - add GET /versions/{versionA}/compare/{versionB} endpoint to EstimationVersionResource
+  - write unit test for VersionComparisonService (added, removed, modified detection)
+  - write integration test for the comparison endpoint (VersionComparisonResourceIT)
   - verify all existing tests still pass
   - run full build from project root
+
 validation:
   - comparing two identical versions returns empty added/removed/modified lists
-  - comparing v1 to v2 where an item changed shows it under modifiedItems with changedFields
+  - comparing v1 to v2 where an item changed shows it under modifiedItems with correct changedFields
   - removing an item produces one removedItem, adding one produces one addedItem
   - parameter changes are detected (added, removed, value changed)
-  - logicalId is preserved across version cloning
+  - logicalId is preserved across version cloning (deepClone)
   - endpoint returns 404 for nonexistent versions
   - all existing tests (68) still pass
   - `mvn clean install` from project root succeeds
+
 outputs:
   - src/backend/implementation/src/main/resources/db/migration/V2__add_logical_id.sql
   - src/backend/implementation/src/main/kotlin/io/github/theestimator/service/VersionComparisonService.kt
   - src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/dto/VersionComparisonDtos.kt
   - src/backend/implementation/src/test/kotlin/io/github/theestimator/service/VersionComparisonServiceTest.kt
   - src/backend/implementation/src/test/kotlin/io/github/theestimator/rest/VersionComparisonResourceIT.kt
-  - modified: EstimationItem.kt, EstimationItemGroup.kt (logicalId field)
+  - modified: src/domain EstimationItem.kt, EstimationItemGroup.kt, FixedEstimationItem.kt, TimeRelativeEstimationItem.kt
+  - modified: src/backend EstimationItem.kt, EstimationItemGroup.kt (JPA logicalId column)
   - modified: EstimationVersionService.kt (preserve logicalId in deepClone)
   - modified: ExcelImporter.kt (generate logicalId)
   - modified: EstimationVersionResource.kt (new compare endpoint)

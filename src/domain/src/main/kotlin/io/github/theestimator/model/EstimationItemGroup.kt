@@ -7,6 +7,7 @@ import java.util.UUID
 data class EstimationItemGroup(
     val title: String,
     val phase: ProjectPhase? = null,
+    val logicalId: UUID = UUID.randomUUID(),
     val items: List<EstimationItem> = emptyList(),
     private val _id: UUID? = null,
     private val _createdAt: Instant? = null,

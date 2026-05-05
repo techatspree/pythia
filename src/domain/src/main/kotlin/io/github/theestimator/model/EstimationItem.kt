@@ -12,6 +12,7 @@ sealed class EstimationItem(
     val maxEffort: Double = 0.0,
     val assumptions: String = "",
     val phase: ProjectPhase? = null,
+    val logicalId: UUID = UUID.randomUUID(),
     val calculationParameters: CalculationParameters = CalculationParameters(),
     id: UUID? = null,
     createdAt: Instant? = null,

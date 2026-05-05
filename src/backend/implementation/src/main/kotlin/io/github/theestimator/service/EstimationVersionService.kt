@@ -132,6 +132,7 @@ class EstimationVersionService(
         source.itemGroups.forEach { group ->
             val newPhase = group.phase?.id?.let { phaseMapping[it] }
             val newGroup = EstimationItemGroup().apply {
+                logicalId = group.logicalId
                 title = group.title
                 phase = newPhase
                 version = target
@@ -145,6 +146,7 @@ class EstimationVersionService(
                     else -> FixedEstimationItem()
                 }
                 newItem.apply {
+                    logicalId = item.logicalId
                     description = item.description
                     code = item.code
                     minEffort = item.minEffort
