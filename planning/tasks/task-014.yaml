@@ -3,19 +3,88 @@ phase: phase-4
 title: Implement EstimationVersion REST endpoints
 depends_on: [task-013]
 description: |
-  Build the version-related endpoints, including the state transitions
-  (submit, approve) and the version-creation logic that clones items.
-endpoints:
-  - GET /api/estimations/{id}/versions
-  - POST /api/estimations/{id}/versions (estimator, admin)
-  - GET /api/estimations/{id}/versions/{n}
-  - PUT /api/estimations/{id}/versions/{n} (only if DRAFT)
-  - POST /api/estimations/{id}/versions/{n}/submit
-  - POST /api/estimations/{id}/versions/{n}/approve (admin)
-  - DELETE /api/estimations/{id}/versions/{n} (only if DRAFT, admin)
+  Build the Quarkus REST resource for estimation version lifecycle operations.
+  Uses DTOs for request/response, delegates to EstimationVersionService (task-011).
+  Includes Excel import/export endpoints.
+
+  Endpoints:
+    GET  /api/estimations/{estimationId}/versions
+      - List all versions for an estimation
+      - Response: List<EstimationVersionSummaryDto>
+
+    POST /api/estimations/{estimationId}/versions
+      - Create a new version (clones from latest if exists)
+      - Response: 201 Created with EstimationVersionDto
+
+    POST /api/estimations/{estimationId}/versions/import
+      - Import a new version from an Excel file (multipart upload)
+      - Request: multipart/form-data with file
+      - Response: 201 Created with EstimationVersionDto
+
+    GET  /api/estimations/{estimationId}/versions/{versionNumber}
+      - Get a specific version with full details (items, parameters, phases, etc.)
+      - Response: EstimationVersionDto
+
+    PUT  /api/estimations/{estimationId}/versions/{versionNumber}
+      - Update a version (only if DRAFT)
+      - Request: EstimationVersionUpdateDto
+      - Response: EstimationVersionDto
+      - Returns 409 Conflict if version is SUBMITTED
+
+    POST /api/estimations/{estimationId}/versions/{versionNumber}/submit
+      - Submit a version (DRAFT → SUBMITTED)
+      - Response: EstimationVersionDto
+      - Returns 409 Conflict if not DRAFT
+
+    GET  /api/estimations/{estimationId}/versions/{versionNumber}/export
+      - Export version as Excel file
+      - Response: application/vnd.openxmlformats-officedocument.spreadsheetml.sheet
+
+    DELETE /api/estimations/{estimationId}/versions/{versionNumber}
+      - Delete a version (only if DRAFT)
+      - Response: 204 No Content
+      - Returns 409 Conflict if SUBMITTED
+
+  DTOs:
+    - EstimationVersionSummaryDto: id, versionNumber, status, totalEffort, createdAt, notes
+    - EstimationVersionDto: full version with nested parameters, effortDrivers, phases,
+      itemGroups (with items), additionalCosts
+    - EstimationVersionUpdateDto: notes, parameters, effortDrivers (for editing DRAFT versions)
+    - EstimationItemGroupDto, EstimationItemDto, etc. for nested structures
+
+  Error handling:
+    - 404 if estimation or version not found
+    - 409 Conflict for illegal state transitions (edit/delete SUBMITTED, submit non-DRAFT)
+    - 400 for invalid input (Bean Validation)
+
+steps:
+  - create DTO package: io.github.theestimator.rest.dto
+  - implement EstimationVersionSummaryDto, EstimationVersionDto, EstimationVersionUpdateDto
+  - implement nested DTOs for items, parameters, phases, etc.
+  - create mapper functions (entity ↔ DTO) or use extension functions
+  - create EstimationVersionResource (@Path, @ApplicationScoped)
+  - implement all endpoints delegating to EstimationVersionService
+  - handle Excel import via multipart upload (@Consumes(MULTIPART_FORM_DATA))
+  - handle Excel export via ExcelExporter (@Produces application/octet-stream)
+  - return proper HTTP status codes (201, 204, 404, 409)
+  - write @QuarkusTest integration tests for all endpoints
+  - test happy paths: list, create, get, submit, export
+  - test error cases: 409 on edit SUBMITTED, 409 on submit non-DRAFT, 404 on not found
+  - test Excel import via multipart
+  - verify OpenAPI/Swagger UI shows all endpoints
 validation:
-  - PUT on a SUBMITTED version returns 409 Conflict
-  - approve on a DRAFT version returns 409 (must submit first)
-  - new version copies items from the previous version
+  - all endpoints return correct HTTP status codes
+  - PUT on SUBMITTED version returns 409
+  - submit on already-SUBMITTED version returns 409
+  - DELETE on SUBMITTED version returns 409
+  - new version creation clones items from previous version
+  - Excel import creates a new version with calculated fields
+  - Excel export returns valid .xlsx
+  - integration tests cover happy paths and error cases
+  - OpenAPI spec includes all endpoints with schemas
+  - all existing tests still pass
+  - `mvn clean install` from project root succeeds
 outputs:
-  - backend EstimationVersionResource.java
+  - src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/EstimationVersionResource.kt
+  - src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/dto/*.kt
+  - src/backend/implementation/src/test/kotlin/io/github/theestimator/rest/EstimationVersionResourceIT.kt

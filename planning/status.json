@@ -81,9 +81,9 @@
       "notes": ""
     },
     "task-014": {
-      "status": "pending",
-      "started_at": null,
-      "completed_at": null,
+      "status": "done",
+      "started_at": "2026-05-05T14:03:02+00:00",
+      "completed_at": "2026-05-05T14:03:02+00:00",
       "notes": ""
     },
     "task-015": {
