@@ -199,6 +199,12 @@
       "started_at": "2026-05-03T19:00:00+02:00",
       "completed_at": "2026-05-03T19:22:00+02:00",
       "notes": "Domain model adapted to Excel spreadsheet. New entities: EstimationParameter, EffortDriver, ProjectPhase, AdditionalCost, EstimationItemGroup. EstimationItem refactored with abstract superclass + 2 subclasses. Calculator, importer, exporter implemented. 17 tests pass including invariant validation on reference spreadsheet."
+    },
+    "task-034": {
+      "status": "done",
+      "started_at": "2026-05-05T10:15:00+02:00",
+      "completed_at": "2026-05-05T10:20:00+02:00",
+      "notes": "Top-level Maven reactor build. Frontend via frontend-maven-plugin (Node 22.14.0). Profiles dev-local/dev-minikube propagated. Skip frontend with -Dskip.frontend=true. End2end ITs skipped by default. 31 tests pass."
     }
   }
 }

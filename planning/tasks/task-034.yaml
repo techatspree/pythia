@@ -1,0 +1,75 @@
+id: task-034
+phase: phase-2
+title: Top-level Maven build for full project (backend + frontend)
+depends_on: [task-002, task-003]
+description: |
+  Create a top-level Maven pom.xml in the project root that builds the entire application
+  (frontend + backend) with a single `mvn` invocation from the top-level directory.
+
+  Structure:
+    TheEstimator/pom.xml (reactor parent, packaging: pom)
+      └─ src/frontend/pom.xml (frontend-maven-plugin, packaging: pom)
+      └─ src/backend/pom.xml (existing backend parent with implementation + end2end)
+
+  Frontend specifics (from existing package.json):
+    - SvelteKit + Vite, adapter-static, output in src/frontend/build/
+    - Scripts available: dev, build, preview, prepare, check, check:watch
+    - No "test" script — use "check" (svelte-check + TypeScript) as the test phase
+    - Node 22.x LTS for frontend-maven-plugin (local system has 25.x but plugin manages its own)
+    - npm 10.x (compatible with Node 22 LTS)
+
+  Top-level pom.xml:
+    - Reactor pom with modules: src/frontend, src/backend (order matters for reactor)
+    - groupId: io.github.theestimator, artifactId: the-estimator, version: 1.0.0-SNAPSHOT
+    - Profiles dev-local and dev-minikube defined here, propagated to submodules via properties
+    - No parent inheritance — submodules remain independent (backend keeps Quarkus BOM)
+
+  src/frontend/pom.xml:
+    - groupId: io.github.theestimator, artifactId: frontend, packaging: pom
+    - frontend-maven-plugin (com.github.eirslett:frontend-maven-plugin:1.15.1):
+      - install-node-and-npm (phase: initialize) — Node 22.14.0, npm 10.9.2
+      - npm install (phase: initialize)
+      - npm run build (phase: compile)
+      - npm run check (phase: test) — type-checking via svelte-check
+    - Skip entire frontend with -Dskip.frontend=true (bound to a profile or plugin skip config)
+    - installDirectory: ${project.basedir}/node (keeps node/npm local to frontend dir)
+
+  Profiles in top-level pom.xml:
+    - dev-local: sets properties quarkus.profile=dev-local, quarkus.container-image.build=false
+    - dev-minikube: sets properties quarkus.profile=dev-minikube, quarkus.container-image.build=true
+    - These properties are inherited by the backend submodule via the reactor build
+    - Profile activation at reactor level (-Pdev-local) automatically applies to all submodules
+      that declare the same profile ID (Maven profile inheritance in reactor builds)
+
+  Commands from project root:
+    - `mvn clean install` — default build: frontend + backend, all checks/tests
+    - `mvn clean install -Pdev-local` — same but backend uses H2, no container image
+    - `mvn clean install -Pdev-minikube` — same but backend builds container image for minikube
+    - `mvn test` — runs backend tests + frontend type-check
+    - `mvn clean install -Dskip.frontend=true` — skips frontend entirely
+    - `mvn clean install -pl src/backend/implementation` — backend only
+
+steps:
+  - create top-level pom.xml (reactor, modules: src/frontend, src/backend)
+  - define dev-local and dev-minikube profiles in top-level pom.xml
+  - create src/frontend/pom.xml with frontend-maven-plugin (Node 22.14.0, npm 10.9.2)
+  - "frontend-maven-plugin executions: install-node-and-npm → npm install → npm run build → npm run check"
+  - add skip.frontend property (default false) controlling frontend-maven-plugin skip
+  - add .gitignore entry for src/frontend/node/ (plugin-managed Node installation)
+  - verify `mvn clean install` from root succeeds (frontend builds, backend compiles + tests pass)
+  - verify `mvn clean install -Pdev-local` works
+  - verify `mvn clean install -Pdev-minikube` builds container image
+  - verify `mvn clean install -Dskip.frontend=true` skips frontend
+  - update README.md with top-level build commands
+  - update scripts/dev-local.sh to use top-level mvn if appropriate
+validation:
+  - `mvn clean install` from project root succeeds, all backend tests pass, frontend type-check passes
+  - `mvn clean install -Pdev-local` activates dev-local in backend
+  - `mvn clean install -Pdev-minikube` builds container image
+  - `mvn clean install -Dskip.frontend=true` skips frontend module entirely
+  - `mvn test` runs backend unit tests and frontend svelte-check
+  - existing 31 backend tests still pass
+  - src/frontend/build/ is produced by frontend build
+outputs:
+  - pom.xml (top-level reactor)
+  - src/frontend/pom.xml (frontend-maven-plugin)
