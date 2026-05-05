@@ -6,7 +6,7 @@ import java.util.UUID
 @DomainEntity
 data class User(
     val entraSubjectId: String? = null,
-    val displayName: String? = null,
+    val displayName: String = "",
     private val _id: UUID? = null,
     private val _createdAt: Instant? = null,
     private val _updatedAt: Instant? = null

@@ -5,11 +5,11 @@ import java.util.UUID
 
 @DomainEntity
 data class AuditLog(
-    val id: UUID? = null,
+    val entityType: String,
+    val entityId: UUID,
+    val action: String,
     val userId: UUID? = null,
-    val entityType: String? = null,
-    val entityId: UUID? = null,
-    val action: String? = null,
-    val payload: String? = null,
+    val payload: String = "",
+    val id: UUID? = null,
     val createdAt: Instant? = null
 )

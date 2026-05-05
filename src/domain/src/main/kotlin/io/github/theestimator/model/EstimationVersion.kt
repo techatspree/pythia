@@ -5,11 +5,11 @@ import java.util.UUID
 
 @DomainEntity
 data class EstimationVersion(
-    val versionNumber: Int? = null,
+    val versionNumber: Int,
     val status: EstimationVersionStatus = EstimationVersionStatus.DRAFT,
     val createdBy: User? = null,
-    val totalEffort: Double? = null,
-    val notes: String? = null,
+    val totalEffort: Double = 0.0,
+    val notes: String = "",
     val parameters: List<EstimationParameter> = emptyList(),
     val effortDrivers: List<EffortDriver> = emptyList(),
     val phases: List<ProjectPhase> = emptyList(),

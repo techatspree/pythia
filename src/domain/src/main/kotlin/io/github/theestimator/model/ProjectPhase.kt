@@ -5,9 +5,9 @@ import java.util.UUID
 
 @DomainEntity
 data class ProjectPhase(
-    val name: String? = null,
-    val abbreviation: String? = null,
-    val durationWeeks: Double? = null,
+    val name: String,
+    val abbreviation: String,
+    val durationWeeks: Double = 0.0,
     private val _id: UUID? = null,
     private val _createdAt: Instant? = null,
     private val _updatedAt: Instant? = null

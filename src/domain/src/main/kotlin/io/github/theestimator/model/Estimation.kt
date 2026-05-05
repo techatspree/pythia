@@ -5,8 +5,8 @@ import java.util.UUID
 
 @DomainEntity
 data class Estimation(
-    val offer: String? = null,
-    val description: String? = null,
+    val offer: String = "",
+    val description: String = "",
     val currentVersion: EstimationVersion? = null,
     val versions: List<EstimationVersion> = emptyList(),
     private val _id: UUID? = null,

@@ -16,7 +16,7 @@ open class EstimationCalculator {
         val totalOfferPT = allItems.sumOf { it.offerPT }
         results.add(InvariantResult(
             "Gesamtaufwand = Summe aller AngebotsPT",
-            (version.totalEffort ?: 0.0) - totalOfferPT,
+            version.totalEffort - totalOfferPT,
             tolerance
         ))
 

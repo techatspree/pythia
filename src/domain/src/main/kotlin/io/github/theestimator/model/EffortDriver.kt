@@ -5,9 +5,9 @@ import java.util.UUID
 
 @DomainEntity
 data class EffortDriver(
-    val description: String? = null,
+    val description: String,
     val factor: Double = 0.0,
-    val comment: String? = null,
+    val comment: String = "",
     private val _id: UUID? = null,
     private val _createdAt: Instant? = null,
     private val _updatedAt: Instant? = null

@@ -5,7 +5,7 @@ import java.util.UUID
 
 @DomainEntity
 data class EstimationItemGroup(
-    val title: String? = null,
+    val title: String,
     val phase: ProjectPhase? = null,
     val items: List<EstimationItem> = emptyList(),
     private val _id: UUID? = null,

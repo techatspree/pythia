@@ -5,10 +5,10 @@ import java.util.UUID
 
 @DomainEntity
 data class AdditionalCost(
-    val description: String? = null,
+    val description: String,
     val amount: Double = 0.0,
     val type: AdditionalCostType = AdditionalCostType.ONE_TIME,
-    val amountPerWeek: Double? = null,
+    val amountPerWeek: Double = 0.0,
     val phase: ProjectPhase? = null,
     private val _id: UUID? = null,
     private val _createdAt: Instant? = null,

@@ -5,12 +5,12 @@ import java.util.UUID
 
 @DomainEntity
 data class FixedEstimationItem(
-    private val _description: String? = null,
-    private val _code: String? = null,
-    private val _minEffort: Double? = null,
-    private val _expectedEffort: Double? = null,
-    private val _maxEffort: Double? = null,
-    private val _assumptions: String? = null,
+    private val _description: String,
+    private val _code: String = "",
+    private val _minEffort: Double = 0.0,
+    private val _expectedEffort: Double = 0.0,
+    private val _maxEffort: Double = 0.0,
+    private val _assumptions: String = "",
     private val _phase: ProjectPhase? = null,
     private val _calculationParameters: CalculationParameters = CalculationParameters(),
     private val _id: UUID? = null,

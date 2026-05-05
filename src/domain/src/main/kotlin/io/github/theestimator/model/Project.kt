@@ -5,9 +5,9 @@ import java.util.UUID
 
 @DomainEntity
 data class Project(
-    val name: String? = null,
-    val description: String? = null,
-    val client: String? = null,
+    val name: String,
+    val description: String = "",
+    val client: String = "",
     val status: ProjectStatus = ProjectStatus.ACTIVE,
     val owner: User? = null,
     private val _id: UUID? = null,

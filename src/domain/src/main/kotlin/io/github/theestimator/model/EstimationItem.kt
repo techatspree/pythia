@@ -5,12 +5,12 @@ import java.util.UUID
 
 @DomainEntity
 sealed class EstimationItem(
-    val description: String? = null,
-    val code: String? = null,
-    val minEffort: Double? = null,
-    val expectedEffort: Double? = null,
-    val maxEffort: Double? = null,
-    val assumptions: String? = null,
+    val description: String,
+    val code: String = "",
+    val minEffort: Double = 0.0,
+    val expectedEffort: Double = 0.0,
+    val maxEffort: Double = 0.0,
+    val assumptions: String = "",
     val phase: ProjectPhase? = null,
     val calculationParameters: CalculationParameters = CalculationParameters(),
     id: UUID? = null,
@@ -19,10 +19,10 @@ sealed class EstimationItem(
 ) : BaseDomain(id, createdAt, updatedAt) {
 
     val mean: Double
-        get() = PertCalculation.mean(minEffort ?: 0.0, expectedEffort ?: 0.0, maxEffort ?: 0.0)
+        get() = PertCalculation.mean(minEffort, expectedEffort, maxEffort)
 
     val variance: Double
-        get() = PertCalculation.variance(minEffort ?: 0.0, maxEffort ?: 0.0)
+        get() = PertCalculation.variance(minEffort, maxEffort)
 
     val riskSurcharge: Double
         get() = mean * calculationParameters.riskFactor
