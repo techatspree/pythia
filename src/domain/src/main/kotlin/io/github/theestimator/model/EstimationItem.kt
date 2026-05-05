@@ -17,29 +17,31 @@ abstract class EstimationItem(
     var phase: ProjectPhase? = null
     var group: EstimationItemGroup? = null
 
-    // Derived/calculated fields
-    var mean: Double? = null
-    var variance: Double? = null
-    var riskSurcharge: Double? = null
-    var driverSurcharge: Double? = null
-    var offerPT: Double? = null
-    var cost: Double? = null
-    var offerPrice: Double? = null
+    // Calculation parameters (set by EstimationVersion.calculate())
+    var riskFactor: Double = 0.0
+    var totalDriverFactor: Double = 0.0
+    var dailyRate: Double = 0.0
+    var salesSurcharge: Double = 0.0
 
-    fun calculateMeanAndVariance() {
-        val min = minEffort ?: 0.0
-        val expected = expectedEffort ?: 0.0
-        val max = maxEffort ?: 0.0
-        mean = PertCalculation.mean(min, expected, max)
-        variance = PertCalculation.variance(min, max)
-    }
+    // Derived fields — automatically computed from min/expected/max and calculation parameters
+    val mean: Double
+        get() = PertCalculation.mean(minEffort ?: 0.0, expectedEffort ?: 0.0, maxEffort ?: 0.0)
 
-    fun calculateDerived(riskFactor: Double, totalDriverFactor: Double, dailyRate: Double, salesSurcharge: Double) {
-        val m = mean ?: 0.0
-        riskSurcharge = m * riskFactor
-        driverSurcharge = m * totalDriverFactor
-        offerPT = m + (riskSurcharge ?: 0.0) + (driverSurcharge ?: 0.0)
-        cost = (offerPT ?: 0.0) * dailyRate
-        offerPrice = (cost ?: 0.0) * (1 + salesSurcharge)
-    }
+    val variance: Double
+        get() = PertCalculation.variance(minEffort ?: 0.0, maxEffort ?: 0.0)
+
+    val riskSurcharge: Double
+        get() = mean * riskFactor
+
+    val driverSurcharge: Double
+        get() = mean * totalDriverFactor
+
+    val offerPT: Double
+        get() = mean + riskSurcharge + driverSurcharge
+
+    val cost: Double
+        get() = offerPT * dailyRate
+
+    val offerPrice: Double
+        get() = cost * (1 + salesSurcharge)
 }

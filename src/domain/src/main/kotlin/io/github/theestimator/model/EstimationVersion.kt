@@ -31,14 +31,17 @@ class EstimationVersion(
 
         val allItems = itemGroups.flatMap { it.items }
 
-        allItems.forEach { it.calculateMeanAndVariance() }
-
-        val totalVariance = allItems.sumOf { it.variance ?: 0.0 }
-        val totalMean = allItems.sumOf { it.mean ?: 0.0 }
+        val totalVariance = allItems.sumOf { it.variance }
+        val totalMean = allItems.sumOf { it.mean }
         val riskFactor = PertCalculation.riskFactor(totalMean, totalVariance, stdDevFactor)
 
-        allItems.forEach { it.calculateDerived(riskFactor, totalDriverFactor, dailyRate, salesSurcharge) }
+        allItems.forEach { item ->
+            item.riskFactor = riskFactor
+            item.totalDriverFactor = totalDriverFactor
+            item.dailyRate = dailyRate
+            item.salesSurcharge = salesSurcharge
+        }
 
-        totalEffort = allItems.sumOf { it.offerPT ?: 0.0 }
+        totalEffort = allItems.sumOf { it.offerPT }
     }
 }
