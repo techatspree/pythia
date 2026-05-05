@@ -1,0 +1,392 @@
+{
+  "openapi" : "3.1.0",
+  "components" : {
+    "schemas" : {
+      "EffortDriverDto" : {
+        "type" : "object",
+        "required" : [ "id", "description", "factor", "comment" ],
+        "properties" : {
+          "id" : {
+            "anyOf" : [ {
+              "$ref" : "#/components/schemas/UUID"
+            }, {
+              "type" : "null"
+            } ]
+          },
+          "description" : {
+            "type" : [ "string", "null" ]
+          },
+          "factor" : {
+            "type" : "number",
+            "format" : "double"
+          },
+          "comment" : {
+            "type" : [ "string", "null" ]
+          }
+        }
+      },
+      "EstimationParameterDto" : {
+        "type" : "object",
+        "required" : [ "id", "name", "value", "comment" ],
+        "properties" : {
+          "id" : {
+            "anyOf" : [ {
+              "$ref" : "#/components/schemas/UUID"
+            }, {
+              "type" : "null"
+            } ]
+          },
+          "name" : {
+            "type" : [ "string", "null" ]
+          },
+          "value" : {
+            "type" : "number",
+            "format" : "double"
+          },
+          "comment" : {
+            "type" : [ "string", "null" ]
+          }
+        }
+      },
+      "EstimationVersionUpdateDto" : {
+        "type" : "object",
+        "properties" : {
+          "notes" : {
+            "type" : [ "string", "null" ]
+          },
+          "parameters" : {
+            "type" : [ "array", "null" ],
+            "items" : {
+              "$ref" : "#/components/schemas/EstimationParameterDto"
+            }
+          },
+          "effortDrivers" : {
+            "type" : [ "array", "null" ],
+            "items" : {
+              "$ref" : "#/components/schemas/EffortDriverDto"
+            }
+          }
+        }
+      },
+      "UUID" : {
+        "type" : "string",
+        "format" : "uuid",
+        "pattern" : "[a-fA-F0-9]{8}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{12}"
+      }
+    },
+    "securitySchemes" : {
+      "SecurityScheme" : {
+        "type" : "openIdConnect",
+        "openIdConnectUrl" : "http://localhost:8180/realms/estimation/.well-known/openid-configuration",
+        "description" : "Authentication"
+      }
+    }
+  },
+  "paths" : {
+    "/api/estimations/{estimationId}/versions" : {
+      "get" : {
+        "parameters" : [ {
+          "name" : "estimationId",
+          "in" : "path",
+          "required" : true,
+          "schema" : {
+            "$ref" : "#/components/schemas/UUID"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "application/json" : {
+                "schema" : { }
+              }
+            }
+          }
+        },
+        "summary" : "List Versions",
+        "tags" : [ "Estimation Version Resource" ]
+      },
+      "post" : {
+        "parameters" : [ {
+          "name" : "estimationId",
+          "in" : "path",
+          "required" : true,
+          "schema" : {
+            "$ref" : "#/components/schemas/UUID"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "application/json" : {
+                "schema" : { }
+              }
+            }
+          }
+        },
+        "summary" : "Create Version",
+        "tags" : [ "Estimation Version Resource" ]
+      }
+    },
+    "/api/estimations/{estimationId}/versions/import" : {
+      "post" : {
+        "parameters" : [ {
+          "name" : "estimationId",
+          "in" : "path",
+          "required" : true,
+          "schema" : {
+            "$ref" : "#/components/schemas/UUID"
+          }
+        } ],
+        "requestBody" : {
+          "content" : {
+            "multipart/form-data" : {
+              "schema" : {
+                "type" : "object",
+                "required" : [ "file" ],
+                "properties" : {
+                  "file" : {
+                    "type" : "string",
+                    "format" : "binary"
+                  }
+                }
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "application/json" : {
+                "schema" : { }
+              }
+            }
+          }
+        },
+        "summary" : "Import From Excel",
+        "tags" : [ "Estimation Version Resource" ]
+      }
+    },
+    "/api/estimations/{estimationId}/versions/{versionA}/compare/{versionB}" : {
+      "get" : {
+        "parameters" : [ {
+          "name" : "estimationId",
+          "in" : "path",
+          "required" : true,
+          "schema" : {
+            "$ref" : "#/components/schemas/UUID"
+          }
+        }, {
+          "name" : "versionA",
+          "in" : "path",
+          "required" : true,
+          "schema" : {
+            "type" : "integer",
+            "format" : "int32"
+          }
+        }, {
+          "name" : "versionB",
+          "in" : "path",
+          "required" : true,
+          "schema" : {
+            "type" : "integer",
+            "format" : "int32"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "application/json" : {
+                "schema" : { }
+              }
+            }
+          }
+        },
+        "summary" : "Compare Versions",
+        "tags" : [ "Estimation Version Resource" ]
+      }
+    },
+    "/api/estimations/{estimationId}/versions/{versionNumber}" : {
+      "put" : {
+        "parameters" : [ {
+          "name" : "estimationId",
+          "in" : "path",
+          "required" : true,
+          "schema" : {
+            "$ref" : "#/components/schemas/UUID"
+          }
+        }, {
+          "name" : "versionNumber",
+          "in" : "path",
+          "required" : true,
+          "schema" : {
+            "type" : "integer",
+            "format" : "int32"
+          }
+        } ],
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/EstimationVersionUpdateDto"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "application/json" : {
+                "schema" : { }
+              }
+            }
+          },
+          "400" : {
+            "description" : "Bad Request"
+          }
+        },
+        "summary" : "Update Version",
+        "tags" : [ "Estimation Version Resource" ]
+      },
+      "get" : {
+        "parameters" : [ {
+          "name" : "estimationId",
+          "in" : "path",
+          "required" : true,
+          "schema" : {
+            "$ref" : "#/components/schemas/UUID"
+          }
+        }, {
+          "name" : "versionNumber",
+          "in" : "path",
+          "required" : true,
+          "schema" : {
+            "type" : "integer",
+            "format" : "int32"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "application/json" : {
+                "schema" : { }
+              }
+            }
+          }
+        },
+        "summary" : "Get Version",
+        "tags" : [ "Estimation Version Resource" ]
+      },
+      "delete" : {
+        "parameters" : [ {
+          "name" : "estimationId",
+          "in" : "path",
+          "required" : true,
+          "schema" : {
+            "$ref" : "#/components/schemas/UUID"
+          }
+        }, {
+          "name" : "versionNumber",
+          "in" : "path",
+          "required" : true,
+          "schema" : {
+            "type" : "integer",
+            "format" : "int32"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "application/json" : {
+                "schema" : { }
+              }
+            }
+          }
+        },
+        "summary" : "Delete Version",
+        "tags" : [ "Estimation Version Resource" ]
+      }
+    },
+    "/api/estimations/{estimationId}/versions/{versionNumber}/export" : {
+      "get" : {
+        "parameters" : [ {
+          "name" : "estimationId",
+          "in" : "path",
+          "required" : true,
+          "schema" : {
+            "$ref" : "#/components/schemas/UUID"
+          }
+        }, {
+          "name" : "versionNumber",
+          "in" : "path",
+          "required" : true,
+          "schema" : {
+            "type" : "integer",
+            "format" : "int32"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" : { }
+            }
+          }
+        },
+        "summary" : "Export Version",
+        "tags" : [ "Estimation Version Resource" ]
+      }
+    },
+    "/api/estimations/{estimationId}/versions/{versionNumber}/submit" : {
+      "post" : {
+        "parameters" : [ {
+          "name" : "estimationId",
+          "in" : "path",
+          "required" : true,
+          "schema" : {
+            "$ref" : "#/components/schemas/UUID"
+          }
+        }, {
+          "name" : "versionNumber",
+          "in" : "path",
+          "required" : true,
+          "schema" : {
+            "type" : "integer",
+            "format" : "int32"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "application/json" : {
+                "schema" : { }
+              }
+            }
+          }
+        },
+        "summary" : "Submit Version",
+        "tags" : [ "Estimation Version Resource" ]
+      }
+    }
+  },
+  "info" : {
+    "title" : "TheEstimator API",
+    "version" : "1.0.0-SNAPSHOT"
+  },
+  "servers" : [ {
+    "url" : "http://localhost:8080",
+    "description" : "Auto generated value"
+  }, {
+    "url" : "http://0.0.0.0:8080",
+    "description" : "Auto generated value"
+  } ]
+}
