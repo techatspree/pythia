@@ -17,13 +17,8 @@ abstract class EstimationItem(
     var phase: ProjectPhase? = null
     var group: EstimationItemGroup? = null
 
-    // Calculation parameters (set by EstimationVersion.calculate())
-    var riskFactor: Double = 0.0
-    var totalDriverFactor: Double = 0.0
-    var dailyRate: Double = 0.0
-    var salesSurcharge: Double = 0.0
+    var calculationParameters: CalculationParameters = CalculationParameters()
 
-    // Derived fields — automatically computed from min/expected/max and calculation parameters
     val mean: Double
         get() = PertCalculation.mean(minEffort ?: 0.0, expectedEffort ?: 0.0, maxEffort ?: 0.0)
 
@@ -31,17 +26,17 @@ abstract class EstimationItem(
         get() = PertCalculation.variance(minEffort ?: 0.0, maxEffort ?: 0.0)
 
     val riskSurcharge: Double
-        get() = mean * riskFactor
+        get() = mean * calculationParameters.riskFactor
 
     val driverSurcharge: Double
-        get() = mean * totalDriverFactor
+        get() = mean * calculationParameters.totalDriverFactor
 
     val offerPT: Double
         get() = mean + riskSurcharge + driverSurcharge
 
     val cost: Double
-        get() = offerPT * dailyRate
+        get() = offerPT * calculationParameters.dailyRate
 
     val offerPrice: Double
-        get() = cost * (1 + salesSurcharge)
+        get() = cost * (1 + calculationParameters.salesSurcharge)
 }

@@ -35,12 +35,8 @@ class EstimationVersion(
         val totalMean = allItems.sumOf { it.mean }
         val riskFactor = PertCalculation.riskFactor(totalMean, totalVariance, stdDevFactor)
 
-        allItems.forEach { item ->
-            item.riskFactor = riskFactor
-            item.totalDriverFactor = totalDriverFactor
-            item.dailyRate = dailyRate
-            item.salesSurcharge = salesSurcharge
-        }
+        val params = CalculationParameters(riskFactor, totalDriverFactor, dailyRate, salesSurcharge)
+        allItems.forEach { it.calculationParameters = params }
 
         totalEffort = allItems.sumOf { it.offerPT }
     }
