@@ -69,10 +69,10 @@
       "notes": "5 Panache repositories, 4 services (ProjectService, EstimationService, EstimationVersionService, AuditLogService). Deep-clone versioning, submit workflow, ensureDraft guard. 14 new unit tests, 31 total pass."
     },
     "task-012": {
-      "status": "pending",
-      "started_at": null,
-      "completed_at": null,
-      "notes": ""
+      "status": "done",
+      "started_at": "2026-05-05T10:30:00+02:00",
+      "completed_at": "2026-05-05T10:38:00+02:00",
+      "notes": "PostgreSQL Testcontainers via Dev Services for %test profile. Flyway + Hibernate validate tested. 3 IT classes (RepositoryIT, ProjectServiceIT, EstimationVersionServiceIT). 52 total tests pass (31 unit + 21 integration)."
     },
     "task-013": {
       "status": "pending",

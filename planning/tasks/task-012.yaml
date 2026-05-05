@@ -1,16 +1,60 @@
 id: task-012
 phase: phase-3
-title: Set up integration tests with Testcontainers
-depends_on: [task-011]
+title: Set up integration tests with Testcontainers (PostgreSQL)
+depends_on: [task-011, task-010]
 description: |
-  Configure Testcontainers for Postgres so integration tests run against
-  a real database. Add tests covering the version state machine.
+  Configure @QuarkusTest integration tests that run against a real PostgreSQL database
+  via Quarkus Dev Services (Testcontainers). These tests verify the full stack:
+  service → repository → database, including Flyway migrations.
+
+  Current state:
+    - Unit tests (EstimationCalculatorTest, EstimationVersionServiceTest, ExcelImporterTest) run
+      without Quarkus container, using mocks or in-memory data
+    - Test profile uses H2 with drop-and-create and flyway disabled
+    - No @QuarkusTest integration tests exist yet
+
+  Approach:
+    - Create a separate test profile "integration-test" (or reuse %test with PostgreSQL)
+      that enables Dev Services for PostgreSQL + Flyway migrate-at-start
+    - Alternatively: use @TestProfile annotation on integration test classes to activate
+      a PostgreSQL profile while keeping the default %test profile on H2 for fast unit tests
+    - Best option: use Quarkus @QuarkusTestResource or just %test with Dev Services
+      since Quarkus automatically starts a PostgreSQL Testcontainer when devservices.enabled=true
+      and db-kind=postgresql
+
+  Configuration change:
+    - Switch %test profile to PostgreSQL + Dev Services + Flyway + validate
+    - This ensures the Flyway migration (V1__initial_schema.sql) is tested
+    - Existing plain unit tests (no @QuarkusTest) are unaffected — they don't start the container
+
+  Integration tests to write:
+    - ProjectServiceIT: create project, find by status, archive/activate
+    - EstimationVersionServiceIT: full lifecycle — create estimation, import from Excel,
+      createNewVersion (deep-clone), submit, verify status transitions, reject edit on SUBMITTED
+    - RepositoryIT: basic CRUD on EstimationVersionRepository, verify findLatestByEstimationId
+
+  Test naming: *IT.kt suffix (convention for integration tests, run by failsafe or surefire)
+  Since Quarkus runs both surefire tests together, we use *IT.kt to clearly separate them
+  but they all run in the same `mvn test` phase.
+
 steps:
-  - add quarkus-test-h2 for the OR testcontainers-postgresql to pom.xml (prefer testcontainers)
-  - configure %test.quarkus.datasource.devservices.enabled=true (Quarkus Dev Services)
-  - write @QuarkusTest classes for service-layer behavior
-  - add a CI-friendly test profile
+  - change %test profile to use PostgreSQL + Dev Services (devservices.enabled=true)
+  - set %test.quarkus.flyway.migrate-at-start=true and %test.quarkus.hibernate-orm.database.generation=validate
+  - remove H2 test configuration
+  - add quarkus-junit5 is already present (verify)
+  - write ProjectServiceIT (@QuarkusTest, @Transactional) testing CRUD + status changes
+  - write EstimationVersionServiceIT (@QuarkusTest, @Transactional) testing full version lifecycle
+  - write RepositoryIT (@QuarkusTest, @Transactional) testing repository finders
+  - ensure all existing unit tests still pass (they don't use @QuarkusTest, no container needed)
+  - run `mvn test` and verify all tests green
+  - run `mvn clean install` from top-level and verify everything passes
 validation:
-  - "./mvnw verify" runs all integration tests green
+  - `mvn test` from src/backend/implementation runs all unit tests + integration tests green
+  - integration tests start a PostgreSQL Testcontainer, run Flyway, validate schema
+  - EstimationVersionServiceIT covers: create, clone, submit, reject-edit lifecycle
+  - existing unit tests (EstimationCalculatorTest, ExcelImporterTest, EstimationVersionServiceTest) still pass
+  - `mvn clean install` from project root passes
 outputs:
-  - backend/src/test/java/com/company/estimation/**/*.java
+  - src/backend/implementation/src/test/kotlin/io/github/theestimator/service/ProjectServiceIT.kt
+  - src/backend/implementation/src/test/kotlin/io/github/theestimator/service/EstimationVersionServiceIT.kt
+  - src/backend/implementation/src/test/kotlin/io/github/theestimator/repository/RepositoryIT.kt
