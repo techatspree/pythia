@@ -1,6 +1,7 @@
 package io.github.theestimator.service
 
 import io.github.theestimator.domain.*
+import io.github.theestimator.model.PertCalculation
 import org.junit.jupiter.api.Assertions.*
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
@@ -16,19 +17,19 @@ class EstimationCalculatorTest {
 
     @Test
     fun `PERT mean calculates correctly`() {
-        val mean = calculator.pertMean(1.0, 2.0, 3.0)
+        val mean = PertCalculation.mean(1.0, 2.0, 3.0)
         assertEquals(2.0, mean, 0.0001)
     }
 
     @Test
     fun `PERT mean with skewed values`() {
-        val mean = calculator.pertMean(1.0, 3.0, 5.0)
+        val mean = PertCalculation.mean(1.0, 3.0, 5.0)
         assertEquals(3.0, mean, 0.0001)
     }
 
     @Test
     fun `PERT variance calculates correctly`() {
-        val variance = calculator.pertVariance(1.0, 3.0)
+        val variance = PertCalculation.variance(1.0, 3.0)
         assertEquals(0.1111, variance, 0.001)
     }
 

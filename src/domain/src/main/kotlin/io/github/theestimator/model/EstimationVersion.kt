@@ -19,4 +19,26 @@ class EstimationVersion(
     var phases: MutableList<ProjectPhase> = mutableListOf()
     var additionalCosts: MutableList<AdditionalCost> = mutableListOf()
     var itemGroups: MutableList<EstimationItemGroup> = mutableListOf()
+
+    fun parameterValue(name: String): Double? =
+        parameters.find { it.name == name }?.value
+
+    fun calculate() {
+        val stdDevFactor = parameterValue("Standardabweichungsfaktor") ?: 2.0
+        val dailyRate = parameterValue("Tagessatz") ?: 800.0
+        val salesSurcharge = parameterValue("Vertriebszuschlag") ?: 0.1
+        val totalDriverFactor = effortDrivers.sumOf { it.factor }
+
+        val allItems = itemGroups.flatMap { it.items }
+
+        allItems.forEach { it.calculateMeanAndVariance() }
+
+        val totalVariance = allItems.sumOf { it.variance ?: 0.0 }
+        val totalMean = allItems.sumOf { it.mean ?: 0.0 }
+        val riskFactor = PertCalculation.riskFactor(totalMean, totalVariance, stdDevFactor)
+
+        allItems.forEach { it.calculateDerived(riskFactor, totalDriverFactor, dailyRate, salesSurcharge) }
+
+        totalEffort = allItems.sumOf { it.offerPT ?: 0.0 }
+    }
 }
