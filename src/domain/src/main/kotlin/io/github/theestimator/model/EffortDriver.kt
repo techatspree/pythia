@@ -4,12 +4,11 @@ import java.time.Instant
 import java.util.UUID
 
 @DomainEntity
-class EffortDriver(
-    id: UUID? = null,
-    createdAt: Instant? = null
-) : BaseDomain(id, createdAt) {
-    var description: String? = null
-    var factor: Double = 0.0
-    var comment: String? = null
-    var version: EstimationVersion? = null
-}
+data class EffortDriver(
+    val description: String? = null,
+    val factor: Double = 0.0,
+    val comment: String? = null,
+    private val _id: UUID? = null,
+    private val _createdAt: Instant? = null,
+    private val _updatedAt: Instant? = null
+) : BaseDomain(_id, _createdAt, _updatedAt)

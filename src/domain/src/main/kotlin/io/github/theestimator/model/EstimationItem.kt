@@ -4,20 +4,19 @@ import java.time.Instant
 import java.util.UUID
 
 @DomainEntity
-abstract class EstimationItem(
+sealed class EstimationItem(
+    val description: String? = null,
+    val code: String? = null,
+    val minEffort: Double? = null,
+    val expectedEffort: Double? = null,
+    val maxEffort: Double? = null,
+    val assumptions: String? = null,
+    val phase: ProjectPhase? = null,
+    val calculationParameters: CalculationParameters = CalculationParameters(),
     id: UUID? = null,
-    createdAt: Instant? = null
-) : BaseDomain(id, createdAt) {
-    var description: String? = null
-    var code: String? = null
-    var minEffort: Double? = null
-    var expectedEffort: Double? = null
-    var maxEffort: Double? = null
-    var assumptions: String? = null
-    var phase: ProjectPhase? = null
-    var group: EstimationItemGroup? = null
-
-    var calculationParameters: CalculationParameters = CalculationParameters()
+    createdAt: Instant? = null,
+    updatedAt: Instant? = null
+) : BaseDomain(id, createdAt, updatedAt) {
 
     val mean: Double
         get() = PertCalculation.mean(minEffort ?: 0.0, expectedEffort ?: 0.0, maxEffort ?: 0.0)
@@ -39,4 +38,6 @@ abstract class EstimationItem(
 
     val offerPrice: Double
         get() = cost * (1 + calculationParameters.salesSurcharge)
+
+    abstract fun withCalculationParameters(params: CalculationParameters): EstimationItem
 }

@@ -4,26 +4,26 @@ import java.time.Instant
 import java.util.UUID
 
 @DomainEntity
-class EstimationVersion(
-    id: UUID? = null,
-    createdAt: Instant? = null
-) : BaseDomain(id, createdAt) {
-    var versionNumber: Int? = null
-    var status: EstimationVersionStatus = EstimationVersionStatus.DRAFT
-    var createdBy: User? = null
-    var totalEffort: Double? = null
-    var notes: String? = null
-    var estimation: Estimation? = null
-    var parameters: MutableList<EstimationParameter> = mutableListOf()
-    var effortDrivers: MutableList<EffortDriver> = mutableListOf()
-    var phases: MutableList<ProjectPhase> = mutableListOf()
-    var additionalCosts: MutableList<AdditionalCost> = mutableListOf()
-    var itemGroups: MutableList<EstimationItemGroup> = mutableListOf()
+data class EstimationVersion(
+    val versionNumber: Int? = null,
+    val status: EstimationVersionStatus = EstimationVersionStatus.DRAFT,
+    val createdBy: User? = null,
+    val totalEffort: Double? = null,
+    val notes: String? = null,
+    val parameters: List<EstimationParameter> = emptyList(),
+    val effortDrivers: List<EffortDriver> = emptyList(),
+    val phases: List<ProjectPhase> = emptyList(),
+    val additionalCosts: List<AdditionalCost> = emptyList(),
+    val itemGroups: List<EstimationItemGroup> = emptyList(),
+    private val _id: UUID? = null,
+    private val _createdAt: Instant? = null,
+    private val _updatedAt: Instant? = null
+) : BaseDomain(_id, _createdAt, _updatedAt) {
 
     fun parameterValue(name: String): Double? =
         parameters.find { it.name == name }?.value
 
-    fun calculate() {
+    fun calculate(): EstimationVersion {
         val stdDevFactor = parameterValue("Standardabweichungsfaktor") ?: 2.0
         val dailyRate = parameterValue("Tagessatz") ?: 800.0
         val salesSurcharge = parameterValue("Vertriebszuschlag") ?: 0.1
@@ -36,8 +36,13 @@ class EstimationVersion(
         val riskFactor = PertCalculation.riskFactor(totalMean, totalVariance, stdDevFactor)
 
         val params = CalculationParameters(riskFactor, totalDriverFactor, dailyRate, salesSurcharge)
-        allItems.forEach { it.calculationParameters = params }
 
-        totalEffort = allItems.sumOf { it.offerPT }
+        val newGroups = itemGroups.map { group ->
+            group.copy(items = group.items.map { it.withCalculationParameters(params) })
+        }
+
+        val newTotalEffort = newGroups.flatMap { it.items }.sumOf { it.offerPT }
+
+        return copy(itemGroups = newGroups, totalEffort = newTotalEffort)
     }
 }

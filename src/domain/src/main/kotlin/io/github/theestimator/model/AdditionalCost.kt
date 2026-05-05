@@ -4,14 +4,13 @@ import java.time.Instant
 import java.util.UUID
 
 @DomainEntity
-class AdditionalCost(
-    id: UUID? = null,
-    createdAt: Instant? = null
-) : BaseDomain(id, createdAt) {
-    var description: String? = null
-    var amount: Double = 0.0
-    var type: AdditionalCostType = AdditionalCostType.ONE_TIME
-    var amountPerWeek: Double? = null
-    var phase: ProjectPhase? = null
-    var version: EstimationVersion? = null
-}
+data class AdditionalCost(
+    val description: String? = null,
+    val amount: Double = 0.0,
+    val type: AdditionalCostType = AdditionalCostType.ONE_TIME,
+    val amountPerWeek: Double? = null,
+    val phase: ProjectPhase? = null,
+    private val _id: UUID? = null,
+    private val _createdAt: Instant? = null,
+    private val _updatedAt: Instant? = null
+) : BaseDomain(_id, _createdAt, _updatedAt)

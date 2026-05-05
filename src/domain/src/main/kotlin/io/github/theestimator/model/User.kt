@@ -4,10 +4,10 @@ import java.time.Instant
 import java.util.UUID
 
 @DomainEntity
-class User(
-    id: UUID? = null,
-    createdAt: Instant? = null
-) : BaseDomain(id, createdAt) {
-    var entraSubjectId: String? = null
-    var displayName: String? = null
-}
+data class User(
+    val entraSubjectId: String? = null,
+    val displayName: String? = null,
+    private val _id: UUID? = null,
+    private val _createdAt: Instant? = null,
+    private val _updatedAt: Instant? = null
+) : BaseDomain(_id, _createdAt, _updatedAt)

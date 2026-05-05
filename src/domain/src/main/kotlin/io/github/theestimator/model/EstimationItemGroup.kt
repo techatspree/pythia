@@ -4,12 +4,11 @@ import java.time.Instant
 import java.util.UUID
 
 @DomainEntity
-class EstimationItemGroup(
-    id: UUID? = null,
-    createdAt: Instant? = null
-) : BaseDomain(id, createdAt) {
-    var title: String? = null
-    var phase: ProjectPhase? = null
-    var version: EstimationVersion? = null
-    var items: MutableList<EstimationItem> = mutableListOf()
-}
+data class EstimationItemGroup(
+    val title: String? = null,
+    val phase: ProjectPhase? = null,
+    val items: List<EstimationItem> = emptyList(),
+    private val _id: UUID? = null,
+    private val _createdAt: Instant? = null,
+    private val _updatedAt: Instant? = null
+) : BaseDomain(_id, _createdAt, _updatedAt)

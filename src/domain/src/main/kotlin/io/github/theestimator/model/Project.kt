@@ -4,14 +4,13 @@ import java.time.Instant
 import java.util.UUID
 
 @DomainEntity
-class Project(
-    id: UUID? = null,
-    createdAt: Instant? = null
-) : BaseDomain(id, createdAt) {
-    var name: String? = null
-    var description: String? = null
-    var client: String? = null
-    var status: ProjectStatus = ProjectStatus.ACTIVE
-    var owner: User? = null
-    var estimations: MutableList<Estimation> = mutableListOf()
-}
+data class Project(
+    val name: String? = null,
+    val description: String? = null,
+    val client: String? = null,
+    val status: ProjectStatus = ProjectStatus.ACTIVE,
+    val owner: User? = null,
+    private val _id: UUID? = null,
+    private val _createdAt: Instant? = null,
+    private val _updatedAt: Instant? = null
+) : BaseDomain(_id, _createdAt, _updatedAt)

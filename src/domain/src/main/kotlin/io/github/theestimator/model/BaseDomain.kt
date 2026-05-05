@@ -5,7 +5,7 @@ import java.util.UUID
 
 @DomainEntity
 abstract class BaseDomain(
-    var id: UUID?,
-    var createdAt: Instant?,
-    var updatedAt: Instant? = null
+    val id: UUID? = null,
+    val createdAt: Instant? = null,
+    val updatedAt: Instant? = null
 )

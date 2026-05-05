@@ -5,9 +5,8 @@ import kotlin.math.sqrt
 
 open class EstimationCalculator {
 
-    fun calculate(version: EstimationVersion) {
+    fun calculate(version: EstimationVersion): EstimationVersion =
         version.calculate()
-    }
 
     fun validateInvariants(version: EstimationVersion): List<InvariantResult> {
         val results = mutableListOf<InvariantResult>()

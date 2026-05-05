@@ -4,12 +4,11 @@ import java.time.Instant
 import java.util.UUID
 
 @DomainEntity
-class ProjectPhase(
-    id: UUID? = null,
-    createdAt: Instant? = null
-) : BaseDomain(id, createdAt) {
-    var name: String? = null
-    var abbreviation: String? = null
-    var durationWeeks: Double? = null
-    var version: EstimationVersion? = null
-}
+data class ProjectPhase(
+    val name: String? = null,
+    val abbreviation: String? = null,
+    val durationWeeks: Double? = null,
+    private val _id: UUID? = null,
+    private val _createdAt: Instant? = null,
+    private val _updatedAt: Instant? = null
+) : BaseDomain(_id, _createdAt, _updatedAt)

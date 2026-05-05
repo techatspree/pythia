@@ -4,12 +4,11 @@ import java.time.Instant
 import java.util.UUID
 
 @DomainEntity
-class EstimationParameter(
-    id: UUID? = null,
-    createdAt: Instant? = null
-) : BaseDomain(id, createdAt) {
-    var name: String? = null
-    var value: Double = 0.0
-    var comment: String? = null
-    var version: EstimationVersion? = null
-}
+data class EstimationParameter(
+    val name: String? = null,
+    val value: Double = 0.0,
+    val comment: String? = null,
+    private val _id: UUID? = null,
+    private val _createdAt: Instant? = null,
+    private val _updatedAt: Instant? = null
+) : BaseDomain(_id, _createdAt, _updatedAt)

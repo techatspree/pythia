@@ -4,12 +4,12 @@ import java.time.Instant
 import java.util.UUID
 
 @DomainEntity
-class AuditLog {
-    var id: UUID? = null
-    var userId: UUID? = null
-    var entityType: String? = null
-    var entityId: UUID? = null
-    var action: String? = null
-    var payload: String? = null
-    var createdAt: Instant? = null
-}
+data class AuditLog(
+    val id: UUID? = null,
+    val userId: UUID? = null,
+    val entityType: String? = null,
+    val entityId: UUID? = null,
+    val action: String? = null,
+    val payload: String? = null,
+    val createdAt: Instant? = null
+)
