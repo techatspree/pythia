@@ -1,23 +1,33 @@
 package io.github.theestimator.rest.dto
 
-import io.github.theestimator.domain.*
+import io.github.theestimator.domain.draft.*
+import io.github.theestimator.domain.submitted.*
+import io.github.theestimator.service.CalculatedItem
+import io.github.theestimator.service.CalculationResult
 
-fun EstimationVersion.toSummaryDto() = EstimationVersionSummaryDto(
-    id = id,
+fun SubmittedEstimationVersion.toSummaryDto() = EstimationVersionSummaryDto(
     versionNumber = versionNumber,
-    status = status,
+    isDraft = false,
     totalEffort = totalEffort,
     notes = notes,
     createdAt = createdAt
 )
 
-fun EstimationVersion.toDto() = EstimationVersionDto(
-    id = id,
+fun DraftEstimationVersion.toSummaryDto(totalEffort: Double?) = EstimationVersionSummaryDto(
     versionNumber = versionNumber,
-    status = status,
+    isDraft = true,
+    totalEffort = totalEffort,
+    notes = notes,
+    createdAt = createdAt
+)
+
+fun SubmittedEstimationVersion.toDto() = EstimationVersionDto(
+    versionNumber = versionNumber,
+    isDraft = false,
     totalEffort = totalEffort,
     notes = notes,
     createdAt = createdAt,
+    submittedAt = submittedAt,
     parameters = parameters.map { it.toDto() },
     effortDrivers = effortDrivers.map { it.toDto() },
     phases = phases.map { it.toDto() },
@@ -25,38 +35,114 @@ fun EstimationVersion.toDto() = EstimationVersionDto(
     additionalCosts = additionalCosts.map { it.toDto() }
 )
 
-fun EstimationParameter.toDto() = EstimationParameterDto(
+fun DraftEstimationVersion.toDto(result: CalculationResult) = EstimationVersionDto(
+    versionNumber = versionNumber,
+    isDraft = true,
+    totalEffort = result.totalEffort,
+    notes = notes,
+    createdAt = createdAt,
+    submittedAt = null,
+    parameters = parameters.map { it.toDto() },
+    effortDrivers = effortDrivers.map { it.toDto() },
+    phases = phases.map { it.toDto() },
+    itemGroups = itemGroups.map { it.toDtoWithCalc(result) },
+    additionalCosts = additionalCosts.map { it.toDto() }
+)
+
+fun DraftEstimationParameter.toDto() = EstimationParameterDto(
     id = id,
     name = name,
     value = value,
     comment = comment
 )
 
-fun EffortDriver.toDto() = EffortDriverDto(
+fun DraftEffortDriver.toDto() = EffortDriverDto(
     id = id,
     description = description,
     factor = factor,
     comment = comment
 )
 
-fun ProjectPhase.toDto() = ProjectPhaseDto(
+fun DraftProjectPhase.toDto() = ProjectPhaseDto(
     id = id,
     name = name,
     abbreviation = abbreviation,
     durationWeeks = durationWeeks
 )
 
-fun EstimationItemGroup.toDto() = EstimationItemGroupDto(
+fun DraftEstimationItemGroup.toDtoWithCalc(result: CalculationResult): EstimationItemGroupDto {
+    val itemResultMap = result.items.associateBy { it.item.id }
+    return EstimationItemGroupDto(
+        logicalId = logicalId,
+        title = title,
+        phaseAbbreviation = phase?.abbreviation,
+        items = items.map { it.toDto(itemResultMap[it.id]) }
+    )
+}
+
+fun DraftEstimationItem.toDto(calc: CalculatedItem?): EstimationItemDto = EstimationItemDto(
+    logicalId = logicalId,
+    type = when (this) {
+        is DraftTimeRelativeEstimationItem -> "TIME_RELATIVE"
+        else -> "FIXED"
+    },
+    description = description,
+    code = code,
+    minEffort = minEffort ?: 0.0,
+    expectedEffort = expectedEffort ?: 0.0,
+    maxEffort = maxEffort ?: 0.0,
+    assumptions = assumptions,
+    mean = calc?.mean ?: 0.0,
+    variance = calc?.variance ?: 0.0,
+    riskSurcharge = calc?.riskSurcharge ?: 0.0,
+    driverSurcharge = calc?.driverSurcharge ?: 0.0,
+    offerPT = calc?.offerPT ?: 0.0,
+    cost = calc?.cost ?: 0.0,
+    offerPrice = calc?.offerPrice ?: 0.0,
+    unit = if (this is DraftTimeRelativeEstimationItem) unit else null
+)
+
+fun DraftAdditionalCost.toDto() = AdditionalCostDto(
     id = id,
+    description = description,
+    amount = amount,
+    type = type,
+    amountPerWeek = amountPerWeek,
+    phaseAbbreviation = phase?.abbreviation
+)
+
+fun SubmittedEstimationParameter.toDto() = EstimationParameterDto(
+    id = id,
+    name = name,
+    value = value,
+    comment = comment
+)
+
+fun SubmittedEffortDriver.toDto() = EffortDriverDto(
+    id = id,
+    description = description,
+    factor = factor,
+    comment = comment
+)
+
+fun SubmittedProjectPhase.toDto() = ProjectPhaseDto(
+    id = id,
+    name = name,
+    abbreviation = abbreviation,
+    durationWeeks = durationWeeks
+)
+
+fun SubmittedEstimationItemGroup.toDto() = EstimationItemGroupDto(
+    logicalId = logicalId,
     title = title,
-    phaseAbbreviation = phase?.abbreviation,
+    phaseAbbreviation = phaseAbbreviation,
     items = items.map { it.toDto() }
 )
 
-fun EstimationItem.toDto() = EstimationItemDto(
-    id = id,
+fun SubmittedEstimationItem.toDto() = EstimationItemDto(
+    logicalId = logicalId,
     type = when (this) {
-        is TimeRelativeEstimationItem -> "TIME_RELATIVE"
+        is SubmittedTimeRelativeEstimationItem -> "TIME_RELATIVE"
         else -> "FIXED"
     },
     description = description,
@@ -72,14 +158,14 @@ fun EstimationItem.toDto() = EstimationItemDto(
     offerPT = offerPT,
     cost = cost,
     offerPrice = offerPrice,
-    unit = if (this is TimeRelativeEstimationItem) unit else null
+    unit = if (this is SubmittedTimeRelativeEstimationItem) unit else null
 )
 
-fun AdditionalCost.toDto() = AdditionalCostDto(
+fun SubmittedAdditionalCost.toDto() = AdditionalCostDto(
     id = id,
     description = description,
     amount = amount,
     type = type,
     amountPerWeek = amountPerWeek,
-    phaseAbbreviation = phase?.abbreviation
+    phaseAbbreviation = phaseAbbreviation
 )

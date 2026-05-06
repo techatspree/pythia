@@ -1,5 +1,7 @@
 package io.github.theestimator.domain
 
+import io.github.theestimator.domain.draft.DraftEstimationVersion
+import io.github.theestimator.domain.submitted.SubmittedEstimationVersion
 import jakarta.persistence.*
 import jakarta.validation.constraints.NotBlank
 
@@ -19,8 +21,11 @@ class Estimation : BaseEntity() {
 
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "current_version_id")
-    var currentVersion: EstimationVersion? = null
+    var currentVersion: SubmittedEstimationVersion? = null
+
+    @OneToOne(mappedBy = "estimation", cascade = [CascadeType.ALL], orphanRemoval = true, fetch = FetchType.LAZY)
+    var draftVersion: DraftEstimationVersion? = null
 
     @OneToMany(mappedBy = "estimation", cascade = [CascadeType.ALL], orphanRemoval = true)
-    var versions: MutableList<EstimationVersion> = mutableListOf()
+    var submittedVersions: MutableList<SubmittedEstimationVersion> = mutableListOf()
 }

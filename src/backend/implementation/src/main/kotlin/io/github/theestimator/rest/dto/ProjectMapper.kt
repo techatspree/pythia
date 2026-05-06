@@ -27,7 +27,8 @@ fun Estimation.toSummaryDto() = EstimationSummaryDto(
     offer = offer,
     description = description,
     currentVersionNumber = currentVersion?.versionNumber,
-    versionCount = versions.size,
+    versionCount = submittedVersions.size + (if (draftVersion != null) 1 else 0),
+    hasDraft = draftVersion != null,
     createdAt = createdAt
 )
 
@@ -38,6 +39,9 @@ fun Estimation.toEstimationDetailDto() = EstimationDetailDto(
     projectId = project?.id,
     projectName = project?.name,
     currentVersionNumber = currentVersion?.versionNumber,
+    hasDraft = draftVersion != null,
     createdAt = createdAt,
-    versions = versions.sortedByDescending { it.versionNumber }.map { it.toSummaryDto() }
+    versions = submittedVersions
+        .sortedByDescending { it.versionNumber }
+        .map { it.toSummaryDto() }
 )

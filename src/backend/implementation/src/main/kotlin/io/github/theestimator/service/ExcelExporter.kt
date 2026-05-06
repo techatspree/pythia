@@ -1,6 +1,7 @@
 package io.github.theestimator.service
 
-import io.github.theestimator.domain.*
+import io.github.theestimator.domain.AdditionalCostType
+import io.github.theestimator.domain.submitted.*
 import jakarta.enterprise.context.ApplicationScoped
 import org.apache.poi.xssf.usermodel.XSSFWorkbook
 import java.io.OutputStream
@@ -8,7 +9,7 @@ import java.io.OutputStream
 @ApplicationScoped
 class ExcelExporter {
 
-    fun export(version: EstimationVersion, output: OutputStream) {
+    fun export(version: SubmittedEstimationVersion, output: OutputStream) {
         val workbook = XSSFWorkbook()
 
         writeProjectStructurePlan(workbook, version)
@@ -21,7 +22,7 @@ class ExcelExporter {
         workbook.close()
     }
 
-    private fun writeProjectStructurePlan(workbook: XSSFWorkbook, version: EstimationVersion) {
+    private fun writeProjectStructurePlan(workbook: XSSFWorkbook, version: SubmittedEstimationVersion) {
         val sheet = workbook.createSheet("Projektstrukturplan")
 
         val headerRow = sheet.createRow(0)
@@ -36,39 +37,39 @@ class ExcelExporter {
 
         var rowIdx = 1
         val fixedGroups = version.itemGroups.filter { group ->
-            group.items.none { it is TimeRelativeEstimationItem }
+            group.items.none { it is SubmittedTimeRelativeEstimationItem }
         }
         val timeRelativeGroups = version.itemGroups.filter { group ->
-            group.items.any { it is TimeRelativeEstimationItem }
+            group.items.any { it is SubmittedTimeRelativeEstimationItem }
         }
 
         for (group in fixedGroups) {
             val groupRow = sheet.createRow(rowIdx++)
             groupRow.createCell(0).setCellValue(group.title)
-            val groupMean = group.items.sumOf { it.mean ?: 0.0 }
-            val groupVariance = group.items.sumOf { it.variance ?: 0.0 }
-            val groupOfferPT = group.items.sumOf { it.offerPT ?: 0.0 }
+            val groupMean = group.items.sumOf { it.mean }
+            val groupVariance = group.items.sumOf { it.variance }
+            val groupOfferPT = group.items.sumOf { it.offerPT }
             groupRow.createCell(5).setCellValue(groupMean)
             groupRow.createCell(7).setCellValue(groupVariance)
             groupRow.createCell(11).setCellValue(groupOfferPT)
-            group.phase?.abbreviation?.let { groupRow.createCell(14).setCellValue(it) }
+            group.phaseAbbreviation?.let { groupRow.createCell(14).setCellValue(it) }
 
             for (item in group.items) {
                 val itemRow = sheet.createRow(rowIdx++)
                 itemRow.createCell(0).setCellValue(item.description)
-                item.minEffort?.let { itemRow.createCell(1).setCellValue(it) }
-                item.expectedEffort?.let { itemRow.createCell(2).setCellValue(it) }
-                item.maxEffort?.let { itemRow.createCell(3).setCellValue(it) }
-                item.mean?.let { itemRow.createCell(4).setCellValue(it) }
-                item.variance?.let { itemRow.createCell(6).setCellValue(it) }
-                item.riskSurcharge?.let { itemRow.createCell(8).setCellValue(it) }
-                item.driverSurcharge?.let { itemRow.createCell(9).setCellValue(it) }
-                item.offerPT?.let { itemRow.createCell(10).setCellValue(it) }
-                item.cost?.let { itemRow.createCell(12).setCellValue(it) }
-                item.offerPrice?.let { itemRow.createCell(13).setCellValue(it) }
+                itemRow.createCell(1).setCellValue(item.minEffort)
+                itemRow.createCell(2).setCellValue(item.expectedEffort)
+                itemRow.createCell(3).setCellValue(item.maxEffort)
+                itemRow.createCell(4).setCellValue(item.mean)
+                itemRow.createCell(6).setCellValue(item.variance)
+                itemRow.createCell(8).setCellValue(item.riskSurcharge)
+                itemRow.createCell(9).setCellValue(item.driverSurcharge)
+                itemRow.createCell(10).setCellValue(item.offerPT)
+                itemRow.createCell(12).setCellValue(item.cost)
+                itemRow.createCell(13).setCellValue(item.offerPrice)
                 item.assumptions?.let { itemRow.createCell(15).setCellValue(it) }
             }
-            rowIdx++ // empty row between groups
+            rowIdx++
         }
 
         if (timeRelativeGroups.isNotEmpty()) {
@@ -83,17 +84,17 @@ class ExcelExporter {
                 for (item in group.items) {
                     val itemRow = sheet.createRow(rowIdx++)
                     itemRow.createCell(0).setCellValue(item.description)
-                    item.minEffort?.let { itemRow.createCell(1).setCellValue(it) }
-                    item.expectedEffort?.let { itemRow.createCell(2).setCellValue(it) }
-                    item.maxEffort?.let { itemRow.createCell(3).setCellValue(it) }
-                    item.mean?.let { itemRow.createCell(4).setCellValue(it) }
-                    item.variance?.let { itemRow.createCell(6).setCellValue(it) }
+                    itemRow.createCell(1).setCellValue(item.minEffort)
+                    itemRow.createCell(2).setCellValue(item.expectedEffort)
+                    itemRow.createCell(3).setCellValue(item.maxEffort)
+                    itemRow.createCell(4).setCellValue(item.mean)
+                    itemRow.createCell(6).setCellValue(item.variance)
                 }
             }
         }
     }
 
-    private fun writeAdditionalCosts(workbook: XSSFWorkbook, version: EstimationVersion) {
+    private fun writeAdditionalCosts(workbook: XSSFWorkbook, version: SubmittedEstimationVersion) {
         val sheet = workbook.createSheet("Zusatzkosten")
         var rowIdx = 0
 
@@ -110,7 +111,7 @@ class ExcelExporter {
             val row = sheet.createRow(rowIdx++)
             row.createCell(0).setCellValue(cost.description)
             row.createCell(1).setCellValue(cost.amount)
-            cost.phase?.abbreviation?.let { row.createCell(2).setCellValue(it) }
+            cost.phaseAbbreviation?.let { row.createCell(2).setCellValue(it) }
         }
 
         rowIdx++
@@ -125,21 +126,22 @@ class ExcelExporter {
             val row = sheet.createRow(rowIdx++)
             row.createCell(0).setCellValue(cost.description)
             row.createCell(1).setCellValue(cost.amountPerWeek ?: cost.amount)
-            cost.phase?.abbreviation?.let { row.createCell(2).setCellValue(it) }
-            val totalWeeks = cost.phase?.durationWeeks ?: 0.0
+            cost.phaseAbbreviation?.let { row.createCell(2).setCellValue(it) }
+            val phase = version.phases.find { it.abbreviation == cost.phaseAbbreviation }
+            val totalWeeks = phase?.durationWeeks ?: 0.0
             row.createCell(3).setCellValue((cost.amountPerWeek ?: cost.amount) * totalWeeks)
         }
     }
 
-    private fun writePhases(workbook: XSSFWorkbook, version: EstimationVersion) {
+    private fun writePhases(workbook: XSSFWorkbook, version: SubmittedEstimationVersion) {
         val sheet = workbook.createSheet("Pakete")
         val headerRow = sheet.createRow(0)
         listOf("Name", "Kürzel", "Laufzeit\nWochen", "Aufwand\nPT", "Kosten Entwicklung",
             "Zusatzkosten\neinmalig", "Zusatzkosten\nlaufend", "Angebotspreis\nmit VT-Zuschlag"
         ).forEachIndexed { idx, h -> headerRow.createCell(idx).setCellValue(h) }
 
-        val salesSurcharge = version.parameters.find { it.name == "Vertriebszuschlag" }?.value ?: 0.1
-        val dailyRate = version.parameters.find { it.name == "Tagessatz" }?.value ?: 800.0
+        val salesSurcharge = version.parameterValue("Vertriebszuschlag") ?: 0.1
+        val dailyRate = version.parameterValue("Tagessatz") ?: 800.0
 
         version.phases.forEachIndexed { idx, phase ->
             val row = sheet.createRow(idx + 1)
@@ -148,15 +150,15 @@ class ExcelExporter {
             phase.durationWeeks?.let { row.createCell(2).setCellValue(it) }
 
             val phaseItems = version.itemGroups
-                .filter { it.phase?.id == phase.id }
+                .filter { it.phaseAbbreviation == phase.abbreviation }
                 .flatMap { it.items }
-            val effortPT = phaseItems.sumOf { it.offerPT ?: 0.0 }
+            val effortPT = phaseItems.sumOf { it.offerPT }
             val devCost = effortPT * dailyRate
             val oneTimeCosts = version.additionalCosts
-                .filter { it.phase?.id == phase.id && it.type == AdditionalCostType.ONE_TIME }
+                .filter { it.phaseAbbreviation == phase.abbreviation && it.type == AdditionalCostType.ONE_TIME }
                 .sumOf { it.amount }
             val recurringCosts = version.additionalCosts
-                .filter { it.phase?.id == phase.id && it.type == AdditionalCostType.RECURRING }
+                .filter { it.phaseAbbreviation == phase.abbreviation && it.type == AdditionalCostType.RECURRING }
                 .sumOf { (it.amountPerWeek ?: it.amount) * (phase.durationWeeks ?: 0.0) }
 
             row.createCell(3).setCellValue(effortPT)
@@ -167,7 +169,7 @@ class ExcelExporter {
         }
     }
 
-    private fun writeParameters(workbook: XSSFWorkbook, version: EstimationVersion) {
+    private fun writeParameters(workbook: XSSFWorkbook, version: SubmittedEstimationVersion) {
         val sheet = workbook.createSheet("Parameter")
         val headerRow = sheet.createRow(0)
         headerRow.createCell(0).setCellValue("Name")
@@ -182,7 +184,7 @@ class ExcelExporter {
         }
     }
 
-    private fun writeEffortDrivers(workbook: XSSFWorkbook, version: EstimationVersion) {
+    private fun writeEffortDrivers(workbook: XSSFWorkbook, version: SubmittedEstimationVersion) {
         val sheet = workbook.createSheet("Aufwandstreiber")
         val headerRow = sheet.createRow(0)
         headerRow.createCell(0).setCellValue("Aufwandstreiber Beschreibung")
@@ -190,7 +192,7 @@ class ExcelExporter {
         headerRow.createCell(2).setCellValue("Zusatzaufwand")
         headerRow.createCell(3).setCellValue("Kommentar")
 
-        val totalMean = version.itemGroups.flatMap { it.items }.sumOf { it.mean ?: 0.0 }
+        val totalMean = version.itemGroups.flatMap { it.items }.sumOf { it.mean }
 
         version.effortDrivers.forEachIndexed { idx, driver ->
             val row = sheet.createRow(idx + 1)

@@ -1,21 +1,20 @@
-package io.github.theestimator.domain
+package io.github.theestimator.domain.draft
 
+import io.github.theestimator.domain.BaseEntity
 import jakarta.persistence.*
-import jakarta.validation.constraints.NotBlank
 import java.util.UUID
 
 @Entity
-@Table(name = "estimation_items")
+@Table(name = "draft_estimation_items")
 @Inheritance(strategy = InheritanceType.SINGLE_TABLE)
 @DiscriminatorColumn(name = "item_type", discriminatorType = DiscriminatorType.STRING)
-abstract class EstimationItem : BaseEntity() {
+abstract class DraftEstimationItem : BaseEntity() {
 
     @Column(name = "logical_id", nullable = false)
     var logicalId: UUID = UUID.randomUUID()
 
-    @NotBlank
     @Column(nullable = false)
-    var description: String? = null
+    var description: String = ""
 
     var code: String? = null
 
@@ -32,28 +31,9 @@ abstract class EstimationItem : BaseEntity() {
 
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "phase_id")
-    var phase: ProjectPhase? = null
+    var phase: DraftProjectPhase? = null
 
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "group_id", nullable = false)
-    var group: EstimationItemGroup? = null
-
-    // Derived/calculated fields (persisted)
-    var mean: Double? = null
-
-    var variance: Double? = null
-
-    @Column(name = "risk_surcharge")
-    var riskSurcharge: Double? = null
-
-    @Column(name = "driver_surcharge")
-    var driverSurcharge: Double? = null
-
-    @Column(name = "offer_pt")
-    var offerPT: Double? = null
-
-    var cost: Double? = null
-
-    @Column(name = "offer_price")
-    var offerPrice: Double? = null
+    var group: DraftEstimationItemGroup? = null
 }

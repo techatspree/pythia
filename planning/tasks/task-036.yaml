@@ -1,0 +1,169 @@
+id: task-036
+phase: phase-3
+title: Separate tables for draft and submitted estimation versions
+depends_on: [task-018]
+description: |
+  Split estimation versions into two separate table structures: one for the
+  editable draft and one for immutable submitted versions. The schema itself
+  enforces invariants — no status checks needed at application level:
+
+  - Draft tables: contain only user-editable input fields. No calculated
+    columns (mean, variance, risk_surcharge, etc.). At most one draft per
+    estimation exists at a time (enforced by UNIQUE constraint).
+  - Submitted tables: contain a full immutable snapshot with all calculated
+    results as NOT NULL. Rows are never updated after creation.
+
+  On read, draft versions have their calculated fields computed on-the-fly
+  by EstimationCalculator. On submit, the calculation runs, results are
+  persisted into the submitted tables, and the draft is deleted.
+
+  The current single table (estimation_versions with status column) is
+  replaced by this two-table approach.
+
+steps:
+  # 1. Database migration V3__separate_draft_submitted_tables.sql
+  - Create table draft_estimation_versions:
+      id UUID PK, version_number INT NOT NULL, notes TEXT,
+      estimation_id UUID NOT NULL UNIQUE (enforces max one draft),
+      created_at TIMESTAMP NOT NULL, updated_at TIMESTAMP
+  - Create table draft_estimation_parameters:
+      id UUID PK, name VARCHAR NOT NULL, value DOUBLE NOT NULL, comment VARCHAR,
+      version_id UUID NOT NULL FK -> draft_estimation_versions
+  - Create table draft_effort_drivers:
+      id UUID PK, description VARCHAR NOT NULL, factor DOUBLE NOT NULL, comment VARCHAR,
+      version_id UUID NOT NULL FK -> draft_estimation_versions
+  - Create table draft_project_phases:
+      id UUID PK, name VARCHAR NOT NULL, abbreviation VARCHAR NOT NULL, duration_weeks DOUBLE,
+      version_id UUID NOT NULL FK -> draft_estimation_versions
+  - Create table draft_estimation_item_groups:
+      id UUID PK, logical_id UUID NOT NULL, title VARCHAR NOT NULL,
+      phase_id UUID FK -> draft_project_phases,
+      version_id UUID NOT NULL FK -> draft_estimation_versions
+  - Create table draft_estimation_items:
+      id UUID PK, logical_id UUID NOT NULL, item_type VARCHAR NOT NULL,
+      description VARCHAR NOT NULL, code VARCHAR,
+      min_effort DOUBLE, expected_effort DOUBLE, max_effort DOUBLE,
+      assumptions VARCHAR, unit VARCHAR,
+      phase_id UUID FK -> draft_project_phases,
+      group_id UUID NOT NULL FK -> draft_estimation_item_groups,
+      created_at TIMESTAMP NOT NULL, updated_at TIMESTAMP
+  - Create table draft_additional_costs:
+      id UUID PK, description VARCHAR NOT NULL, amount DOUBLE NOT NULL,
+      type VARCHAR NOT NULL, amount_per_week DOUBLE,
+      phase_id UUID FK -> draft_project_phases,
+      version_id UUID NOT NULL FK -> draft_estimation_versions
+  - Create table submitted_estimation_versions:
+      id UUID PK, version_number INT NOT NULL, total_effort DOUBLE NOT NULL,
+      notes TEXT, estimation_id UUID NOT NULL, submitted_at TIMESTAMP NOT NULL,
+      created_at TIMESTAMP NOT NULL,
+      UNIQUE(estimation_id, version_number)
+  - Create table submitted_estimation_parameters:
+      id UUID PK, name VARCHAR NOT NULL, value DOUBLE NOT NULL, comment VARCHAR,
+      version_id UUID NOT NULL FK -> submitted_estimation_versions
+  - Create table submitted_effort_drivers:
+      id UUID PK, description VARCHAR NOT NULL, factor DOUBLE NOT NULL, comment VARCHAR,
+      version_id UUID NOT NULL FK -> submitted_estimation_versions
+  - Create table submitted_project_phases:
+      id UUID PK, name VARCHAR NOT NULL, abbreviation VARCHAR NOT NULL, duration_weeks DOUBLE,
+      version_id UUID NOT NULL FK -> submitted_estimation_versions
+  - Create table submitted_estimation_item_groups:
+      id UUID PK, logical_id UUID NOT NULL, title VARCHAR NOT NULL,
+      phase_abbreviation VARCHAR,
+      version_id UUID NOT NULL FK -> submitted_estimation_versions
+  - Create table submitted_estimation_items:
+      id UUID PK, logical_id UUID NOT NULL, item_type VARCHAR NOT NULL,
+      description VARCHAR NOT NULL, code VARCHAR,
+      min_effort DOUBLE NOT NULL, expected_effort DOUBLE NOT NULL, max_effort DOUBLE NOT NULL,
+      mean DOUBLE NOT NULL, variance DOUBLE NOT NULL,
+      risk_surcharge DOUBLE NOT NULL, driver_surcharge DOUBLE NOT NULL,
+      offer_pt DOUBLE NOT NULL, cost DOUBLE NOT NULL, offer_price DOUBLE NOT NULL,
+      assumptions VARCHAR, unit VARCHAR,
+      group_id UUID NOT NULL FK -> submitted_estimation_item_groups
+  - Create table submitted_additional_costs:
+      id UUID PK, description VARCHAR NOT NULL, amount DOUBLE NOT NULL,
+      type VARCHAR NOT NULL, amount_per_week DOUBLE,
+      phase_abbreviation VARCHAR,
+      version_id UUID NOT NULL FK -> submitted_estimation_versions
+  - Alter estimations: change current_version_id FK to reference submitted_estimation_versions
+  - Migrate existing rows: DRAFT -> draft tables, SUBMITTED -> submitted tables
+  - Drop old tables (estimation_versions, estimation_parameters, effort_drivers, project_phases, estimation_item_groups, estimation_items, additional_costs)
+
+  # 2. JPA entities (new package: domain/draft and domain/submitted)
+  - DraftEstimationVersion: no status, no totalEffort, no calculated columns
+  - DraftEstimationParameter, DraftEffortDriver, DraftProjectPhase
+  - DraftEstimationItemGroup (with logicalId)
+  - DraftEstimationItem (abstract + DraftFixedItem, DraftTimeRelativeItem) — input fields only
+  - DraftAdditionalCost
+  - SubmittedEstimationVersion: includes totalEffort NOT NULL, submittedAt
+  - SubmittedEstimationParameter, SubmittedEffortDriver, SubmittedProjectPhase
+  - SubmittedEstimationItemGroup (with logicalId, phase stored as abbreviation string)
+  - SubmittedEstimationItem: all calculated fields NOT NULL
+  - SubmittedAdditionalCost
+  - Update Estimation entity:
+      - draftVersion: OneToOne(optional) -> DraftEstimationVersion
+      - submittedVersions: OneToMany -> SubmittedEstimationVersion
+      - currentVersion: ManyToOne -> SubmittedEstimationVersion (latest submitted)
+
+  # 3. Repositories
+  - DraftEstimationVersionRepository (findByEstimationId returns Optional)
+  - SubmittedEstimationVersionRepository (findByEstimationId, findByEstimationIdAndVersionNumber)
+
+  # 4. Service layer changes
+  - EstimationVersionService.createNewVersion:
+      Creates draft from latest submitted version (clone input fields only).
+      Fails with 409 if draft already exists.
+  - EstimationVersionService.submit:
+      Load draft → run EstimationCalculator → persist to submitted tables →
+      delete draft → set estimation.currentVersion
+  - EstimationVersionService.getDraftWithCalculations:
+      Load draft → run EstimationCalculator in-memory → return DTO (do not persist)
+  - EstimationVersionService.deleteDraft: delete draft if exists
+  - Remove EstimationVersionStatus enum (no longer needed)
+
+  # 5. REST API changes (EstimationVersionResource)
+  - GET  .../versions → combined list: submitted versions + draft (if present, with type marker)
+  - GET  .../versions/draft → current draft with on-the-fly computed values
+  - PUT  .../versions/draft → edit draft (parameters, drivers, items, etc.)
+  - POST .../versions → create new draft (409 if one exists)
+  - POST .../versions/draft/submit → calculate + persist to submitted + delete draft
+  - DELETE .../versions/draft → discard draft
+  - GET  .../versions/{versionNumber} → get submitted version by number
+  - GET  .../versions/{versionA}/compare/{versionB} → compare two submitted versions
+  - Remove PUT/DELETE for submitted versions entirely (no endpoint = no path to mutate)
+
+  # 6. DTO and mapper changes
+  - Remove status from version DTOs, add "isDraft" boolean or separate DraftVersionDto
+  - EstimationVersionSummaryDto: add isDraft field
+  - Submitted version mapper: reads directly from persisted calculated fields
+  - Draft version mapper: runs calculation first, then maps computed values
+
+  # 7. Adapt existing code
+  - ExcelExporter: accept both draft (with computed) and submitted entities
+  - ExcelImporter: always imports into draft tables
+  - VersionComparisonService: can compare two submitted, or submitted vs. draft (computed)
+  - Update import.sql for dev-local test data (draft + submitted tables)
+  - Update ProjectMapper.toEstimationDetailDto (combined version list)
+
+validation:
+  - draft_estimation_items table has NO calculated columns in its DDL
+  - submitted_estimation_items table has calculated columns as NOT NULL
+  - UNIQUE(estimation_id) on draft_estimation_versions enforces one draft max
+  - Creating a second draft returns 409
+  - GET .../versions/draft returns fully computed values (not persisted)
+  - After POST .../versions/draft/submit: draft is gone, submitted row exists with calculations
+  - Submitted versions have no PUT/DELETE endpoints
+  - Combined version list shows both submitted + draft
+  - ExcelExport works for both draft and submitted
+  - Comparison works across draft and submitted
+outputs:
+  - migration: V3__separate_draft_submitted_tables.sql
+  - new package: domain/draft/ (DraftEstimationVersion, DraftEstimationItem, etc.)
+  - new package: domain/submitted/ (SubmittedEstimationVersion, SubmittedEstimationItem, etc.)
+  - new: DraftEstimationVersionRepository, SubmittedEstimationVersionRepository
+  - modified: Estimation entity (draftVersion, submittedVersions, currentVersion)
+  - modified: EstimationVersionService (draft/submit lifecycle)
+  - modified: EstimationVersionResource (new URL structure)
+  - modified: EstimationCalculator (operates on draft entity, returns computed values)
+  - modified: ExcelExporter, ExcelImporter, VersionComparisonService
+  - modified: import.sql (test data for new tables)
+  - removed: EstimationVersionStatus enum

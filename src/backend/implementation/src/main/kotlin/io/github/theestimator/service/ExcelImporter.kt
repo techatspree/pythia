@@ -1,6 +1,8 @@
 package io.github.theestimator.service
 
-import io.github.theestimator.domain.*
+import io.github.theestimator.domain.AdditionalCostType
+import io.github.theestimator.domain.Estimation
+import io.github.theestimator.domain.draft.*
 import jakarta.enterprise.context.ApplicationScoped
 import org.apache.poi.ss.usermodel.Row
 import org.apache.poi.ss.usermodel.Sheet
@@ -10,13 +12,11 @@ import java.io.InputStream
 @ApplicationScoped
 class ExcelImporter {
 
-    fun import(input: InputStream, estimation: Estimation, versionNumber: Int, createdBy: User? = null): EstimationVersion {
+    fun import(input: InputStream, estimation: Estimation, versionNumber: Int): DraftEstimationVersion {
         val workbook = XSSFWorkbook(input)
-        val version = EstimationVersion().apply {
+        val version = DraftEstimationVersion().apply {
             this.estimation = estimation
             this.versionNumber = versionNumber
-            this.createdBy = createdBy
-            this.status = EstimationVersionStatus.DRAFT
         }
 
         importParameters(workbook.getSheet("Parameter"), version)
@@ -29,13 +29,13 @@ class ExcelImporter {
         return version
     }
 
-    private fun importParameters(sheet: Sheet, version: EstimationVersion) {
+    private fun importParameters(sheet: Sheet, version: DraftEstimationVersion) {
         for (rowIdx in 1..sheet.lastRowNum) {
             val row = sheet.getRow(rowIdx) ?: continue
             val name = row.cellStringValue(0) ?: continue
             val value = row.cellNumericValue(1) ?: continue
 
-            version.parameters.add(EstimationParameter().apply {
+            version.parameters.add(DraftEstimationParameter().apply {
                 this.name = name
                 this.value = value
                 this.comment = row.cellStringValue(2)
@@ -44,7 +44,7 @@ class ExcelImporter {
         }
     }
 
-    private fun importEffortDrivers(sheet: Sheet, version: EstimationVersion) {
+    private fun importEffortDrivers(sheet: Sheet, version: DraftEstimationVersion) {
         for (rowIdx in 2..sheet.lastRowNum) {
             val row = sheet.getRow(rowIdx) ?: continue
             val description = row.cellStringValue(1) ?: continue
@@ -52,7 +52,7 @@ class ExcelImporter {
 
             if (description == "Zusammenfassung der Aufwandstreiber") break
 
-            version.effortDrivers.add(EffortDriver().apply {
+            version.effortDrivers.add(DraftEffortDriver().apply {
                 this.description = description
                 this.factor = factor
                 this.comment = row.cellStringValue(4)
@@ -61,7 +61,7 @@ class ExcelImporter {
         }
     }
 
-    private fun importPhases(sheet: Sheet, version: EstimationVersion) {
+    private fun importPhases(sheet: Sheet, version: DraftEstimationVersion) {
         for (rowIdx in 1..sheet.lastRowNum) {
             val row = sheet.getRow(rowIdx) ?: continue
             val name = row.cellStringValue(0) ?: continue
@@ -69,7 +69,7 @@ class ExcelImporter {
 
             if (name == "Summe") break
 
-            version.phases.add(ProjectPhase().apply {
+            version.phases.add(DraftProjectPhase().apply {
                 this.name = name
                 this.abbreviation = abbreviation
                 this.durationWeeks = row.cellNumericValue(2)
@@ -78,9 +78,9 @@ class ExcelImporter {
         }
     }
 
-    private fun importEstimationItems(sheet: Sheet, version: EstimationVersion) {
-        val headerRow = 3 // 0-indexed: row 4 in spreadsheet
-        var currentGroup: EstimationItemGroup? = null
+    private fun importEstimationItems(sheet: Sheet, version: DraftEstimationVersion) {
+        val headerRow = 3
+        var currentGroup: DraftEstimationItemGroup? = null
         var isTimeRelativeSection = false
 
         for (rowIdx in (headerRow + 1)..sheet.lastRowNum) {
@@ -99,24 +99,22 @@ class ExcelImporter {
             val max = row.cellNumericValue(3)
 
             if (min == null && expected == null && max == null) {
-                // This is a group header
                 val phaseAbbr = row.cellStringValue(14)
                 val phase = phaseAbbr?.let { abbr ->
                     version.phases.find { it.abbreviation == abbr }
                 }
 
-                currentGroup = EstimationItemGroup().apply {
+                currentGroup = DraftEstimationItemGroup().apply {
                     this.title = description
                     this.phase = phase
                     this.version = version
                 }
                 version.itemGroups.add(currentGroup)
             } else if (currentGroup != null) {
-                // This is an estimation item
-                val item = if (isTimeRelativeSection) {
-                    TimeRelativeEstimationItem()
+                val item: DraftEstimationItem = if (isTimeRelativeSection) {
+                    DraftTimeRelativeEstimationItem()
                 } else {
-                    FixedEstimationItem()
+                    DraftFixedEstimationItem()
                 }
 
                 item.apply {
@@ -133,7 +131,7 @@ class ExcelImporter {
         }
     }
 
-    private fun importAdditionalCosts(sheet: Sheet, version: EstimationVersion) {
+    private fun importAdditionalCosts(sheet: Sheet, version: DraftEstimationVersion) {
         var currentType = AdditionalCostType.ONE_TIME
 
         for (rowIdx in 0..sheet.lastRowNum) {
@@ -151,7 +149,7 @@ class ExcelImporter {
                         version.phases.find { it.abbreviation == abbr }
                     }
 
-                    version.additionalCosts.add(AdditionalCost().apply {
+                    version.additionalCosts.add(DraftAdditionalCost().apply {
                         this.description = firstCell
                         this.amount = amount
                         this.type = currentType

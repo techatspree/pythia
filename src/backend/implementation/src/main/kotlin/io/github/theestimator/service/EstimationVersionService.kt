@@ -1,151 +1,230 @@
 package io.github.theestimator.service
 
-import io.github.theestimator.domain.*
+import io.github.theestimator.domain.AdditionalCostType
+import io.github.theestimator.domain.draft.*
+import io.github.theestimator.domain.submitted.*
+import io.github.theestimator.repository.DraftEstimationVersionRepository
 import io.github.theestimator.repository.EstimationRepository
-import io.github.theestimator.repository.EstimationVersionRepository
+import io.github.theestimator.repository.SubmittedEstimationVersionRepository
 import jakarta.enterprise.context.ApplicationScoped
 import jakarta.transaction.Transactional
-import java.io.InputStream
+import jakarta.ws.rs.WebApplicationException
+import jakarta.ws.rs.core.Response
+import java.time.Instant
 import java.util.UUID
 
 @ApplicationScoped
 class EstimationVersionService(
-    private val versionRepository: EstimationVersionRepository,
+    private val draftRepository: DraftEstimationVersionRepository,
+    private val submittedRepository: SubmittedEstimationVersionRepository,
     private val estimationRepository: EstimationRepository,
     private val calculator: EstimationCalculator,
-    private val importer: ExcelImporter,
     private val auditLogService: AuditLogService
 ) {
 
-    fun findById(id: UUID): EstimationVersion? = versionRepository.findById(id)
+    fun findDraft(estimationId: UUID): DraftEstimationVersion? =
+        draftRepository.findByEstimationId(estimationId)
 
-    fun findByEstimationId(estimationId: UUID): List<EstimationVersion> =
-        versionRepository.findByEstimationId(estimationId)
+    fun findSubmittedVersions(estimationId: UUID): List<SubmittedEstimationVersion> =
+        submittedRepository.findByEstimationId(estimationId)
+
+    fun findSubmittedVersion(estimationId: UUID, versionNumber: Int): SubmittedEstimationVersion? =
+        submittedRepository.findByEstimationIdAndVersionNumber(estimationId, versionNumber)
+
+    fun calculateDraft(draft: DraftEstimationVersion): CalculationResult =
+        calculator.calculate(draft)
 
     @Transactional
-    fun createNewVersion(estimationId: UUID, createdBy: User? = null): EstimationVersion {
+    fun createDraft(estimationId: UUID): DraftEstimationVersion {
         val estimation = estimationRepository.findById(estimationId)
-            ?: throw IllegalArgumentException("Estimation not found: $estimationId")
+            ?: throw WebApplicationException("Estimation not found: $estimationId", Response.Status.NOT_FOUND)
 
-        val latest = versionRepository.findLatestByEstimationId(estimationId)
-        val newVersionNumber = (latest?.versionNumber ?: 0) + 1
+        if (draftRepository.findByEstimationId(estimationId) != null) {
+            throw WebApplicationException("A draft already exists for estimation $estimationId", Response.Status.CONFLICT)
+        }
 
-        val newVersion = EstimationVersion().apply {
+        val latestSubmitted = submittedRepository.findLatestByEstimationId(estimationId)
+        val newVersionNumber = (latestSubmitted?.versionNumber ?: 0) + 1
+
+        val draft = DraftEstimationVersion().apply {
             this.estimation = estimation
             this.versionNumber = newVersionNumber
-            this.createdBy = createdBy
-            this.status = EstimationVersionStatus.DRAFT
         }
 
-        if (latest != null) {
-            deepClone(latest, newVersion)
+        if (latestSubmitted != null) {
+            cloneFromSubmitted(latestSubmitted, draft)
         }
 
-        calculator.calculate(newVersion)
-        versionRepository.persist(newVersion)
+        draftRepository.persist(draft)
 
         auditLogService.log(
-            createdBy?.id, "EstimationVersion", newVersion.id,
-            "CREATE", "version=$newVersionNumber, clonedFrom=${latest?.versionNumber}"
+            null, "DraftEstimationVersion", draft.id,
+            "CREATE", "version=$newVersionNumber, clonedFrom=${latestSubmitted?.versionNumber}"
         )
 
-        return newVersion
+        return draft
     }
 
     @Transactional
-    fun importFromExcel(estimationId: UUID, inputStream: InputStream, createdBy: User? = null): EstimationVersion {
+    fun submitDraft(estimationId: UUID): SubmittedEstimationVersion {
         val estimation = estimationRepository.findById(estimationId)
-            ?: throw IllegalArgumentException("Estimation not found: $estimationId")
+            ?: throw WebApplicationException("Estimation not found: $estimationId", Response.Status.NOT_FOUND)
 
-        val latest = versionRepository.findLatestByEstimationId(estimationId)
-        val newVersionNumber = (latest?.versionNumber ?: 0) + 1
+        val draft = draftRepository.findByEstimationId(estimationId)
+            ?: throw WebApplicationException("No draft found for estimation $estimationId", Response.Status.NOT_FOUND)
 
-        val version = importer.import(inputStream, estimation, newVersionNumber, createdBy)
-        calculator.calculate(version)
-        versionRepository.persist(version)
+        val result = calculator.calculate(draft)
+
+        val submitted = SubmittedEstimationVersion().apply {
+            this.estimation = estimation
+            this.versionNumber = draft.versionNumber
+            this.totalEffort = result.totalEffort
+            this.notes = draft.notes
+            this.submittedAt = Instant.now()
+            this.createdAt = draft.createdAt ?: Instant.now()
+        }
+
+        draft.parameters.forEach { p ->
+            submitted.parameters.add(SubmittedEstimationParameter().apply {
+                name = p.name
+                value = p.value
+                comment = p.comment
+                version = submitted
+            })
+        }
+
+        draft.effortDrivers.forEach { d ->
+            submitted.effortDrivers.add(SubmittedEffortDriver().apply {
+                description = d.description
+                factor = d.factor
+                comment = d.comment
+                version = submitted
+            })
+        }
+
+        draft.phases.forEach { p ->
+            submitted.phases.add(SubmittedProjectPhase().apply {
+                name = p.name
+                abbreviation = p.abbreviation
+                durationWeeks = p.durationWeeks
+                version = submitted
+            })
+        }
+
+        val itemResultMap = result.items.associateBy { it.item.id }
+
+        draft.itemGroups.forEach { group ->
+            val submittedGroup = SubmittedEstimationItemGroup().apply {
+                logicalId = group.logicalId
+                title = group.title
+                phaseAbbreviation = group.phase?.abbreviation
+                version = submitted
+            }
+            submitted.itemGroups.add(submittedGroup)
+
+            group.items.forEach { item ->
+                val calc = itemResultMap[item.id]
+                val submittedItem = when (item) {
+                    is DraftTimeRelativeEstimationItem -> SubmittedTimeRelativeEstimationItem().apply { unit = item.unit }
+                    else -> SubmittedFixedEstimationItem()
+                }
+                submittedItem.apply {
+                    logicalId = item.logicalId
+                    description = item.description
+                    code = item.code
+                    minEffort = item.minEffort ?: 0.0
+                    expectedEffort = item.expectedEffort ?: 0.0
+                    maxEffort = item.maxEffort ?: 0.0
+                    mean = calc?.mean ?: 0.0
+                    variance = calc?.variance ?: 0.0
+                    riskSurcharge = calc?.riskSurcharge ?: 0.0
+                    driverSurcharge = calc?.driverSurcharge ?: 0.0
+                    offerPT = calc?.offerPT ?: 0.0
+                    cost = calc?.cost ?: 0.0
+                    offerPrice = calc?.offerPrice ?: 0.0
+                    assumptions = item.assumptions
+                    this.group = submittedGroup
+                }
+                submittedGroup.items.add(submittedItem)
+            }
+        }
+
+        draft.additionalCosts.forEach { c ->
+            submitted.additionalCosts.add(SubmittedAdditionalCost().apply {
+                description = c.description
+                amount = c.amount
+                type = c.type
+                amountPerWeek = c.amountPerWeek
+                phaseAbbreviation = c.phase?.abbreviation
+                version = submitted
+            })
+        }
+
+        submittedRepository.persist(submitted)
+        estimation.currentVersion = submitted
+        draftRepository.delete(draft)
 
         auditLogService.log(
-            createdBy?.id, "EstimationVersion", version.id,
-            "IMPORT", "version=$newVersionNumber"
+            null, "SubmittedEstimationVersion", submitted.id,
+            "SUBMIT", "version=${submitted.versionNumber}"
         )
 
-        return version
+        return submitted
     }
 
     @Transactional
-    fun submit(versionId: UUID, submittedBy: User? = null): EstimationVersion {
-        val version = versionRepository.findById(versionId)
-            ?: throw IllegalArgumentException("Version not found: $versionId")
-
-        if (version.status != EstimationVersionStatus.DRAFT) {
-            throw IllegalStateException("Cannot submit version in status ${version.status}")
-        }
-
-        version.status = EstimationVersionStatus.SUBMITTED
-        version.estimation?.currentVersion = version
-
-        auditLogService.log(
-            submittedBy?.id, "EstimationVersion", version.id,
-            "SUBMIT", "version=${version.versionNumber}"
-        )
-
-        return version
+    fun deleteDraft(estimationId: UUID) {
+        val draft = draftRepository.findByEstimationId(estimationId)
+            ?: throw WebApplicationException("No draft found for estimation $estimationId", Response.Status.NOT_FOUND)
+        draftRepository.delete(draft)
     }
 
-    fun ensureDraft(version: EstimationVersion) {
-        if (version.status != EstimationVersionStatus.DRAFT) {
-            throw IllegalStateException("Cannot edit version in status ${version.status}")
-        }
-    }
-
-    private fun deepClone(source: EstimationVersion, target: EstimationVersion) {
-        source.parameters.forEach { param ->
-            target.parameters.add(EstimationParameter().apply {
-                name = param.name
-                value = param.value
-                comment = param.comment
+    private fun cloneFromSubmitted(source: SubmittedEstimationVersion, target: DraftEstimationVersion) {
+        source.parameters.forEach { p ->
+            target.parameters.add(DraftEstimationParameter().apply {
+                name = p.name
+                value = p.value
+                comment = p.comment
                 version = target
             })
         }
 
-        source.effortDrivers.forEach { driver ->
-            target.effortDrivers.add(EffortDriver().apply {
-                description = driver.description
-                factor = driver.factor
-                comment = driver.comment
+        source.effortDrivers.forEach { d ->
+            target.effortDrivers.add(DraftEffortDriver().apply {
+                description = d.description
+                factor = d.factor
+                comment = d.comment
                 version = target
             })
         }
 
-        val phaseMapping = mutableMapOf<UUID?, ProjectPhase>()
-        source.phases.forEach { phase ->
-            val newPhase = ProjectPhase().apply {
-                name = phase.name
-                abbreviation = phase.abbreviation
-                durationWeeks = phase.durationWeeks
+        val phaseMapping = mutableMapOf<String, DraftProjectPhase>()
+        source.phases.forEach { p ->
+            val draftPhase = DraftProjectPhase().apply {
+                name = p.name
+                abbreviation = p.abbreviation
+                durationWeeks = p.durationWeeks
                 version = target
             }
-            phaseMapping[phase.id] = newPhase
-            target.phases.add(newPhase)
+            phaseMapping[p.abbreviation] = draftPhase
+            target.phases.add(draftPhase)
         }
 
         source.itemGroups.forEach { group ->
-            val newPhase = group.phase?.id?.let { phaseMapping[it] }
-            val newGroup = EstimationItemGroup().apply {
+            val draftGroup = DraftEstimationItemGroup().apply {
                 logicalId = group.logicalId
                 title = group.title
-                phase = newPhase
+                phase = group.phaseAbbreviation?.let { phaseMapping[it] }
                 version = target
             }
-            target.itemGroups.add(newGroup)
+            target.itemGroups.add(draftGroup)
 
             group.items.forEach { item ->
-                val newItem = when (item) {
-                    is TimeRelativeEstimationItem -> TimeRelativeEstimationItem().apply { unit = item.unit }
-                    is FixedEstimationItem -> FixedEstimationItem()
-                    else -> FixedEstimationItem()
+                val draftItem = when (item) {
+                    is SubmittedTimeRelativeEstimationItem -> DraftTimeRelativeEstimationItem().apply { unit = item.unit }
+                    else -> DraftFixedEstimationItem()
                 }
-                newItem.apply {
+                draftItem.apply {
                     logicalId = item.logicalId
                     description = item.description
                     code = item.code
@@ -153,20 +232,20 @@ class EstimationVersionService(
                     expectedEffort = item.expectedEffort
                     maxEffort = item.maxEffort
                     assumptions = item.assumptions
-                    phase = item.phase?.id?.let { phaseMapping[it] }
-                    this.group = newGroup
+                    phase = group.phaseAbbreviation?.let { phaseMapping[it] }
+                    this.group = draftGroup
                 }
-                newGroup.items.add(newItem)
+                draftGroup.items.add(draftItem)
             }
         }
 
-        source.additionalCosts.forEach { cost ->
-            target.additionalCosts.add(AdditionalCost().apply {
-                description = cost.description
-                amount = cost.amount
-                type = cost.type
-                amountPerWeek = cost.amountPerWeek
-                phase = cost.phase?.id?.let { phaseMapping[it] }
+        source.additionalCosts.forEach { c ->
+            target.additionalCosts.add(DraftAdditionalCost().apply {
+                description = c.description
+                amount = c.amount
+                type = c.type
+                amountPerWeek = c.amountPerWeek
+                phase = c.phaseAbbreviation?.let { phaseMapping[it] }
                 version = target
             })
         }

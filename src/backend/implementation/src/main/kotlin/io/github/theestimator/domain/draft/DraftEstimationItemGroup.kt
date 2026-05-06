@@ -1,28 +1,30 @@
-package io.github.theestimator.domain
+package io.github.theestimator.domain.draft
 
 import jakarta.persistence.*
-import jakarta.validation.constraints.NotBlank
 import java.util.UUID
 
 @Entity
-@Table(name = "estimation_item_groups")
-class EstimationItemGroup : BaseEntity() {
+@Table(name = "draft_estimation_item_groups")
+class DraftEstimationItemGroup {
+
+    @Id
+    @GeneratedValue(strategy = GenerationType.UUID)
+    var id: UUID? = null
 
     @Column(name = "logical_id", nullable = false)
     var logicalId: UUID = UUID.randomUUID()
 
-    @NotBlank
     @Column(nullable = false)
-    var title: String? = null
+    var title: String = ""
 
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "phase_id")
-    var phase: ProjectPhase? = null
+    var phase: DraftProjectPhase? = null
 
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "version_id", nullable = false)
-    var version: EstimationVersion? = null
+    var version: DraftEstimationVersion? = null
 
     @OneToMany(mappedBy = "group", cascade = [CascadeType.ALL], orphanRemoval = true)
-    var items: MutableList<EstimationItem> = mutableListOf()
+    var items: MutableList<DraftEstimationItem> = mutableListOf()
 }

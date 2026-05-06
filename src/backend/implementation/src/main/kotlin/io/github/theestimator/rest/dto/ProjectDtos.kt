@@ -29,6 +29,7 @@ data class EstimationSummaryDto(
     val description: String?,
     val currentVersionNumber: Int?,
     val versionCount: Int,
+    val hasDraft: Boolean,
     val createdAt: Instant?
 )
 
@@ -51,6 +52,7 @@ data class EstimationDetailDto(
     val projectId: UUID?,
     val projectName: String?,
     val currentVersionNumber: Int?,
+    val hasDraft: Boolean,
     val createdAt: Instant?,
     val versions: List<EstimationVersionSummaryDto>
 )
