@@ -43,3 +43,14 @@ data class ProjectUpdateDto(
     val description: String? = null,
     val client: String? = null
 )
+
+data class EstimationDetailDto(
+    val id: UUID?,
+    val offer: String?,
+    val description: String?,
+    val projectId: UUID?,
+    val projectName: String?,
+    val currentVersionNumber: Int?,
+    val createdAt: Instant?,
+    val versions: List<EstimationVersionSummaryDto>
+)

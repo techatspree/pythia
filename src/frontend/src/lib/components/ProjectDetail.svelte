@@ -41,7 +41,9 @@
 				<tbody>
 					{#each project.estimations as estimation}
 						<tr class="border-b hover:bg-gray-50">
-							<td class="px-4 py-3 font-medium">{estimation.offer}</td>
+							<td class="px-4 py-3 font-medium">
+								<a href="/estimations/{estimation.id}" class="text-blue-600 hover:underline">{estimation.offer}</a>
+							</td>
 							<td class="px-4 py-3 text-gray-600">{estimation.description || '—'}</td>
 							<td class="px-4 py-3">{estimation.versionCount}</td>
 							<td class="px-4 py-3">

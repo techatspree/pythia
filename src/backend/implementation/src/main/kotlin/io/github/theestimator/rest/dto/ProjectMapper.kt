@@ -30,3 +30,14 @@ fun Estimation.toSummaryDto() = EstimationSummaryDto(
     versionCount = versions.size,
     createdAt = createdAt
 )
+
+fun Estimation.toEstimationDetailDto() = EstimationDetailDto(
+    id = id,
+    offer = offer,
+    description = description,
+    projectId = project?.id,
+    projectName = project?.name,
+    currentVersionNumber = currentVersion?.versionNumber,
+    createdAt = createdAt,
+    versions = versions.sortedByDescending { it.versionNumber }.map { it.toSummaryDto() }
+)

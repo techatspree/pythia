@@ -3,15 +3,28 @@ phase: phase-5
 title: Build estimation detail and version list
 depends_on: [task-017]
 description: |
-  Show all versions of a given estimation with their status, totals,
-  and authorship. Allow creating a new version (cloning the latest).
+  Show estimation details with a version list including status, total effort,
+  notes and creation date. Allow creating a new version (cloning the latest).
+  Navigation: ProjectDetail estimation table rows link to this page.
 steps:
-  - route /estimations/:id
-  - timeline-style list of versions with status badges
-  - "Create new version" button (calls POST /versions)
-  - clicking a version navigates to the editor (next task)
+  - Add GET /api/estimations/{id} endpoint returning estimation metadata plus version summaries
+  - Create SvelteKit route /estimations/[id]/+page.svelte that fetches estimation detail
+  - Create EstimationDetail.svelte component showing estimation metadata (offer, description)
+  - Create VersionList.svelte component with timeline-style version list (version number, status badge, totalEffort, notes, createdAt)
+  - Add "Create new version" button calling POST /api/estimations/{estimationId}/versions
+  - Make version rows clickable, navigating to /estimations/[id]/versions/[versionNumber] (next task)
+  - Link estimation rows in ProjectDetail.svelte to /estimations/{id}
+  - Add back-navigation link to parent project
+  - Add vite proxy entry for /api if not already present
 validation:
-  - new version appears at the top of the list with status DRAFT
-  - cloned items are visible when opening the new version
+  - GET /api/estimations/{id} returns estimation with nested version summaries
+  - Estimation detail page loads and renders version list from test data
+  - "Create new version" calls the API and inserts the new DRAFT version at the top
+  - Clicking a version row navigates (route exists but page can be placeholder)
+  - Back-link to project detail works
 outputs:
-  - frontend src/pages/EstimationDetailPage.tsx
+  - backend: EstimationResource.kt (GET /api/estimations/{id})
+  - backend: EstimationDetailDto (estimation metadata + version summaries)
+  - frontend: src/routes/estimations/[id]/+page.svelte
+  - frontend: src/lib/components/EstimationDetail.svelte
+  - frontend: src/lib/components/VersionList.svelte
