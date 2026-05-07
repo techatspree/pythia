@@ -35,6 +35,17 @@
 			error = e.message;
 		}
 	}
+
+	async function submitVersion() {
+		if (!estimation) return;
+		try {
+			const res = await fetch(`/api/estimations/${estimation.id}/versions/draft/submit`, { method: 'POST' });
+			if (!res.ok) throw new Error('Failed to submit version');
+			await loadEstimation();
+		} catch (e: any) {
+			error = e.message;
+		}
+	}
 </script>
 
 <div class="max-w-5xl mx-auto p-6">
@@ -45,6 +56,6 @@
 	{:else if estimation}
 		<a href="/projects/{estimation.projectId}" class="text-sm text-blue-600 hover:underline mb-4 inline-block">&larr; Back to {estimation.projectName || 'project'}</a>
 		<EstimationDetail {estimation} />
-		<VersionList versions={estimation.versions} estimationId={estimation.id} oncreate={createVersion} />
+		<VersionList versions={estimation.versions} estimationId={estimation.id} oncreate={createVersion} onsubmit={submitVersion} />
 	{/if}
 </div>

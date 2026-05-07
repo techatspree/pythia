@@ -2,29 +2,43 @@ id: task-018
 phase: phase-5
 title: Build estimation detail and version list
 depends_on: [task-017]
+status: in_progress
+started: "2026-05-07T09:36:46+00:00"
 description: |
-  Show estimation details with a version list including status, total effort,
-  notes and creation date. Allow creating a new version (cloning the latest).
-  Navigation: ProjectDetail estimation table rows link to this page.
+  Show estimation details with a version list including status, total effort, notes, and creation date.
+  Allow submitting the current draft and creating a new draft.
+  Navigation: ProjectDetail estimation table rows link to this page (already wired).
+
+  ALREADY IMPLEMENTED (do not re-implement):
+  - GET /api/estimations/{id} endpoint (EstimationResource.kt)
+  - SvelteKit route /estimations/[id]/+page.svelte with data fetching and "Create new version" action
+  - EstimationDetail.svelte component showing offer, description, latestVersionNumber
+  - VersionList.svelte component with version list, create button, and links to version detail
+  - ProjectDetail.svelte estimation table rows already link to /estimations/{id}
+  - Back-navigation link to parent project (&larr; Back to {projectName})
+  - Vite proxy entry for /api already configured in vite.config.ts
+
 steps:
-  - Add GET /api/estimations/{id} endpoint returning estimation metadata plus version summaries
-  - Create SvelteKit route /estimations/[id]/+page.svelte that fetches estimation detail
-  - Create EstimationDetail.svelte component showing estimation metadata (offer, description)
-  - Create VersionList.svelte component with timeline-style version list (version number, status badge, totalEffort, notes, createdAt)
-  - Add "Create new version" button calling POST /api/estimations/{estimationId}/versions
-  - Make version rows clickable, navigating to /estimations/[id]/versions/[versionNumber] (next task)
-  - Link estimation rows in ProjectDetail.svelte to /estimations/{id}
-  - Add back-navigation link to parent project
-  - Add vite proxy entry for /api if not already present
+  - "Fix version list data: toEstimationDetailDto() in ProjectMapper.kt only maps submittedVersions — add the draft version (if present) at the top of the list so the UI shows all versions"
+  - "Fix status field mismatch: VersionList.svelte uses `version.status` (DRAFT/SUBMITTED) for badge colors, but EstimationVersionSummaryDto has `isDraft: Boolean`. Either add a `status: String` field to the DTO or change the frontend to derive status from `isDraft`"
+  - "Add Submit button: when the version list contains a draft (isDraft=true / status=DRAFT), show a 'Submit' button that calls POST /api/estimations/{estimationId}/versions/draft/submit and then reloads the estimation"
+  - "Create placeholder route /estimations/[id]/versions/[versionNumber]/+page.svelte that says 'Version detail — coming soon' (so the version row links don't 404)"
+  - "Add integration test: create a new test in EstimationVersionResourceIT.kt or a new EstimationResourceIT.kt that verifies GET /api/estimations/{id} returns the draft in the versions list alongside submitted versions"
+  - "Add end-to-end test for submitting a version: create a draft, submit it via REST, verify the estimation detail no longer shows the draft and shows the new submitted version"
+
 validation:
-  - GET /api/estimations/{id} returns estimation with nested version summaries
-  - Estimation detail page loads and renders version list from test data
-  - "Create new version" calls the API and inserts the new DRAFT version at the top
-  - Clicking a version row navigates (route exists but page can be placeholder)
+  - GET /api/estimations/{id} returns estimation with nested version summaries INCLUDING the current draft (if any)
+  - VersionList correctly displays status badges (DRAFT in yellow, SUBMITTED in green) based on the version data
+  - "Submit" button appears for draft versions, calls the API, and the list refreshes showing the version as SUBMITTED
+  - "Create new version" calls POST /api/estimations/{estimationId}/versions and inserts the new DRAFT version at the top
+  - Clicking a version row navigates to /estimations/{id}/versions/{versionNumber} (placeholder page renders)
   - Back-link to project detail works
+  - Integration test passes verifying draft inclusion in GET /api/estimations/{id}
+
 outputs:
-  - backend: EstimationResource.kt (GET /api/estimations/{id})
-  - backend: EstimationDetailDto (estimation metadata + version summaries)
-  - frontend: src/routes/estimations/[id]/+page.svelte
-  - frontend: src/lib/components/EstimationDetail.svelte
-  - frontend: src/lib/components/VersionList.svelte
+  - backend: ProjectMapper.kt (fix toEstimationDetailDto to include draft)
+  - backend: EstimationVersionSummaryDto or VersionList.svelte (fix status field mismatch)
+  - frontend: VersionList.svelte (add Submit button for draft versions)
+  - frontend: src/routes/estWie tueimations/[id]/versions/[versionNumber]/+page.svelte (placeholder)
+  - test: integration test for GET /api/estimations/{id} with draft
+  - test: e2e test for submit flow

@@ -1,12 +1,13 @@
 <script lang="ts">
-	let { versions, estimationId, oncreate }: { versions: any[]; estimationId: string; oncreate: () => void } = $props();
+	let { versions, estimationId, oncreate, onsubmit }: { versions: any[]; estimationId: string; oncreate: () => void; onsubmit: () => void } = $props();
 
-	const statusColors: Record<string, string> = {
-		DRAFT: 'bg-yellow-100 text-yellow-800',
-		SUBMITTED: 'bg-green-100 text-green-800',
-		APPROVED: 'bg-blue-100 text-blue-800',
-		REJECTED: 'bg-red-100 text-red-800'
-	};
+	function statusLabel(version: any): string {
+		return version.isDraft ? 'DRAFT' : 'SUBMITTED';
+	}
+
+	function statusColor(version: any): string {
+		return version.isDraft ? 'bg-yellow-100 text-yellow-800' : 'bg-green-100 text-green-800';
+	}
 </script>
 
 <div class="mt-6">
@@ -29,13 +30,23 @@
 					<div class="flex items-center justify-between">
 						<div class="flex items-center gap-3">
 							<span class="text-lg font-medium">v{version.versionNumber}</span>
-							<span class="px-2 py-0.5 text-xs rounded-full {statusColors[version.status] || 'bg-gray-100 text-gray-600'}">
-								{version.status}
+							<span class="px-2 py-0.5 text-xs rounded-full {statusColor(version)}">
+								{statusLabel(version)}
 							</span>
 						</div>
-						<span class="text-sm text-gray-500">
-							{version.createdAt ? new Date(version.createdAt).toLocaleDateString() : ''}
-						</span>
+						<div class="flex items-center gap-3">
+							{#if version.isDraft}
+								<button
+									onclick={(e: MouseEvent) => { e.preventDefault(); onsubmit(); }}
+									class="px-3 py-1 text-xs bg-green-600 text-white rounded hover:bg-green-700"
+								>
+									Submit
+								</button>
+							{/if}
+							<span class="text-sm text-gray-500">
+								{version.createdAt ? new Date(version.createdAt).toLocaleDateString() : ''}
+							</span>
+						</div>
 					</div>
 					<div class="mt-1 flex items-center gap-4 text-sm text-gray-600">
 						{#if version.totalEffort != null}

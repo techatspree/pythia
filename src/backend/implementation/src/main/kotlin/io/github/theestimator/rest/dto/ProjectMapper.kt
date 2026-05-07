@@ -32,16 +32,25 @@ fun Estimation.toSummaryDto() = EstimationSummaryDto(
     createdAt = createdAt
 )
 
-fun Estimation.toEstimationDetailDto() = EstimationDetailDto(
-    id = id,
-    offer = offer,
-    description = description,
-    projectId = project?.id,
-    projectName = project?.name,
-    latestVersionNumber = latestSubmittedVersion?.versionNumber,
-    hasDraft = draftVersion != null,
-    createdAt = createdAt,
-    versions = submittedVersions
-        .sortedByDescending { it.versionNumber }
-        .map { it.toSummaryDto() }
-)
+fun Estimation.toEstimationDetailDto(draftTotalEffort: Double? = null): EstimationDetailDto {
+    val versionList = mutableListOf<EstimationVersionSummaryDto>()
+    draftVersion?.let { draft ->
+        versionList.add(draft.toSummaryDto(draftTotalEffort))
+    }
+    versionList.addAll(
+        submittedVersions
+            .sortedByDescending { it.versionNumber }
+            .map { it.toSummaryDto() }
+    )
+    return EstimationDetailDto(
+        id = id,
+        offer = offer,
+        description = description,
+        projectId = project?.id,
+        projectName = project?.name,
+        latestVersionNumber = latestSubmittedVersion?.versionNumber,
+        hasDraft = draftVersion != null,
+        createdAt = createdAt,
+        versions = versionList
+    )
+}
