@@ -161,7 +161,6 @@ class EstimationVersionService(
         }
 
         submittedRepository.persist(submitted)
-        estimation.currentVersion = submitted
         draftRepository.delete(draft)
 
         auditLogService.log(

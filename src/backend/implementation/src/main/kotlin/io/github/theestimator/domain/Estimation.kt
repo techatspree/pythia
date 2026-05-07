@@ -19,13 +19,13 @@ class Estimation : BaseEntity() {
     @JoinColumn(name = "project_id", nullable = false)
     var project: Project? = null
 
-    @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "current_version_id")
-    var currentVersion: SubmittedEstimationVersion? = null
-
     @OneToOne(mappedBy = "estimation", cascade = [CascadeType.ALL], orphanRemoval = true, fetch = FetchType.LAZY)
     var draftVersion: DraftEstimationVersion? = null
 
     @OneToMany(mappedBy = "estimation", cascade = [CascadeType.ALL], orphanRemoval = true)
+    @OrderBy("versionNumber DESC")
     var submittedVersions: MutableList<SubmittedEstimationVersion> = mutableListOf()
+
+    val latestSubmittedVersion: SubmittedEstimationVersion?
+        get() = submittedVersions.maxByOrNull { it.versionNumber }
 }

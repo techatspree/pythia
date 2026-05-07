@@ -47,8 +47,8 @@
 							<td class="px-4 py-3 text-gray-600">{estimation.description || '—'}</td>
 							<td class="px-4 py-3">{estimation.versionCount}</td>
 							<td class="px-4 py-3">
-								{#if estimation.currentVersionNumber}
-									v{estimation.currentVersionNumber}
+								{#if estimation.latestVersionNumber}
+									v{estimation.latestVersionNumber}
 								{:else}
 									—
 								{/if}

@@ -26,7 +26,7 @@ fun Estimation.toSummaryDto() = EstimationSummaryDto(
     id = id,
     offer = offer,
     description = description,
-    currentVersionNumber = currentVersion?.versionNumber,
+    latestVersionNumber = latestSubmittedVersion?.versionNumber,
     versionCount = submittedVersions.size + (if (draftVersion != null) 1 else 0),
     hasDraft = draftVersion != null,
     createdAt = createdAt
@@ -38,7 +38,7 @@ fun Estimation.toEstimationDetailDto() = EstimationDetailDto(
     description = description,
     projectId = project?.id,
     projectName = project?.name,
-    currentVersionNumber = currentVersion?.versionNumber,
+    latestVersionNumber = latestSubmittedVersion?.versionNumber,
     hasDraft = draftVersion != null,
     createdAt = createdAt,
     versions = submittedVersions
