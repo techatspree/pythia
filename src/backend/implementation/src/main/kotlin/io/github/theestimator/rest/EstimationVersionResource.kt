@@ -1,7 +1,9 @@
 package io.github.theestimator.rest
 
 import io.github.theestimator.domain.draft.DraftEffortDriver
+import io.github.theestimator.domain.draft.DraftEstimationItemGroup
 import io.github.theestimator.domain.draft.DraftEstimationParameter
+import io.github.theestimator.domain.draft.DraftFixedEstimationItem
 import io.github.theestimator.repository.EstimationRepository
 import io.github.theestimator.rest.dto.*
 import io.github.theestimator.service.EstimationVersionService
@@ -90,6 +92,34 @@ class EstimationVersionResource(
                     comment = dto.comment
                     version = draft
                 })
+            }
+        }
+
+        update.itemGroups?.let { groupDtos ->
+            draft.itemGroups.clear()
+            groupDtos.forEach { groupDto ->
+                val phase = groupDto.phaseAbbreviation?.let { abbr ->
+                    draft.phases.find { it.abbreviation == abbr }
+                }
+                val group = DraftEstimationItemGroup().apply {
+                    logicalId = groupDto.logicalId ?: UUID.randomUUID()
+                    title = groupDto.title
+                    this.phase = phase
+                    version = draft
+                }
+                groupDto.items.forEach { itemDto ->
+                    group.items.add(DraftFixedEstimationItem().apply {
+                        logicalId = itemDto.logicalId ?: UUID.randomUUID()
+                        description = itemDto.description
+                        minEffort = itemDto.minEffort
+                        expectedEffort = itemDto.expectedEffort
+                        maxEffort = itemDto.maxEffort
+                        assumptions = itemDto.assumptions
+                        this.phase = phase
+                        this.group = group
+                    })
+                }
+                draft.itemGroups.add(group)
             }
         }
 

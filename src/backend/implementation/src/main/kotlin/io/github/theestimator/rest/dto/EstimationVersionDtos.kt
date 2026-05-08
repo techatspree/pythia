@@ -85,5 +85,22 @@ data class AdditionalCostDto(
 data class DraftUpdateDto(
     val notes: String? = null,
     val parameters: List<EstimationParameterDto>? = null,
-    val effortDrivers: List<EffortDriverDto>? = null
+    val effortDrivers: List<EffortDriverDto>? = null,
+    val itemGroups: List<ItemGroupUpdateDto>? = null
+)
+
+data class ItemGroupUpdateDto(
+    val logicalId: UUID? = null,
+    val title: String,
+    val phaseAbbreviation: String? = null,
+    val items: List<EstimationItemUpdateDto>
+)
+
+data class EstimationItemUpdateDto(
+    val logicalId: UUID? = null,
+    val description: String,
+    val minEffort: Double? = null,
+    val expectedEffort: Double? = null,
+    val maxEffort: Double? = null,
+    val assumptions: String? = null
 )

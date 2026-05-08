@@ -24,7 +24,7 @@
 		<div class="space-y-3">
 			{#each versions as version}
 				<a
-					href="/estimations/{estimationId}/versions/{version.versionNumber}"
+					href="/estimations/{estimationId}/versions/{version.versionNumber}{version.isDraft ? '?draft=true' : ''}"
 					class="block border rounded-lg p-4 hover:bg-gray-50 transition-colors"
 				>
 					<div class="flex items-center justify-between">

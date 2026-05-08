@@ -2,22 +2,93 @@ id: task-019
 phase: phase-5
 title: Build the version editor (the heart of the app)
 depends_on: [task-018]
+status: in_progress
+started: "2026-05-08T08:38:53+00:00"
 description: |
-  Implement the editable items grid where users do the actual estimating.
-  Speed and ergonomics matter - this is where users spend most of their time.
-features:
-  - editable table with columns: description, category, optimistic, likely, pessimistic, expected (calculated), assumptions
-  - PERT formula for expected: (O + 4M + P) / 6
-  - inline add row, delete row, drag to reorder
-  - keyboard navigation (Tab/Enter/Arrow keys)
-  - debounced auto-save while status is DRAFT
-  - read-only mode when status != DRAFT
-  - footer showing totals (sum of expected, optimistic, pessimistic)
-  - "Submit" button that transitions to SUBMITTED
+  Replace the "coming soon" placeholder at /estimations/[id]/versions/[versionNumber]
+  with a real version editor. SvelteKit frontend, Kotlin/Quarkus backend.
+
+  For DRAFT versions: a fully editable items grid where users enter description,
+  optimistic/likely/pessimistic effort, and assumptions per item. PERT expected is
+  calculated live in the browser: (O + 4*M + P) / 6. Changes are debounce-saved.
+  For SUBMITTED versions: same layout, fully read-only, with an explanatory banner.
+
+  ALREADY EXISTS — do not re-implement:
+  - Route skeleton: src/frontend/src/routes/estimations/[id]/versions/[versionNumber]/+page.svelte
+  - GET /api/estimations/{id}/versions/draft → EstimationVersionDto (full structure with itemGroups)
+  - GET /api/estimations/{id}/versions/{versionNumber} → EstimationVersionDto (submitted)
+  - PUT /api/estimations/{id}/versions/draft → DraftUpdateDto (notes, parameters, effortDrivers only — items NOT included yet)
+  - POST /api/estimations/{id}/versions/draft/submit → submits draft
+  - Domain item fields: minEffort (optimistic), expectedEffort (likely / PERT M), maxEffort (pessimistic)
+  - Backend-calculated per-item fields in DTO: mean (PERT result), variance, offerPT, cost, offerPrice
+  - Items belong to groups (EstimationItemGroupDto), groups have a title and optional phaseAbbreviation
+
+  DOMAIN FIELD MAPPING (UI label → DTO field):
+  - Optimistic → minEffort
+  - Likely (M) → expectedEffort
+  - Pessimistic → maxEffort
+  - Expected (PERT) → calculated locally as (O + 4*M + P) / 6; backend re-calculates on every PUT
+  - Section header → the group's title (not an editable column per item)
+
+steps:
+  - "Backend: Extend DraftUpdateDto with item group support — add ItemGroupUpdateDto(logicalId,
+    title, items: List<EstimationItemUpdateDto>) and EstimationItemUpdateDto(logicalId,
+    description, minEffort, expectedEffort, maxEffort, assumptions). Wire into updateDraft():
+    when itemGroups is non-null, clear draft.itemGroups and recreate from the payload,
+    preserving logicalIds. New groups (logicalId=null) get a fresh UUID."
+  - "Backend: Add integration test in EstimationVersionResourceIT.kt — POST draft, PUT with one
+    group + two items, GET draft back and assert both items are present with correct effort values
+    and the backend-calculated mean is correct."
+  - "Frontend: Update VersionList.svelte — for draft versions, append ?draft=true to the href so
+    the version page knows which API endpoint to call without a second round-trip."
+  - "Frontend: Implement the version page (+page.svelte) — read ?draft query param; if true call
+    GET .../draft, otherwise call GET .../{versionNumber}. Show a 'Submitted — read only' banner
+    when isDraft is false. Show back-link to /estimations/{id}. Include an editable notes textarea
+    for drafts (auto-saved via the same debounce mechanism as items)."
+  - "Frontend: Build EstimationGrid.svelte — props: version (EstimationVersionDto), editable:
+    boolean, onchange: (groups) => void. Render item groups as collapsible section headers
+    (chevron toggle, group title, item count badge, expand/collapse all initially expanded).
+    Each expanded group shows its items as table rows with columns: description (text input),
+    optimistic (number), likely (number), pessimistic (number), expected (read-only, PERT calc),
+    assumptions (text), and — when editable — a delete row button. When editable=false, render
+    all cells as plain text (no inputs). Group collapse state is local-only, not persisted."
+  - "Frontend: Per-group add-item button — visible inside each group footer row when editable=true.
+    Clicking it appends a blank item to that group and expands the group if collapsed. Also add an
+    'Add group' button below the last group that creates a new group named 'New group' with one
+    blank item. If the draft has no groups at all, show an empty-state prompt with 'Add group'."
+  - "Frontend: Footer row below all groups — shows column sums: sum of optimistic, likely,
+    pessimistic, and PERT expected across ALL items in ALL groups (including collapsed groups).
+    Updates live as any item value changes."
+  - "Frontend: Keyboard navigation — Tab/Shift+Tab moves between editable cells left→right then
+    wraps to the next/previous row. Enter confirms the current cell and moves focus one row down
+    in the same column. Arrow keys (Up/Down) move between rows in the same column; Left/Right
+    move between columns. Navigation skips non-editable cells (expected column) and jumps over
+    collapsed groups."
+  - "Frontend: Debounced auto-save — on any change to an item field or the notes textarea,
+    debounce 800 ms then PUT /api/estimations/{id}/versions/draft with the full current
+    itemGroups list and the current notes value. Show a subtle 'Saving…' / 'Saved ✓' indicator
+    in the page header."
+  - "Frontend: Submit button in the version page header (draft only) — calls POST
+    /api/estimations/{id}/versions/draft/submit and navigates back to /estimations/{id}."
+
 validation:
-  - editing a numeric field updates the expected value live
-  - a SUBMITTED version is fully read-only with a banner explaining this
-  - auto-save survives a page reload
+  - Editing an effort field updates the PERT expected column instantly without a network round-trip
+  - After a page reload the last auto-saved values are restored
+  - A SUBMITTED version shows a read-only grid with a 'Submitted — read only' banner; all inputs absent
+  - Collapsing a group hides its rows but the footer totals still include those items
+  - Adding an item via the per-group button appends to the correct group; adding a group creates a new section
+  - An empty draft (no groups) shows the empty-state prompt and 'Add group' button
+  - Delete button removes the row and triggers auto-save
+  - Tab/Enter/Arrow keys navigate the editable cells as specified; collapsed groups are skipped
+  - Footer totals update live as values change
+  - Submit button absent on submitted versions; on drafts it submits and navigates to estimation detail
+  - Notes textarea saves via the same debounce path as items
+  - Integration test for PUT /draft with itemGroups passes; PERT mean is recalculated server-side
+
 outputs:
-  - frontend src/pages/VersionEditorPage.tsx
-  - frontend src/components/EstimationGrid.tsx
+  - backend: EstimationVersionDtos.kt (add ItemGroupUpdateDto, EstimationItemUpdateDto)
+  - backend: EstimationVersionResource.kt (extend updateDraft to handle itemGroups)
+  - backend: EstimationVersionResourceIT.kt (add item-update integration test)
+  - frontend: src/lib/components/EstimationGrid.svelte (new)
+  - frontend: src/routes/estimations/[id]/versions/[versionNumber]/+page.svelte (replace placeholder)
+  - frontend: src/lib/components/VersionList.svelte (add ?draft=true to draft links)

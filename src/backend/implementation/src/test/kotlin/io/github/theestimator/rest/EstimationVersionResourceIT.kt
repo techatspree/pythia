@@ -195,6 +195,58 @@ class EstimationVersionResourceIT {
     }
 
     @Test
+    fun `update draft with item groups persists items`() {
+        given().post("/api/estimations/$estimationId/versions")
+            .then().statusCode(201)
+
+        given()
+            .contentType(ContentType.JSON)
+            .body("""
+                {
+                    "itemGroups": [{
+                        "title": "Backend",
+                        "items": [
+                            {"description": "Task A", "minEffort": 1.0, "expectedEffort": 2.0, "maxEffort": 3.0},
+                            {"description": "Task B", "minEffort": 2.0, "expectedEffort": 4.0, "maxEffort": 6.0, "assumptions": "Needs design"}
+                        ]
+                    }]
+                }
+            """.trimIndent())
+            .`when`().put("/api/estimations/$estimationId/versions/draft")
+            .then()
+            .statusCode(200)
+            .body("itemGroups.size()", equalTo(1))
+            .body("itemGroups[0].title", equalTo("Backend"))
+            .body("itemGroups[0].items.size()", equalTo(2))
+            .body("itemGroups[0].items[0].description", equalTo("Task A"))
+            .body("itemGroups[0].items[0].minEffort", equalTo(1.0f))
+            .body("itemGroups[0].items[0].expectedEffort", equalTo(2.0f))
+            .body("itemGroups[0].items[0].maxEffort", equalTo(3.0f))
+            .body("itemGroups[0].items[0].mean", equalTo(2.0f))
+            .body("itemGroups[0].items[1].assumptions", equalTo("Needs design"))
+    }
+
+    @Test
+    fun `update draft item groups replaces previous groups`() {
+        given().post("/api/estimations/$estimationId/versions")
+        given()
+            .contentType(ContentType.JSON)
+            .body("""{"itemGroups": [{"title": "First", "items": [{"description": "Old"}]}]}""")
+            .put("/api/estimations/$estimationId/versions/draft")
+
+        given()
+            .contentType(ContentType.JSON)
+            .body("""{"itemGroups": [{"title": "Second", "items": [{"description": "New", "minEffort": 2.0, "expectedEffort": 4.0, "maxEffort": 6.0}]}]}""")
+            .`when`().put("/api/estimations/$estimationId/versions/draft")
+            .then()
+            .statusCode(200)
+            .body("itemGroups.size()", equalTo(1))
+            .body("itemGroups[0].title", equalTo("Second"))
+            .body("itemGroups[0].items[0].description", equalTo("New"))
+            .body("totalEffort", greaterThan(0.0f))
+    }
+
+    @Test
     fun `nonexistent estimation returns 404`() {
         val fakeId = UUID.randomUUID()
 
