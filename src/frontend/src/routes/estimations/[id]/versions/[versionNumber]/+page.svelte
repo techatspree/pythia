@@ -3,6 +3,10 @@
 	import { goto } from '$app/navigation';
 	import { onMount } from 'svelte';
 	import EstimationGrid from '$lib/components/EstimationGrid.svelte';
+	import ParametersPanel from '$lib/components/ParametersPanel.svelte';
+	import EffortDriversPanel from '$lib/components/EffortDriversPanel.svelte';
+
+	type CalcEntry = { offerPT: number; cost: number; offerPrice: number };
 
 	let versionData = $state<any | null>(null);
 	let loading = $state(true);
@@ -10,13 +14,32 @@
 	let saveStatus = $state<'idle' | 'saving' | 'saved'>('idle');
 	let saveTimer: ReturnType<typeof setTimeout> | null = null;
 
-	// Mutable editing state — kept in sync by the grid's onchange and the notes input
+	// Mutable editing state — kept in sync by their respective editors
 	let currentNotes = $state('');
 	let currentGroups = $state<any[]>([]);
+	let currentParameters = $state<any[]>([]);
+	let currentDrivers = $state<any[]>([]);
+	let calcMap = $state(new Map<string, CalcEntry>());
 
 	const estimationId = page.params.id;
 	const versionNumber = page.params.versionNumber;
 	const isDraft = page.url.searchParams.get('draft') === 'true';
+
+	function buildCalcMap(groups: any[]): Map<string, CalcEntry> {
+		const m = new Map<string, CalcEntry>();
+		for (const g of groups) {
+			for (const item of g.items ?? []) {
+				if (item.logicalId != null) {
+					m.set(String(item.logicalId), {
+						offerPT: item.offerPT ?? 0,
+						cost: item.cost ?? 0,
+						offerPrice: item.offerPrice ?? 0
+					});
+				}
+			}
+		}
+		return m;
+	}
 
 	async function loadVersion() {
 		loading = true;
@@ -30,6 +53,9 @@
 			versionData = await res.json();
 			currentNotes = versionData.notes ?? '';
 			currentGroups = versionData.itemGroups ?? [];
+			currentParameters = versionData.parameters ?? [];
+			currentDrivers = versionData.effortDrivers ?? [];
+			calcMap = buildCalcMap(versionData.itemGroups ?? []);
 		} catch (e: any) {
 			error = e.message;
 		} finally {
@@ -47,9 +73,16 @@
 				const res = await fetch(`/api/estimations/${estimationId}/versions/draft`, {
 					method: 'PUT',
 					headers: { 'Content-Type': 'application/json' },
-					body: JSON.stringify({ notes: currentNotes, itemGroups: currentGroups })
+					body: JSON.stringify({
+						notes: currentNotes,
+						itemGroups: currentGroups,
+						parameters: currentParameters,
+						effortDrivers: currentDrivers
+					})
 				});
 				if (!res.ok) throw new Error('Save failed');
+				const updated = await res.json();
+				calcMap = buildCalcMap(updated.itemGroups ?? []);
 				saveStatus = 'saved';
 				setTimeout(() => (saveStatus = 'idle'), 2000);
 			} catch {
@@ -118,9 +151,28 @@
 			<p class="mb-4 text-sm text-gray-600 italic">{versionData.notes}</p>
 		{/if}
 
+		<ParametersPanel
+			parameters={currentParameters}
+			editable={versionData.isDraft}
+			onchange={(params) => {
+				currentParameters = params;
+				scheduleSave();
+			}}
+		/>
+
+		<EffortDriversPanel
+			effortDrivers={currentDrivers}
+			editable={versionData.isDraft}
+			onchange={(drivers) => {
+				currentDrivers = drivers;
+				scheduleSave();
+			}}
+		/>
+
 		<EstimationGrid
 			version={versionData}
 			editable={versionData.isDraft}
+			{calcMap}
 			onchange={(groups) => {
 				currentGroups = groups;
 				scheduleSave();

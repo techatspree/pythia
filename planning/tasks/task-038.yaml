@@ -26,6 +26,8 @@ description: |
       cost (= offerPT * Tagessatz),
       offerPrice (= cost * (1 + Vertriebszuschlag))
   - DraftUpdateDto already accepts parameters? and effortDrivers? — backend PUT ready
+  - PUT /draft returns the full EstimationVersionDto including all itemGroups with
+    recalculated per-item fields — calcMap can be rebuilt from this response body
   - Calculator uses three named parameters:
       Tagessatz (daily rate in EUR/PT, default 800.0),
       Standardabweichungsfaktor (std dev factor, default 2.0),
@@ -34,91 +36,114 @@ description: |
     driverSurcharge per item = mean * totalDriverFactor
   - +page.svelte already maintains currentNotes/currentGroups; scheduleSave()
     sends PUT with the full draft payload
+  - EstimationGrid.svelte uses brand colors (bg-brand-green, text-brand-green) for
+    highlights — new read-only columns should use the same palette for consistency
 
   IMPACT ON CALCULATIONS (important for UX):
   - Editing effort values updates PERT expected instantly in the browser but
     offerPT/cost/offerPrice remain stale until the next auto-save round-trip
   - Parameter and effort driver changes affect offerPT/cost/offerPrice only
-    server-side; the local PERT expected column is unaffected
+    server-side; the locally-calculated PERT column is unaffected
   - After each auto-save the PUT response returns the full recalculated
     EstimationVersionDto; the page must extract updated per-item calculated
     values and refresh the grid WITHOUT re-initialising editable state
     (re-initialising would disrupt focus and typing)
 
   ARCHITECTURE FOR CALCULATED COLUMNS:
-  - The page maintains calcMap (Map<logicalId, {offerPT, cost, offerPrice}>),
-    initialised from versionData on load and rebuilt after every PUT response
+  - The page maintains calcMap (Map<logicalId, {offerPT, cost, offerPrice}>)
+  - For DRAFT: initialised from versionData.itemGroups on load; rebuilt from the
+    PUT response body after every auto-save
+  - For SUBMITTED: initialised from versionData.itemGroups on load; never updated
+    (no saves happen on submitted versions)
   - EstimationGrid receives calcMap as an additional prop
   - The grid renders offerPT/cost/offerPrice via calcMap.get(item.logicalId);
     shows '—' for rows not yet saved (no entry in map)
   - This keeps the editable state stable across server round-trips
 
+  COLUMN NAMING CONFLICT:
+  - The existing "Expected" column header is the locally-calculated PERT value
+  - With offerPT now visible alongside it, "Expected" is ambiguous
+  - Rename the header to "PERT" to distinguish it from offerPT
+
 steps:
   - "Frontend: Add currentParameters and currentDrivers state to +page.svelte —
-    initialise from versionData on load (same pattern as currentNotes/currentGroups).
+    initialise from versionData.parameters and versionData.effortDrivers on load.
     Include both in scheduleSave() payload: { notes, itemGroups, parameters,
     effortDrivers }."
-  - "Frontend: Add calcMap state to +page.svelte — a Map<string, {offerPT, cost,
-    offerPrice}> built by iterating versionData.itemGroups[].items[] on load.
-    After each successful auto-save, rebuild calcMap from the PUT response body.
-    Pass calcMap to EstimationGrid."
-  - "Frontend: Build ParametersPanel.svelte — collapsible panel (chevron style
-    matching EstimationGrid groups). Props: parameters: any[], editable: boolean,
-    onchange: (params) => void. Editable mode renders a table with columns name
-    (text input), value (number input), comment (text input), and a delete button
-    per row; add-row button at the bottom. Read-only mode renders the same table
-    as plain text with no inputs and no add/delete buttons."
-  - "Frontend: Build EffortDriversPanel.svelte — collapsible panel. Props:
-    effortDrivers: any[], editable: boolean, onchange: (drivers) => void.
+  - "Frontend: Add calcMap state to +page.svelte — build Map<string, {offerPT,
+    cost, offerPrice}> by iterating versionData.itemGroups[].items[] on load (covers
+    both draft and submitted). For drafts only: after each successful auto-save,
+    rebuild calcMap from the PUT response body using the same iteration. Pass calcMap
+    to EstimationGrid."
+  - "Frontend: Build ParametersPanel.svelte — collapsible panel (chevron style and
+    brand colors matching EstimationGrid groups). Props: parameters: any[], editable:
+    boolean, onchange: (params) => void. Editable mode renders a table with columns
+    name (text input), value (number input), comment (text input), and a delete button
+    per row; add-row button at the bottom. When the list is empty and editable=true,
+    show a hint button 'Use defaults' that pre-populates the three calculator
+    parameters (Tagessatz=800, Standardabweichungsfaktor=2.0, Vertriebszuschlag=0.1)
+    as a convenience for new drafts with no previous version to clone from.
+    Read-only mode renders the same table as plain text with no inputs or add/delete."
+  - "Frontend: Build EffortDriversPanel.svelte — collapsible panel with brand colors.
+    Props: effortDrivers: any[], editable: boolean, onchange: (drivers) => void.
     Editable mode renders a table with columns description (text), factor (number,
-    step=0.01), comment (text), and a delete button per row; add-row button;
-    footer row showing the sum of all factors (e.g. 'Total factor: 0.15').
+    step=0.01), comment (text), and a delete button per row; add-row button; footer
+    row showing the running sum of all factors (e.g. 'Total factor: 0.15').
     Read-only mode renders the same layout as plain text."
-  - "Frontend: Wire panels into +page.svelte — render ParametersPanel and
+  - "Frontend: Wire panels into +page.svelte — render ParametersPanel then
     EffortDriversPanel between the notes textarea and EstimationGrid, passing
-    editable={versionData.isDraft}. On each onchange, update currentParameters or
+    editable={versionData.isDraft}. On each onchange update currentParameters or
     currentDrivers and call scheduleSave()."
-  - "Frontend: Extend EstimationGrid.svelte — add calcMap prop (Map<string,
-    {offerPT: number, cost: number, offerPrice: number}>). After the Assumptions
-    column add three read-only columns: 'offerPT (PT)' (right-aligned, 2 dp),
-    'Cost (EUR)' (right-aligned, 0 dp), 'Offer Price (EUR)' (right-aligned, 0 dp).
-    Source values from calcMap.get(item.logicalId); show '—' for missing entries.
-    These columns appear in both editable and read-only mode. Keyboard navigation
-    editCols must not include these new columns. Extend the footer with sums of
-    offerPT, cost, and offerPrice across all calcMap entries."
+  - "Frontend: Extend EstimationGrid.svelte — rename the 'Expected' column header
+    to 'PERT'. Add calcMap prop (Map<string, {offerPT: number, cost: number,
+    offerPrice: number}>). After the Assumptions column add three read-only columns:
+    'offerPT (PT)' (right-aligned, 2 dp), 'Cost (EUR)' (right-aligned, 0 dp),
+    'Offer Price (EUR)' (right-aligned, 0 dp), styled with text-gray-600 to
+    distinguish them from the brand-green PERT column. Source values from
+    calcMap.get(item.logicalId); show '—' for missing entries. Update colCount from
+    editable?8:7 to editable?11:10. Keyboard navigation editCols stays as [0,1,2,3,5]
+    (new columns are read-only, not navigable). Extend footer with sums of offerPT,
+    cost, and offerPrice computed from all entries in calcMap."
   - "Test data: add a private helper buildRealisticDraft() to
     EstimationVersionResourceIT.kt that PUTs parameters (Tagessatz=900,
     Standardabweichungsfaktor=2.0, Vertriebszuschlag=0.10), one effort driver
     (description=QA, factor=0.15), and one item group with two items
-    (min=2/exp=4/max=6 and min=1/exp=3/max=5). Use it in the submit test and
-    the clone-from-submitted test so the full calculation chain is exercised."
-  - "Test: add integration test verifying that effort drivers increase offerPT —
-    create draft, PUT one item (min=2/exp=4/max=6) with no drivers, record
-    items[0].offerPT as baseline; then PUT with one driver factor=0.5 and assert
-    items[0].offerPT equals baseline * 1.5 and totalEffort reflects the increase."
-  - "Test: add integration test verifying that Tagessatz affects cost but not
-    offerPT — create draft, PUT one item and Tagessatz=800, record items[0].offerPT
-    and items[0].cost; then PUT Tagessatz=1600 and assert offerPT is unchanged
-    while cost and offerPrice are doubled."
+    (min=2/exp=4/max=6 and min=1/exp=3/max=5). Use it in the submit test and the
+    clone-from-submitted test so the full calculation chain is exercised end-to-end."
+  - "Test: add integration test 'effort drivers increase offerPT' — create draft,
+    PUT one item (min=2/exp=4/max=6) with Standardabweichungsfaktor=0 (eliminates
+    risk surcharge so offerPT equals PERT mean exactly), no effort drivers; record
+    items[0].offerPT as baseline (should equal PERT mean = 4.0). Then PUT with the
+    same item and one driver factor=0.5; assert items[0].offerPT equals baseline*1.5
+    (driverSurcharge = mean*0.5, offerPT = mean + 0 + mean*0.5 = 1.5*mean) and
+    totalEffort reflects the same increase."
+  - "Test: add integration test 'Tagessatz affects cost but not offerPT' — create
+    draft, PUT one item and Tagessatz=800 with Standardabweichungsfaktor=0; record
+    items[0].offerPT and items[0].cost. Then PUT Tagessatz=1600; assert offerPT is
+    unchanged (cost is offerPT*rate so offerPT is independent of rate), cost is
+    doubled, and offerPrice is doubled."
 
 validation:
-  - ParametersPanel renders with a chevron and collapses/expands on header click
-  - In editable mode adding a row appends a blank parameter; editing any field triggers auto-save after 800 ms; delete removes the row and triggers save
-  - In read-only mode all parameter cells are plain text with no inputs or add/delete controls
+  - ParametersPanel renders with chevron; collapses and expands on header click
+  - The 'Use defaults' button appears on an empty editable panel and pre-fills the three calculator parameters
+  - In editable mode adding a row, editing any field, or deleting a row triggers auto-save after 800 ms
+  - In read-only mode all cells are plain text with no inputs or add/delete controls
   - EffortDriversPanel footer shows the correct running sum of all factor values
   - After saving and reloading, added parameters and drivers are restored from the server
   - Both panels appear between the notes area and the EstimationGrid
-  - The grid shows offerPT / Cost / Offer Price columns for all items in both editable and read-only mode
-  - Rows not yet saved (new unsaved items) show a dash in the calculated columns
-  - After auto-save the calculated columns refresh from the PUT response without losing focus or resetting the editable cells
+  - The PERT column header now reads 'PERT' instead of 'Expected'
+  - The grid shows offerPT / Cost / Offer Price columns in both editable and read-only mode
+  - Unsaved rows (not yet in calcMap) show a dash in the three calculated columns
+  - After auto-save the calculated columns refresh without losing focus or resetting editable cells
   - Footer row sums include offerPT/cost/offerPrice totals from calcMap
-  - Integration test confirming effort drivers increase offerPT passes
-  - Integration test confirming Tagessatz affects cost but not offerPT passes
+  - For submitted versions calcMap is populated on load and never changes (no save cycle)
+  - Integration test 'effort drivers increase offerPT' passes with exact 1.5x assertion
+  - Integration test 'Tagessatz affects cost but not offerPT' passes
   - buildRealisticDraft helper is used in the submit and cloning tests
 
 outputs:
   - frontend: src/lib/components/ParametersPanel.svelte (new)
   - frontend: src/lib/components/EffortDriversPanel.svelte (new)
-  - frontend: src/lib/components/EstimationGrid.svelte (add calcMap prop, 3 read-only columns, extended footer)
+  - frontend: src/lib/components/EstimationGrid.svelte (calcMap prop, PERT rename, 3 read-only columns, colCount 8/7→11/10, extended footer)
   - frontend: src/routes/estimations/[id]/versions/[versionNumber]/+page.svelte (currentParameters, currentDrivers, calcMap; scheduleSave extension; panels wired in)
   - test: EstimationVersionResourceIT.kt (buildRealisticDraft helper, 2 new tests, updated submit/cloning tests)

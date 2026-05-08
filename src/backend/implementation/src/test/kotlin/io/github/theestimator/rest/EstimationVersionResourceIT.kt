@@ -109,13 +109,7 @@ class EstimationVersionResourceIT {
 
     @Test
     fun `submit draft creates submitted version and removes draft`() {
-        given().post("/api/estimations/$estimationId/versions")
-            .then().statusCode(201)
-
-        given()
-            .contentType(ContentType.JSON)
-            .body("""{"parameters": [{"name": "Tagessatz", "value": 900.0}, {"name": "Standardabweichungsfaktor", "value": 2.0}, {"name": "Vertriebszuschlag", "value": 0.12}]}""")
-            .put("/api/estimations/$estimationId/versions/draft")
+        buildRealisticDraft(estimationId)
 
         given()
             .`when`().post("/api/estimations/$estimationId/versions/draft/submit")
@@ -125,6 +119,8 @@ class EstimationVersionResourceIT {
             .body("versionNumber", equalTo(1))
             .body("submittedAt", notNullValue())
             .body("totalEffort", notNullValue())
+            .body("itemGroups[0].items.size()", equalTo(2))
+            .body("itemGroups[0].items[0].offerPT", greaterThan(0.0f))
 
         given()
             .`when`().get("/api/estimations/$estimationId/versions/draft")
@@ -180,18 +176,17 @@ class EstimationVersionResourceIT {
 
     @Test
     fun `new draft after submit clones from previous version`() {
-        given().post("/api/estimations/$estimationId/versions")
-        given()
-            .contentType(ContentType.JSON)
-            .body("""{"parameters": [{"name": "Tagessatz", "value": 950.0}]}""")
-            .put("/api/estimations/$estimationId/versions/draft")
+        buildRealisticDraft(estimationId)
         given().post("/api/estimations/$estimationId/versions/draft/submit")
 
         given().post("/api/estimations/$estimationId/versions")
             .then()
             .statusCode(201)
             .body("versionNumber", equalTo(2))
-            .body("parameters.find { it.name == 'Tagessatz' }.value", equalTo(950.0f))
+            .body("parameters.find { it.name == 'Tagessatz' }.value", equalTo(900.0f))
+            .body("effortDrivers.size()", equalTo(1))
+            .body("effortDrivers[0].description", equalTo("QA"))
+            .body("itemGroups[0].items.size()", equalTo(2))
     }
 
     @Test
@@ -247,6 +242,84 @@ class EstimationVersionResourceIT {
     }
 
     @Test
+    fun `effort drivers increase offerPT`() {
+        given().post("/api/estimations/$estimationId/versions")
+            .then().statusCode(201)
+
+        // Standardabweichungsfaktor=0 eliminates risk surcharge so offerPT == mean exactly
+        given()
+            .contentType(ContentType.JSON)
+            .body("""
+                {
+                    "parameters": [{"name": "Standardabweichungsfaktor", "value": 0.0}],
+                    "itemGroups": [{"title": "G", "items": [{"description": "T", "minEffort": 2.0, "expectedEffort": 4.0, "maxEffort": 6.0}]}]
+                }
+            """.trimIndent())
+            .`when`().put("/api/estimations/$estimationId/versions/draft")
+            .then()
+            .statusCode(200)
+            .body("itemGroups[0].items[0].offerPT", equalTo(4.0f))
+
+        // driver factor=0.5: driverSurcharge = mean*0.5, offerPT = mean + 0 + mean*0.5 = 1.5*mean = 6.0
+        given()
+            .contentType(ContentType.JSON)
+            .body("""
+                {
+                    "parameters": [{"name": "Standardabweichungsfaktor", "value": 0.0}],
+                    "effortDrivers": [{"description": "QA", "factor": 0.5}],
+                    "itemGroups": [{"title": "G", "items": [{"description": "T", "minEffort": 2.0, "expectedEffort": 4.0, "maxEffort": 6.0}]}]
+                }
+            """.trimIndent())
+            .`when`().put("/api/estimations/$estimationId/versions/draft")
+            .then()
+            .statusCode(200)
+            .body("itemGroups[0].items[0].offerPT", equalTo(6.0f))
+            .body("totalEffort", equalTo(6.0f))
+    }
+
+    @Test
+    fun `Tagessatz affects cost but not offerPT`() {
+        given().post("/api/estimations/$estimationId/versions")
+            .then().statusCode(201)
+
+        given()
+            .contentType(ContentType.JSON)
+            .body("""
+                {
+                    "parameters": [
+                        {"name": "Tagessatz", "value": 800.0},
+                        {"name": "Standardabweichungsfaktor", "value": 0.0}
+                    ],
+                    "itemGroups": [{"title": "G", "items": [{"description": "T", "minEffort": 2.0, "expectedEffort": 4.0, "maxEffort": 6.0}]}]
+                }
+            """.trimIndent())
+            .`when`().put("/api/estimations/$estimationId/versions/draft")
+            .then()
+            .statusCode(200)
+            .body("itemGroups[0].items[0].offerPT", equalTo(4.0f))
+            .body("itemGroups[0].items[0].cost", equalTo(3200.0f))
+
+        // Doubling Tagessatz doubles cost but leaves offerPT unchanged
+        given()
+            .contentType(ContentType.JSON)
+            .body("""
+                {
+                    "parameters": [
+                        {"name": "Tagessatz", "value": 1600.0},
+                        {"name": "Standardabweichungsfaktor", "value": 0.0}
+                    ],
+                    "itemGroups": [{"title": "G", "items": [{"description": "T", "minEffort": 2.0, "expectedEffort": 4.0, "maxEffort": 6.0}]}]
+                }
+            """.trimIndent())
+            .`when`().put("/api/estimations/$estimationId/versions/draft")
+            .then()
+            .statusCode(200)
+            .body("itemGroups[0].items[0].offerPT", equalTo(4.0f))
+            .body("itemGroups[0].items[0].cost", equalTo(6400.0f))
+            .body("itemGroups[0].items[0].offerPrice", equalTo(7040.0f))
+    }
+
+    @Test
     fun `nonexistent estimation returns 404`() {
         val fakeId = UUID.randomUUID()
 
@@ -254,5 +327,34 @@ class EstimationVersionResourceIT {
             .`when`().get("/api/estimations/$fakeId/versions")
             .then()
             .statusCode(404)
+    }
+
+    private fun buildRealisticDraft(estimationId: UUID) {
+        given().post("/api/estimations/$estimationId/versions")
+            .then().statusCode(201)
+
+        given()
+            .contentType(ContentType.JSON)
+            .body("""
+                {
+                    "parameters": [
+                        {"name": "Tagessatz", "value": 900.0},
+                        {"name": "Standardabweichungsfaktor", "value": 2.0},
+                        {"name": "Vertriebszuschlag", "value": 0.10}
+                    ],
+                    "effortDrivers": [
+                        {"description": "QA", "factor": 0.15}
+                    ],
+                    "itemGroups": [{
+                        "title": "Development",
+                        "items": [
+                            {"description": "Feature A", "minEffort": 2.0, "expectedEffort": 4.0, "maxEffort": 6.0},
+                            {"description": "Feature B", "minEffort": 1.0, "expectedEffort": 3.0, "maxEffort": 5.0}
+                        ]
+                    }]
+                }
+            """.trimIndent())
+            .put("/api/estimations/$estimationId/versions/draft")
+            .then().statusCode(200)
     }
 }

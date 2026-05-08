@@ -15,14 +15,18 @@
 		items: Item[];
 	};
 
+	type CalcEntry = { offerPT: number; cost: number; offerPrice: number };
+
 	let {
 		version,
 		editable,
-		onchange
+		onchange,
+		calcMap = new Map<string, CalcEntry>()
 	}: {
 		version: any;
 		editable: boolean;
 		onchange: (groups: Group[]) => void;
+		calcMap?: Map<string, CalcEntry>;
 	} = $props();
 
 	function pert(o: number | null, m: number | null, p: number | null): number {
@@ -59,6 +63,11 @@
 	const totalExp = $derived(
 		allItems.reduce((s, i) => s + pert(i.minEffort, i.expectedEffort, i.maxEffort), 0)
 	);
+
+	const calcEntries = $derived(Array.from(calcMap.values()));
+	const totalOfferPT = $derived(calcEntries.reduce((s, v) => s + v.offerPT, 0));
+	const totalCost = $derived(calcEntries.reduce((s, v) => s + v.cost, 0));
+	const totalOfferPrice = $derived(calcEntries.reduce((s, v) => s + v.offerPrice, 0));
 
 	function notify() {
 		onchange(
@@ -150,7 +159,7 @@
 		return result;
 	}
 
-	// Editable column indices (col 4 = expected, read-only, skipped)
+	// Editable column indices (col 4 = PERT, cols 6/7/8 = calculated, all read-only)
 	const editCols = [0, 1, 2, 3, 5];
 
 	function focusCell(gi: number, ii: number, col: number) {
@@ -215,7 +224,7 @@
 		}
 	}
 
-	const colCount = $derived(editable ? 8 : 7);
+	const colCount = $derived(editable ? 11 : 10);
 </script>
 
 <div class="border rounded-lg overflow-hidden">
@@ -239,8 +248,11 @@
 					<th class="py-2 px-2 text-right w-24">Optimistic</th>
 					<th class="py-2 px-2 text-right w-24">Likely</th>
 					<th class="py-2 px-2 text-right w-24">Pessimistic</th>
-					<th class="py-2 px-2 text-right w-24">Expected</th>
+					<th class="py-2 px-2 text-right w-24">PERT</th>
 					<th class="py-2 px-3">Assumptions</th>
+					<th class="py-2 px-2 text-right w-24">offerPT (PT)</th>
+					<th class="py-2 px-2 text-right w-28">Cost (EUR)</th>
+					<th class="py-2 px-2 text-right w-28">Offer Price (EUR)</th>
 					{#if editable}<th class="py-2 px-3 w-8"></th>{/if}
 				</tr>
 			</thead>
@@ -264,6 +276,7 @@
 
 					{#if !collapsed.has(group.logicalId)}
 						{#each group.items as item, ii}
+							{@const calc = calcMap.get(item.logicalId)}
 							<tr class="border-b hover:bg-gray-50">
 								<td class="py-1 px-3"></td>
 
@@ -337,7 +350,7 @@
 									{/if}
 								</td>
 
-								<!-- Expected (PERT, always read-only) -->
+								<!-- PERT (always read-only) -->
 								<td class="py-1 px-3 text-right text-brand-green tabular-nums">
 									{pert(item.minEffort, item.expectedEffort, item.maxEffort).toFixed(2)}
 								</td>
@@ -358,6 +371,21 @@
 									{:else}
 										<span class="px-1 text-gray-500">{item.assumptions ?? ''}</span>
 									{/if}
+								</td>
+
+								<!-- offerPT (server-calculated, read-only) -->
+								<td class="py-1 px-2 text-right text-gray-600 tabular-nums">
+									{calc != null ? calc.offerPT.toFixed(2) : '—'}
+								</td>
+
+								<!-- Cost (server-calculated, read-only) -->
+								<td class="py-1 px-2 text-right text-gray-600 tabular-nums">
+									{calc != null ? calc.cost.toFixed(0) : '—'}
+								</td>
+
+								<!-- Offer Price (server-calculated, read-only) -->
+								<td class="py-1 px-2 text-right text-gray-600 tabular-nums">
+									{calc != null ? calc.offerPrice.toFixed(0) : '—'}
 								</td>
 
 								{#if editable}
@@ -398,6 +426,11 @@
 					<td class="py-2 px-2 text-right tabular-nums">{totalPes.toFixed(2)}</td>
 					<td class="py-2 px-2 text-right text-brand-green tabular-nums">{totalExp.toFixed(2)}</td>
 					<td class="py-2 px-3"></td>
+					<td class="py-2 px-2 text-right text-gray-600 tabular-nums">{totalOfferPT.toFixed(2)}</td>
+					<td class="py-2 px-2 text-right text-gray-600 tabular-nums">{totalCost.toFixed(0)}</td>
+					<td class="py-2 px-2 text-right text-gray-600 tabular-nums"
+						>{totalOfferPrice.toFixed(0)}</td
+					>
 					{#if editable}<td class="py-2 px-3"></td>{/if}
 				</tr>
 			</tbody>

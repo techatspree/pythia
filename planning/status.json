@@ -207,10 +207,10 @@
       "notes": "Top-level Maven reactor build. Frontend via frontend-maven-plugin (Node 22.14.0). Profiles dev-local/dev-minikube propagated. Skip frontend with -Dskip.frontend=true. End2end ITs skipped by default. 31 tests pass."
     },
     "task-038": {
-      "status": "pending",
-      "started_at": null,
-      "completed_at": null,
-      "notes": ""
+      "status": "done",
+      "started_at": "2026-05-08T08:38:53+00:00",
+      "completed_at": "2026-05-08T16:00:00+00:00",
+      "notes": "ParametersPanel and EffortDriversPanel added. calcMap pattern for offerPT/cost/offerPrice in EstimationGrid. PERT column renamed. colCount 8/7→11/10. buildRealisticDraft helper and 2 new integration tests added."
     },
     "task-035": {
       "status": "done",
