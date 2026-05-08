@@ -73,7 +73,7 @@
 		<p class="text-red-600">{error}</p>
 	{:else if versionData}
 		<div class="flex items-center justify-between mb-4">
-			<a href="/estimations/{estimationId}" class="text-sm text-blue-600 hover:underline"
+			<a href="/estimations/{estimationId}" class="text-sm text-brand-green hover:underline"
 				>&larr; Back to estimation</a
 			>
 			<div class="flex items-center gap-3">
@@ -85,7 +85,7 @@
 				{#if versionData.isDraft}
 					<button
 						onclick={submitVersion}
-						class="px-4 py-2 text-sm bg-green-600 text-white rounded hover:bg-green-700"
+						class="px-4 py-2 text-sm bg-brand-green text-white rounded hover:bg-[#007a45]"
 					>
 						Submit
 					</button>
@@ -105,7 +105,7 @@
 
 		{#if versionData.isDraft}
 			<textarea
-				class="w-full mb-4 p-2 border rounded text-sm resize-none focus:outline-none focus:ring-1 focus:ring-blue-300"
+				class="w-full mb-4 p-2 border rounded text-sm resize-none focus:outline-none focus:ring-1 focus:ring-brand-green/40"
 				rows="2"
 				placeholder="Notes…"
 				value={currentNotes}

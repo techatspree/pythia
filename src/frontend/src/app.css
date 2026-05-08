@@ -1,1 +1,24 @@
 @import 'tailwindcss';
+
+@theme {
+	--color-brand-green: #009e5a;
+	--color-brand-green-light: #bade4e;
+	--color-brand-blue: #3840ed;
+	--color-brand-pink: #ec66a2;
+	--font-heading: 'Poppins', 'Helvetica Neue', Arial, sans-serif;
+	--font-body: 'Montserrat', 'Helvetica Neue', Arial, sans-serif;
+}
+
+:root {
+	--gradient-brand: linear-gradient(135deg, #009e5a, #bade4e);
+}
+
+body {
+	font-family: var(--font-body);
+}
+
+h1,
+h2,
+h3 {
+	font-family: var(--font-heading);
+}

@@ -63,7 +63,7 @@
 				</div>
 				<div class="flex justify-end gap-2">
 					<button type="button" onclick={handleCancel} class="px-4 py-2 text-sm border rounded hover:bg-gray-50">Cancel</button>
-					<button type="submit" disabled={loading} class="px-4 py-2 text-sm bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50">
+					<button type="submit" disabled={loading} class="px-4 py-2 text-sm bg-brand-green text-white rounded hover:bg-[#007a45] disabled:opacity-50">
 						{loading ? 'Creating...' : 'Create'}
 					</button>
 				</div>

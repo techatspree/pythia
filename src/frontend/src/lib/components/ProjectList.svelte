@@ -11,7 +11,7 @@
 {:else}
 	<div class="overflow-x-auto">
 		<table class="w-full text-sm text-left">
-			<thead class="text-xs uppercase bg-gray-50 border-b">
+			<thead class="text-xs uppercase bg-brand-green/10 border-b text-brand-green">
 				<tr>
 					<th class="px-4 py-3">Name</th>
 					<th class="px-4 py-3">Client</th>
@@ -23,7 +23,7 @@
 				{#each projects as project}
 					<tr class="border-b hover:bg-gray-50">
 						<td class="px-4 py-3">
-							<a href="/projects/{project.id}" class="text-blue-600 hover:underline font-medium">
+							<a href="/projects/{project.id}" class="text-brand-green hover:underline font-medium">
 								{project.name}
 							</a>
 							{#if project.description}
@@ -32,7 +32,7 @@
 						</td>
 						<td class="px-4 py-3">{project.client || '—'}</td>
 						<td class="px-4 py-3">
-							<span class="px-2 py-0.5 text-xs rounded-full {project.status === 'ACTIVE' ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-600'}">
+							<span class="px-2 py-0.5 text-xs rounded-full {project.status === 'ACTIVE' ? 'bg-brand-green/20 text-brand-green' : 'bg-gray-100 text-gray-600'}">
 								{project.status}
 							</span>
 						</td>

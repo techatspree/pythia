@@ -6,7 +6,7 @@
 	<div class="flex items-center gap-3 mb-2">
 		<h1 class="text-2xl font-bold">{estimation.offer}</h1>
 		{#if estimation.latestVersionNumber}
-			<span class="px-2 py-0.5 text-xs rounded-full bg-blue-100 text-blue-800">
+			<span class="px-2 py-0.5 text-xs rounded-full bg-brand-green/20 text-brand-green">
 				Latest: v{estimation.latestVersionNumber}
 			</span>
 		{/if}

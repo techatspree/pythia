@@ -6,14 +6,14 @@
 	}
 
 	function statusColor(version: any): string {
-		return version.isDraft ? 'bg-yellow-100 text-yellow-800' : 'bg-green-100 text-green-800';
+		return version.isDraft ? 'bg-yellow-100 text-yellow-800' : 'bg-brand-green/20 text-brand-green';
 	}
 </script>
 
 <div class="mt-6">
 	<div class="flex items-center justify-between mb-3">
 		<h2 class="text-lg font-semibold">Versions</h2>
-		<button onclick={oncreate} class="px-4 py-2 text-sm bg-blue-600 text-white rounded hover:bg-blue-700">
+		<button onclick={oncreate} class="px-4 py-2 text-sm bg-brand-green text-white rounded hover:bg-[#007a45]">
 			Create new version
 		</button>
 	</div>
@@ -38,7 +38,7 @@
 							{#if version.isDraft}
 								<button
 									onclick={(e: MouseEvent) => { e.preventDefault(); onsubmit(); }}
-									class="px-3 py-1 text-xs bg-green-600 text-white rounded hover:bg-green-700"
+									class="px-3 py-1 text-xs bg-brand-green text-white rounded hover:bg-[#007a45]"
 								>
 									Submit
 								</button>

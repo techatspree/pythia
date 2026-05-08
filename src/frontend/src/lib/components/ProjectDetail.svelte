@@ -10,7 +10,7 @@
 	<div class="mb-6">
 		<div class="flex items-center gap-3 mb-2">
 			<h1 class="text-2xl font-bold">{project.name}</h1>
-			<span class="px-2 py-0.5 text-xs rounded-full {project.status === 'ACTIVE' ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-600'}">
+			<span class="px-2 py-0.5 text-xs rounded-full {project.status === 'ACTIVE' ? 'bg-brand-green/20 text-brand-green' : 'bg-gray-100 text-gray-600'}">
 				{project.status}
 			</span>
 		</div>
@@ -29,7 +29,7 @@
 	{:else}
 		<div class="overflow-x-auto">
 			<table class="w-full text-sm text-left">
-				<thead class="text-xs uppercase bg-gray-50 border-b">
+				<thead class="text-xs uppercase bg-brand-green/10 border-b text-brand-green">
 					<tr>
 						<th class="px-4 py-3">Offer</th>
 						<th class="px-4 py-3">Description</th>
@@ -42,7 +42,7 @@
 					{#each project.estimations as estimation}
 						<tr class="border-b hover:bg-gray-50">
 							<td class="px-4 py-3 font-medium">
-								<a href="/estimations/{estimation.id}" class="text-blue-600 hover:underline">{estimation.offer}</a>
+								<a href="/estimations/{estimation.id}" class="text-brand-green hover:underline">{estimation.offer}</a>
 							</td>
 							<td class="px-4 py-3 text-gray-600">{estimation.description || '—'}</td>
 							<td class="px-4 py-3">{estimation.versionCount}</td>

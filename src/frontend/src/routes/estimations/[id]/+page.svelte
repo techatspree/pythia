@@ -54,7 +54,7 @@
 	{:else if error}
 		<p class="text-red-600">{error}</p>
 	{:else if estimation}
-		<a href="/projects/{estimation.projectId}" class="text-sm text-blue-600 hover:underline mb-4 inline-block">&larr; Back to {estimation.projectName || 'project'}</a>
+		<a href="/projects/{estimation.projectId}" class="text-sm text-brand-green hover:underline mb-4 inline-block">&larr; Back to {estimation.projectName || 'project'}</a>
 		<EstimationDetail {estimation} />
 		<VersionList versions={estimation.versions} estimationId={estimation.id} oncreate={createVersion} onsubmit={submitVersion} />
 	{/if}

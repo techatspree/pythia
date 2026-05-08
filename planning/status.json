@@ -206,6 +206,12 @@
       "completed_at": "2026-05-05T10:20:00+02:00",
       "notes": "Top-level Maven reactor build. Frontend via frontend-maven-plugin (Node 22.14.0). Profiles dev-local/dev-minikube propagated. Skip frontend with -Dskip.frontend=true. End2end ITs skipped by default. 31 tests pass."
     },
+    "task-038": {
+      "status": "pending",
+      "started_at": null,
+      "completed_at": null,
+      "notes": ""
+    },
     "task-035": {
       "status": "done",
       "started_at": "2026-05-05T10:55:00+02:00",

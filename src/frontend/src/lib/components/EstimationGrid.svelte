@@ -225,7 +225,7 @@
 			{#if editable}
 				<button
 					onclick={addGroup}
-					class="px-4 py-2 text-sm bg-blue-600 text-white rounded hover:bg-blue-700"
+					class="px-4 py-2 text-sm bg-brand-green text-white rounded hover:bg-[#007a45]"
 					>Add group</button
 				>
 			{/if}
@@ -233,13 +233,13 @@
 	{:else}
 		<table class="w-full text-sm border-collapse">
 			<thead>
-				<tr class="bg-gray-50 border-b text-left text-xs text-gray-500 uppercase tracking-wide">
+				<tr class="bg-brand-green/10 border-b text-left text-xs text-brand-green uppercase tracking-wide">
 					<th class="py-2 px-3 w-6"></th>
 					<th class="py-2 px-3">Description</th>
 					<th class="py-2 px-2 text-right w-24">Optimistic</th>
 					<th class="py-2 px-2 text-right w-24">Likely</th>
 					<th class="py-2 px-2 text-right w-24">Pessimistic</th>
-					<th class="py-2 px-2 text-right w-24 text-blue-600">Expected</th>
+					<th class="py-2 px-2 text-right w-24">Expected</th>
 					<th class="py-2 px-3">Assumptions</th>
 					{#if editable}<th class="py-2 px-3 w-8"></th>{/if}
 				</tr>
@@ -272,7 +272,7 @@
 									{#if editable}
 										<input
 											type="text"
-											class="w-full bg-transparent focus:outline-none focus:bg-blue-50 focus:ring-1 focus:ring-blue-300 rounded px-1 py-0.5"
+											class="w-full bg-transparent focus:outline-none focus:bg-brand-green/5 focus:ring-1 focus:ring-brand-green/40 rounded px-1 py-0.5"
 											value={item.description}
 											data-cell="{gi}-{ii}-0"
 											oninput={(e) => updateField(gi, ii, 'description', e.currentTarget.value)}
@@ -290,7 +290,7 @@
 											type="number"
 											step="0.5"
 											min="0"
-											class="w-full text-right bg-transparent focus:outline-none focus:bg-blue-50 focus:ring-1 focus:ring-blue-300 rounded px-1 py-0.5"
+											class="w-full text-right bg-transparent focus:outline-none focus:bg-brand-green/5 focus:ring-1 focus:ring-brand-green/40 rounded px-1 py-0.5"
 											value={item.minEffort ?? ''}
 											data-cell="{gi}-{ii}-1"
 											oninput={(e) => updateField(gi, ii, 'minEffort', e.currentTarget.value)}
@@ -308,7 +308,7 @@
 											type="number"
 											step="0.5"
 											min="0"
-											class="w-full text-right bg-transparent focus:outline-none focus:bg-blue-50 focus:ring-1 focus:ring-blue-300 rounded px-1 py-0.5"
+											class="w-full text-right bg-transparent focus:outline-none focus:bg-brand-green/5 focus:ring-1 focus:ring-brand-green/40 rounded px-1 py-0.5"
 											value={item.expectedEffort ?? ''}
 											data-cell="{gi}-{ii}-2"
 											oninput={(e) => updateField(gi, ii, 'expectedEffort', e.currentTarget.value)}
@@ -326,7 +326,7 @@
 											type="number"
 											step="0.5"
 											min="0"
-											class="w-full text-right bg-transparent focus:outline-none focus:bg-blue-50 focus:ring-1 focus:ring-blue-300 rounded px-1 py-0.5"
+											class="w-full text-right bg-transparent focus:outline-none focus:bg-brand-green/5 focus:ring-1 focus:ring-brand-green/40 rounded px-1 py-0.5"
 											value={item.maxEffort ?? ''}
 											data-cell="{gi}-{ii}-3"
 											oninput={(e) => updateField(gi, ii, 'maxEffort', e.currentTarget.value)}
@@ -338,7 +338,7 @@
 								</td>
 
 								<!-- Expected (PERT, always read-only) -->
-								<td class="py-1 px-3 text-right text-blue-600 tabular-nums">
+								<td class="py-1 px-3 text-right text-brand-green tabular-nums">
 									{pert(item.minEffort, item.expectedEffort, item.maxEffort).toFixed(2)}
 								</td>
 
@@ -347,7 +347,7 @@
 									{#if editable}
 										<input
 											type="text"
-											class="w-full bg-transparent focus:outline-none focus:bg-blue-50 focus:ring-1 focus:ring-blue-300 rounded px-1 py-0.5"
+											class="w-full bg-transparent focus:outline-none focus:bg-brand-green/5 focus:ring-1 focus:ring-brand-green/40 rounded px-1 py-0.5"
 											value={item.assumptions ?? ''}
 											placeholder="…"
 											data-cell="{gi}-{ii}-5"
@@ -379,7 +379,7 @@
 								<td colspan={colCount} class="py-1 px-11">
 									<button
 										onclick={() => addItem(gi)}
-										class="text-xs text-blue-500 hover:text-blue-700"
+										class="text-xs text-brand-green hover:text-[#007a45]"
 									>
 										+ Add item
 									</button>
@@ -396,7 +396,7 @@
 					<td class="py-2 px-2 text-right tabular-nums">{totalOpt.toFixed(2)}</td>
 					<td class="py-2 px-2 text-right tabular-nums">{totalLik.toFixed(2)}</td>
 					<td class="py-2 px-2 text-right tabular-nums">{totalPes.toFixed(2)}</td>
-					<td class="py-2 px-2 text-right text-blue-600 tabular-nums">{totalExp.toFixed(2)}</td>
+					<td class="py-2 px-2 text-right text-brand-green tabular-nums">{totalExp.toFixed(2)}</td>
 					<td class="py-2 px-3"></td>
 					{#if editable}<td class="py-2 px-3"></td>{/if}
 				</tr>
@@ -405,7 +405,7 @@
 
 		{#if editable}
 			<div class="p-3 border-t bg-gray-50/40">
-				<button onclick={addGroup} class="text-sm text-blue-500 hover:text-blue-700">
+				<button onclick={addGroup} class="text-sm text-brand-green hover:text-[#007a45]">
 					+ Add group
 				</button>
 			</div>
