@@ -217,6 +217,18 @@
       "started_at": "2026-05-05T10:55:00+02:00",
       "completed_at": "2026-05-05T11:10:00+02:00",
       "notes": "Domain module (io.github.theestimator.model) with pure Kotlin classes + EstimationCalculator. TypeScript generated via typescript-generator-maven-plugin, packaged as zip classifier artifact. Frontend unpacks from Maven repo via maven-dependency-plugin. Backend depends on domain jar. All 52 tests pass, full reactor build green."
+    },
+    "task-036": {
+      "status": "done",
+      "started_at": "2026-05-08T14:31:53+00:00",
+      "completed_at": "2026-05-08T14:31:53+00:00",
+      "notes": ""
+    },
+    "task-037": {
+      "status": "done",
+      "started_at": "2026-05-08T14:31:35+00:00",
+      "completed_at": "2026-05-08T14:31:35+00:00",
+      "notes": ""
     }
   }
 }
