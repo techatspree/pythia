@@ -243,9 +243,9 @@
       "notes": ""
     },
     "task-041": {
-      "status": "pending",
-      "started_at": null,
-      "completed_at": null,
+      "status": "done",
+      "started_at": "2026-05-11T12:21:16+00:00",
+      "completed_at": "2026-05-11T12:21:16+00:00",
       "notes": ""
     }
   }
