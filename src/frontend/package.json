@@ -13,6 +13,8 @@
 		"gen:api": "openapi-typescript src/lib/api/openapi.json -o src/lib/api/schema.d.ts"
 	},
 	"devDependencies": {
+		"@originjs/vite-plugin-commonjs": "^1.0.3",
+		"@playwright/test": "^1.59.1",
 		"@sveltejs/adapter-auto": "^7.0.1",
 		"@sveltejs/adapter-static": "^3.0.10",
 		"@sveltejs/kit": "^2.57.0",

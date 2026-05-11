@@ -1,5 +1,6 @@
 <script lang="ts">
-	let { estimation }: { estimation: any } = $props();
+	import type { ApiEstimationDetail } from '$lib/api/types.js';
+	let { estimation }: { estimation: ApiEstimationDetail } = $props();
 </script>
 
 <div class="mb-6">

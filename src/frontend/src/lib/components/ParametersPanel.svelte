@@ -12,9 +12,9 @@
 		editable,
 		onchange
 	}: {
-		parameters: any[];
+		parameters: Param[];
 		editable: boolean;
-		onchange: (params: any[]) => void;
+		onchange: (params: Param[]) => void;
 	} = $props();
 
 	let items = $state<Param[]>(
@@ -23,7 +23,7 @@
 	let open = $state(true);
 
 	function notify() {
-		onchange(items.map((i) => ({ name: i.name, value: i.value, comment: i.comment || null })));
+		onchange(items.map((i) => ({ name: i.name, value: i.value, comment: i.comment })));
 	}
 
 	function addRow() {

@@ -1,0 +1,16 @@
+{
+  "name": "domain",
+  "version": "1.0.0-SNAPSHOT",
+  "main": "domain.mjs",
+  "types": "domain.d.ts",
+  "devDependencies": {
+    "typescript": "5.5.4"
+  },
+  "dependencies": {
+    "@js-joda/core": "3.2.0",
+    "format-util": "^1.0.5"
+  },
+  "peerDependencies": {},
+  "optionalDependencies": {},
+  "bundledDependencies": []
+}

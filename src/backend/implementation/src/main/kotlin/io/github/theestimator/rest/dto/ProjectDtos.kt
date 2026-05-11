@@ -45,6 +45,11 @@ data class ProjectUpdateDto(
     val client: String? = null
 )
 
+data class EstimationCreateDto(
+    val offer: String,
+    val description: String? = null
+)
+
 data class EstimationDetailDto(
     val id: UUID?,
     val offer: String?,

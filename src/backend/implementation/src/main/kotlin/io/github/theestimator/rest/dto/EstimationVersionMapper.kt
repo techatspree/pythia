@@ -71,12 +71,12 @@ fun DraftProjectPhase.toDto() = ProjectPhaseDto(
 )
 
 fun DraftEstimationItemGroup.toDtoWithCalc(result: CalculationResult): EstimationItemGroupDto {
-    val itemResultMap = result.items.associateBy { it.item.id }
+    val itemResultMap = result.items.associateBy { it.item.logicalId }
     return EstimationItemGroupDto(
         logicalId = logicalId,
         title = title,
         phaseAbbreviation = phase?.abbreviation,
-        items = items.map { it.toDto(itemResultMap[it.id]) }
+        items = items.map { it.toDto(itemResultMap[it.logicalId]) }
     )
 }
 

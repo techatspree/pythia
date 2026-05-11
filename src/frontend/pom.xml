@@ -45,7 +45,7 @@
                                     <version>1.0.0-SNAPSHOT</version>
                                     <type>zip</type>
                                     <classifier>typescript</classifier>
-                                    <outputDirectory>${project.basedir}/src/lib/types/generated</outputDirectory>
+                                    <outputDirectory>${project.basedir}/src/lib/domain</outputDirectory>
                                 </artifactItem>
                             </artifactItems>
                         </configuration>

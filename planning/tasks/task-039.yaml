@@ -1,0 +1,242 @@
+id: task-039
+phase: phase-5
+title: Add project phase support — per-item phase assignment and phase summary panel
+depends_on: [task-040]
+description: |
+  Project phases exist in the domain (DraftProjectPhase / SubmittedProjectPhase)
+  but the current assignment model is wrong: phase is linked at the group level
+  (DraftEstimationItemGroup.phase FK, SubmittedEstimationItemGroup.phaseAbbreviation).
+  The correct model is that each individual EstimationItem is assigned to a phase.
+  Groups have no phase assignment.
+
+  This task refactors the full stack to the item-level model and adds the phase
+  summary panel to the version editor (analogous to the "Pakete" tab in the
+  reference spreadsheet: one row per phase showing accumulated offerPT and the
+  planned duration in weeks).
+
+  ── REMOVE (group-level phase) ────────────────────────────────────────────────
+  - DraftEstimationItemGroup.phase: @ManyToOne FK field + @JoinColumn
+  - SubmittedEstimationItemGroup.phaseAbbreviation: String? field
+  - EstimationItemGroupDto.phaseAbbreviation parameter
+  - ItemGroupUpdateDto.phaseAbbreviation parameter
+  - draft_estimation_item_groups.phase_id column + fk_draft_groups_phase constraint
+  - submitted_estimation_item_groups.phase_abbreviation column
+  - EstimationGrid Group type: phaseAbbreviation field
+  - EstimationGrid initGroups(): phaseAbbreviation: g.phaseAbbreviation ?? null
+  - EstimationGrid notify(): phaseAbbreviation field in the group object literal
+
+  ── KEEP (item-level phase — already exists) ──────────────────────────────────
+  - DraftEstimationItem.phase: @ManyToOne @JoinColumn(phase_id) ✓
+  - draft_estimation_items.phase_id column ✓
+  - DraftProjectPhase, SubmittedProjectPhase entities and DB tables ✓
+  - DraftEstimationVersion.phases and SubmittedEstimationVersion.phases lists ✓
+  - EstimationVersionDto.phases: List<ProjectPhaseDto> in GET response ✓
+
+  ── ADD (item-level phase — new) ──────────────────────────────────────────────
+  - SubmittedEstimationItem.phaseAbbreviation: String? (denormalized column)
+  - EstimationItemDto.phaseAbbreviation: String? (expose in GET response)
+  - EstimationItemUpdateDto.phaseAbbreviation: String? (accept in PUT /draft)
+  - PhaseUpdateDto new data class (for PUT /draft phases list)
+  - DraftUpdateDto.phases: List<PhaseUpdateDto>? (cannot create/edit phases yet)
+  - Frontend PhasesPanel.svelte and per-item phase select in EstimationGrid
+
+  BACKEND CHANGES IN DETAIL:
+
+  updateDraft() — itemGroups block. Currently:
+    val phase = groupDto.phaseAbbreviation?.let { abbr ->
+        draft.phases.find { it.abbreviation == abbr } }
+    val group = DraftEstimationItemGroup().apply { ...; this.phase = phase; ... }
+    groupDto.items.forEach { itemDto ->
+        group.items.add(DraftFixedEstimationItem().apply {
+            ...; this.phase = phase; this.group = group }) }
+  Change to: remove the group-level 'val phase' lookup entirely; remove
+  'this.phase = phase' from the group construction; inside the items loop
+  add a per-item lookup:
+    val itemPhase = itemDto.phaseAbbreviation?.let { abbr ->
+        draft.phases.find { it.abbreviation == abbr } }
+  and set 'this.phase = itemPhase' on each item.
+  A phases block must be added BEFORE itemGroups so draft.phases is populated
+  before the item loop looks up phases by abbreviation.
+
+  submitDraft() — group snapshot loop. Currently writes
+  'phaseAbbreviation = group.phase?.abbreviation' on SubmittedEstimationItemGroup.
+  Remove that; the field no longer exists on the entity. Instead, inside the
+  items loop add 'phaseAbbreviation = item.phase?.abbreviation' on each
+  SubmittedEstimationItem.
+
+  cloneFromSubmitted() — item loop. Currently assigns group.phase via phaseMapping.
+  Remove 'phase = group.phaseAbbreviation?.let { phaseMapping[it] }' from the
+  DraftEstimationItemGroup construction. Change each DraftEstimationItem's phase
+  assignment from 'group.phaseAbbreviation?.let { phaseMapping[it] }' to
+  'submittedItem.phaseAbbreviation?.let { phaseMapping[it] }'.
+
+  ESTIMATIONGRID — data-cell indices stay unchanged:
+  The existing inputs keep their data-cell indices (Description=0, Optimistic=1,
+  Likely=2, Pessimistic=3, Assumptions=5) and editCols=[0,1,2,3,5] is unchanged.
+  The Phase <select> has no data-cell attribute and is not keyboard-navigable.
+  Adding the Phase column raises colCount: editable ? 12 : 11 (was 11/10).
+  Column visual order: chevron | Description | Phase | Optimistic | Likely |
+  Pessimistic | PERT | Assumptions | offerPT | Cost | Offer Price | (delete)
+
+  PHASESPANEL — abbreviation editable:
+  Abbreviation is a text input in draft mode (same as name). If the user changes
+  an abbreviation, items whose phaseAbbreviation held the old value are effectively
+  unassigned after the next save — the backend lookup finds no matching phase and
+  sets item.phase = null, so the GET response will return phaseAbbreviation = null
+  on those items. No cascading update is needed; the user can reassign manually.
+
+  PHASESPANEL — aggregation:
+  For each phase row compute totalOfferPT by iterating all items across all
+  itemGroups, matching item.phaseAbbreviation === phase.abbreviation, and summing
+  calcMap.get(item.logicalId)?.offerPT. Show dash when an item has no calcMap
+  entry yet (new row not yet auto-saved). totalOfferPT is purely reactive
+  (derived from props); it is not part of the onchange payload.
+
+steps:
+  - "Backend: Remove group-level phase from entities and DTOs. In
+    DraftEstimationItemGroup delete the phase @ManyToOne field and its
+    @JoinColumn annotation. In SubmittedEstimationItemGroup delete the
+    phaseAbbreviation field. In EstimationItemGroupDto remove the phaseAbbreviation
+    constructor parameter. In ItemGroupUpdateDto remove the phaseAbbreviation
+    parameter. Fix all resulting compilation errors in mapper and service in
+    the same step (the mapper references phase?.abbreviation on groups; the
+    service references group.phase and group.phaseAbbreviation)."
+  - "Backend: Add item-level phase fields and new DTOs. Add phaseAbbreviation:
+    String? = null with @Column(name='phase_abbreviation') to
+    SubmittedEstimationItem. Add phaseAbbreviation: String? = null to
+    EstimationItemDto (append after the unit field). Add phaseAbbreviation:
+    String? = null to EstimationItemUpdateDto. Define new data class
+    PhaseUpdateDto(name: String, abbreviation: String, durationWeeks: Double?
+    = null). Add phases: List<PhaseUpdateDto>? = null to DraftUpdateDto."
+  - "Backend: Create Flyway migration V5__phase_at_item_level.sql with three
+    statements: (1) ALTER TABLE submitted_estimation_items ADD COLUMN
+    phase_abbreviation VARCHAR(255); (2) ALTER TABLE
+    submitted_estimation_item_groups DROP COLUMN phase_abbreviation; (3) ALTER
+    TABLE draft_estimation_item_groups DROP CONSTRAINT fk_draft_groups_phase,
+    then DROP COLUMN phase_id."
+  - "Backend: Update EstimationVersionMapper. In DraftEstimationItemGroup.
+    toDtoWithCalc() the EstimationItemGroupDto constructor call currently passes
+    phaseAbbreviation = phase?.abbreviation — remove that argument (field no longer
+    exists on the DTO). In DraftEstimationItem.toDto() add phaseAbbreviation =
+    phase?.abbreviation as the last argument. In SubmittedEstimationItemGroup.toDto()
+    remove phaseAbbreviation from the EstimationItemGroupDto constructor call.
+    In SubmittedEstimationItem.toDto() add phaseAbbreviation = phaseAbbreviation
+    as the last argument."
+  - "Backend: Update EstimationVersionService. In submitDraft(): in the
+    SubmittedEstimationItemGroup construction remove the 'phaseAbbreviation =
+    group.phase?.abbreviation' line (field removed from the entity). In the
+    submittedItem construction inside the item loop add
+    'phaseAbbreviation = item.phase?.abbreviation'. In cloneFromSubmitted():
+    in the DraftEstimationItemGroup construction remove the
+    'phase = group.phaseAbbreviation?.let { phaseMapping[it] }' line. In the
+    DraftEstimationItem construction change the item phase assignment from
+    'phase = group.phaseAbbreviation?.let { phaseMapping[it] }' to
+    'phase = submittedItem.phaseAbbreviation?.let { phaseMapping[it] }'."
+  - "Backend: Update EstimationVersionResource.updateDraft(). Add a phases block
+    immediately after the effortDrivers block and before the itemGroups block:
+    update.phases?.let { phaseDtos -> draft.phases.clear(); phaseDtos.forEach {
+    dto -> draft.phases.add(DraftProjectPhase().apply { name = dto.name;
+    abbreviation = dto.abbreviation; durationWeeks = dto.durationWeeks;
+    version = draft }) } }. In the itemGroups block remove the group-level
+    'val phase = groupDto.phaseAbbreviation?.let{...}' lookup and remove
+    'this.phase = phase' from the DraftEstimationItemGroup apply block. Inside
+    the items forEach loop add a per-item lookup: val itemPhase =
+    itemDto.phaseAbbreviation?.let { abbr -> draft.phases.find { it.abbreviation
+    == abbr } } and set this.phase = itemPhase on the item."
+  - "Backend: Add integration test 'phase assignment per item is saved and
+    cloned'. Create draft, PUT with phases=[{name=Analysis, abbreviation=AN,
+    durationWeeks=2.0}] and itemGroups=[{title=G, items=[{description=T,
+    minEffort=2.0, expectedEffort=4.0, maxEffort=6.0, phaseAbbreviation=AN}]}]
+    and parameters=[{name=Standardabweichungsfaktor, value=0.0}]. Assert the
+    PUT response has phases.size()==1, itemGroups[0].items[0].phaseAbbreviation
+    =='AN', and that itemGroups[0] does NOT contain a phaseAbbreviation key.
+    Submit the draft; call GET /versions/1 and assert
+    itemGroups[0].items[0].phaseAbbreviation=='AN' on the submitted snapshot.
+    Create a second draft (clone), assert versionNumber==2 and
+    itemGroups[0].items[0].phaseAbbreviation=='AN' is preserved."
+  - "Frontend: Extend EstimationGrid.svelte. In the Group type remove the
+    phaseAbbreviation field. In initGroups() remove phaseAbbreviation:
+    g.phaseAbbreviation ?? null from the group object. In notify() remove
+    phaseAbbreviation from each group object literal. In the Item type add
+    phaseAbbreviation: string | null. In initGroups() add phaseAbbreviation:
+    i.phaseAbbreviation ?? null to each item. In notify() add phaseAbbreviation:
+    i.phaseAbbreviation to each item object. Add phases?: any[] = [] prop. Add
+    a 'Phase' column header between the Description and Optimistic headers. In
+    each item row add a Phase cell between the description cell and the optimistic
+    cell: editable mode with phases.length > 0 renders a <select> (blank option
+    value='' label='— none —', then one <option value={p.abbreviation}> per
+    phase, selected when p.abbreviation === item.phaseAbbreviation); read-only
+    mode renders a plain text span with item.phaseAbbreviation ?? ''. Add helper
+    function updateItemPhase(gi, ii, val) that sets
+    groups[gi].items[ii].phaseAbbreviation = val === '' ? null : val and calls
+    notify(). Bind the select's onchange to updateItemPhase. Update
+    colCount = $derived(editable ? 12 : 11). data-cell indices and editCols
+    are unchanged — Phase has no data-cell and is not keyboard-navigable."
+  - "Frontend: Add currentPhases state to +page.svelte. Initialize from
+    versionData.phases ?? [] in loadVersion(). Include phases: currentPhases
+    in the scheduleSave() JSON body alongside notes, itemGroups, parameters,
+    effortDrivers. Pass phases={currentPhases} to EstimationGrid."
+  - "Frontend: Build PhasesPanel.svelte. Props: phases: any[], itemGroups: any[],
+    calcMap: Map<string, {offerPT, cost, offerPrice}>, editable: boolean,
+    onchange: (phases: any[]) => void. Internal state: type Phase = { name:
+    string; abbreviation: string; durationWeeks: number | null }. items = $state
+    initialized from phases prop. Collapsible header (chevron + brand-green style
+    matching ParametersPanel). Table columns: Name (text input editable / plain
+    text), Abbreviation (text input editable / plain text), Duration (weeks,
+    number input / plain text, null shows empty), offerPT total (read-only,
+    computed per row), Effort/Week (read-only derived). In editable mode show
+    add-row and delete-row buttons. Empty state in editable mode shows a hint
+    'No phases defined'. notify() sends onchange(items.map(i => ({ name:
+    i.name, abbreviation: i.abbreviation, durationWeeks: i.durationWeeks }))).
+    For each row compute totalOfferPT as a $derived that iterates all items in
+    all itemGroups where item.phaseAbbreviation === phase.abbreviation and sums
+    calcMap.get(item.logicalId)?.offerPT ?? 0; track whether any contributing
+    item had a missing calcMap entry and show dash instead of zero in that case.
+    Effort/Week = totalOfferPT / durationWeeks; show dash when durationWeeks
+    is null or <= 0."
+  - "Frontend: Wire PhasesPanel in +page.svelte. Import PhasesPanel. Render it
+    between EffortDriversPanel and EstimationGrid: <PhasesPanel
+    phases={currentPhases} itemGroups={currentGroups} {calcMap}
+    editable={versionData.isDraft} onchange={(phases) => { currentPhases =
+    phases; scheduleSave(); }} />."
+
+validation:
+  - Flyway V5 migration runs cleanly against a fresh schema
+  - draft_estimation_item_groups has no phase_id column
+  - submitted_estimation_item_groups has no phase_abbreviation column
+  - submitted_estimation_items has a phase_abbreviation column
+  - GET response for a draft/submitted version has no phaseAbbreviation on item groups
+  - GET response for a version with phase-assigned items has phaseAbbreviation on each item
+  - PUT /draft with phases array saves phases and returns them in the response
+  - PUT /draft with items carrying phaseAbbreviation returns phaseAbbreviation on each item
+  - Submitting a draft with phase-assigned items produces a submitted snapshot where phaseAbbreviation is set on each item
+  - Cloning from a submitted version into a new draft preserves item-level phaseAbbreviation
+  - The integration test 'phase assignment per item is saved and cloned' passes including the submitted-snapshot assertion
+  - EstimationGrid Group type has no phaseAbbreviation; the onchange payload group objects have no phaseAbbreviation
+  - EstimationGrid Item type has phaseAbbreviation; the onchange payload item objects include it
+  - A Phase column appears between Description and Optimistic in the grid
+  - In editable mode with phases defined the Phase cell shows a select with a blank option and one option per phase
+  - Selecting a phase in the select calls notify() immediately; the next auto-save includes the new phaseAbbreviation
+  - Selecting the blank option sets phaseAbbreviation to null
+  - In read-only mode the Phase cell shows the abbreviation as plain text
+  - colCount is 12 in editable mode and 11 in read-only mode; Tab navigation is unaffected
+  - PhasesPanel renders with chevron and collapses/expands on header click
+  - totalOfferPT for a phase row equals the sum of calcMap offerPT for all items with matching phaseAbbreviation
+  - A row where some items have no calcMap entry shows dash instead of a partial number
+  - Effort/Week shows dash when durationWeeks is null or zero
+  - Editing name, abbreviation, or durationWeeks triggers auto-save after 800 ms
+  - Adding or deleting a phase row triggers auto-save after 800 ms
+
+outputs:
+  - backend: V5__phase_at_item_level.sql (new migration)
+  - backend: DraftEstimationItemGroup.kt (phase field + annotation removed)
+  - backend: SubmittedEstimationItemGroup.kt (phaseAbbreviation field removed)
+  - backend: SubmittedEstimationItem.kt (phaseAbbreviation field added)
+  - backend: EstimationVersionDtos.kt (EstimationItemGroupDto phaseAbbreviation removed; EstimationItemDto phaseAbbreviation added; EstimationItemUpdateDto phaseAbbreviation added; PhaseUpdateDto new; DraftUpdateDto phases field added; ItemGroupUpdateDto phaseAbbreviation removed)
+  - backend: EstimationVersionMapper.kt (group DTOs lose phaseAbbreviation; item DTOs gain phaseAbbreviation)
+  - backend: EstimationVersionService.kt (submitDraft and cloneFromSubmitted refactored)
+  - backend: EstimationVersionResource.kt (phases block added before itemGroups; item-level phase lookup per item)
+  - backend: EstimationVersionResourceIT.kt (new test covering PUT, submit snapshot, and clone)
+  - frontend: src/lib/components/EstimationGrid.svelte (Group type phaseAbbreviation removed; Item type phaseAbbreviation added; initGroups and notify updated; phases prop; Phase column; updateItemPhase; colCount 11/10 → 12/11)
+  - frontend: src/lib/components/PhasesPanel.svelte (new)
+  - frontend: src/routes/estimations/[id]/versions/[versionNumber]/+page.svelte (currentPhases state, phases in scheduleSave, PhasesPanel wired, phases passed to EstimationGrid)

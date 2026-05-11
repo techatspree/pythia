@@ -1,8 +1,11 @@
+@file:OptIn(ExperimentalJsExport::class)
+
 package io.github.theestimator.model
 
-import java.time.Instant
-import java.util.UUID
+import kotlin.js.ExperimentalJsExport
+import kotlin.js.JsExport
 
+@JsExport
 @DomainEntity
 sealed class EstimationItem(
     val description: String,
@@ -12,11 +15,11 @@ sealed class EstimationItem(
     val maxEffort: Double = 0.0,
     val assumptions: String = "",
     val phase: ProjectPhase? = null,
-    val logicalId: UUID = UUID.randomUUID(),
+    val logicalId: String = newId(),
     val calculationParameters: CalculationParameters = CalculationParameters(),
-    id: UUID? = null,
-    createdAt: Instant? = null,
-    updatedAt: Instant? = null
+    id: String? = null,
+    createdAt: String? = null,
+    updatedAt: String? = null
 ) : BaseDomain(id, createdAt, updatedAt) {
 
     val mean: Double

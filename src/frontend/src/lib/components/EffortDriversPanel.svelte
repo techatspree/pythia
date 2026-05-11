@@ -6,9 +6,9 @@
 		editable,
 		onchange
 	}: {
-		effortDrivers: any[];
+		effortDrivers: Driver[];
 		editable: boolean;
-		onchange: (drivers: any[]) => void;
+		onchange: (drivers: Driver[]) => void;
 	} = $props();
 
 	let items = $state<Driver[]>(
@@ -23,9 +23,7 @@
 	const totalFactor = $derived(items.reduce((s, d) => s + (d.factor ?? 0), 0));
 
 	function notify() {
-		onchange(
-			items.map((i) => ({ description: i.description, factor: i.factor, comment: i.comment || null }))
-		);
+		onchange(items.map((i) => ({ description: i.description, factor: i.factor, comment: i.comment })));
 	}
 
 	function addRow() {

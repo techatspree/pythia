@@ -1,11 +1,14 @@
+@file:OptIn(ExperimentalJsExport::class)
+
 package io.github.theestimator.model
 
-import java.time.Instant
-import java.util.UUID
+import kotlin.js.ExperimentalJsExport
+import kotlin.js.JsExport
 
+@JsExport
 @DomainEntity
 abstract class BaseDomain(
-    val id: UUID? = null,
-    val createdAt: Instant? = null,
-    val updatedAt: Instant? = null
+    val id: String? = null,
+    val createdAt: String? = null,
+    val updatedAt: String? = null
 )

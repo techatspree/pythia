@@ -3,6 +3,7 @@ package io.github.theestimator.rest
 import io.github.theestimator.domain.ProjectStatus
 import io.github.theestimator.repository.ProjectRepository
 import io.github.theestimator.rest.dto.*
+import io.github.theestimator.service.EstimationService
 import io.github.theestimator.service.ProjectService
 import jakarta.enterprise.context.ApplicationScoped
 import jakarta.transaction.Transactional
@@ -16,7 +17,8 @@ import java.util.UUID
 @Produces(MediaType.APPLICATION_JSON)
 class ProjectResource(
     private val projectService: ProjectService,
-    private val projectRepository: ProjectRepository
+    private val projectRepository: ProjectRepository,
+    private val estimationService: EstimationService
 ) {
 
     @GET
@@ -56,6 +58,17 @@ class ProjectResource(
         dto.description?.let { project.description = it }
         dto.client?.let { project.client = it }
         return Response.ok(project.toSummaryDto()).build()
+    }
+
+    @POST
+    @Path("/{id}/estimations")
+    @Consumes(MediaType.APPLICATION_JSON)
+    @Transactional
+    fun createEstimation(@PathParam("id") id: UUID, dto: EstimationCreateDto): Response {
+        val project = projectRepository.findById(id)
+            ?: throw NotFoundException("Project not found: $id")
+        val estimation = estimationService.create(dto.offer, project, dto.description)
+        return Response.status(Response.Status.CREATED).entity(estimation.toSummaryDto()).build()
     }
 
     @POST

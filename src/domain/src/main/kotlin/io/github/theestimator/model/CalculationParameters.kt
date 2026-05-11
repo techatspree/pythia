@@ -1,5 +1,11 @@
+@file:OptIn(ExperimentalJsExport::class)
+
 package io.github.theestimator.model
 
+import kotlin.js.ExperimentalJsExport
+import kotlin.js.JsExport
+
+@JsExport
 data class CalculationParameters(
     val riskFactor: Double = 0.0,
     val totalDriverFactor: Double = 0.0,

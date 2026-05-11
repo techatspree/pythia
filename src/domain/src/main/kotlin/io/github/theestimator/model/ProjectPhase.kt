@@ -1,14 +1,17 @@
+@file:OptIn(ExperimentalJsExport::class)
+
 package io.github.theestimator.model
 
-import java.time.Instant
-import java.util.UUID
+import kotlin.js.ExperimentalJsExport
+import kotlin.js.JsExport
 
+@JsExport
 @DomainEntity
 data class ProjectPhase(
     val name: String,
     val abbreviation: String,
     val durationWeeks: Double = 0.0,
-    private val _id: UUID? = null,
-    private val _createdAt: Instant? = null,
-    private val _updatedAt: Instant? = null
+    private val _id: String? = null,
+    private val _createdAt: String? = null,
+    private val _updatedAt: String? = null
 ) : BaseDomain(_id, _createdAt, _updatedAt)

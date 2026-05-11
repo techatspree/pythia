@@ -3,8 +3,9 @@
 	import { onMount } from 'svelte';
 	import EstimationDetail from '$lib/components/EstimationDetail.svelte';
 	import VersionList from '$lib/components/VersionList.svelte';
+	import type { ApiEstimationDetail } from '$lib/api/types.js';
 
-	let estimation = $state<any | null>(null);
+	let estimation = $state<ApiEstimationDetail | null>(null);
 	let loading = $state(true);
 	let error = $state('');
 
@@ -28,7 +29,7 @@
 	async function createVersion() {
 		if (!estimation) return;
 		try {
-			const res = await fetch(`/api/estimations/${estimation.id}/versions`, { method: 'POST' });
+			const res = await fetch(`/api/estimations/${estimation.id ?? ''}/versions`, { method: 'POST' });
 			if (!res.ok) throw new Error('Failed to create version');
 			await loadEstimation();
 		} catch (e: any) {
@@ -39,7 +40,7 @@
 	async function submitVersion() {
 		if (!estimation) return;
 		try {
-			const res = await fetch(`/api/estimations/${estimation.id}/versions/draft/submit`, { method: 'POST' });
+			const res = await fetch(`/api/estimations/${estimation.id ?? ''}/versions/draft/submit`, { method: 'POST' });
 			if (!res.ok) throw new Error('Failed to submit version');
 			await loadEstimation();
 		} catch (e: any) {
@@ -54,8 +55,10 @@
 	{:else if error}
 		<p class="text-red-600">{error}</p>
 	{:else if estimation}
-		<a href="/projects/{estimation.projectId}" class="text-sm text-brand-green hover:underline mb-4 inline-block">&larr; Back to {estimation.projectName || 'project'}</a>
+		{#if estimation.projectId}
+			<a href="/projects/{estimation.projectId}" class="text-sm text-brand-green hover:underline mb-4 inline-block">&larr; Back to {estimation.projectName ?? 'project'}</a>
+		{/if}
 		<EstimationDetail {estimation} />
-		<VersionList versions={estimation.versions} estimationId={estimation.id} oncreate={createVersion} onsubmit={submitVersion} />
+		<VersionList versions={estimation.versions} estimationId={estimation.id ?? ''} oncreate={createVersion} onsubmit={submitVersion} />
 	{/if}
 </div>

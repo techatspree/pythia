@@ -206,6 +206,18 @@
       "completed_at": "2026-05-05T10:20:00+02:00",
       "notes": "Top-level Maven reactor build. Frontend via frontend-maven-plugin (Node 22.14.0). Profiles dev-local/dev-minikube propagated. Skip frontend with -Dskip.frontend=true. End2end ITs skipped by default. 31 tests pass."
     },
+    "task-039": {
+      "status": "pending",
+      "started_at": null,
+      "completed_at": null,
+      "notes": ""
+    },
+    "task-040": {
+      "status": "done",
+      "started_at": "2026-05-10T00:00:00+00:00",
+      "completed_at": "2026-05-11T09:00:00+00:00",
+      "notes": "Domain module converted to Kotlin Multiplatform. Gradle builds JVM JAR + TypeScript zip (domain.js + domain.d.ts). domain/pom.xml is now a thin wrapper invoking ./gradlew jvmJar packageTypescript publishToMavenLocal. Frontend unpacks KMP output to src/lib/domain/. adapter.ts imports domain.js directly and provides computeCalcMap() using EstimationVersion.calculate(). +page.svelte uses $derived(computeCalcMap(...)) — calc is local, not from PUT response. API types extracted to src/lib/api/types.ts. All components typed. 0 TypeScript errors."
+    },
     "task-038": {
       "status": "done",
       "started_at": "2026-05-08T08:38:53+00:00",

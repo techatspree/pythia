@@ -1,14 +1,20 @@
+@file:OptIn(ExperimentalJsExport::class)
+
 package io.github.theestimator.service
 
 import io.github.theestimator.model.*
+import kotlin.js.ExperimentalJsExport
+import kotlin.js.JsExport
+import kotlin.math.abs
 import kotlin.math.sqrt
 
+@JsExport
 open class EstimationCalculator {
 
     fun calculate(version: EstimationVersion): EstimationVersion =
         version.calculate()
 
-    fun validateInvariants(version: EstimationVersion): List<InvariantResult> {
+    fun validateInvariants(version: EstimationVersion): Array<InvariantResult> {
         val results = mutableListOf<InvariantResult>()
         val allItems = version.itemGroups.flatMap { it.items }
         val tolerance = 0.2
@@ -40,15 +46,6 @@ open class EstimationCalculator {
             tolerance
         ))
 
-        val offerPTPerGroup = version.itemGroups.sumOf { group ->
-            group.items.sumOf { it.offerPT }
-        }
-        results.add(InvariantResult(
-            "Summe Angebots PT = Summe Angebots PT pro Gruppe",
-            totalOfferPT - offerPTPerGroup,
-            tolerance
-        ))
-
         val totalCost = allItems.sumOf { it.cost }
         val dailyRate = version.parameterValue("Tagessatz") ?: 800.0
         val costFromEffort = totalOfferPT * dailyRate
@@ -68,14 +65,15 @@ open class EstimationCalculator {
             tolerance
         ))
 
-        return results
+        return results.toTypedArray()
     }
 }
 
+@JsExport
 data class InvariantResult(
     val description: String,
     val difference: Double,
     val tolerance: Double
 ) {
-    val passed: Boolean get() = kotlin.math.abs(difference) <= tolerance
+    val passed: Boolean get() = abs(difference) <= tolerance
 }

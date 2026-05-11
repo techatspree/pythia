@@ -1,8 +1,11 @@
+@file:OptIn(ExperimentalJsExport::class)
+
 package io.github.theestimator.model
 
-import java.time.Instant
-import java.util.UUID
+import kotlin.js.ExperimentalJsExport
+import kotlin.js.JsExport
 
+@JsExport
 @DomainEntity
 data class EstimationVersion(
     val versionNumber: Int,
@@ -15,9 +18,9 @@ data class EstimationVersion(
     val phases: List<ProjectPhase> = emptyList(),
     val additionalCosts: List<AdditionalCost> = emptyList(),
     val itemGroups: List<EstimationItemGroup> = emptyList(),
-    private val _id: UUID? = null,
-    private val _createdAt: Instant? = null,
-    private val _updatedAt: Instant? = null
+    private val _id: String? = null,
+    private val _createdAt: String? = null,
+    private val _updatedAt: String? = null
 ) : BaseDomain(_id, _createdAt, _updatedAt) {
 
     fun parameterValue(name: String): Double? =

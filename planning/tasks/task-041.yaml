@@ -1,0 +1,155 @@
+id: task-041
+phase: phase-4
+title: Route backend calculation through domain model instead of reimplementing it
+depends_on: []
+description: |
+  The implementation module's EstimationCalculator.kt (service layer) manually
+  reimplements the same computation that domain/EstimationVersion.calculate()
+  already performs: it extracts parameters, derives riskFactor via PertCalculation,
+  and applies riskSurcharge/driverSurcharge/offerPT/cost/offerPrice to each item.
+  EstimationItem in the domain model already exposes all these as computed
+  properties. The implementation's calculator is a parallel implementation that
+  can drift from the domain definition without the compiler noticing.
+
+  This task eliminates the parallel implementation. The backend will route all
+  computation through the domain model by:
+    1. Mapping DraftEstimationVersion (JPA entity graph) to EstimationVersion
+       (domain object) — the domain module is already on the classpath
+    2. Calling domainVersion.calculate() — the single source of truth
+    3. Reading computed values from domain EstimationItem properties
+    4. Deleting implementation/service/EstimationCalculator.kt and its
+       associated data classes (CalculationResult, CalculatedItem, ItemMeanVariance)
+
+  As a side effect, the item correlation in EstimationVersionMapper is fixed: it
+  currently associates items by JPA primary key (item.id), which only works
+  because the JPA session happens to preserve insertion order. The fix uses
+  logicalId (the stable business key) instead.
+
+  Note: This task should be done BEFORE task-040 (KMP migration). Task-040
+  changes the domain to use kotlin.uuid.Uuid instead of java.util.UUID. If
+  task-041 runs after task-040, the DraftVersionMapper must handle the UUID
+  type difference at the logicalId field. If run before, both sides use
+  java.util.UUID and no conversion is needed.
+
+  Files affected:
+    new:      src/backend/implementation/.../service/DraftVersionMapper.kt
+    modified: src/backend/implementation/.../service/EstimationVersionService.kt
+    modified: src/backend/implementation/.../rest/dto/EstimationVersionMapper.kt
+    modified: src/backend/implementation/.../rest/EstimationVersionResource.kt
+    deleted:  src/backend/implementation/.../service/EstimationCalculator.kt
+
+steps:
+  - |
+    Create DraftVersionMapper.kt in io.github.theestimator.service.
+    Annotate with @ApplicationScoped. Provide a single function
+    toDomain(draft: DraftEstimationVersion): EstimationVersion.
+    The function constructs a domain EstimationVersion using all of draft's
+    collections, mapping each JPA entity type to its domain equivalent.
+    Mappings (all fields are the same names; just different class types):
+      DraftEstimationParameter -> io.github.theestimator.model.EstimationParameter
+        (name, value, comment ?: "")
+      DraftEffortDriver -> io.github.theestimator.model.EffortDriver
+        (description, factor, comment ?: "")
+      DraftProjectPhase -> io.github.theestimator.model.ProjectPhase
+        (name, abbreviation, durationWeeks ?: 0.0)
+      DraftEstimationItemGroup -> io.github.theestimator.model.EstimationItemGroup
+        (logicalId, title, phase as ProjectPhase?, items as List<EstimationItem>)
+      DraftFixedEstimationItem -> io.github.theestimator.model.FixedEstimationItem
+        (description, code ?: "", minEffort ?: 0.0, expectedEffort ?: 0.0,
+         maxEffort ?: 0.0, assumptions ?: "", logicalId = item.logicalId,
+         phase = group's ProjectPhase if present)
+      DraftTimeRelativeEstimationItem -> io.github.theestimator.model.TimeRelativeEstimationItem
+        (same fields as above, plus unit)
+    Note: do not set id/createdAt/updatedAt on domain objects; they are not needed
+    for calculation. Set versionNumber and notes from draft.
+
+  - |
+    Modify EstimationVersionService. Inject DraftVersionMapper as a constructor
+    parameter. Change the calculateDraft method signature from returning
+    CalculationResult to returning io.github.theestimator.model.EstimationVersion.
+    Replace the body: map draft via mapper.toDomain(draft), call .calculate()
+    on the result, and return the calculated domain EstimationVersion directly.
+    In submitDraft, replace:
+      val result = calculator.calculate(draft)
+    with:
+      val calculated = mapper.toDomain(draft).calculate()
+    Then build the item correlation map using logicalId instead of JPA id:
+      val calcItemMap = calculated.itemGroups
+        .flatMap { it.items }
+        .associateBy { it.logicalId }
+    Replace each item's calc?.field access with calcItemMap[item.logicalId]?.field.
+    Remove the injection of EstimationCalculator from the constructor (it is no
+    longer needed). Remove the calculateDraft delegation method if it is now
+    just a one-liner (inline at call sites) or keep it as a named method for
+    clarity — either is fine.
+
+  - |
+    Update EstimationVersionMapper.kt (rest/dto package).
+    Change the extension function signature:
+      fun DraftEstimationVersion.toDto(result: CalculationResult)
+      -> fun DraftEstimationVersion.toDto(calculated: EstimationVersion)
+    Change DraftEstimationItemGroup.toDtoWithCalc:
+      Accept EstimationVersion (or a Map<UUID, EstimationItem> pre-built from it)
+      instead of CalculationResult. Build the item map by logicalId:
+        val calcItemMap = calculated.itemGroups
+          .flatMap { it.items }
+          .associateBy { it.logicalId }
+      In DraftEstimationItem.toDto, the second parameter changes from
+      CalculatedItem? to io.github.theestimator.model.EstimationItem?, and all
+      field accesses remain the same (mean, variance, riskSurcharge, etc.
+      are the same names on both the old CalculatedItem and the domain EstimationItem).
+    Remove the import of CalculationResult and CalculatedItem from this file.
+
+  - |
+    Update EstimationVersionResource.kt. Every call site currently does:
+      val result = versionService.calculateDraft(draft)
+      draft.toDto(result)           // or draft.toSummaryDto(result.totalEffort)
+    Change to:
+      val calculated = versionService.calculateDraft(draft)
+      draft.toDto(calculated)       // or draft.toSummaryDto(calculated.totalEffort)
+    The four affected call sites are:
+      listVersions:  toSummaryDto(result.totalEffort) -> toSummaryDto(calculated.totalEffort)
+      createDraft:   toDto(result) -> toDto(calculated)
+      getDraft:      toDto(result) -> toDto(calculated)
+      updateDraft:   toDto(result) -> toDto(calculated)
+    Remove the import of CalculationResult if present.
+
+  - |
+    Delete EstimationCalculator.kt from the implementation service package.
+    This file is now dead — EstimationVersionService no longer injects it.
+    The three data classes defined in that file (CalculationResult, CalculatedItem,
+    ItemMeanVariance) are also deleted with it.
+    Verify that no other file imports CalculationResult or CalculatedItem.
+    Note: the domain module's own EstimationCalculator.kt (in
+    io.github.theestimator.service within the domain module) is UNRELATED and must
+    NOT be deleted — it delegates to version.calculate() and is used by domain
+    tests.
+
+  - |
+    Run ./mvnw test -pl src/backend/implementation to confirm all integration
+    tests pass. If any test instantiates EstimationCalculator directly
+    (e.g. in EstimationVersionResourceIT), replace the reference with
+    DraftVersionMapper + the domain model call, or remove the test-level
+    mock if it was mocking the old calculator.
+
+validation:
+  - grep -r "EstimationCalculator" src/backend/implementation/src/main matches
+    zero files (the class is deleted from the implementation module)
+  - grep -r "CalculationResult" src/backend/implementation/src matches zero files
+  - grep -r "CalculatedItem" src/backend/implementation/src matches zero files
+  - grep -r "item.id" src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/dto
+    matches zero files (correlation is now by logicalId)
+  - All four draft DTO call sites in EstimationVersionResource accept
+    EstimationVersion (domain) not CalculationResult
+  - DraftVersionMapper.toDomain() constructs a structurally complete EstimationVersion
+    (all collections populated — parameters, effortDrivers, phases, itemGroups with items)
+  - ./mvnw test -pl src/backend/implementation passes with zero failures
+  - Manual test: GET .../versions/draft returns the same offerPT/cost/offerPrice
+    values as before the refactoring
+
+outputs:
+  - added:   src/backend/implementation/src/main/kotlin/io/github/theestimator/service/DraftVersionMapper.kt
+  - modified: src/backend/implementation/src/main/kotlin/io/github/theestimator/service/EstimationVersionService.kt
+  - modified: src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/dto/EstimationVersionMapper.kt
+  - modified: src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/EstimationVersionResource.kt
+  - deleted:  src/backend/implementation/src/main/kotlin/io/github/theestimator/service/EstimationCalculator.kt

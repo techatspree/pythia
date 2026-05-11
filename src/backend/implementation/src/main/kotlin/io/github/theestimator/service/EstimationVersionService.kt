@@ -111,7 +111,7 @@ class EstimationVersionService(
             })
         }
 
-        val itemResultMap = result.items.associateBy { it.item.id }
+        val itemResultMap = result.items.associateBy { it.item.logicalId }
 
         draft.itemGroups.forEach { group ->
             val submittedGroup = SubmittedEstimationItemGroup().apply {
@@ -123,7 +123,7 @@ class EstimationVersionService(
             submitted.itemGroups.add(submittedGroup)
 
             group.items.forEach { item ->
-                val calc = itemResultMap[item.id]
+                val calc = itemResultMap[item.logicalId]
                 val submittedItem = when (item) {
                     is DraftTimeRelativeEstimationItem -> SubmittedTimeRelativeEstimationItem().apply { unit = item.unit }
                     else -> SubmittedFixedEstimationItem()

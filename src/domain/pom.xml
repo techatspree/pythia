@@ -7,111 +7,81 @@
     <packaging>jar</packaging>
     <name>The Estimator Domain Model</name>
 
-    <properties>
-        <kotlin.version>2.3.21</kotlin.version>
-        <maven.compiler.release>21</maven.compiler.release>
-        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-    </properties>
-
-    <dependencies>
-        <dependency>
-            <groupId>org.jetbrains.kotlin</groupId>
-            <artifactId>kotlin-stdlib</artifactId>
-            <version>${kotlin.version}</version>
-        </dependency>
-        <dependency>
-            <groupId>org.junit.jupiter</groupId>
-            <artifactId>junit-jupiter</artifactId>
-            <version>5.11.4</version>
-            <scope>test</scope>
-        </dependency>
-    </dependencies>
-
     <build>
-        <sourceDirectory>src/main/kotlin</sourceDirectory>
-        <testSourceDirectory>src/test/kotlin</testSourceDirectory>
+        <!-- Point Maven's outputDirectory at Gradle's JVM output so reactor-workspace resolution works -->
+        <outputDirectory>${project.basedir}/build/classes/kotlin/jvm/main</outputDirectory>
         <plugins>
+            <!-- Step 1: Compile JVM classes via Gradle KMP (handles @JsExport / @OptionalExpectation) -->
             <plugin>
-                <groupId>org.jetbrains.kotlin</groupId>
-                <artifactId>kotlin-maven-plugin</artifactId>
-                <version>${kotlin.version}</version>
+                <groupId>org.codehaus.mojo</groupId>
+                <artifactId>exec-maven-plugin</artifactId>
+                <version>3.5.0</version>
                 <executions>
                     <execution>
-                        <id>compile</id>
+                        <id>gradle-compile-jvm</id>
+                        <phase>compile</phase>
                         <goals>
-                            <goal>compile</goal>
+                            <goal>exec</goal>
                         </goals>
+                        <configuration>
+                            <executable>${project.basedir}/gradlew</executable>
+                            <workingDirectory>${project.basedir}</workingDirectory>
+                            <arguments>
+                                <argument>compileKotlinJvm</argument>
+                            </arguments>
+                        </configuration>
                     </execution>
+                    <!-- Step 2: Build TypeScript zip via Gradle KMP in package phase -->
                     <execution>
-                        <id>test-compile</id>
-                        <goals>
-                            <goal>test-compile</goal>
-                        </goals>
-                    </execution>
-                </executions>
-                <configuration>
-                    <jvmTarget>21</jvmTarget>
-                    <compilerPlugins>
-                        <plugin>all-open</plugin>
-                    </compilerPlugins>
-                    <pluginOptions>
-                        <option>all-open:annotation=io.github.theestimator.model.DomainEntity</option>
-                    </pluginOptions>
-                </configuration>
-                <dependencies>
-                    <dependency>
-                        <groupId>org.jetbrains.kotlin</groupId>
-                        <artifactId>kotlin-maven-allopen</artifactId>
-                        <version>${kotlin.version}</version>
-                    </dependency>
-                </dependencies>
-            </plugin>
-            <plugin>
-                <groupId>cz.habarta.typescript-generator</groupId>
-                <artifactId>typescript-generator-maven-plugin</artifactId>
-                <version>3.2.1263</version>
-                <executions>
-                    <execution>
-                        <id>generate-typescript</id>
-                        <phase>process-classes</phase>
-                        <goals>
-                            <goal>generate</goal>
-                        </goals>
-                    </execution>
-                </executions>
-                <configuration>
-                    <jsonLibrary>jackson2</jsonLibrary>
-                    <classPatterns>
-                        <pattern>io.github.theestimator.model.**</pattern>
-                        <pattern>io.github.theestimator.service.InvariantResult</pattern>
-                    </classPatterns>
-                    <outputKind>module</outputKind>
-                    <outputFileType>implementationFile</outputFileType>
-                    <outputFile>${project.build.directory}/typescript/domain.ts</outputFile>
-                    <mapEnum>asEnum</mapEnum>
-                    <nullableAnnotations>
-                        <annotation>org.jetbrains.annotations.Nullable</annotation>
-                    </nullableAnnotations>
-                </configuration>
-            </plugin>
-            <plugin>
-                <groupId>org.apache.maven.plugins</groupId>
-                <artifactId>maven-assembly-plugin</artifactId>
-                <version>3.7.1</version>
-                <executions>
-                    <execution>
-                        <id>package-typescript</id>
+                        <id>gradle-package-typescript</id>
                         <phase>package</phase>
                         <goals>
-                            <goal>single</goal>
+                            <goal>exec</goal>
                         </goals>
+                        <configuration>
+                            <executable>${project.basedir}/gradlew</executable>
+                            <workingDirectory>${project.basedir}</workingDirectory>
+                            <arguments>
+                                <argument>packageTypescript</argument>
+                            </arguments>
+                        </configuration>
                     </execution>
                 </executions>
+            </plugin>
+
+            <!-- Step 3: Package Gradle-compiled JVM classes into the JAR Maven expects -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-jar-plugin</artifactId>
+                <version>3.4.2</version>
                 <configuration>
-                    <descriptors>
-                        <descriptor>src/assembly/typescript.xml</descriptor>
-                    </descriptors>
+                    <classesDirectory>${project.basedir}/build/classes/kotlin/jvm/main</classesDirectory>
                 </configuration>
+            </plugin>
+
+            <!-- Step 4: Attach the TypeScript zip as a classifier artifact for the frontend -->
+            <plugin>
+                <groupId>org.codehaus.mojo</groupId>
+                <artifactId>build-helper-maven-plugin</artifactId>
+                <version>3.6.0</version>
+                <executions>
+                    <execution>
+                        <id>attach-typescript-zip</id>
+                        <phase>package</phase>
+                        <goals>
+                            <goal>attach-artifact</goal>
+                        </goals>
+                        <configuration>
+                            <artifacts>
+                                <artifact>
+                                    <file>${project.basedir}/build/typescript/domain-${project.version}-typescript.zip</file>
+                                    <type>zip</type>
+                                    <classifier>typescript</classifier>
+                                </artifact>
+                            </artifacts>
+                        </configuration>
+                    </execution>
+                </executions>
             </plugin>
         </plugins>
     </build>

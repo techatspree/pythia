@@ -1,7 +1,12 @@
+@file:OptIn(ExperimentalJsExport::class)
+
 package io.github.theestimator.model
 
+import kotlin.js.ExperimentalJsExport
+import kotlin.js.JsExport
 import kotlin.math.sqrt
 
+@JsExport
 object PertCalculation {
 
     fun mean(min: Double, expected: Double, max: Double): Double =

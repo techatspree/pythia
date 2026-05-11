@@ -1,11 +1,12 @@
 <script lang="ts">
-	let { versions, estimationId, oncreate, onsubmit }: { versions: any[]; estimationId: string; oncreate: () => void; onsubmit: () => void } = $props();
+	import type { ApiVersionSummary } from '$lib/api/types.js';
+	let { versions, estimationId, oncreate, onsubmit }: { versions: ApiVersionSummary[]; estimationId: string; oncreate: () => void; onsubmit: () => void } = $props();
 
-	function statusLabel(version: any): string {
+	function statusLabel(version: ApiVersionSummary): string {
 		return version.isDraft ? 'DRAFT' : 'SUBMITTED';
 	}
 
-	function statusColor(version: any): string {
+	function statusColor(version: ApiVersionSummary): string {
 		return version.isDraft ? 'bg-yellow-100 text-yellow-800' : 'bg-brand-green/20 text-brand-green';
 	}
 </script>

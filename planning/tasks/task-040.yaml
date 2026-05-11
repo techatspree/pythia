@@ -1,0 +1,279 @@
+id: task-040
+phase: phase-5
+title: Convert domain module to Kotlin Multiplatform — compile logic to TypeScript
+depends_on: [task-038]
+description: |
+  The domain module contains the canonical computation logic in pure Kotlin:
+  PertCalculation.mean/variance/riskFactor, EstimationItem.offerPT/cost/offerPrice
+  as computed properties, and EstimationVersion.calculate() which derives
+  per-item calculation parameters from the version's parameters and effort drivers.
+  This same logic should run in the browser — compiled from Kotlin, not
+  reimplemented in TypeScript — so there is one source of truth.
+
+  Kotlin Multiplatform (KMP) compiles a single Kotlin source set to both JVM
+  (for the backend) and JavaScript with TypeScript declarations (for the
+  frontend). The frontend imports real Kotlin classes: EstimationVersion and
+  EstimationItem are TypeScript classes with the same offerPT getter and
+  calculate() method that the Kotlin source defines. No duplication, no drift.
+
+  ── KNOWN GAP (out of scope) ─────────────────────────────────────────────────
+
+  The backend service (EstimationCalculator.kt) already reimplements the domain
+  computation on JPA entities; it uses PertCalculation for the math but applies
+  the result directly to JPA entity fields rather than going through the domain
+  model's calculate(). This is a parallel implementation. Unifying them (having
+  the service call domain.calculate() and map results back to JPA entities) is
+  the right long-term direction but is NOT in scope for this task. Task-040
+  focuses entirely on making the domain logic available to the frontend.
+
+  ── WHAT BLOCKS KMP TODAY ─────────────────────────────────────────────────────
+
+  BaseDomain references two JVM-specific types that cannot compile to JS:
+
+    java.time.Instant  → kotlinx.datetime.Instant   (multiplatform library)
+    java.util.UUID     → kotlin.uuid.Uuid            (Kotlin stdlib ≥ 2.0,
+                                                       @ExperimentalUuidApi)
+
+  These are the only JVM-specific types in the entire domain module.
+  PertCalculation uses only kotlin.math.sqrt — already multiplatform.
+  All other domain classes (EstimationItem, EstimationVersion, etc.) use
+  only Kotlin stdlib types; they require no changes beyond updating the
+  BaseDomain fields they inherit.
+
+  Impact on the implementation module: MINIMAL. The only import from the
+  domain module in the entire implementation module is:
+    EstimationCalculator.kt: import io.github.theestimator.model.PertCalculation
+  PertCalculation has no JVM-specific types and needs no changes. The JVM
+  jar produced by the Gradle build is structurally identical to what Maven
+  produced; the implementation module's <dependency> continues to resolve.
+
+  ── BUILD TOOLING ─────────────────────────────────────────────────────────────
+
+  The kotlin-multiplatform Gradle plugin is the only fully supported KMP build
+  tool; there is no equivalent Maven plugin. The domain module gets a
+  build.gradle.kts alongside a thin Maven wrapper pom.xml. The wrapper pom:
+  - Has packaging=pom (no Java compilation)
+  - Uses exec-maven-plugin to run `./gradlew domain:build domain:publishToMavenLocal`
+    in the generate-sources phase, so the JVM jar and typescript zip are in
+    the local Maven repository before any other Maven module compiles
+  - Uses build-helper-maven-plugin to attach the Gradle-produced jar and zip
+    as Maven artifacts so they appear in the reactor's dependency resolution
+
+  The top-level pom.xml and the implementation module's pom.xml are unchanged.
+
+  build.gradle.kts skeleton:
+    plugins { kotlin("multiplatform") version "2.x"; id("maven-publish") }
+    group = "io.github.theestimator"; version = "1.0.0-SNAPSHOT"
+    kotlin {
+      jvm()
+      js(IR) {
+        browser()
+        generateTypeScriptDefinitions()
+        binaries.library()
+      }
+      sourceSets {
+        commonMain.dependencies {
+          implementation("org.jetbrains.kotlinx:kotlinx-datetime:0.6.x")
+        }
+        jvmTest.dependencies {
+          implementation("org.junit.jupiter:junit-jupiter:5.11.4")
+        }
+      }
+    }
+    // Gradle task: zip build/js/packages/domain/kotlin/domain*.js + domain*.d.ts
+    // Publish zip as classifier=typescript Maven artifact
+
+  ── @JsExport ANNOTATIONS ────────────────────────────────────────────────────
+
+  Add @JsExport (from kotlin.js, available in commonMain) to every class the
+  frontend needs. Rules:
+  - Sealed classes: EACH SUBCLASS must also be @JsExport-annotated
+  - Enums: annotate the enum class; individual entries are exported automatically
+  - Objects (PertCalculation): @JsExport exports as a singleton namespace in TS
+  - @OptIn(ExperimentalUuidApi::class) is required wherever kotlin.uuid.Uuid
+    is used; add @file:OptIn(ExperimentalUuidApi::class) per file rather than
+    sprinkling call-site annotations
+  - @OptIn(ExperimentalJsExport::class) may be required in some Kotlin versions;
+    add @file:OptIn at the top of each annotated file if the compiler warns
+
+  Classes to annotate:
+    BaseDomain, EstimationItem (sealed), FixedEstimationItem, TimeRelativeEstimationItem,
+    EstimationVersion, EstimationVersionStatus, EstimationItemGroup, EstimationParameter,
+    EffortDriver, ProjectPhase, ProjectStatus, Project, AdditionalCost, AdditionalCostType,
+    CalculationParameters, PertCalculation, User
+  Skip: DomainEntity (annotation class, not needed in JS)
+
+  ── FRONTEND ARCHITECTURE ─────────────────────────────────────────────────────
+
+  The REST API returns JSON that differs in shape from the domain model:
+    API → isDraft: Boolean         Domain → status: EstimationVersionStatus
+    API → phaseAbbreviation: String?  Domain → phase: ProjectPhase?
+    API → EstimationVersionSummaryDto (list view — no domain equivalent)
+
+  The frontend therefore has two type layers:
+
+  Layer 1 — API boundary (hand-written TypeScript, small):
+    Small interfaces that match the JSON shape exactly. Used only at the
+    fetch/POST boundary. Defined in src/lib/api/types.ts (new file).
+    Examples: ApiVersionResponse, ApiItemGroupResponse, ApiVersionSummary.
+    These replace every `any` used directly as an API response type.
+
+  Layer 2 — Domain objects (from KMP):
+    After loading a version, an adapter function constructs an EstimationVersion
+    domain object from the API response. The adapter maps isDraft → status,
+    assembles FixedEstimationItem objects from item data, etc.
+    The version editor page works with this domain object as its primary state.
+
+  Adapter function in src/lib/domain/adapter.ts (new file):
+    import type { EstimationVersion } from '$lib/domain/domain'
+    export function apiToVersion(json: ApiVersionResponse): EstimationVersion { ... }
+
+  Benefit of domain objects in the editor:
+    The page can call currentVersion.calculate() after any local edit and get
+    instant per-item offerPT values without waiting for a PUT response. The
+    calcMap is then built from calculate() results rather than from the PUT
+    response body. This eliminates the 800ms lag visible during editing.
+    scheduleSave() still sends PUT in the background to persist changes.
+
+  Components receiving domain objects:
+    EstimationGrid: version prop → EstimationVersion; initGroups maps
+      EstimationItemGroup[].items[] to local editable state (Item type stays local)
+    ParametersPanel: parameters → EstimationParameter[]
+    EffortDriversPanel: effortDrivers → EffortDriver[]
+
+  Components that stay on API types (no domain equivalent):
+    VersionList: versions → ApiVersionSummary[] (local interface from Layer 1)
+    EstimationDetail: estimation → ApiEstimationDetail (local interface)
+    ProjectDetail, ProjectList: project → ApiProjectDetail/ApiProjectSummary
+
+  ── REMOVE ───────────────────────────────────────────────────────────────────
+  - typescript-generator-maven-plugin from domain pom (replaced by KMP)
+  - maven-assembly-plugin from domain pom (replaced by Gradle zip task)
+  - src/domain/src/assembly/typescript.xml
+  - src/lib/types/generated/domain.ts import paths in components (replaced by
+    src/lib/domain/domain.d.ts from KMP output)
+  - The calcMap rebuild from PUT response body (replaced by local calculate())
+
+steps:
+  - "Domain: Create src/domain/build.gradle.kts. Set up kotlin multiplatform
+    with jvm() and js(IR) { browser(); generateTypeScriptDefinitions();
+    binaries.library() } targets. Add kotlinx-datetime to commonMain
+    dependencies. Add JUnit Jupiter to jvmTest. Retain the all-open compiler
+    plugin on the jvm compilation (annotated with @DomainEntity). Configure
+    maven-publish to publish with group=io.github.theestimator, artifactId=domain,
+    version=1.0.0-SNAPSHOT. Add a Gradle task named packageTypescript that zips
+    the files in build/js/packages/domain/kotlin/ (domain*.js and domain*.d.ts)
+    and a publishTypescript task that installs that zip to Maven local repo with
+    classifier=typescript. Create settings.gradle.kts with rootProject.name =
+    'domain' and include(':domain') if needed for multi-project Gradle structure,
+    or use the single-module approach if the directory is the root."
+  - "Domain: Replace JVM-specific types in BaseDomain.kt. Add
+    @file:OptIn(ExperimentalUuidApi::class) at the top. Change
+    `import java.time.Instant` to `import kotlinx.datetime.Instant`. Change
+    `import java.util.UUID` to `import kotlin.uuid.Uuid`. Change field types:
+    id: Uuid? = null, createdAt: Instant? = null, updatedAt: Instant? = null.
+    Update EstimationItem.kt: change logicalId: Uuid = Uuid.random() and add
+    @file:OptIn to that file. Run `./gradlew domain:compileKotlinJvm` to verify
+    the JVM target still compiles. Run `./gradlew domain:compileKotlinJs` to
+    verify JS target compiles. Fix any type errors."
+  - "Domain: Add @JsExport and @OptIn annotations to all domain classes. For
+    each file that exports a class, add @file:OptIn(ExperimentalJsExport::class,
+    ExperimentalUuidApi::class) at the top. Annotate every class listed in the
+    @JsExport section above. Pay special attention to the sealed class hierarchy:
+    both EstimationItem and its two subclasses (FixedEstimationItem,
+    TimeRelativeEstimationItem) must each be annotated. Run
+    `./gradlew domain:compileKotlinJs` and fix any @JsExport incompatibility
+    warnings or errors (the compiler reports if a public member uses a
+    non-exportable type). Run `./gradlew domain:build` and verify that
+    build/js/packages/domain/kotlin/ contains domain.js and domain.d.ts."
+  - "Domain: Update the thin Maven wrapper pom.xml in src/domain. Remove the
+    typescript-generator-maven-plugin and maven-assembly-plugin executions.
+    Change packaging to pom. Add exec-maven-plugin execution in generate-sources
+    phase that runs `./gradlew domain:build domain:publishToMavenLocal` (working
+    directory = ${project.basedir}). Add build-helper-maven-plugin attach-artifact
+    execution to attach the Gradle-produced jar as the primary artifact and the
+    typescript zip as classifier=typescript. Remove src/domain/src/assembly/
+    typescript.xml. Run `mvn install -DskipTests` from the repo root and verify
+    the full build completes."
+  - "Frontend: Update frontend/pom.xml. Change the maven-dependency-plugin
+    unpack execution to reference the domain:typescript zip and unpack domain.js
+    and domain.d.ts to src/lib/domain/ (replacing the old src/lib/types/generated/
+    path for domain types). If tsconfig.json has a path alias for the old location,
+    update it. Add $lib/domain to the Vite config alias if needed so that
+    `import ... from '$lib/domain/domain'` resolves. Verify with a manual
+    `mvn generate-sources -pl src/frontend` that the files appear at the right
+    path."
+  - "Frontend: Create src/lib/api/types.ts with small TypeScript interfaces that
+    match the REST API JSON shapes. Define at minimum: ApiVersionSummary
+    (versionNumber, isDraft, totalEffort, notes, createdAt), ApiVersionResponse
+    (versionNumber, isDraft, notes, parameters, effortDrivers, phases, itemGroups
+    with items), ApiItemResponse (logicalId, type, description, minEffort,
+    expectedEffort, maxEffort, assumptions, offerPT, cost, offerPrice,
+    phaseAbbreviation), ApiEstimationDetail (id, offer, description, hasDraft,
+    latestVersionNumber, versions: ApiVersionSummary[]), ApiProjectSummary,
+    ApiProjectDetail. These are used only at fetch boundaries."
+  - "Frontend: Create src/lib/domain/adapter.ts. Import EstimationVersion,
+    EstimationItemGroup, FixedEstimationItem, EstimationParameter, EffortDriver,
+    ProjectPhase from '$lib/domain/domain'. Import ApiVersionResponse from
+    '$lib/api/types'. Write function apiToVersion(json: ApiVersionResponse):
+    EstimationVersion that constructs a domain object: maps json.isDraft to
+    EstimationVersionStatus.DRAFT/SUBMITTED, constructs EstimationParameter[],
+    EffortDriver[], ProjectPhase[], EstimationItemGroup[] with FixedEstimationItem[]
+    from the JSON arrays. Raw effort fields (minEffort, expectedEffort, maxEffort)
+    are set from JSON; the domain object can then call calculate() to derive
+    offerPT/cost/offerPrice locally. Write the reverse function
+    versionToApiBody(version: EstimationVersion, notes: string): DraftUpdateBody
+    (using the local API type) for constructing PUT request bodies."
+  - "Frontend: Update the version editor +page.svelte. Import EstimationVersion
+    from '$lib/domain/domain' and apiToVersion from '$lib/domain/adapter'. Change
+    versionData to EstimationVersion | null. In loadVersion(), call
+    apiToVersion(rawJson) to set versionData. Replace the calcMap rebuild from
+    PUT response with a $derived (or reactive call) that runs
+    currentVersion.calculate() after any local edit, then builds calcMap from
+    the calculate() result. scheduleSave() constructs the PUT body from the
+    current domain state using versionToApiBody(). Run `npm run check` and fix
+    type errors. Start the dev server and verify the editor loads, calculates
+    correctly, and auto-saves."
+  - "Frontend: Update EstimationGrid.svelte, ParametersPanel.svelte,
+    EffortDriversPanel.svelte. Replace `any` props with domain types imported
+    from '$lib/domain/domain'. Update VersionList.svelte to use ApiVersionSummary[]
+    instead of any[]. Update EstimationDetail.svelte to use ApiEstimationDetail.
+    Update ProjectDetail.svelte and ProjectList.svelte with ApiProjectDetail and
+    ApiProjectSummary. Run `npm run check` and confirm zero type errors."
+
+validation:
+  - `./gradlew domain:build` succeeds and produces domain.js and domain.d.ts in
+    build/js/packages/domain/kotlin/
+  - domain.d.ts declares EstimationVersion as a class with a calculate() method,
+    EstimationItem as an abstract class with offerPT/cost/offerPrice getters,
+    and PertCalculation as an exported object with mean/variance/riskFactor functions
+  - `mvn install -DskipTests` from repo root completes end-to-end
+  - src/lib/domain/domain.js and domain.d.ts exist after frontend generate-sources
+  - `npm run check` reports zero type errors across all frontend files
+  - No `any` in prop types, callback types, or state types in EstimationGrid,
+    ParametersPanel, EffortDriversPanel, VersionList, EstimationDetail, or the
+    version editor page
+  - The version editor page shows correct offerPT/cost/offerPrice values instantly
+    when effort fields are edited (local calculation via domain.calculate(),
+    no visible lag before the PUT response)
+  - All existing backend integration tests pass
+
+outputs:
+  - domain: src/domain/build.gradle.kts (new)
+  - domain: src/domain/settings.gradle.kts (new if needed)
+  - domain: src/domain/pom.xml (updated to thin Maven wrapper)
+  - domain: src/domain/src/main/kotlin/.../BaseDomain.kt (Uuid + Instant)
+  - domain: src/domain/src/main/kotlin/.../EstimationItem.kt (logicalId type changed to Uuid)
+  - domain: all domain class files (add @JsExport + @OptIn annotations)
+  - domain: src/domain/src/assembly/typescript.xml (deleted)
+  - frontend: src/frontend/pom.xml (unpack from new KMP zip path)
+  - frontend: src/frontend/src/lib/api/types.ts (new — API boundary interfaces)
+  - frontend: src/frontend/src/lib/domain/adapter.ts (new — apiToVersion + versionToApiBody)
+  - frontend: src/frontend/src/lib/components/EstimationGrid.svelte (domain prop types)
+  - frontend: src/frontend/src/lib/components/ParametersPanel.svelte (domain prop types)
+  - frontend: src/frontend/src/lib/components/EffortDriversPanel.svelte (domain prop types)
+  - frontend: src/frontend/src/lib/components/VersionList.svelte (ApiVersionSummary[])
+  - frontend: src/frontend/src/lib/components/EstimationDetail.svelte (ApiEstimationDetail)
+  - frontend: src/frontend/src/lib/components/ProjectDetail.svelte (ApiProjectDetail)
+  - frontend: src/frontend/src/lib/components/ProjectList.svelte (ApiProjectSummary)
+  - frontend: src/frontend/src/routes/estimations/[id]/versions/[versionNumber]/+page.svelte

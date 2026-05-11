@@ -1,15 +1,13 @@
 package io.github.theestimator.model
 
-import java.time.Instant
-import java.util.UUID
 
 @DomainEntity
 data class AuditLog(
     val entityType: String,
-    val entityId: UUID,
+    val entityId: String,
     val action: String,
-    val userId: UUID? = null,
+    val userId: String? = null,
     val payload: String = "",
-    val id: UUID? = null,
-    val createdAt: Instant? = null
+    val id: String? = null,
+    val createdAt: String? = null
 )
