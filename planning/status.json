@@ -241,6 +241,12 @@
       "started_at": "2026-05-08T14:31:35+00:00",
       "completed_at": "2026-05-08T14:31:35+00:00",
       "notes": ""
+    },
+    "task-041": {
+      "status": "pending",
+      "started_at": null,
+      "completed_at": null,
+      "notes": ""
     }
   }
 }

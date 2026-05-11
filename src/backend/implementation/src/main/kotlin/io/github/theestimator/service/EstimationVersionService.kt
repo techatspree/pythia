@@ -1,8 +1,8 @@
 package io.github.theestimator.service
 
-import io.github.theestimator.domain.AdditionalCostType
 import io.github.theestimator.domain.draft.*
 import io.github.theestimator.domain.submitted.*
+import io.github.theestimator.model.EstimationVersion
 import io.github.theestimator.repository.DraftEstimationVersionRepository
 import io.github.theestimator.repository.EstimationRepository
 import io.github.theestimator.repository.SubmittedEstimationVersionRepository
@@ -18,7 +18,7 @@ class EstimationVersionService(
     private val draftRepository: DraftEstimationVersionRepository,
     private val submittedRepository: SubmittedEstimationVersionRepository,
     private val estimationRepository: EstimationRepository,
-    private val calculator: EstimationCalculator,
+    private val draftVersionMapper: DraftVersionMapper,
     private val auditLogService: AuditLogService
 ) {
 
@@ -31,8 +31,8 @@ class EstimationVersionService(
     fun findSubmittedVersion(estimationId: UUID, versionNumber: Int): SubmittedEstimationVersion? =
         submittedRepository.findByEstimationIdAndVersionNumber(estimationId, versionNumber)
 
-    fun calculateDraft(draft: DraftEstimationVersion): CalculationResult =
-        calculator.calculate(draft)
+    fun calculateDraft(draft: DraftEstimationVersion): EstimationVersion =
+        draftVersionMapper.toDomain(draft).calculate()
 
     @Transactional
     fun createDraft(estimationId: UUID): DraftEstimationVersion {
@@ -73,12 +73,12 @@ class EstimationVersionService(
         val draft = draftRepository.findByEstimationId(estimationId)
             ?: throw WebApplicationException("No draft found for estimation $estimationId", Response.Status.NOT_FOUND)
 
-        val result = calculator.calculate(draft)
+        val calculated = draftVersionMapper.toDomain(draft).calculate()
 
         val submitted = SubmittedEstimationVersion().apply {
             this.estimation = estimation
             this.versionNumber = draft.versionNumber
-            this.totalEffort = result.totalEffort
+            this.totalEffort = calculated.totalEffort
             this.notes = draft.notes
             this.submittedAt = Instant.now()
             this.createdAt = draft.createdAt ?: Instant.now()
@@ -111,7 +111,7 @@ class EstimationVersionService(
             })
         }
 
-        val itemResultMap = result.items.associateBy { it.item.logicalId }
+        val itemResultMap = calculated.itemGroups.flatMap { it.items }.associateBy { it.logicalId }
 
         draft.itemGroups.forEach { group ->
             val submittedGroup = SubmittedEstimationItemGroup().apply {
@@ -123,7 +123,7 @@ class EstimationVersionService(
             submitted.itemGroups.add(submittedGroup)
 
             group.items.forEach { item ->
-                val calc = itemResultMap[item.logicalId]
+                val calc = itemResultMap[item.logicalId.toString()]
                 val submittedItem = when (item) {
                     is DraftTimeRelativeEstimationItem -> SubmittedTimeRelativeEstimationItem().apply { unit = item.unit }
                     else -> SubmittedFixedEstimationItem()

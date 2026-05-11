@@ -2,8 +2,8 @@ package io.github.theestimator.rest.dto
 
 import io.github.theestimator.domain.draft.*
 import io.github.theestimator.domain.submitted.*
-import io.github.theestimator.service.CalculatedItem
-import io.github.theestimator.service.CalculationResult
+import io.github.theestimator.model.EstimationItem
+import io.github.theestimator.model.EstimationVersion
 
 fun SubmittedEstimationVersion.toSummaryDto() = EstimationVersionSummaryDto(
     versionNumber = versionNumber,
@@ -35,17 +35,17 @@ fun SubmittedEstimationVersion.toDto() = EstimationVersionDto(
     additionalCosts = additionalCosts.map { it.toDto() }
 )
 
-fun DraftEstimationVersion.toDto(result: CalculationResult) = EstimationVersionDto(
+fun DraftEstimationVersion.toDto(calculated: EstimationVersion) = EstimationVersionDto(
     versionNumber = versionNumber,
     isDraft = true,
-    totalEffort = result.totalEffort,
+    totalEffort = calculated.totalEffort,
     notes = notes,
     createdAt = createdAt,
     submittedAt = null,
     parameters = parameters.map { it.toDto() },
     effortDrivers = effortDrivers.map { it.toDto() },
     phases = phases.map { it.toDto() },
-    itemGroups = itemGroups.map { it.toDtoWithCalc(result) },
+    itemGroups = itemGroups.map { it.toDtoWithCalc(calculated) },
     additionalCosts = additionalCosts.map { it.toDto() }
 )
 
@@ -70,17 +70,17 @@ fun DraftProjectPhase.toDto() = ProjectPhaseDto(
     durationWeeks = durationWeeks
 )
 
-fun DraftEstimationItemGroup.toDtoWithCalc(result: CalculationResult): EstimationItemGroupDto {
-    val itemResultMap = result.items.associateBy { it.item.logicalId }
+fun DraftEstimationItemGroup.toDtoWithCalc(calculated: EstimationVersion): EstimationItemGroupDto {
+    val itemResultMap = calculated.itemGroups.flatMap { it.items }.associateBy { it.logicalId }
     return EstimationItemGroupDto(
         logicalId = logicalId,
         title = title,
         phaseAbbreviation = phase?.abbreviation,
-        items = items.map { it.toDto(itemResultMap[it.logicalId]) }
+        items = items.map { it.toDto(itemResultMap[it.logicalId.toString()]) }
     )
 }
 
-fun DraftEstimationItem.toDto(calc: CalculatedItem?): EstimationItemDto = EstimationItemDto(
+fun DraftEstimationItem.toDto(calc: EstimationItem?): EstimationItemDto = EstimationItemDto(
     logicalId = logicalId,
     type = when (this) {
         is DraftTimeRelativeEstimationItem -> "TIME_RELATIVE"
