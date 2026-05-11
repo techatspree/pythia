@@ -21,6 +21,8 @@ description: |
   - ItemGroupUpdateDto.phaseAbbreviation parameter
   - draft_estimation_item_groups.phase_id column + fk_draft_groups_phase constraint
   - submitted_estimation_item_groups.phase_abbreviation column
+  - EstimationItemGroup.phase: ProjectPhase? field in the domain model (domain rebuild required)
+  - DraftVersionMapper group-level phase logic: val domainPhase lookup and phase = domainPhase on EstimationItemGroup(...)
   - EstimationGrid Group type: phaseAbbreviation field
   - EstimationGrid initGroups(): phaseAbbreviation: g.phaseAbbreviation ?? null
   - EstimationGrid notify(): phaseAbbreviation field in the group object literal
@@ -98,9 +100,20 @@ steps:
     @JoinColumn annotation. In SubmittedEstimationItemGroup delete the
     phaseAbbreviation field. In EstimationItemGroupDto remove the phaseAbbreviation
     constructor parameter. In ItemGroupUpdateDto remove the phaseAbbreviation
-    parameter. Fix all resulting compilation errors in mapper and service in
-    the same step (the mapper references phase?.abbreviation on groups; the
-    service references group.phase and group.phaseAbbreviation)."
+    parameter. Fix all resulting compilation errors in EstimationVersionMapper,
+    EstimationVersionService, and DraftVersionMapper in the same step. Note:
+    DraftVersionMapper.DraftEstimationItemGroup.toDomain() currently reads
+    phase?.abbreviation on the JPA group entity — after the field is removed
+    this function must be changed as described in the DraftVersionMapper step below."
+  - "Domain model: Remove EstimationItemGroup.phase field. Delete the
+    'val phase: ProjectPhase? = null' parameter from the EstimationItemGroup
+    data class primary constructor. Then rebuild the domain module so the
+    compiled JS/TS artefacts are regenerated: run
+    './gradlew :domain:jsBrowserProductionLibraryDistribution' from the repo
+    root, then copy the new domain.mjs and kotlin-kotlin-stdlib.mjs from
+    src/domain/build/dist/js/productionLibrary/ to
+    src/frontend/src/lib/domain/. This is required so that the TypeScript
+    types in domain.d.ts no longer expose a phase field on EstimationItemGroup."
   - "Backend: Add item-level phase fields and new DTOs. Add phaseAbbreviation:
     String? = null with @Column(name='phase_abbreviation') to
     SubmittedEstimationItem. Add phaseAbbreviation: String? = null to
@@ -132,6 +145,21 @@ steps:
     DraftEstimationItem construction change the item phase assignment from
     'phase = group.phaseAbbreviation?.let { phaseMapping[it] }' to
     'phase = submittedItem.phaseAbbreviation?.let { phaseMapping[it] }'."
+  - "Backend: Update DraftVersionMapper (created in task-041). In
+    DraftEstimationItemGroup.toDomain(phaseMap) remove the 'val domainPhase =
+    phase?.abbreviation?.let { phaseMap[it] }' line (the group JPA entity no
+    longer has a phase field). Remove the 'phase = domainPhase' argument from
+    the EstimationItemGroup(...) constructor call (the domain model no longer
+    has that field). Change 'items = items.map { it.toDomain(domainPhase) }'
+    to 'items = items.map { it.toDomain(phaseMap) }'. Change the
+    DraftEstimationItem.toDomain helper signature from
+    'toDomain(phase: ProjectPhase?)' to 'toDomain(phaseMap: Map<String,
+    ProjectPhase>)'. Inside that function add 'val domainPhase =
+    phase?.abbreviation?.let { phaseMap[it] }' at the top to resolve the
+    item's own phase field (DraftEstimationItem.phase: DraftProjectPhase?
+    already exists on the JPA entity and is unchanged by this task). Use
+    domainPhase as before for _phase in both FixedEstimationItem and
+    TimeRelativeEstimationItem constructors."
   - "Backend: Update EstimationVersionResource.updateDraft(). Add a phases block
     immediately after the effortDrivers block and before the itemGroups block:
     update.phases?.let { phaseDtos -> draft.phases.clear(); phaseDtos.forEach {
@@ -205,6 +233,8 @@ validation:
   - draft_estimation_item_groups has no phase_id column
   - submitted_estimation_item_groups has no phase_abbreviation column
   - submitted_estimation_items has a phase_abbreviation column
+  - Domain EstimationItemGroup has no phase field; domain rebuild produces artefacts without it
+  - DraftVersionMapper resolves item phase from DraftEstimationItem.phase (not from the group)
   - GET response for a draft/submitted version has no phaseAbbreviation on item groups
   - GET response for a version with phase-assigned items has phaseAbbreviation on each item
   - PUT /draft with phases array saves phases and returns them in the response
@@ -235,8 +265,10 @@ outputs:
   - backend: EstimationVersionDtos.kt (EstimationItemGroupDto phaseAbbreviation removed; EstimationItemDto phaseAbbreviation added; EstimationItemUpdateDto phaseAbbreviation added; PhaseUpdateDto new; DraftUpdateDto phases field added; ItemGroupUpdateDto phaseAbbreviation removed)
   - backend: EstimationVersionMapper.kt (group DTOs lose phaseAbbreviation; item DTOs gain phaseAbbreviation)
   - backend: EstimationVersionService.kt (submitDraft and cloneFromSubmitted refactored)
+  - backend: DraftVersionMapper.kt (group-level phase lookup removed; item.toDomain takes phaseMap, resolves phase from item.phase)
   - backend: EstimationVersionResource.kt (phases block added before itemGroups; item-level phase lookup per item)
   - backend: EstimationVersionResourceIT.kt (new test covering PUT, submit snapshot, and clone)
+  - domain: EstimationItemGroup.kt (phase field removed; domain Gradle rebuild + frontend .mjs copy required)
   - frontend: src/lib/components/EstimationGrid.svelte (Group type phaseAbbreviation removed; Item type phaseAbbreviation added; initGroups and notify updated; phases prop; Phase column; updateItemPhase; colCount 11/10 → 12/11)
   - frontend: src/lib/components/PhasesPanel.svelte (new)
   - frontend: src/routes/estimations/[id]/versions/[versionNumber]/+page.svelte (currentPhases state, phases in scheduleSave, PhasesPanel wired, phases passed to EstimationGrid)

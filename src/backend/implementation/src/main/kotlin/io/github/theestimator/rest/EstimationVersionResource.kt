@@ -4,6 +4,7 @@ import io.github.theestimator.domain.draft.DraftEffortDriver
 import io.github.theestimator.domain.draft.DraftEstimationItemGroup
 import io.github.theestimator.domain.draft.DraftEstimationParameter
 import io.github.theestimator.domain.draft.DraftFixedEstimationItem
+import io.github.theestimator.domain.draft.DraftProjectPhase
 import io.github.theestimator.repository.EstimationRepository
 import io.github.theestimator.rest.dto.*
 import io.github.theestimator.service.EstimationVersionService
@@ -95,19 +96,30 @@ class EstimationVersionResource(
             }
         }
 
+        update.phases?.let { phaseDtos ->
+            draft.phases.clear()
+            phaseDtos.forEach { dto ->
+                draft.phases.add(DraftProjectPhase().apply {
+                    name = dto.name
+                    abbreviation = dto.abbreviation
+                    durationWeeks = dto.durationWeeks
+                    version = draft
+                })
+            }
+        }
+
         update.itemGroups?.let { groupDtos ->
             draft.itemGroups.clear()
             groupDtos.forEach { groupDto ->
-                val phase = groupDto.phaseAbbreviation?.let { abbr ->
-                    draft.phases.find { it.abbreviation == abbr }
-                }
                 val group = DraftEstimationItemGroup().apply {
                     logicalId = groupDto.logicalId ?: UUID.randomUUID()
                     title = groupDto.title
-                    this.phase = phase
                     version = draft
                 }
                 groupDto.items.forEach { itemDto ->
+                    val itemPhase = itemDto.phaseAbbreviation?.let { abbr ->
+                        draft.phases.find { it.abbreviation == abbr }
+                    }
                     group.items.add(DraftFixedEstimationItem().apply {
                         logicalId = itemDto.logicalId ?: UUID.randomUUID()
                         description = itemDto.description
@@ -115,7 +127,7 @@ class EstimationVersionResource(
                         expectedEffort = itemDto.expectedEffort
                         maxEffort = itemDto.maxEffort
                         assumptions = itemDto.assumptions
-                        this.phase = phase
+                        this.phase = itemPhase
                         this.group = group
                     })
                 }

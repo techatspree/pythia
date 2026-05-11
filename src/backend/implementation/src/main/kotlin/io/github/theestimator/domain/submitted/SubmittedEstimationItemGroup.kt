@@ -17,9 +17,6 @@ class SubmittedEstimationItemGroup {
     @Column(nullable = false)
     var title: String = ""
 
-    @Column(name = "phase_abbreviation")
-    var phaseAbbreviation: String? = null
-
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "version_id", nullable = false)
     var version: SubmittedEstimationVersion? = null

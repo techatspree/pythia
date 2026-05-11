@@ -52,7 +52,7 @@ class ExcelExporter {
             groupRow.createCell(5).setCellValue(groupMean)
             groupRow.createCell(7).setCellValue(groupVariance)
             groupRow.createCell(11).setCellValue(groupOfferPT)
-            group.phaseAbbreviation?.let { groupRow.createCell(14).setCellValue(it) }
+            group.items.firstOrNull()?.phaseAbbreviation?.let { groupRow.createCell(14).setCellValue(it) }
 
             for (item in group.items) {
                 val itemRow = sheet.createRow(rowIdx++)
@@ -150,8 +150,8 @@ class ExcelExporter {
             phase.durationWeeks?.let { row.createCell(2).setCellValue(it) }
 
             val phaseItems = version.itemGroups
-                .filter { it.phaseAbbreviation == phase.abbreviation }
                 .flatMap { it.items }
+                .filter { it.phaseAbbreviation == phase.abbreviation }
             val effortPT = phaseItems.sumOf { it.offerPT }
             val devCost = effortPT * dailyRate
             val oneTimeCosts = version.additionalCosts

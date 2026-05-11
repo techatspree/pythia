@@ -50,7 +50,6 @@ data class ProjectPhaseDto(
 data class EstimationItemGroupDto(
     val logicalId: UUID?,
     val title: String,
-    val phaseAbbreviation: String?,
     val items: List<EstimationItemDto>
 )
 
@@ -70,7 +69,8 @@ data class EstimationItemDto(
     val offerPT: Double,
     val cost: Double,
     val offerPrice: Double,
-    val unit: String?
+    val unit: String?,
+    val phaseAbbreviation: String? = null
 )
 
 data class AdditionalCostDto(
@@ -82,17 +82,23 @@ data class AdditionalCostDto(
     val phaseAbbreviation: String?
 )
 
+data class PhaseUpdateDto(
+    val name: String,
+    val abbreviation: String,
+    val durationWeeks: Double? = null
+)
+
 data class DraftUpdateDto(
     val notes: String? = null,
     val parameters: List<EstimationParameterDto>? = null,
     val effortDrivers: List<EffortDriverDto>? = null,
+    val phases: List<PhaseUpdateDto>? = null,
     val itemGroups: List<ItemGroupUpdateDto>? = null
 )
 
 data class ItemGroupUpdateDto(
     val logicalId: UUID? = null,
     val title: String,
-    val phaseAbbreviation: String? = null,
     val items: List<EstimationItemUpdateDto>
 )
 
@@ -102,5 +108,6 @@ data class EstimationItemUpdateDto(
     val minEffort: Double? = null,
     val expectedEffort: Double? = null,
     val maxEffort: Double? = null,
-    val assumptions: String? = null
+    val assumptions: String? = null,
+    val phaseAbbreviation: String? = null
 )

@@ -298,7 +298,7 @@ function createGroup(title, logicalId, items) {
     tmp = items;
   }
   items = tmp;
-  return new EstimationItemGroup(title, VOID, logicalId, toList(items));
+  return new EstimationItemGroup(title, logicalId, toList(items));
 }
 function createVersion(versionNumber, isDraft, notes, parameters, effortDrivers, phases, itemGroups) {
   notes = notes === VOID ? '' : notes;
@@ -575,8 +575,7 @@ protoOf(EstimationItem).x6 = function () {
 protoOf(EstimationItem).y6 = function () {
   return this.cost * (1 + this.calculationParameters.salesSurcharge);
 };
-function EstimationItemGroup(title, phase, logicalId, items, _id, _createdAt, _updatedAt) {
-  phase = phase === VOID ? null : phase;
+function EstimationItemGroup(title, logicalId, items, _id, _createdAt, _updatedAt) {
   logicalId = logicalId === VOID ? newId() : logicalId;
   items = items === VOID ? emptyList() : items;
   _id = _id === VOID ? null : _id;
@@ -584,61 +583,52 @@ function EstimationItemGroup(title, phase, logicalId, items, _id, _createdAt, _u
   _updatedAt = _updatedAt === VOID ? null : _updatedAt;
   BaseDomain.call(this, _id, _createdAt, _updatedAt);
   this.c7_1 = title;
-  this.d7_1 = phase;
-  this.e7_1 = logicalId;
-  this.f7_1 = items;
-  this.g7_1 = _id;
-  this.h7_1 = _createdAt;
-  this.i7_1 = _updatedAt;
+  this.d7_1 = logicalId;
+  this.e7_1 = items;
+  this.f7_1 = _id;
+  this.g7_1 = _createdAt;
+  this.h7_1 = _updatedAt;
 }
-protoOf(EstimationItemGroup).j7 = function () {
+protoOf(EstimationItemGroup).i7 = function () {
   return this.c7_1;
 };
-protoOf(EstimationItemGroup).f4 = function () {
+protoOf(EstimationItemGroup).q6 = function () {
   return this.d7_1;
 };
-protoOf(EstimationItemGroup).q6 = function () {
+protoOf(EstimationItemGroup).j7 = function () {
   return this.e7_1;
-};
-protoOf(EstimationItemGroup).k7 = function () {
-  return this.f7_1;
 };
 protoOf(EstimationItemGroup).g4 = function () {
   return this.title;
 };
 protoOf(EstimationItemGroup).h4 = function () {
-  return this.phase;
-};
-protoOf(EstimationItemGroup).i4 = function () {
   return this.logicalId;
 };
-protoOf(EstimationItemGroup).j4 = function () {
+protoOf(EstimationItemGroup).i4 = function () {
   return this.items;
 };
-protoOf(EstimationItemGroup).l7 = function (title, phase, logicalId, items, _id, _createdAt, _updatedAt) {
-  return new EstimationItemGroup(title, phase, logicalId, items, _id, _createdAt, _updatedAt);
+protoOf(EstimationItemGroup).k7 = function (title, logicalId, items, _id, _createdAt, _updatedAt) {
+  return new EstimationItemGroup(title, logicalId, items, _id, _createdAt, _updatedAt);
 };
-protoOf(EstimationItemGroup).copy = function (title, phase, logicalId, items, _id, _createdAt, _updatedAt, $super) {
+protoOf(EstimationItemGroup).copy = function (title, logicalId, items, _id, _createdAt, _updatedAt, $super) {
   title = title === VOID ? this.title : title;
-  phase = phase === VOID ? this.phase : phase;
   logicalId = logicalId === VOID ? this.logicalId : logicalId;
   items = items === VOID ? this.items : items;
-  _id = _id === VOID ? this.g7_1 : _id;
-  _createdAt = _createdAt === VOID ? this.h7_1 : _createdAt;
-  _updatedAt = _updatedAt === VOID ? this.i7_1 : _updatedAt;
-  return $super === VOID ? this.l7(title, phase, logicalId, items, _id, _createdAt, _updatedAt) : $super.l7.call(this, title, phase, logicalId, items, _id, _createdAt, _updatedAt);
+  _id = _id === VOID ? this.f7_1 : _id;
+  _createdAt = _createdAt === VOID ? this.g7_1 : _createdAt;
+  _updatedAt = _updatedAt === VOID ? this.h7_1 : _updatedAt;
+  return $super === VOID ? this.k7(title, logicalId, items, _id, _createdAt, _updatedAt) : $super.k7.call(this, title, logicalId, items, _id, _createdAt, _updatedAt);
 };
 protoOf(EstimationItemGroup).toString = function () {
-  return 'EstimationItemGroup(title=' + this.title + ', phase=' + toString(this.phase) + ', logicalId=' + this.logicalId + ', items=' + toString_0(this.items) + ', _id=' + this.g7_1 + ', _createdAt=' + this.h7_1 + ', _updatedAt=' + this.i7_1 + ')';
+  return 'EstimationItemGroup(title=' + this.title + ', logicalId=' + this.logicalId + ', items=' + toString_0(this.items) + ', _id=' + this.f7_1 + ', _createdAt=' + this.g7_1 + ', _updatedAt=' + this.h7_1 + ')';
 };
 protoOf(EstimationItemGroup).hashCode = function () {
   var result = getStringHashCode(this.title);
-  result = imul(result, 31) + (this.phase == null ? 0 : this.phase.hashCode()) | 0;
   result = imul(result, 31) + getStringHashCode(this.logicalId) | 0;
   result = imul(result, 31) + hashCode(this.items) | 0;
+  result = imul(result, 31) + (this.f7_1 == null ? 0 : getStringHashCode(this.f7_1)) | 0;
   result = imul(result, 31) + (this.g7_1 == null ? 0 : getStringHashCode(this.g7_1)) | 0;
   result = imul(result, 31) + (this.h7_1 == null ? 0 : getStringHashCode(this.h7_1)) | 0;
-  result = imul(result, 31) + (this.i7_1 == null ? 0 : getStringHashCode(this.i7_1)) | 0;
   return result;
 };
 protoOf(EstimationItemGroup).equals = function (other) {
@@ -649,17 +639,15 @@ protoOf(EstimationItemGroup).equals = function (other) {
   var tmp0_other_with_cast = other instanceof EstimationItemGroup ? other : THROW_CCE();
   if (!(this.title === tmp0_other_with_cast.title))
     return false;
-  if (!equals(this.phase, tmp0_other_with_cast.phase))
-    return false;
   if (!(this.logicalId === tmp0_other_with_cast.logicalId))
     return false;
   if (!equals(this.items, tmp0_other_with_cast.items))
     return false;
+  if (!(this.f7_1 == tmp0_other_with_cast.f7_1))
+    return false;
   if (!(this.g7_1 == tmp0_other_with_cast.g7_1))
     return false;
   if (!(this.h7_1 == tmp0_other_with_cast.h7_1))
-    return false;
-  if (!(this.i7_1 == tmp0_other_with_cast.i7_1))
     return false;
   return true;
 };
@@ -670,21 +658,21 @@ function EstimationParameter(name, value, comment, _id, _createdAt, _updatedAt) 
   _createdAt = _createdAt === VOID ? null : _createdAt;
   _updatedAt = _updatedAt === VOID ? null : _updatedAt;
   BaseDomain.call(this, _id, _createdAt, _updatedAt);
-  this.p7_1 = name;
-  this.q7_1 = value;
-  this.r7_1 = comment;
-  this.s7_1 = _id;
-  this.t7_1 = _createdAt;
-  this.u7_1 = _updatedAt;
+  this.o7_1 = name;
+  this.p7_1 = value;
+  this.q7_1 = comment;
+  this.r7_1 = _id;
+  this.s7_1 = _createdAt;
+  this.t7_1 = _updatedAt;
 }
 protoOf(EstimationParameter).s = function () {
+  return this.o7_1;
+};
+protoOf(EstimationParameter).u7 = function () {
   return this.p7_1;
 };
-protoOf(EstimationParameter).v7 = function () {
-  return this.q7_1;
-};
 protoOf(EstimationParameter).j5 = function () {
-  return this.r7_1;
+  return this.q7_1;
 };
 protoOf(EstimationParameter).g4 = function () {
   return this.name;
@@ -702,21 +690,21 @@ protoOf(EstimationParameter).copy = function (name, value, comment, _id, _create
   name = name === VOID ? this.name : name;
   value = value === VOID ? this.value : value;
   comment = comment === VOID ? this.comment : comment;
-  _id = _id === VOID ? this.s7_1 : _id;
-  _createdAt = _createdAt === VOID ? this.t7_1 : _createdAt;
-  _updatedAt = _updatedAt === VOID ? this.u7_1 : _updatedAt;
+  _id = _id === VOID ? this.r7_1 : _id;
+  _createdAt = _createdAt === VOID ? this.s7_1 : _createdAt;
+  _updatedAt = _updatedAt === VOID ? this.t7_1 : _updatedAt;
   return $super === VOID ? this.k5(name, value, comment, _id, _createdAt, _updatedAt) : $super.k5.call(this, name, value, comment, _id, _createdAt, _updatedAt);
 };
 protoOf(EstimationParameter).toString = function () {
-  return 'EstimationParameter(name=' + this.name + ', value=' + this.value + ', comment=' + this.comment + ', _id=' + this.s7_1 + ', _createdAt=' + this.t7_1 + ', _updatedAt=' + this.u7_1 + ')';
+  return 'EstimationParameter(name=' + this.name + ', value=' + this.value + ', comment=' + this.comment + ', _id=' + this.r7_1 + ', _createdAt=' + this.s7_1 + ', _updatedAt=' + this.t7_1 + ')';
 };
 protoOf(EstimationParameter).hashCode = function () {
   var result = getStringHashCode(this.name);
   result = imul(result, 31) + getNumberHashCode(this.value) | 0;
   result = imul(result, 31) + getStringHashCode(this.comment) | 0;
+  result = imul(result, 31) + (this.r7_1 == null ? 0 : getStringHashCode(this.r7_1)) | 0;
   result = imul(result, 31) + (this.s7_1 == null ? 0 : getStringHashCode(this.s7_1)) | 0;
   result = imul(result, 31) + (this.t7_1 == null ? 0 : getStringHashCode(this.t7_1)) | 0;
-  result = imul(result, 31) + (this.u7_1 == null ? 0 : getStringHashCode(this.u7_1)) | 0;
   return result;
 };
 protoOf(EstimationParameter).equals = function (other) {
@@ -731,11 +719,11 @@ protoOf(EstimationParameter).equals = function (other) {
     return false;
   if (!(this.comment === tmp0_other_with_cast.comment))
     return false;
+  if (!(this.r7_1 == tmp0_other_with_cast.r7_1))
+    return false;
   if (!(this.s7_1 == tmp0_other_with_cast.s7_1))
     return false;
   if (!(this.t7_1 == tmp0_other_with_cast.t7_1))
-    return false;
-  if (!(this.u7_1 == tmp0_other_with_cast.u7_1))
     return false;
   return true;
 };
@@ -753,20 +741,23 @@ function EstimationVersion(versionNumber, status, createdBy, totalEffort, notes,
   _createdAt = _createdAt === VOID ? null : _createdAt;
   _updatedAt = _updatedAt === VOID ? null : _updatedAt;
   BaseDomain.call(this, _id, _createdAt, _updatedAt);
-  this.z7_1 = versionNumber;
-  this.a8_1 = status;
-  this.b8_1 = createdBy;
-  this.c8_1 = totalEffort;
-  this.d8_1 = notes;
-  this.e8_1 = parameters;
-  this.f8_1 = effortDrivers;
-  this.g8_1 = phases;
-  this.h8_1 = additionalCosts;
-  this.i8_1 = itemGroups;
-  this.j8_1 = _id;
-  this.k8_1 = _createdAt;
-  this.l8_1 = _updatedAt;
+  this.y7_1 = versionNumber;
+  this.z7_1 = status;
+  this.a8_1 = createdBy;
+  this.b8_1 = totalEffort;
+  this.c8_1 = notes;
+  this.d8_1 = parameters;
+  this.e8_1 = effortDrivers;
+  this.f8_1 = phases;
+  this.g8_1 = additionalCosts;
+  this.h8_1 = itemGroups;
+  this.i8_1 = _id;
+  this.j8_1 = _createdAt;
+  this.k8_1 = _updatedAt;
 }
+protoOf(EstimationVersion).l8 = function () {
+  return this.y7_1;
+};
 protoOf(EstimationVersion).m8 = function () {
   return this.z7_1;
 };
@@ -793,9 +784,6 @@ protoOf(EstimationVersion).t8 = function () {
 };
 protoOf(EstimationVersion).u8 = function () {
   return this.h8_1;
-};
-protoOf(EstimationVersion).v8 = function () {
-  return this.i8_1;
 };
 protoOf(EstimationVersion).parameterValue = function (name) {
   // Inline function 'kotlin.collections.find' call
@@ -880,7 +868,7 @@ protoOf(EstimationVersion).calculate = function () {
       var tmp$ret$9 = item_0.withCalculationParameters(params);
       destination_1.r1(tmp$ret$9);
     }
-    var tmp$ret$12 = item.copy(VOID, VOID, VOID, destination_1);
+    var tmp$ret$12 = item.copy(VOID, VOID, destination_1);
     destination_0.r1(tmp$ret$12);
   }
   var newGroups = destination_0;
@@ -919,22 +907,22 @@ protoOf(EstimationVersion).j4 = function () {
 protoOf(EstimationVersion).k4 = function () {
   return this.notes;
 };
-protoOf(EstimationVersion).w8 = function () {
+protoOf(EstimationVersion).v8 = function () {
   return this.parameters;
 };
-protoOf(EstimationVersion).x8 = function () {
+protoOf(EstimationVersion).w8 = function () {
   return this.effortDrivers;
 };
-protoOf(EstimationVersion).y8 = function () {
+protoOf(EstimationVersion).x8 = function () {
   return this.phases;
 };
-protoOf(EstimationVersion).z8 = function () {
+protoOf(EstimationVersion).y8 = function () {
   return this.additionalCosts;
 };
-protoOf(EstimationVersion).a9 = function () {
+protoOf(EstimationVersion).z8 = function () {
   return this.itemGroups;
 };
-protoOf(EstimationVersion).b9 = function (versionNumber, status, createdBy, totalEffort, notes, parameters, effortDrivers, phases, additionalCosts, itemGroups, _id, _createdAt, _updatedAt) {
+protoOf(EstimationVersion).a9 = function (versionNumber, status, createdBy, totalEffort, notes, parameters, effortDrivers, phases, additionalCosts, itemGroups, _id, _createdAt, _updatedAt) {
   return new EstimationVersion(versionNumber, status, createdBy, totalEffort, notes, parameters, effortDrivers, phases, additionalCosts, itemGroups, _id, _createdAt, _updatedAt);
 };
 protoOf(EstimationVersion).copy = function (versionNumber, status, createdBy, totalEffort, notes, parameters, effortDrivers, phases, additionalCosts, itemGroups, _id, _createdAt, _updatedAt, $super) {
@@ -948,13 +936,13 @@ protoOf(EstimationVersion).copy = function (versionNumber, status, createdBy, to
   phases = phases === VOID ? this.phases : phases;
   additionalCosts = additionalCosts === VOID ? this.additionalCosts : additionalCosts;
   itemGroups = itemGroups === VOID ? this.itemGroups : itemGroups;
-  _id = _id === VOID ? this.j8_1 : _id;
-  _createdAt = _createdAt === VOID ? this.k8_1 : _createdAt;
-  _updatedAt = _updatedAt === VOID ? this.l8_1 : _updatedAt;
-  return $super === VOID ? this.b9(versionNumber, status, createdBy, totalEffort, notes, parameters, effortDrivers, phases, additionalCosts, itemGroups, _id, _createdAt, _updatedAt) : $super.b9.call(this, versionNumber, status, createdBy, totalEffort, notes, parameters, effortDrivers, phases, additionalCosts, itemGroups, _id, _createdAt, _updatedAt);
+  _id = _id === VOID ? this.i8_1 : _id;
+  _createdAt = _createdAt === VOID ? this.j8_1 : _createdAt;
+  _updatedAt = _updatedAt === VOID ? this.k8_1 : _updatedAt;
+  return $super === VOID ? this.a9(versionNumber, status, createdBy, totalEffort, notes, parameters, effortDrivers, phases, additionalCosts, itemGroups, _id, _createdAt, _updatedAt) : $super.a9.call(this, versionNumber, status, createdBy, totalEffort, notes, parameters, effortDrivers, phases, additionalCosts, itemGroups, _id, _createdAt, _updatedAt);
 };
 protoOf(EstimationVersion).toString = function () {
-  return 'EstimationVersion(versionNumber=' + this.versionNumber + ', status=' + this.status.toString() + ', createdBy=' + toString(this.createdBy) + ', totalEffort=' + this.totalEffort + ', notes=' + this.notes + ', parameters=' + toString_0(this.parameters) + ', effortDrivers=' + toString_0(this.effortDrivers) + ', phases=' + toString_0(this.phases) + ', additionalCosts=' + toString_0(this.additionalCosts) + ', itemGroups=' + toString_0(this.itemGroups) + ', _id=' + this.j8_1 + ', _createdAt=' + this.k8_1 + ', _updatedAt=' + this.l8_1 + ')';
+  return 'EstimationVersion(versionNumber=' + this.versionNumber + ', status=' + this.status.toString() + ', createdBy=' + toString(this.createdBy) + ', totalEffort=' + this.totalEffort + ', notes=' + this.notes + ', parameters=' + toString_0(this.parameters) + ', effortDrivers=' + toString_0(this.effortDrivers) + ', phases=' + toString_0(this.phases) + ', additionalCosts=' + toString_0(this.additionalCosts) + ', itemGroups=' + toString_0(this.itemGroups) + ', _id=' + this.i8_1 + ', _createdAt=' + this.j8_1 + ', _updatedAt=' + this.k8_1 + ')';
 };
 protoOf(EstimationVersion).hashCode = function () {
   var result = this.versionNumber;
@@ -967,9 +955,9 @@ protoOf(EstimationVersion).hashCode = function () {
   result = imul(result, 31) + hashCode(this.phases) | 0;
   result = imul(result, 31) + hashCode(this.additionalCosts) | 0;
   result = imul(result, 31) + hashCode(this.itemGroups) | 0;
+  result = imul(result, 31) + (this.i8_1 == null ? 0 : getStringHashCode(this.i8_1)) | 0;
   result = imul(result, 31) + (this.j8_1 == null ? 0 : getStringHashCode(this.j8_1)) | 0;
   result = imul(result, 31) + (this.k8_1 == null ? 0 : getStringHashCode(this.k8_1)) | 0;
-  result = imul(result, 31) + (this.l8_1 == null ? 0 : getStringHashCode(this.l8_1)) | 0;
   return result;
 };
 protoOf(EstimationVersion).equals = function (other) {
@@ -998,11 +986,11 @@ protoOf(EstimationVersion).equals = function (other) {
     return false;
   if (!equals(this.itemGroups, tmp0_other_with_cast.itemGroups))
     return false;
+  if (!(this.i8_1 == tmp0_other_with_cast.i8_1))
+    return false;
   if (!(this.j8_1 == tmp0_other_with_cast.j8_1))
     return false;
   if (!(this.k8_1 == tmp0_other_with_cast.k8_1))
-    return false;
-  if (!(this.l8_1 == tmp0_other_with_cast.l8_1))
     return false;
   return true;
 };
@@ -1055,56 +1043,56 @@ function FixedEstimationItem(_description, _code, _minEffort, _expectedEffort, _
   _createdAt = _createdAt === VOID ? null : _createdAt;
   _updatedAt = _updatedAt === VOID ? null : _updatedAt;
   EstimationItem.call(this, _description, _code, _minEffort, _expectedEffort, _maxEffort, _assumptions, _phase, _logicalId, _calculationParameters, _id, _createdAt, _updatedAt);
-  this.q9_1 = _description;
-  this.r9_1 = _code;
-  this.s9_1 = _minEffort;
-  this.t9_1 = _expectedEffort;
-  this.u9_1 = _maxEffort;
-  this.v9_1 = _assumptions;
-  this.w9_1 = _phase;
-  this.x9_1 = _logicalId;
-  this.y9_1 = _calculationParameters;
-  this.z9_1 = _id;
-  this.aa_1 = _createdAt;
-  this.ba_1 = _updatedAt;
+  this.p9_1 = _description;
+  this.q9_1 = _code;
+  this.r9_1 = _minEffort;
+  this.s9_1 = _expectedEffort;
+  this.t9_1 = _maxEffort;
+  this.u9_1 = _assumptions;
+  this.v9_1 = _phase;
+  this.w9_1 = _logicalId;
+  this.x9_1 = _calculationParameters;
+  this.y9_1 = _id;
+  this.z9_1 = _createdAt;
+  this.aa_1 = _updatedAt;
 }
 protoOf(FixedEstimationItem).withCalculationParameters = function (params) {
   return this.copy(VOID, VOID, VOID, VOID, VOID, VOID, VOID, VOID, params);
 };
-protoOf(FixedEstimationItem).ca = function (_description, _code, _minEffort, _expectedEffort, _maxEffort, _assumptions, _phase, _logicalId, _calculationParameters, _id, _createdAt, _updatedAt) {
+protoOf(FixedEstimationItem).ba = function (_description, _code, _minEffort, _expectedEffort, _maxEffort, _assumptions, _phase, _logicalId, _calculationParameters, _id, _createdAt, _updatedAt) {
   return new FixedEstimationItem(_description, _code, _minEffort, _expectedEffort, _maxEffort, _assumptions, _phase, _logicalId, _calculationParameters, _id, _createdAt, _updatedAt);
 };
 protoOf(FixedEstimationItem).copy = function (_description, _code, _minEffort, _expectedEffort, _maxEffort, _assumptions, _phase, _logicalId, _calculationParameters, _id, _createdAt, _updatedAt, $super) {
-  _description = _description === VOID ? this.q9_1 : _description;
-  _code = _code === VOID ? this.r9_1 : _code;
-  _minEffort = _minEffort === VOID ? this.s9_1 : _minEffort;
-  _expectedEffort = _expectedEffort === VOID ? this.t9_1 : _expectedEffort;
-  _maxEffort = _maxEffort === VOID ? this.u9_1 : _maxEffort;
-  _assumptions = _assumptions === VOID ? this.v9_1 : _assumptions;
-  _phase = _phase === VOID ? this.w9_1 : _phase;
-  _logicalId = _logicalId === VOID ? this.x9_1 : _logicalId;
-  _calculationParameters = _calculationParameters === VOID ? this.y9_1 : _calculationParameters;
-  _id = _id === VOID ? this.z9_1 : _id;
-  _createdAt = _createdAt === VOID ? this.aa_1 : _createdAt;
-  _updatedAt = _updatedAt === VOID ? this.ba_1 : _updatedAt;
-  return $super === VOID ? this.ca(_description, _code, _minEffort, _expectedEffort, _maxEffort, _assumptions, _phase, _logicalId, _calculationParameters, _id, _createdAt, _updatedAt) : $super.ca.call(this, _description, _code, _minEffort, _expectedEffort, _maxEffort, _assumptions, _phase, _logicalId, _calculationParameters, _id, _createdAt, _updatedAt);
+  _description = _description === VOID ? this.p9_1 : _description;
+  _code = _code === VOID ? this.q9_1 : _code;
+  _minEffort = _minEffort === VOID ? this.r9_1 : _minEffort;
+  _expectedEffort = _expectedEffort === VOID ? this.s9_1 : _expectedEffort;
+  _maxEffort = _maxEffort === VOID ? this.t9_1 : _maxEffort;
+  _assumptions = _assumptions === VOID ? this.u9_1 : _assumptions;
+  _phase = _phase === VOID ? this.v9_1 : _phase;
+  _logicalId = _logicalId === VOID ? this.w9_1 : _logicalId;
+  _calculationParameters = _calculationParameters === VOID ? this.x9_1 : _calculationParameters;
+  _id = _id === VOID ? this.y9_1 : _id;
+  _createdAt = _createdAt === VOID ? this.z9_1 : _createdAt;
+  _updatedAt = _updatedAt === VOID ? this.aa_1 : _updatedAt;
+  return $super === VOID ? this.ba(_description, _code, _minEffort, _expectedEffort, _maxEffort, _assumptions, _phase, _logicalId, _calculationParameters, _id, _createdAt, _updatedAt) : $super.ba.call(this, _description, _code, _minEffort, _expectedEffort, _maxEffort, _assumptions, _phase, _logicalId, _calculationParameters, _id, _createdAt, _updatedAt);
 };
 protoOf(FixedEstimationItem).toString = function () {
-  return 'FixedEstimationItem(_description=' + this.q9_1 + ', _code=' + this.r9_1 + ', _minEffort=' + this.s9_1 + ', _expectedEffort=' + this.t9_1 + ', _maxEffort=' + this.u9_1 + ', _assumptions=' + this.v9_1 + ', _phase=' + toString(this.w9_1) + ', _logicalId=' + this.x9_1 + ', _calculationParameters=' + this.y9_1.toString() + ', _id=' + this.z9_1 + ', _createdAt=' + this.aa_1 + ', _updatedAt=' + this.ba_1 + ')';
+  return 'FixedEstimationItem(_description=' + this.p9_1 + ', _code=' + this.q9_1 + ', _minEffort=' + this.r9_1 + ', _expectedEffort=' + this.s9_1 + ', _maxEffort=' + this.t9_1 + ', _assumptions=' + this.u9_1 + ', _phase=' + toString(this.v9_1) + ', _logicalId=' + this.w9_1 + ', _calculationParameters=' + this.x9_1.toString() + ', _id=' + this.y9_1 + ', _createdAt=' + this.z9_1 + ', _updatedAt=' + this.aa_1 + ')';
 };
 protoOf(FixedEstimationItem).hashCode = function () {
-  var result = getStringHashCode(this.q9_1);
-  result = imul(result, 31) + getStringHashCode(this.r9_1) | 0;
+  var result = getStringHashCode(this.p9_1);
+  result = imul(result, 31) + getStringHashCode(this.q9_1) | 0;
+  result = imul(result, 31) + getNumberHashCode(this.r9_1) | 0;
   result = imul(result, 31) + getNumberHashCode(this.s9_1) | 0;
   result = imul(result, 31) + getNumberHashCode(this.t9_1) | 0;
-  result = imul(result, 31) + getNumberHashCode(this.u9_1) | 0;
-  result = imul(result, 31) + getStringHashCode(this.v9_1) | 0;
-  result = imul(result, 31) + (this.w9_1 == null ? 0 : this.w9_1.hashCode()) | 0;
-  result = imul(result, 31) + getStringHashCode(this.x9_1) | 0;
-  result = imul(result, 31) + this.y9_1.hashCode() | 0;
+  result = imul(result, 31) + getStringHashCode(this.u9_1) | 0;
+  result = imul(result, 31) + (this.v9_1 == null ? 0 : this.v9_1.hashCode()) | 0;
+  result = imul(result, 31) + getStringHashCode(this.w9_1) | 0;
+  result = imul(result, 31) + this.x9_1.hashCode() | 0;
+  result = imul(result, 31) + (this.y9_1 == null ? 0 : getStringHashCode(this.y9_1)) | 0;
   result = imul(result, 31) + (this.z9_1 == null ? 0 : getStringHashCode(this.z9_1)) | 0;
   result = imul(result, 31) + (this.aa_1 == null ? 0 : getStringHashCode(this.aa_1)) | 0;
-  result = imul(result, 31) + (this.ba_1 == null ? 0 : getStringHashCode(this.ba_1)) | 0;
   return result;
 };
 protoOf(FixedEstimationItem).equals = function (other) {
@@ -1113,29 +1101,29 @@ protoOf(FixedEstimationItem).equals = function (other) {
   if (!(other instanceof FixedEstimationItem))
     return false;
   var tmp0_other_with_cast = other instanceof FixedEstimationItem ? other : THROW_CCE();
+  if (!(this.p9_1 === tmp0_other_with_cast.p9_1))
+    return false;
   if (!(this.q9_1 === tmp0_other_with_cast.q9_1))
     return false;
-  if (!(this.r9_1 === tmp0_other_with_cast.r9_1))
+  if (!equals(this.r9_1, tmp0_other_with_cast.r9_1))
     return false;
   if (!equals(this.s9_1, tmp0_other_with_cast.s9_1))
     return false;
   if (!equals(this.t9_1, tmp0_other_with_cast.t9_1))
     return false;
-  if (!equals(this.u9_1, tmp0_other_with_cast.u9_1))
+  if (!(this.u9_1 === tmp0_other_with_cast.u9_1))
     return false;
-  if (!(this.v9_1 === tmp0_other_with_cast.v9_1))
+  if (!equals(this.v9_1, tmp0_other_with_cast.v9_1))
     return false;
-  if (!equals(this.w9_1, tmp0_other_with_cast.w9_1))
+  if (!(this.w9_1 === tmp0_other_with_cast.w9_1))
     return false;
-  if (!(this.x9_1 === tmp0_other_with_cast.x9_1))
+  if (!this.x9_1.equals(tmp0_other_with_cast.x9_1))
     return false;
-  if (!this.y9_1.equals(tmp0_other_with_cast.y9_1))
+  if (!(this.y9_1 == tmp0_other_with_cast.y9_1))
     return false;
   if (!(this.z9_1 == tmp0_other_with_cast.z9_1))
     return false;
   if (!(this.aa_1 == tmp0_other_with_cast.aa_1))
-    return false;
-  if (!(this.ba_1 == tmp0_other_with_cast.ba_1))
     return false;
   return true;
 };
@@ -1167,29 +1155,29 @@ function Project(name, description, client, status, owner, _id, _createdAt, _upd
   _createdAt = _createdAt === VOID ? null : _createdAt;
   _updatedAt = _updatedAt === VOID ? null : _updatedAt;
   BaseDomain.call(this, _id, _createdAt, _updatedAt);
-  this.ga_1 = name;
-  this.ha_1 = description;
-  this.ia_1 = client;
-  this.ja_1 = status;
-  this.ka_1 = owner;
-  this.la_1 = _id;
-  this.ma_1 = _createdAt;
-  this.na_1 = _updatedAt;
+  this.fa_1 = name;
+  this.ga_1 = description;
+  this.ha_1 = client;
+  this.ia_1 = status;
+  this.ja_1 = owner;
+  this.ka_1 = _id;
+  this.la_1 = _createdAt;
+  this.ma_1 = _updatedAt;
 }
 protoOf(Project).s = function () {
-  return this.ga_1;
+  return this.fa_1;
 };
 protoOf(Project).b4 = function () {
+  return this.ga_1;
+};
+protoOf(Project).na = function () {
   return this.ha_1;
 };
-protoOf(Project).oa = function () {
+protoOf(Project).m8 = function () {
   return this.ia_1;
 };
-protoOf(Project).n8 = function () {
+protoOf(Project).oa = function () {
   return this.ja_1;
-};
-protoOf(Project).pa = function () {
-  return this.ka_1;
 };
 protoOf(Project).g4 = function () {
   return this.name;
@@ -1206,7 +1194,7 @@ protoOf(Project).j4 = function () {
 protoOf(Project).k4 = function () {
   return this.owner;
 };
-protoOf(Project).qa = function (name, description, client, status, owner, _id, _createdAt, _updatedAt) {
+protoOf(Project).pa = function (name, description, client, status, owner, _id, _createdAt, _updatedAt) {
   return new Project(name, description, client, status, owner, _id, _createdAt, _updatedAt);
 };
 protoOf(Project).copy = function (name, description, client, status, owner, _id, _createdAt, _updatedAt, $super) {
@@ -1215,13 +1203,13 @@ protoOf(Project).copy = function (name, description, client, status, owner, _id,
   client = client === VOID ? this.client : client;
   status = status === VOID ? this.status : status;
   owner = owner === VOID ? this.owner : owner;
-  _id = _id === VOID ? this.la_1 : _id;
-  _createdAt = _createdAt === VOID ? this.ma_1 : _createdAt;
-  _updatedAt = _updatedAt === VOID ? this.na_1 : _updatedAt;
-  return $super === VOID ? this.qa(name, description, client, status, owner, _id, _createdAt, _updatedAt) : $super.qa.call(this, name, description, client, status, owner, _id, _createdAt, _updatedAt);
+  _id = _id === VOID ? this.ka_1 : _id;
+  _createdAt = _createdAt === VOID ? this.la_1 : _createdAt;
+  _updatedAt = _updatedAt === VOID ? this.ma_1 : _updatedAt;
+  return $super === VOID ? this.pa(name, description, client, status, owner, _id, _createdAt, _updatedAt) : $super.pa.call(this, name, description, client, status, owner, _id, _createdAt, _updatedAt);
 };
 protoOf(Project).toString = function () {
-  return 'Project(name=' + this.name + ', description=' + this.description + ', client=' + this.client + ', status=' + this.status.toString() + ', owner=' + toString(this.owner) + ', _id=' + this.la_1 + ', _createdAt=' + this.ma_1 + ', _updatedAt=' + this.na_1 + ')';
+  return 'Project(name=' + this.name + ', description=' + this.description + ', client=' + this.client + ', status=' + this.status.toString() + ', owner=' + toString(this.owner) + ', _id=' + this.ka_1 + ', _createdAt=' + this.la_1 + ', _updatedAt=' + this.ma_1 + ')';
 };
 protoOf(Project).hashCode = function () {
   var result = getStringHashCode(this.name);
@@ -1229,9 +1217,9 @@ protoOf(Project).hashCode = function () {
   result = imul(result, 31) + getStringHashCode(this.client) | 0;
   result = imul(result, 31) + this.status.hashCode() | 0;
   result = imul(result, 31) + (this.owner == null ? 0 : this.owner.hashCode()) | 0;
+  result = imul(result, 31) + (this.ka_1 == null ? 0 : getStringHashCode(this.ka_1)) | 0;
   result = imul(result, 31) + (this.la_1 == null ? 0 : getStringHashCode(this.la_1)) | 0;
   result = imul(result, 31) + (this.ma_1 == null ? 0 : getStringHashCode(this.ma_1)) | 0;
-  result = imul(result, 31) + (this.na_1 == null ? 0 : getStringHashCode(this.na_1)) | 0;
   return result;
 };
 protoOf(Project).equals = function (other) {
@@ -1250,11 +1238,11 @@ protoOf(Project).equals = function (other) {
     return false;
   if (!equals(this.owner, tmp0_other_with_cast.owner))
     return false;
+  if (!(this.ka_1 == tmp0_other_with_cast.ka_1))
+    return false;
   if (!(this.la_1 == tmp0_other_with_cast.la_1))
     return false;
   if (!(this.ma_1 == tmp0_other_with_cast.ma_1))
-    return false;
-  if (!(this.na_1 == tmp0_other_with_cast.na_1))
     return false;
   return true;
 };
@@ -1264,21 +1252,21 @@ function ProjectPhase(name, abbreviation, durationWeeks, _id, _createdAt, _updat
   _createdAt = _createdAt === VOID ? null : _createdAt;
   _updatedAt = _updatedAt === VOID ? null : _updatedAt;
   BaseDomain.call(this, _id, _createdAt, _updatedAt);
-  this.ua_1 = name;
-  this.va_1 = abbreviation;
-  this.wa_1 = durationWeeks;
-  this.xa_1 = _id;
-  this.ya_1 = _createdAt;
-  this.za_1 = _updatedAt;
+  this.ta_1 = name;
+  this.ua_1 = abbreviation;
+  this.va_1 = durationWeeks;
+  this.wa_1 = _id;
+  this.xa_1 = _createdAt;
+  this.ya_1 = _updatedAt;
 }
 protoOf(ProjectPhase).s = function () {
+  return this.ta_1;
+};
+protoOf(ProjectPhase).za = function () {
   return this.ua_1;
 };
 protoOf(ProjectPhase).ab = function () {
   return this.va_1;
-};
-protoOf(ProjectPhase).bb = function () {
-  return this.wa_1;
 };
 protoOf(ProjectPhase).g4 = function () {
   return this.name;
@@ -1289,28 +1277,28 @@ protoOf(ProjectPhase).h4 = function () {
 protoOf(ProjectPhase).i4 = function () {
   return this.durationWeeks;
 };
-protoOf(ProjectPhase).cb = function (name, abbreviation, durationWeeks, _id, _createdAt, _updatedAt) {
+protoOf(ProjectPhase).bb = function (name, abbreviation, durationWeeks, _id, _createdAt, _updatedAt) {
   return new ProjectPhase(name, abbreviation, durationWeeks, _id, _createdAt, _updatedAt);
 };
 protoOf(ProjectPhase).copy = function (name, abbreviation, durationWeeks, _id, _createdAt, _updatedAt, $super) {
   name = name === VOID ? this.name : name;
   abbreviation = abbreviation === VOID ? this.abbreviation : abbreviation;
   durationWeeks = durationWeeks === VOID ? this.durationWeeks : durationWeeks;
-  _id = _id === VOID ? this.xa_1 : _id;
-  _createdAt = _createdAt === VOID ? this.ya_1 : _createdAt;
-  _updatedAt = _updatedAt === VOID ? this.za_1 : _updatedAt;
-  return $super === VOID ? this.cb(name, abbreviation, durationWeeks, _id, _createdAt, _updatedAt) : $super.cb.call(this, name, abbreviation, durationWeeks, _id, _createdAt, _updatedAt);
+  _id = _id === VOID ? this.wa_1 : _id;
+  _createdAt = _createdAt === VOID ? this.xa_1 : _createdAt;
+  _updatedAt = _updatedAt === VOID ? this.ya_1 : _updatedAt;
+  return $super === VOID ? this.bb(name, abbreviation, durationWeeks, _id, _createdAt, _updatedAt) : $super.bb.call(this, name, abbreviation, durationWeeks, _id, _createdAt, _updatedAt);
 };
 protoOf(ProjectPhase).toString = function () {
-  return 'ProjectPhase(name=' + this.name + ', abbreviation=' + this.abbreviation + ', durationWeeks=' + this.durationWeeks + ', _id=' + this.xa_1 + ', _createdAt=' + this.ya_1 + ', _updatedAt=' + this.za_1 + ')';
+  return 'ProjectPhase(name=' + this.name + ', abbreviation=' + this.abbreviation + ', durationWeeks=' + this.durationWeeks + ', _id=' + this.wa_1 + ', _createdAt=' + this.xa_1 + ', _updatedAt=' + this.ya_1 + ')';
 };
 protoOf(ProjectPhase).hashCode = function () {
   var result = getStringHashCode(this.name);
   result = imul(result, 31) + getStringHashCode(this.abbreviation) | 0;
   result = imul(result, 31) + getNumberHashCode(this.durationWeeks) | 0;
+  result = imul(result, 31) + (this.wa_1 == null ? 0 : getStringHashCode(this.wa_1)) | 0;
   result = imul(result, 31) + (this.xa_1 == null ? 0 : getStringHashCode(this.xa_1)) | 0;
   result = imul(result, 31) + (this.ya_1 == null ? 0 : getStringHashCode(this.ya_1)) | 0;
-  result = imul(result, 31) + (this.za_1 == null ? 0 : getStringHashCode(this.za_1)) | 0;
   return result;
 };
 protoOf(ProjectPhase).equals = function (other) {
@@ -1325,11 +1313,11 @@ protoOf(ProjectPhase).equals = function (other) {
     return false;
   if (!equals(this.durationWeeks, tmp0_other_with_cast.durationWeeks))
     return false;
+  if (!(this.wa_1 == tmp0_other_with_cast.wa_1))
+    return false;
   if (!(this.xa_1 == tmp0_other_with_cast.xa_1))
     return false;
   if (!(this.ya_1 == tmp0_other_with_cast.ya_1))
-    return false;
-  if (!(this.za_1 == tmp0_other_with_cast.za_1))
     return false;
   return true;
 };
@@ -1383,22 +1371,22 @@ function TimeRelativeEstimationItem(unit, _description, _code, _minEffort, _expe
   _createdAt = _createdAt === VOID ? null : _createdAt;
   _updatedAt = _updatedAt === VOID ? null : _updatedAt;
   EstimationItem.call(this, _description, _code, _minEffort, _expectedEffort, _maxEffort, _assumptions, _phase, _logicalId, _calculationParameters, _id, _createdAt, _updatedAt);
-  this.rb_1 = unit;
-  this.sb_1 = _description;
-  this.tb_1 = _code;
-  this.ub_1 = _minEffort;
-  this.vb_1 = _expectedEffort;
-  this.wb_1 = _maxEffort;
-  this.xb_1 = _assumptions;
-  this.yb_1 = _phase;
-  this.zb_1 = _logicalId;
-  this.ac_1 = _calculationParameters;
-  this.bc_1 = _id;
-  this.cc_1 = _createdAt;
-  this.dc_1 = _updatedAt;
+  this.qb_1 = unit;
+  this.rb_1 = _description;
+  this.sb_1 = _code;
+  this.tb_1 = _minEffort;
+  this.ub_1 = _expectedEffort;
+  this.vb_1 = _maxEffort;
+  this.wb_1 = _assumptions;
+  this.xb_1 = _phase;
+  this.yb_1 = _logicalId;
+  this.zb_1 = _calculationParameters;
+  this.ac_1 = _id;
+  this.bc_1 = _createdAt;
+  this.cc_1 = _updatedAt;
 }
-protoOf(TimeRelativeEstimationItem).ec = function () {
-  return this.rb_1;
+protoOf(TimeRelativeEstimationItem).dc = function () {
+  return this.qb_1;
 };
 protoOf(TimeRelativeEstimationItem).withCalculationParameters = function (params) {
   return this.copy(VOID, VOID, VOID, VOID, VOID, VOID, VOID, VOID, VOID, params);
@@ -1406,42 +1394,42 @@ protoOf(TimeRelativeEstimationItem).withCalculationParameters = function (params
 protoOf(TimeRelativeEstimationItem).g4 = function () {
   return this.unit;
 };
-protoOf(TimeRelativeEstimationItem).fc = function (unit, _description, _code, _minEffort, _expectedEffort, _maxEffort, _assumptions, _phase, _logicalId, _calculationParameters, _id, _createdAt, _updatedAt) {
+protoOf(TimeRelativeEstimationItem).ec = function (unit, _description, _code, _minEffort, _expectedEffort, _maxEffort, _assumptions, _phase, _logicalId, _calculationParameters, _id, _createdAt, _updatedAt) {
   return new TimeRelativeEstimationItem(unit, _description, _code, _minEffort, _expectedEffort, _maxEffort, _assumptions, _phase, _logicalId, _calculationParameters, _id, _createdAt, _updatedAt);
 };
 protoOf(TimeRelativeEstimationItem).copy = function (unit, _description, _code, _minEffort, _expectedEffort, _maxEffort, _assumptions, _phase, _logicalId, _calculationParameters, _id, _createdAt, _updatedAt, $super) {
   unit = unit === VOID ? this.unit : unit;
-  _description = _description === VOID ? this.sb_1 : _description;
-  _code = _code === VOID ? this.tb_1 : _code;
-  _minEffort = _minEffort === VOID ? this.ub_1 : _minEffort;
-  _expectedEffort = _expectedEffort === VOID ? this.vb_1 : _expectedEffort;
-  _maxEffort = _maxEffort === VOID ? this.wb_1 : _maxEffort;
-  _assumptions = _assumptions === VOID ? this.xb_1 : _assumptions;
-  _phase = _phase === VOID ? this.yb_1 : _phase;
-  _logicalId = _logicalId === VOID ? this.zb_1 : _logicalId;
-  _calculationParameters = _calculationParameters === VOID ? this.ac_1 : _calculationParameters;
-  _id = _id === VOID ? this.bc_1 : _id;
-  _createdAt = _createdAt === VOID ? this.cc_1 : _createdAt;
-  _updatedAt = _updatedAt === VOID ? this.dc_1 : _updatedAt;
-  return $super === VOID ? this.fc(unit, _description, _code, _minEffort, _expectedEffort, _maxEffort, _assumptions, _phase, _logicalId, _calculationParameters, _id, _createdAt, _updatedAt) : $super.fc.call(this, unit, _description, _code, _minEffort, _expectedEffort, _maxEffort, _assumptions, _phase, _logicalId, _calculationParameters, _id, _createdAt, _updatedAt);
+  _description = _description === VOID ? this.rb_1 : _description;
+  _code = _code === VOID ? this.sb_1 : _code;
+  _minEffort = _minEffort === VOID ? this.tb_1 : _minEffort;
+  _expectedEffort = _expectedEffort === VOID ? this.ub_1 : _expectedEffort;
+  _maxEffort = _maxEffort === VOID ? this.vb_1 : _maxEffort;
+  _assumptions = _assumptions === VOID ? this.wb_1 : _assumptions;
+  _phase = _phase === VOID ? this.xb_1 : _phase;
+  _logicalId = _logicalId === VOID ? this.yb_1 : _logicalId;
+  _calculationParameters = _calculationParameters === VOID ? this.zb_1 : _calculationParameters;
+  _id = _id === VOID ? this.ac_1 : _id;
+  _createdAt = _createdAt === VOID ? this.bc_1 : _createdAt;
+  _updatedAt = _updatedAt === VOID ? this.cc_1 : _updatedAt;
+  return $super === VOID ? this.ec(unit, _description, _code, _minEffort, _expectedEffort, _maxEffort, _assumptions, _phase, _logicalId, _calculationParameters, _id, _createdAt, _updatedAt) : $super.ec.call(this, unit, _description, _code, _minEffort, _expectedEffort, _maxEffort, _assumptions, _phase, _logicalId, _calculationParameters, _id, _createdAt, _updatedAt);
 };
 protoOf(TimeRelativeEstimationItem).toString = function () {
-  return 'TimeRelativeEstimationItem(unit=' + this.unit + ', _description=' + this.sb_1 + ', _code=' + this.tb_1 + ', _minEffort=' + this.ub_1 + ', _expectedEffort=' + this.vb_1 + ', _maxEffort=' + this.wb_1 + ', _assumptions=' + this.xb_1 + ', _phase=' + toString(this.yb_1) + ', _logicalId=' + this.zb_1 + ', _calculationParameters=' + this.ac_1.toString() + ', _id=' + this.bc_1 + ', _createdAt=' + this.cc_1 + ', _updatedAt=' + this.dc_1 + ')';
+  return 'TimeRelativeEstimationItem(unit=' + this.unit + ', _description=' + this.rb_1 + ', _code=' + this.sb_1 + ', _minEffort=' + this.tb_1 + ', _expectedEffort=' + this.ub_1 + ', _maxEffort=' + this.vb_1 + ', _assumptions=' + this.wb_1 + ', _phase=' + toString(this.xb_1) + ', _logicalId=' + this.yb_1 + ', _calculationParameters=' + this.zb_1.toString() + ', _id=' + this.ac_1 + ', _createdAt=' + this.bc_1 + ', _updatedAt=' + this.cc_1 + ')';
 };
 protoOf(TimeRelativeEstimationItem).hashCode = function () {
   var result = getStringHashCode(this.unit);
+  result = imul(result, 31) + getStringHashCode(this.rb_1) | 0;
   result = imul(result, 31) + getStringHashCode(this.sb_1) | 0;
-  result = imul(result, 31) + getStringHashCode(this.tb_1) | 0;
+  result = imul(result, 31) + getNumberHashCode(this.tb_1) | 0;
   result = imul(result, 31) + getNumberHashCode(this.ub_1) | 0;
   result = imul(result, 31) + getNumberHashCode(this.vb_1) | 0;
-  result = imul(result, 31) + getNumberHashCode(this.wb_1) | 0;
-  result = imul(result, 31) + getStringHashCode(this.xb_1) | 0;
-  result = imul(result, 31) + (this.yb_1 == null ? 0 : this.yb_1.hashCode()) | 0;
-  result = imul(result, 31) + getStringHashCode(this.zb_1) | 0;
-  result = imul(result, 31) + this.ac_1.hashCode() | 0;
+  result = imul(result, 31) + getStringHashCode(this.wb_1) | 0;
+  result = imul(result, 31) + (this.xb_1 == null ? 0 : this.xb_1.hashCode()) | 0;
+  result = imul(result, 31) + getStringHashCode(this.yb_1) | 0;
+  result = imul(result, 31) + this.zb_1.hashCode() | 0;
+  result = imul(result, 31) + (this.ac_1 == null ? 0 : getStringHashCode(this.ac_1)) | 0;
   result = imul(result, 31) + (this.bc_1 == null ? 0 : getStringHashCode(this.bc_1)) | 0;
   result = imul(result, 31) + (this.cc_1 == null ? 0 : getStringHashCode(this.cc_1)) | 0;
-  result = imul(result, 31) + (this.dc_1 == null ? 0 : getStringHashCode(this.dc_1)) | 0;
   return result;
 };
 protoOf(TimeRelativeEstimationItem).equals = function (other) {
@@ -1452,29 +1440,29 @@ protoOf(TimeRelativeEstimationItem).equals = function (other) {
   var tmp0_other_with_cast = other instanceof TimeRelativeEstimationItem ? other : THROW_CCE();
   if (!(this.unit === tmp0_other_with_cast.unit))
     return false;
+  if (!(this.rb_1 === tmp0_other_with_cast.rb_1))
+    return false;
   if (!(this.sb_1 === tmp0_other_with_cast.sb_1))
     return false;
-  if (!(this.tb_1 === tmp0_other_with_cast.tb_1))
+  if (!equals(this.tb_1, tmp0_other_with_cast.tb_1))
     return false;
   if (!equals(this.ub_1, tmp0_other_with_cast.ub_1))
     return false;
   if (!equals(this.vb_1, tmp0_other_with_cast.vb_1))
     return false;
-  if (!equals(this.wb_1, tmp0_other_with_cast.wb_1))
+  if (!(this.wb_1 === tmp0_other_with_cast.wb_1))
     return false;
-  if (!(this.xb_1 === tmp0_other_with_cast.xb_1))
+  if (!equals(this.xb_1, tmp0_other_with_cast.xb_1))
     return false;
-  if (!equals(this.yb_1, tmp0_other_with_cast.yb_1))
+  if (!(this.yb_1 === tmp0_other_with_cast.yb_1))
     return false;
-  if (!(this.zb_1 === tmp0_other_with_cast.zb_1))
+  if (!this.zb_1.equals(tmp0_other_with_cast.zb_1))
     return false;
-  if (!this.ac_1.equals(tmp0_other_with_cast.ac_1))
+  if (!(this.ac_1 == tmp0_other_with_cast.ac_1))
     return false;
   if (!(this.bc_1 == tmp0_other_with_cast.bc_1))
     return false;
   if (!(this.cc_1 == tmp0_other_with_cast.cc_1))
-    return false;
-  if (!(this.dc_1 == tmp0_other_with_cast.dc_1))
     return false;
   return true;
 };
@@ -1485,17 +1473,17 @@ function User(entraSubjectId, displayName, _id, _createdAt, _updatedAt) {
   _createdAt = _createdAt === VOID ? null : _createdAt;
   _updatedAt = _updatedAt === VOID ? null : _updatedAt;
   BaseDomain.call(this, _id, _createdAt, _updatedAt);
-  this.jc_1 = entraSubjectId;
-  this.kc_1 = displayName;
-  this.lc_1 = _id;
-  this.mc_1 = _createdAt;
-  this.nc_1 = _updatedAt;
+  this.ic_1 = entraSubjectId;
+  this.jc_1 = displayName;
+  this.kc_1 = _id;
+  this.lc_1 = _createdAt;
+  this.mc_1 = _updatedAt;
 }
+protoOf(User).nc = function () {
+  return this.ic_1;
+};
 protoOf(User).oc = function () {
   return this.jc_1;
-};
-protoOf(User).pc = function () {
-  return this.kc_1;
 };
 protoOf(User).g4 = function () {
   return this.entraSubjectId;
@@ -1503,26 +1491,26 @@ protoOf(User).g4 = function () {
 protoOf(User).h4 = function () {
   return this.displayName;
 };
-protoOf(User).qc = function (entraSubjectId, displayName, _id, _createdAt, _updatedAt) {
+protoOf(User).pc = function (entraSubjectId, displayName, _id, _createdAt, _updatedAt) {
   return new User(entraSubjectId, displayName, _id, _createdAt, _updatedAt);
 };
 protoOf(User).copy = function (entraSubjectId, displayName, _id, _createdAt, _updatedAt, $super) {
   entraSubjectId = entraSubjectId === VOID ? this.entraSubjectId : entraSubjectId;
   displayName = displayName === VOID ? this.displayName : displayName;
-  _id = _id === VOID ? this.lc_1 : _id;
-  _createdAt = _createdAt === VOID ? this.mc_1 : _createdAt;
-  _updatedAt = _updatedAt === VOID ? this.nc_1 : _updatedAt;
-  return $super === VOID ? this.qc(entraSubjectId, displayName, _id, _createdAt, _updatedAt) : $super.qc.call(this, entraSubjectId, displayName, _id, _createdAt, _updatedAt);
+  _id = _id === VOID ? this.kc_1 : _id;
+  _createdAt = _createdAt === VOID ? this.lc_1 : _createdAt;
+  _updatedAt = _updatedAt === VOID ? this.mc_1 : _updatedAt;
+  return $super === VOID ? this.pc(entraSubjectId, displayName, _id, _createdAt, _updatedAt) : $super.pc.call(this, entraSubjectId, displayName, _id, _createdAt, _updatedAt);
 };
 protoOf(User).toString = function () {
-  return 'User(entraSubjectId=' + this.entraSubjectId + ', displayName=' + this.displayName + ', _id=' + this.lc_1 + ', _createdAt=' + this.mc_1 + ', _updatedAt=' + this.nc_1 + ')';
+  return 'User(entraSubjectId=' + this.entraSubjectId + ', displayName=' + this.displayName + ', _id=' + this.kc_1 + ', _createdAt=' + this.lc_1 + ', _updatedAt=' + this.mc_1 + ')';
 };
 protoOf(User).hashCode = function () {
   var result = this.entraSubjectId == null ? 0 : getStringHashCode(this.entraSubjectId);
   result = imul(result, 31) + getStringHashCode(this.displayName) | 0;
+  result = imul(result, 31) + (this.kc_1 == null ? 0 : getStringHashCode(this.kc_1)) | 0;
   result = imul(result, 31) + (this.lc_1 == null ? 0 : getStringHashCode(this.lc_1)) | 0;
   result = imul(result, 31) + (this.mc_1 == null ? 0 : getStringHashCode(this.mc_1)) | 0;
-  result = imul(result, 31) + (this.nc_1 == null ? 0 : getStringHashCode(this.nc_1)) | 0;
   return result;
 };
 protoOf(User).equals = function (other) {
@@ -1535,11 +1523,11 @@ protoOf(User).equals = function (other) {
     return false;
   if (!(this.displayName === tmp0_other_with_cast.displayName))
     return false;
+  if (!(this.kc_1 == tmp0_other_with_cast.kc_1))
+    return false;
   if (!(this.lc_1 == tmp0_other_with_cast.lc_1))
     return false;
   if (!(this.mc_1 == tmp0_other_with_cast.mc_1))
-    return false;
-  if (!(this.nc_1 == tmp0_other_with_cast.nc_1))
     return false;
   return true;
 };
@@ -1674,13 +1662,13 @@ function InvariantResult(description, difference, tolerance) {
 protoOf(InvariantResult).b4 = function () {
   return this.description;
 };
-protoOf(InvariantResult).rc = function () {
+protoOf(InvariantResult).qc = function () {
   return this.difference;
 };
-protoOf(InvariantResult).sc = function () {
+protoOf(InvariantResult).rc = function () {
   return this.tolerance;
 };
-protoOf(InvariantResult).tc = function () {
+protoOf(InvariantResult).sc = function () {
   // Inline function 'kotlin.math.abs' call
   var x = this.difference;
   return Math.abs(x) <= this.tolerance;
@@ -1694,14 +1682,14 @@ protoOf(InvariantResult).h4 = function () {
 protoOf(InvariantResult).i4 = function () {
   return this.tolerance;
 };
-protoOf(InvariantResult).uc = function (description, difference, tolerance) {
+protoOf(InvariantResult).tc = function (description, difference, tolerance) {
   return new InvariantResult(description, difference, tolerance);
 };
 protoOf(InvariantResult).copy = function (description, difference, tolerance, $super) {
   description = description === VOID ? this.description : description;
   difference = difference === VOID ? this.difference : difference;
   tolerance = tolerance === VOID ? this.tolerance : tolerance;
-  return $super === VOID ? this.uc(description, difference, tolerance) : $super.uc.call(this, description, difference, tolerance);
+  return $super === VOID ? this.tc(description, difference, tolerance) : $super.tc.call(this, description, difference, tolerance);
 };
 protoOf(InvariantResult).toString = function () {
   return 'InvariantResult(description=' + this.description + ', difference=' + this.difference + ', tolerance=' + this.tolerance + ')';
@@ -1823,55 +1811,52 @@ defineProp(protoOf(EstimationItem), 'offerPrice', function () {
   return this.y6();
 });
 defineProp(protoOf(EstimationItemGroup), 'title', function () {
-  return this.j7();
-});
-defineProp(protoOf(EstimationItemGroup), 'phase', function () {
-  return this.f4();
+  return this.i7();
 });
 defineProp(protoOf(EstimationItemGroup), 'logicalId', function () {
   return this.q6();
 });
 defineProp(protoOf(EstimationItemGroup), 'items', function () {
-  return this.k7();
+  return this.j7();
 });
 defineProp(protoOf(EstimationParameter), 'name', function () {
   return this.s();
 });
 defineProp(protoOf(EstimationParameter), 'value', function () {
-  return this.v7();
+  return this.u7();
 });
 defineProp(protoOf(EstimationParameter), 'comment', function () {
   return this.j5();
 });
 defineProp(protoOf(EstimationVersion), 'versionNumber', function () {
-  return this.m8();
+  return this.l8();
 });
 defineProp(protoOf(EstimationVersion), 'status', function () {
-  return this.n8();
+  return this.m8();
 });
 defineProp(protoOf(EstimationVersion), 'createdBy', function () {
-  return this.o8();
+  return this.n8();
 });
 defineProp(protoOf(EstimationVersion), 'totalEffort', function () {
-  return this.p8();
+  return this.o8();
 });
 defineProp(protoOf(EstimationVersion), 'notes', function () {
-  return this.q8();
+  return this.p8();
 });
 defineProp(protoOf(EstimationVersion), 'parameters', function () {
-  return this.r8();
+  return this.q8();
 });
 defineProp(protoOf(EstimationVersion), 'effortDrivers', function () {
-  return this.s8();
+  return this.r8();
 });
 defineProp(protoOf(EstimationVersion), 'phases', function () {
-  return this.t8();
+  return this.s8();
 });
 defineProp(protoOf(EstimationVersion), 'additionalCosts', function () {
-  return this.u8();
+  return this.t8();
 });
 defineProp(protoOf(EstimationVersion), 'itemGroups', function () {
-  return this.v8();
+  return this.u8();
 });
 defineProp(protoOf(EstimationVersionStatus), 'name', protoOf(EstimationVersionStatus).s);
 defineProp(protoOf(EstimationVersionStatus), 'ordinal', protoOf(EstimationVersionStatus).t);
@@ -1882,35 +1867,35 @@ defineProp(protoOf(Project), 'description', function () {
   return this.b4();
 });
 defineProp(protoOf(Project), 'client', function () {
-  return this.oa();
+  return this.na();
 });
 defineProp(protoOf(Project), 'status', function () {
-  return this.n8();
+  return this.m8();
 });
 defineProp(protoOf(Project), 'owner', function () {
-  return this.pa();
+  return this.oa();
 });
 defineProp(protoOf(ProjectPhase), 'name', function () {
   return this.s();
 });
 defineProp(protoOf(ProjectPhase), 'abbreviation', function () {
-  return this.ab();
+  return this.za();
 });
 defineProp(protoOf(ProjectPhase), 'durationWeeks', function () {
-  return this.bb();
+  return this.ab();
 });
 defineProp(protoOf(ProjectStatus), 'name', protoOf(ProjectStatus).s);
 defineProp(protoOf(ProjectStatus), 'ordinal', protoOf(ProjectStatus).t);
 defineProp(protoOf(TimeRelativeEstimationItem), 'unit', function () {
-  return this.ec();
+  return this.dc();
 });
 defineProp(protoOf(User), 'entraSubjectId', function () {
-  return this.oc();
+  return this.nc();
 });
 defineProp(protoOf(User), 'displayName', function () {
-  return this.pc();
+  return this.oc();
 });
-defineProp(protoOf(InvariantResult), 'passed', protoOf(InvariantResult).tc);
+defineProp(protoOf(InvariantResult), 'passed', protoOf(InvariantResult).sc);
 //endregion
 //region block: init
 PertCalculation_instance = new PertCalculation_0();

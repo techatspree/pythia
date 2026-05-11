@@ -5,6 +5,7 @@
 	import EstimationGrid from '$lib/components/EstimationGrid.svelte';
 	import ParametersPanel from '$lib/components/ParametersPanel.svelte';
 	import EffortDriversPanel from '$lib/components/EffortDriversPanel.svelte';
+	import PhasesPanel from '$lib/components/PhasesPanel.svelte';
 	import { computeCalcMap } from '$lib/domain/adapter.js';
 	import type { ApiVersionResponse } from '$lib/api/types.js';
 
@@ -18,6 +19,7 @@
 	let currentGroups = $state<any[]>([]);
 	let currentParameters = $state<any[]>([]);
 	let currentDrivers = $state<any[]>([]);
+	let currentPhases = $state<any[]>([]);
 
 	const calcMap = $derived(computeCalcMap(currentGroups, currentParameters, currentDrivers));
 
@@ -39,6 +41,7 @@
 			currentGroups = versionData!.itemGroups ?? [];
 			currentParameters = versionData!.parameters ?? [];
 			currentDrivers = versionData!.effortDrivers ?? [];
+			currentPhases = versionData!.phases ?? [];
 		} catch (e: any) {
 			error = e.message;
 		} finally {
@@ -58,6 +61,7 @@
 					headers: { 'Content-Type': 'application/json' },
 					body: JSON.stringify({
 						notes: currentNotes,
+						phases: currentPhases,
 						itemGroups: currentGroups,
 						parameters: currentParameters,
 						effortDrivers: currentDrivers
@@ -150,10 +154,22 @@
 			}}
 		/>
 
+		<PhasesPanel
+			phases={currentPhases}
+			itemGroups={currentGroups}
+			{calcMap}
+			editable={versionData.isDraft}
+			onchange={(phases) => {
+				currentPhases = phases;
+				scheduleSave();
+			}}
+		/>
+
 		<EstimationGrid
 			version={versionData}
 			editable={versionData.isDraft}
 			{calcMap}
+			phases={currentPhases}
 			onchange={(groups) => {
 				currentGroups = groups;
 				scheduleSave();

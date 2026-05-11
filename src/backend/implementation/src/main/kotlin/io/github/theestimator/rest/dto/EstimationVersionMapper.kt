@@ -75,7 +75,6 @@ fun DraftEstimationItemGroup.toDtoWithCalc(calculated: EstimationVersion): Estim
     return EstimationItemGroupDto(
         logicalId = logicalId,
         title = title,
-        phaseAbbreviation = phase?.abbreviation,
         items = items.map { it.toDto(itemResultMap[it.logicalId.toString()]) }
     )
 }
@@ -99,7 +98,8 @@ fun DraftEstimationItem.toDto(calc: EstimationItem?): EstimationItemDto = Estima
     offerPT = calc?.offerPT ?: 0.0,
     cost = calc?.cost ?: 0.0,
     offerPrice = calc?.offerPrice ?: 0.0,
-    unit = if (this is DraftTimeRelativeEstimationItem) unit else null
+    unit = if (this is DraftTimeRelativeEstimationItem) unit else null,
+    phaseAbbreviation = phase?.abbreviation
 )
 
 fun DraftAdditionalCost.toDto() = AdditionalCostDto(
@@ -135,7 +135,6 @@ fun SubmittedProjectPhase.toDto() = ProjectPhaseDto(
 fun SubmittedEstimationItemGroup.toDto() = EstimationItemGroupDto(
     logicalId = logicalId,
     title = title,
-    phaseAbbreviation = phaseAbbreviation,
     items = items.map { it.toDto() }
 )
 
@@ -158,7 +157,8 @@ fun SubmittedEstimationItem.toDto() = EstimationItemDto(
     offerPT = offerPT,
     cost = cost,
     offerPrice = offerPrice,
-    unit = if (this is SubmittedTimeRelativeEstimationItem) unit else null
+    unit = if (this is SubmittedTimeRelativeEstimationItem) unit else null,
+    phaseAbbreviation = phaseAbbreviation
 )
 
 fun SubmittedAdditionalCost.toDto() = AdditionalCostDto(

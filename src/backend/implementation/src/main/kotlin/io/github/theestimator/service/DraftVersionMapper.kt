@@ -47,36 +47,37 @@ class DraftVersionMapper {
     )
 
     private fun DraftEstimationItemGroup.toDomain(phaseMap: Map<String, ProjectPhase>): EstimationItemGroup {
-        val domainPhase = phase?.abbreviation?.let { phaseMap[it] }
         return EstimationItemGroup(
             title = title,
             logicalId = logicalId.toString(),
-            phase = domainPhase,
-            items = items.map { it.toDomain(domainPhase) }
+            items = items.map { it.toDomain(phaseMap) }
         )
     }
 
-    private fun DraftEstimationItem.toDomain(phase: ProjectPhase?): EstimationItem = when (this) {
-        is DraftTimeRelativeEstimationItem -> TimeRelativeEstimationItem(
-            unit = unit ?: "h/Woche",
-            _description = description,
-            _code = code ?: "",
-            _minEffort = minEffort ?: 0.0,
-            _expectedEffort = expectedEffort ?: 0.0,
-            _maxEffort = maxEffort ?: 0.0,
-            _assumptions = assumptions ?: "",
-            _phase = phase,
-            _logicalId = logicalId.toString()
-        )
-        else -> FixedEstimationItem(
-            _description = description,
-            _code = code ?: "",
-            _minEffort = minEffort ?: 0.0,
-            _expectedEffort = expectedEffort ?: 0.0,
-            _maxEffort = maxEffort ?: 0.0,
-            _assumptions = assumptions ?: "",
-            _phase = phase,
-            _logicalId = logicalId.toString()
-        )
+    private fun DraftEstimationItem.toDomain(phaseMap: Map<String, ProjectPhase>): EstimationItem {
+        val domainPhase = phase?.abbreviation?.let { phaseMap[it] }
+        return when (this) {
+            is DraftTimeRelativeEstimationItem -> TimeRelativeEstimationItem(
+                unit = unit ?: "h/Woche",
+                _description = description,
+                _code = code ?: "",
+                _minEffort = minEffort ?: 0.0,
+                _expectedEffort = expectedEffort ?: 0.0,
+                _maxEffort = maxEffort ?: 0.0,
+                _assumptions = assumptions ?: "",
+                _phase = domainPhase,
+                _logicalId = logicalId.toString()
+            )
+            else -> FixedEstimationItem(
+                _description = description,
+                _code = code ?: "",
+                _minEffort = minEffort ?: 0.0,
+                _expectedEffort = expectedEffort ?: 0.0,
+                _maxEffort = maxEffort ?: 0.0,
+                _assumptions = assumptions ?: "",
+                _phase = domainPhase,
+                _logicalId = logicalId.toString()
+            )
+        }
     }
 }

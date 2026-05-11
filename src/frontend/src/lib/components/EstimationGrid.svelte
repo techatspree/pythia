@@ -6,12 +6,12 @@
 		expectedEffort: number | null;
 		maxEffort: number | null;
 		assumptions: string | null;
+		phaseAbbreviation: string | null;
 	};
 
 	type Group = {
 		logicalId: string;
 		title: string;
-		phaseAbbreviation: string | null;
 		items: Item[];
 	};
 
@@ -21,12 +21,14 @@
 		version,
 		editable,
 		onchange,
-		calcMap = new Map<string, CalcEntry>()
+		calcMap = new Map<string, CalcEntry>(),
+		phases = []
 	}: {
 		version: any;
 		editable: boolean;
 		onchange: (groups: Group[]) => void;
 		calcMap?: Map<string, CalcEntry>;
+		phases?: any[];
 	} = $props();
 
 	function pert(o: number | null, m: number | null, p: number | null): number {
@@ -41,14 +43,14 @@
 		return (v?.itemGroups ?? []).map((g: any) => ({
 			logicalId: g.logicalId ?? newId(),
 			title: g.title ?? '',
-			phaseAbbreviation: g.phaseAbbreviation ?? null,
 			items: (g.items ?? []).map((i: any) => ({
 				logicalId: i.logicalId ?? newId(),
 				description: i.description ?? '',
 				minEffort: i.minEffort ?? null,
 				expectedEffort: i.expectedEffort ?? null,
 				maxEffort: i.maxEffort ?? null,
-				assumptions: i.assumptions ?? null
+				assumptions: i.assumptions ?? null,
+				phaseAbbreviation: i.phaseAbbreviation ?? null
 			}))
 		}));
 	}
@@ -74,17 +76,22 @@
 			groups.map((g) => ({
 				logicalId: g.logicalId,
 				title: g.title,
-				phaseAbbreviation: g.phaseAbbreviation,
 				items: g.items.map((i) => ({
 					logicalId: i.logicalId,
 					description: i.description,
 					minEffort: i.minEffort,
 					expectedEffort: i.expectedEffort,
 					maxEffort: i.maxEffort,
-					assumptions: i.assumptions
+					assumptions: i.assumptions,
+					phaseAbbreviation: i.phaseAbbreviation
 				}))
 			}))
 		);
+	}
+
+	function updateItemPhase(gi: number, ii: number, val: string) {
+		groups[gi].items[ii].phaseAbbreviation = val === '' ? null : val;
+		notify();
 	}
 
 	function toggle(id: string) {
@@ -100,7 +107,8 @@
 			minEffort: null,
 			expectedEffort: null,
 			maxEffort: null,
-			assumptions: null
+			assumptions: null,
+			phaseAbbreviation: null
 		});
 		// ensure expanded
 		const next = new Set(collapsed);
@@ -118,7 +126,6 @@
 		groups.push({
 			logicalId: newId(),
 			title: 'New group',
-			phaseAbbreviation: null,
 			items: [
 				{
 					logicalId: newId(),
@@ -126,7 +133,8 @@
 					minEffort: null,
 					expectedEffort: null,
 					maxEffort: null,
-					assumptions: null
+					assumptions: null,
+					phaseAbbreviation: null
 				}
 			]
 		});
@@ -224,7 +232,7 @@
 		}
 	}
 
-	const colCount = $derived(editable ? 11 : 10);
+	const colCount = $derived(editable ? 12 : 11);
 </script>
 
 <div class="border rounded-lg overflow-hidden">
@@ -245,6 +253,7 @@
 				<tr class="bg-brand-green/10 border-b text-left text-xs text-brand-green uppercase tracking-wide">
 					<th class="py-2 px-3 w-6"></th>
 					<th class="py-2 px-3">Description</th>
+					<th class="py-2 px-2 w-24">Phase</th>
 					<th class="py-2 px-2 text-right w-24">Optimistic</th>
 					<th class="py-2 px-2 text-right w-24">Likely</th>
 					<th class="py-2 px-2 text-right w-24">Pessimistic</th>
@@ -293,6 +302,24 @@
 										/>
 									{:else}
 										<span class="px-1">{item.description}</span>
+									{/if}
+								</td>
+
+								<!-- Phase -->
+								<td class="py-1 px-2">
+									{#if editable && phases.length > 0}
+										<select
+											class="w-full bg-transparent text-sm focus:outline-none focus:ring-1 focus:ring-brand-green/40 rounded px-1 py-0.5"
+											value={item.phaseAbbreviation ?? ''}
+											onchange={(e) => updateItemPhase(gi, ii, e.currentTarget.value)}
+										>
+											<option value="">— none —</option>
+											{#each phases as p}
+												<option value={p.abbreviation}>{p.abbreviation}</option>
+											{/each}
+										</select>
+									{:else}
+										<span class="px-1 text-xs text-gray-500">{item.phaseAbbreviation ?? ''}</span>
 									{/if}
 								</td>
 
@@ -421,6 +448,7 @@
 				<tr class="bg-gray-50 border-t-2 border-gray-300 font-semibold text-sm">
 					<td class="py-2 px-3"></td>
 					<td class="py-2 px-3 text-xs text-gray-400 uppercase tracking-wide">Total</td>
+					<td class="py-2 px-2"></td>
 					<td class="py-2 px-2 text-right tabular-nums">{totalOpt.toFixed(2)}</td>
 					<td class="py-2 px-2 text-right tabular-nums">{totalLik.toFixed(2)}</td>
 					<td class="py-2 px-2 text-right tabular-nums">{totalPes.toFixed(2)}</td>

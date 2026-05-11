@@ -53,6 +53,9 @@ abstract class SubmittedEstimationItem {
 
     var assumptions: String? = null
 
+    @Column(name = "phase_abbreviation")
+    var phaseAbbreviation: String? = null
+
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "group_id", nullable = false)
     var group: SubmittedEstimationItemGroup? = null

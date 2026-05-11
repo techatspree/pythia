@@ -99,18 +99,17 @@ class ExcelImporter {
             val max = row.cellNumericValue(3)
 
             if (min == null && expected == null && max == null) {
-                val phaseAbbr = row.cellStringValue(14)
-                val phase = phaseAbbr?.let { abbr ->
-                    version.phases.find { it.abbreviation == abbr }
-                }
-
                 currentGroup = DraftEstimationItemGroup().apply {
                     this.title = description
-                    this.phase = phase
                     this.version = version
                 }
                 version.itemGroups.add(currentGroup)
             } else if (currentGroup != null) {
+                val phaseAbbr = row.cellStringValue(14)
+                val itemPhase = phaseAbbr?.let { abbr ->
+                    version.phases.find { it.abbreviation == abbr }
+                }
+
                 val item: DraftEstimationItem = if (isTimeRelativeSection) {
                     DraftTimeRelativeEstimationItem()
                 } else {
@@ -123,7 +122,7 @@ class ExcelImporter {
                     this.expectedEffort = expected
                     this.maxEffort = max
                     this.assumptions = row.cellStringValue(15)
-                    this.phase = currentGroup.phase
+                    this.phase = itemPhase
                     this.group = currentGroup
                 }
                 currentGroup.items.add(item)

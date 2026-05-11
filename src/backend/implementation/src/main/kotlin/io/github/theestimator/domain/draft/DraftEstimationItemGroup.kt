@@ -18,10 +18,6 @@ class DraftEstimationItemGroup {
     var title: String = ""
 
     @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "phase_id")
-    var phase: DraftProjectPhase? = null
-
-    @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "version_id", nullable = false)
     var version: DraftEstimationVersion? = null
 

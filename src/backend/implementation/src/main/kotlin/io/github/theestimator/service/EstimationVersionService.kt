@@ -117,7 +117,6 @@ class EstimationVersionService(
             val submittedGroup = SubmittedEstimationItemGroup().apply {
                 logicalId = group.logicalId
                 title = group.title
-                phaseAbbreviation = group.phase?.abbreviation
                 version = submitted
             }
             submitted.itemGroups.add(submittedGroup)
@@ -143,6 +142,7 @@ class EstimationVersionService(
                     cost = calc?.cost ?: 0.0
                     offerPrice = calc?.offerPrice ?: 0.0
                     assumptions = item.assumptions
+                    phaseAbbreviation = item.phase?.abbreviation
                     this.group = submittedGroup
                 }
                 submittedGroup.items.add(submittedItem)
@@ -213,7 +213,6 @@ class EstimationVersionService(
             val draftGroup = DraftEstimationItemGroup().apply {
                 logicalId = group.logicalId
                 title = group.title
-                phase = group.phaseAbbreviation?.let { phaseMapping[it] }
                 version = target
             }
             target.itemGroups.add(draftGroup)
@@ -231,7 +230,7 @@ class EstimationVersionService(
                     expectedEffort = item.expectedEffort
                     maxEffort = item.maxEffort
                     assumptions = item.assumptions
-                    phase = group.phaseAbbreviation?.let { phaseMapping[it] }
+                    phase = item.phaseAbbreviation?.let { phaseMapping[it] }
                     this.group = draftGroup
                 }
                 draftGroup.items.add(draftItem)

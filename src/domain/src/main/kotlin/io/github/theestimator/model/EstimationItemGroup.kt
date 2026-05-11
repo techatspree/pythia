@@ -9,7 +9,6 @@ import kotlin.js.JsExport
 @DomainEntity
 data class EstimationItemGroup(
     val title: String,
-    val phase: ProjectPhase? = null,
     val logicalId: String = newId(),
     val items: List<EstimationItem> = emptyList(),
     private val _id: String? = null,

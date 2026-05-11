@@ -100,12 +100,11 @@ export declare abstract class EstimationItem extends BaseDomain {
     abstract withCalculationParameters(params: CalculationParameters): EstimationItem;
 }
 export declare class EstimationItemGroup extends BaseDomain {
-    constructor(title: string, phase?: Nullable<ProjectPhase>, logicalId?: string, items?: KtList<EstimationItem>, _id?: Nullable<string>, _createdAt?: Nullable<string>, _updatedAt?: Nullable<string>);
+    constructor(title: string, logicalId?: string, items?: KtList<EstimationItem>, _id?: Nullable<string>, _createdAt?: Nullable<string>, _updatedAt?: Nullable<string>);
     get title(): string;
-    get phase(): Nullable<ProjectPhase>;
     get logicalId(): string;
     get items(): KtList<EstimationItem>;
-    copy(title?: string, phase?: Nullable<ProjectPhase>, logicalId?: string, items?: KtList<EstimationItem>, _id?: Nullable<string>, _createdAt?: Nullable<string>, _updatedAt?: Nullable<string>): EstimationItemGroup;
+    copy(title?: string, logicalId?: string, items?: KtList<EstimationItem>, _id?: Nullable<string>, _createdAt?: Nullable<string>, _updatedAt?: Nullable<string>): EstimationItemGroup;
     toString(): string;
     hashCode(): number;
     equals(other: Nullable<any>): boolean;

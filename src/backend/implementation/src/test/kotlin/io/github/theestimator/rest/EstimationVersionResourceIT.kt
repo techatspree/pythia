@@ -329,6 +329,47 @@ class EstimationVersionResourceIT {
             .statusCode(404)
     }
 
+    @Test
+    fun `phase assignment per item is saved and cloned`() {
+        given().post("/api/estimations/$estimationId/versions").then().statusCode(201)
+
+        // PUT with phases and item carrying phaseAbbreviation
+        given()
+            .contentType(ContentType.JSON)
+            .body("""
+                {
+                    "phases": [{"name": "Analysis", "abbreviation": "AN", "durationWeeks": 2.0}],
+                    "parameters": [{"name": "Standardabweichungsfaktor", "value": 0.0}],
+                    "itemGroups": [{"title": "G", "items": [
+                        {"description": "T", "minEffort": 2.0, "expectedEffort": 4.0, "maxEffort": 6.0, "phaseAbbreviation": "AN"}
+                    ]}]
+                }
+            """.trimIndent())
+            .`when`().put("/api/estimations/$estimationId/versions/draft")
+            .then()
+            .statusCode(200)
+            .body("phases.size()", equalTo(1))
+            .body("itemGroups[0].items[0].phaseAbbreviation", equalTo("AN"))
+            .body("itemGroups[0]", not(hasKey("phaseAbbreviation")))
+
+        // Submit and verify phaseAbbreviation on submitted snapshot
+        given().post("/api/estimations/$estimationId/versions/draft/submit").then().statusCode(200)
+
+        given()
+            .`when`().get("/api/estimations/$estimationId/versions/1")
+            .then()
+            .statusCode(200)
+            .body("itemGroups[0].items[0].phaseAbbreviation", equalTo("AN"))
+            .body("itemGroups[0]", not(hasKey("phaseAbbreviation")))
+
+        // Clone into new draft — phaseAbbreviation must be preserved
+        given().post("/api/estimations/$estimationId/versions")
+            .then()
+            .statusCode(201)
+            .body("versionNumber", equalTo(2))
+            .body("itemGroups[0].items[0].phaseAbbreviation", equalTo("AN"))
+    }
+
     private fun buildRealisticDraft(estimationId: UUID) {
         given().post("/api/estimations/$estimationId/versions")
             .then().statusCode(201)
