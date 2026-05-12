@@ -279,14 +279,15 @@ function createFixedItem(description, minEffort, expectedEffort, maxEffort, assu
   logicalId = logicalId === VOID ? newId() : logicalId;
   return new FixedEstimationItem(description, VOID, minEffort, expectedEffort, maxEffort, assumptions, VOID, logicalId);
 }
-function createTimeRelativeItem(description, unit, minEffort, expectedEffort, maxEffort, assumptions, logicalId) {
+function createTimeRelativeItem(description, unit, minEffort, expectedEffort, maxEffort, assumptions, logicalId, phase) {
   unit = unit === VOID ? 'h/Woche' : unit;
   minEffort = minEffort === VOID ? 0.0 : minEffort;
   expectedEffort = expectedEffort === VOID ? 0.0 : expectedEffort;
   maxEffort = maxEffort === VOID ? 0.0 : maxEffort;
   assumptions = assumptions === VOID ? '' : assumptions;
   logicalId = logicalId === VOID ? newId() : logicalId;
-  return new TimeRelativeEstimationItem(unit, description, VOID, minEffort, expectedEffort, maxEffort, assumptions, VOID, logicalId);
+  phase = phase === VOID ? null : phase;
+  return new TimeRelativeEstimationItem(unit, description, VOID, minEffort, expectedEffort, maxEffort, assumptions, phase, logicalId);
 }
 function createGroup(title, logicalId, items) {
   logicalId = logicalId === VOID ? newId() : logicalId;
@@ -1387,6 +1388,18 @@ function TimeRelativeEstimationItem(unit, _description, _code, _minEffort, _expe
 }
 protoOf(TimeRelativeEstimationItem).dc = function () {
   return this.qb_1;
+};
+protoOf(TimeRelativeEstimationItem).s6 = function () {
+  var tmp = this.mean;
+  var tmp0_safe_receiver = this.phase;
+  var tmp1_elvis_lhs = tmp0_safe_receiver == null ? null : tmp0_safe_receiver.durationWeeks;
+  return tmp * (tmp1_elvis_lhs == null ? 0.0 : tmp1_elvis_lhs);
+};
+protoOf(TimeRelativeEstimationItem).t6 = function () {
+  var tmp0_safe_receiver = this.phase;
+  var tmp1_elvis_lhs = tmp0_safe_receiver == null ? null : tmp0_safe_receiver.durationWeeks;
+  var d = tmp1_elvis_lhs == null ? 0.0 : tmp1_elvis_lhs;
+  return this.variance * d * d;
 };
 protoOf(TimeRelativeEstimationItem).withCalculationParameters = function (params) {
   return this.copy(VOID, VOID, VOID, VOID, VOID, VOID, VOID, VOID, VOID, params);

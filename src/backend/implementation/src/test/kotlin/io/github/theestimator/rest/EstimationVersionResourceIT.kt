@@ -370,6 +370,60 @@ class EstimationVersionResourceIT {
             .body("itemGroups[0].items[0].phaseAbbreviation", equalTo("AN"))
     }
 
+    @Test
+    fun `time-relative item offerPT scales with phase duration`() {
+        given().post("/api/estimations/$estimationId/versions").then().statusCode(201)
+
+        given()
+            .contentType(ContentType.JSON)
+            .body("""
+                {
+                    "phases": [{"name": "Analysis", "abbreviation": "AN", "durationWeeks": 4.0}],
+                    "parameters": [{"name": "Standardabweichungsfaktor", "value": 0.0}],
+                    "itemGroups": [{"title": "G", "items": [{
+                        "description": "T",
+                        "type": "TIME_RELATIVE",
+                        "unit": "h/Woche",
+                        "minEffort": 1.0,
+                        "expectedEffort": 2.0,
+                        "maxEffort": 3.0,
+                        "phaseAbbreviation": "AN"
+                    }]}]
+                }
+            """.trimIndent())
+            .`when`().put("/api/estimations/$estimationId/versions/draft")
+            .then()
+            .statusCode(200)
+            // PERT(1,2,3) = 2.0, * 4 weeks = 8.0
+            .body("itemGroups[0].items[0].offerPT", equalTo(8.0f))
+            .body("itemGroups[0].items[0].unit", equalTo("h/Woche"))
+            .body("itemGroups[0].items[0].type", equalTo("TIME_RELATIVE"))
+    }
+
+    @Test
+    fun `time-relative item without phase has offerPT zero`() {
+        given().post("/api/estimations/$estimationId/versions").then().statusCode(201)
+
+        given()
+            .contentType(ContentType.JSON)
+            .body("""
+                {
+                    "parameters": [{"name": "Standardabweichungsfaktor", "value": 0.0}],
+                    "itemGroups": [{"title": "G", "items": [{
+                        "description": "T",
+                        "type": "TIME_RELATIVE",
+                        "minEffort": 1.0,
+                        "expectedEffort": 2.0,
+                        "maxEffort": 3.0
+                    }]}]
+                }
+            """.trimIndent())
+            .`when`().put("/api/estimations/$estimationId/versions/draft")
+            .then()
+            .statusCode(200)
+            .body("itemGroups[0].items[0].offerPT", equalTo(0.0f))
+    }
+
     private fun buildRealisticDraft(estimationId: UUID) {
         given().post("/api/estimations/$estimationId/versions")
             .then().statusCode(201)

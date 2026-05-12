@@ -61,6 +61,10 @@ INSERT INTO submitted_estimation_items (id, logical_id, item_type, description, 
 ('aa000000-0000-0000-0000-000000000013', 'aa040000-0000-0000-0000-000000000002', 'FIXED', 'User Acceptance Testing (UAT)',               1.0, 2.0,  3.0,  2.0,  0.11, 0.18, 0.30, 2.48,  2232.0,  2500.0, 'AB', 'f1000000-0000-0000-0000-000000000004'),
 ('aa000000-0000-0000-0000-000000000014', 'aa040000-0000-0000-0000-000000000003', 'FIXED', 'Go-live, Deployment & Monitoring-Setup',      1.0, 2.0,  3.0,  2.0,  0.11, 0.18, 0.30, 2.48,  2232.0,  2500.0, 'AB', 'f1000000-0000-0000-0000-000000000004');
 
+-- Projektbegleitung: TIME_RELATIVE, h/Woche, KO phase (3 weeks) → mean=PERT(2,4,8)*3=13.0 — separate INSERT to include unit column
+INSERT INTO submitted_estimation_items (id, logical_id, item_type, description, min_effort, expected_effort, max_effort, mean, variance, risk_surcharge, driver_surcharge, offer_pt, cost, offer_price, unit, phase_abbreviation, group_id) VALUES
+('aa000000-0000-0000-0000-000000000020', 'aa010000-0000-0000-0000-000000000021', 'TIME_RELATIVE', 'Projektbegleitung', 2.0, 4.0, 8.0, 13.0, 9.0, 1.17, 1.95, 16.12, 14508.0, 16249.0, 'h/Woche', 'KO', 'f1000000-0000-0000-0000-000000000001');
+
 INSERT INTO submitted_additional_costs (id, description, amount, type, amount_per_week, phase_abbreviation, version_id) VALUES
 ('ac000000-0000-0000-0000-000000000001', 'Software-Lizenzen (Figma, JIRA)',  3500.0, 'ONE_TIME',  NULL,  'KO', 'c1000000-0000-0000-0000-000000000001'),
 ('ac000000-0000-0000-0000-000000000002', 'Hosting & Infrastruktur (AWS)',    0.0,    'RECURRING', 250.0, 'UM', 'c1000000-0000-0000-0000-000000000001');
@@ -115,6 +119,10 @@ INSERT INTO draft_estimation_items (id, logical_id, item_type, description, min_
 ('ab000000-0000-0000-0000-000000000014', 'aa040000-0000-0000-0000-000000000001', 'FIXED', 'Integrationstests & E2E-Tests',               2.0, 3.0,  5.0,  'e2000000-0000-0000-0000-000000000003', 'f2000000-0000-0000-0000-000000000004', '2026-02-10 16:00:00'),
 ('ab000000-0000-0000-0000-000000000015', 'aa040000-0000-0000-0000-000000000002', 'FIXED', 'User Acceptance Testing (UAT)',               2.0, 3.0,  4.0,  'e2000000-0000-0000-0000-000000000003', 'f2000000-0000-0000-0000-000000000004', '2026-02-10 16:00:00'),
 ('ab000000-0000-0000-0000-000000000016', 'aa040000-0000-0000-0000-000000000003', 'FIXED', 'Go-live, Deployment & Monitoring-Setup',      1.0, 2.0,  3.0,  'e2000000-0000-0000-0000-000000000003', 'f2000000-0000-0000-0000-000000000004', '2026-02-10 16:00:00');
+
+-- Projektbegleitung: TIME_RELATIVE, h/Woche, KO phase (4 weeks) — separate INSERT to include unit column
+INSERT INTO draft_estimation_items (id, logical_id, item_type, description, min_effort, expected_effort, max_effort, unit, phase_id, group_id, created_at) VALUES
+('ab000000-0000-0000-0000-000000000020', 'aa010000-0000-0000-0000-000000000021', 'TIME_RELATIVE', 'Projektbegleitung', 2.0, 4.0, 8.0, 'h/Woche', 'e2000000-0000-0000-0000-000000000001', 'f2000000-0000-0000-0000-000000000001', '2026-02-10 16:00:00');
 
 INSERT INTO draft_additional_costs (id, description, amount, type, amount_per_week, phase_id, version_id) VALUES
 ('ae000000-0000-0000-0000-000000000001', 'Software-Lizenzen (Figma, JIRA, Confluence)', 2500.0, 'ONE_TIME',  NULL,  'e2000000-0000-0000-0000-000000000001', 'c1000000-0000-0000-0000-000000000002'),

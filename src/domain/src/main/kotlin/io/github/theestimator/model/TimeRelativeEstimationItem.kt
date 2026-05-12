@@ -23,6 +23,15 @@ data class TimeRelativeEstimationItem(
     private val _updatedAt: String? = null
 ) : EstimationItem(_description, _code, _minEffort, _expectedEffort, _maxEffort, _assumptions, _phase, _logicalId, _calculationParameters, _id, _createdAt, _updatedAt) {
 
+    override val mean: Double
+        get() = super.mean * (phase?.durationWeeks ?: 0.0)
+
+    override val variance: Double
+        get() {
+            val d = phase?.durationWeeks ?: 0.0
+            return super.variance * d * d
+        }
+
     override fun withCalculationParameters(params: CalculationParameters): TimeRelativeEstimationItem =
         copy(_calculationParameters = params)
 }

@@ -25,6 +25,25 @@
 
     <build>
         <plugins>
+            <!-- Remove SvelteKit/Vite caches and unpacked domain files on mvn clean -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-clean-plugin</artifactId>
+                <version>3.4.1</version>
+                <configuration>
+                    <filesets>
+                        <fileset>
+                            <directory>${project.basedir}/.svelte-kit</directory>
+                        </fileset>
+                        <fileset>
+                            <directory>${project.basedir}/build</directory>
+                        </fileset>
+                        <fileset>
+                            <directory>${project.basedir}/src/lib/domain</directory>
+                        </fileset>
+                    </filesets>
+                </configuration>
+            </plugin>
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-dependency-plugin</artifactId>

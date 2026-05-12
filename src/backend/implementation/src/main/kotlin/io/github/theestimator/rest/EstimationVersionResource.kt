@@ -1,10 +1,12 @@
 package io.github.theestimator.rest
 
 import io.github.theestimator.domain.draft.DraftEffortDriver
+import io.github.theestimator.domain.draft.DraftEstimationItem
 import io.github.theestimator.domain.draft.DraftEstimationItemGroup
 import io.github.theestimator.domain.draft.DraftEstimationParameter
 import io.github.theestimator.domain.draft.DraftFixedEstimationItem
 import io.github.theestimator.domain.draft.DraftProjectPhase
+import io.github.theestimator.domain.draft.DraftTimeRelativeEstimationItem
 import io.github.theestimator.repository.EstimationRepository
 import io.github.theestimator.rest.dto.*
 import io.github.theestimator.service.EstimationVersionService
@@ -120,7 +122,11 @@ class EstimationVersionResource(
                     val itemPhase = itemDto.phaseAbbreviation?.let { abbr ->
                         draft.phases.find { it.abbreviation == abbr }
                     }
-                    group.items.add(DraftFixedEstimationItem().apply {
+                    val draftItem: DraftEstimationItem = if (itemDto.type == "TIME_RELATIVE")
+                        DraftTimeRelativeEstimationItem().also { it.unit = itemDto.unit ?: "h/Woche" }
+                    else
+                        DraftFixedEstimationItem()
+                    group.items.add(draftItem.apply {
                         logicalId = itemDto.logicalId ?: UUID.randomUUID()
                         description = itemDto.description
                         minEffort = itemDto.minEffort

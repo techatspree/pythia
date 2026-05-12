@@ -11,6 +11,20 @@
         <!-- Point Maven's outputDirectory at Gradle's JVM output so reactor-workspace resolution works -->
         <outputDirectory>${project.basedir}/build/classes/kotlin/jvm/main</outputDirectory>
         <plugins>
+            <!-- Delegate clean to Gradle so build/ is removed -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-clean-plugin</artifactId>
+                <version>3.4.1</version>
+                <configuration>
+                    <filesets>
+                        <fileset>
+                            <directory>${project.basedir}/build</directory>
+                        </fileset>
+                    </filesets>
+                </configuration>
+            </plugin>
+
             <!-- Step 1: Compile JVM classes via Gradle KMP (handles @JsExport / @OptionalExpectation) -->
             <plugin>
                 <groupId>org.codehaus.mojo</groupId>
@@ -28,6 +42,21 @@
                             <workingDirectory>${project.basedir}</workingDirectory>
                             <arguments>
                                 <argument>compileKotlinJvm</argument>
+                            </arguments>
+                        </configuration>
+                    </execution>
+                    <!-- Step 1b: Run JVM tests via Gradle -->
+                    <execution>
+                        <id>gradle-test-jvm</id>
+                        <phase>test</phase>
+                        <goals>
+                            <goal>exec</goal>
+                        </goals>
+                        <configuration>
+                            <executable>${project.basedir}/gradlew</executable>
+                            <workingDirectory>${project.basedir}</workingDirectory>
+                            <arguments>
+                                <argument>jvmTest</argument>
                             </arguments>
                         </configuration>
                     </execution>

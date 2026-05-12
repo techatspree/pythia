@@ -1,0 +1,194 @@
+id: task-042
+phase: phase-5
+title: "Time-relative estimation items: domain calculation, full-stack wiring, tests, test data"
+depends_on: [task-039, task-041]
+status: completed
+completed: "2026-05-11T00:00:00+00:00"
+description: |
+  TimeRelativeEstimationItem exists throughout the stack (domain model, draft/submitted JPA
+  entities, DTO mappers, ExcelImporter/Exporter) but the domain calculation is currently
+  WRONG: mean and variance are inherited unchanged from EstimationItem, which treats effort
+  values as absolute PT. For a time-relative item the inputs are effort-per-time-unit
+  (e.g. h/Woche); the actual total effort is effortPerUnit × phase.durationWeeks.
+
+  Correct formulas:
+    mean     = PertCalculation.mean(min, exp, max) × durationWeeks
+    variance = PertCalculation.variance(min, max)  × durationWeeks²
+
+  (PERT is linear, so scaling the inputs or the result is mathematically equivalent.)
+  If no phase is assigned, or durationWeeks = 0, both mean and variance are 0
+  → offerPT is also 0.
+
+  Everything downstream (riskSurcharge, driverSurcharge, offerPT, cost, offerPrice) already
+  reads from mean/variance, so overriding those two properties is the only domain change.
+
+  EstimationVersionService.submitDraft(), cloneFromSubmitted(), and DraftVersionMapper already
+  handle TIME_RELATIVE items correctly and need NO changes — they will automatically benefit
+  from the domain fix.
+
+  ALREADY EXISTS — do not re-implement:
+  - DraftTimeRelativeEstimationItem (unit: String?, discriminator "TIME_RELATIVE")
+  - SubmittedTimeRelativeEstimationItem (unit: String?, discriminator "TIME_RELATIVE")
+  - DraftVersionMapper: dispatches on DraftTimeRelativeEstimationItem, resolves phase from phaseMap
+  - EstimationVersionService.submitDraft / cloneFromSubmitted: handle TIME_RELATIVE
+  - ExcelImporter/Exporter: handle TIME_RELATIVE
+  - DomainFactory.createTimeRelativeItem (exported to JS/TS, accepts unit but not phase yet)
+  - EstimationItemDto.type field already set to "TIME_RELATIVE" / "FIXED" in mapper
+  - unit column in both items tables (V1 schema)
+
+steps:
+  - "Domain: override mean and variance in TimeRelativeEstimationItem. The @DomainEntity
+    annotation + allopen plugin already makes EstimationItem's properties overridable — no
+    'open' keyword needed. Add to TimeRelativeEstimationItem:
+      override val mean: Double
+          get() = super.mean * (phase?.durationWeeks ?: 0.0)
+      override val variance: Double
+          get() {
+              val d = phase?.durationWeeks ?: 0.0
+              return super.variance * d * d
+          }
+    withCalculationParameters() uses copy(_calculationParameters = params) which preserves
+    _phase, so overridden mean/variance work correctly after calculate() distributes params."
+
+  - "Domain: add phase parameter to createTimeRelativeItem() in DomainFactory.kt. Place it
+    last (after logicalId) so JS positional callers are unaffected:
+      fun createTimeRelativeItem(..., logicalId: String = newId(), phase: ProjectPhase? = null)
+    Pass _phase = phase in the body."
+
+  - "Domain: create src/domain/src/test/kotlin/io/github/theestimator/model/
+    TimeRelativeEstimationItemTest.kt (JUnit 5, already in build.gradle.kts jvmTest sourceSet).
+    Use a helper that builds a version with stdDevFactor=0 and no drivers so offerPT == mean.
+    Required tests:
+      a) mean scales by durationWeeks:
+         TR item min=2, exp=4, max=6, phase 4 weeks → mean = PERT(2,4,6)*4 = 4.0*4 = 16.0
+      b) variance scales by durationWeeks²:
+         same item → variance = PertCalc.variance(2,6) * 16 = (4/9) * 16 ≈ 7.111
+      c) offerPT equals mean when stdDevFactor=0 and no drivers
+      d) phase null → mean == 0.0, variance == 0.0, offerPT == 0.0
+      e) durationWeeks=0 → mean == 0.0, offerPT == 0.0
+      f) FixedEstimationItem regression: same raw values (min=2, exp=4, max=6) must still
+         return mean == 4.0 regardless of any phase — no regression
+      g) version.calculate() with one TR item (phase 4w) + one Fixed item (same raw values):
+         totalMean = 16.0 + 4.0 = 20.0, totalVariance = 7.111 + 0.444 = 7.556,
+         riskFactor = sqrt(7.556)*2.0/20.0 ≈ 0.275. Assert TR item's offerPT ≈ mean*(1+riskFactor)
+         and that the Fixed item's offerPT is exactly 4.0*(1+riskFactor) — use assertEquals with
+         delta 0.001."
+
+  - "Domain: rebuild JS distribution (single rebuild covers both domain changes above).
+    Run: cd src/domain && ./gradlew jsBrowserProductionLibraryDistribution
+    Copy from src/domain/build/dist/js/productionLibrary/ to src/frontend/src/lib/domain/:
+      domain.mjs, domain.mjs.map, domain.d.ts, domain.d.mts,
+      kotlin-kotlin-stdlib.mjs, kotlin-kotlin-stdlib.mjs.map"
+
+  - "Frontend adapter.ts: update computeCalcMap to resolve phases onto TR items.
+    1. Add EditingPhase interface { name: string; abbreviation: string; durationWeeks: number | null }.
+    2. Extend EditingItem with type: string (default 'FIXED') and unit: string | null.
+    3. Add phases: EditingPhase[] parameter to computeCalcMap (after drivers).
+    4. Build a phase lookup at the top of the function:
+         const phaseByAbbr = new Map(phases.map(p => [p.abbreviation,
+             new ProjectPhase(p.name, p.abbreviation, p.durationWeeks ?? 0)]));
+       (ProjectPhase is the KMP class exported from domain.mjs — import it.)
+    5. In the items map: when i.type === 'TIME_RELATIVE', call
+         createTimeRelativeItem(i.description, i.unit ?? 'h/Woche',
+             i.minEffort ?? 0, i.expectedEffort ?? 0, i.maxEffort ?? 0,
+             i.assumptions ?? '', i.logicalId,
+             phaseByAbbr.get(i.phaseAbbreviation ?? '') ?? null)
+       Otherwise keep createFixedItem as before.
+    Note: phase does NOT need to be passed to createVersion — EstimationVersion.calculate()
+    only reads phase from each item, not from version.phases."
+
+  - "Frontend +page.svelte: pass currentPhases as the 4th argument to computeCalcMap.
+    The $derived line becomes:
+      const calcMap = $derived(computeCalcMap(currentGroups, currentParameters, currentDrivers, currentPhases));"
+
+  - "Frontend EstimationGrid.svelte: add type and unit to the Item type and all item operations.
+    - Item type: add type: string, unit: string | null
+    - initGroups(): add type: i.type ?? 'FIXED', unit: i.unit ?? null
+    - notify(): include type and unit in each serialised item
+    - addItem(): add type: 'FIXED', unit: null
+    - addGroup(): same for the initial blank item
+    In read-only mode: show a small grey badge 'h/Woche' (or item.unit) next to description
+    when type === 'TIME_RELATIVE'.
+    In editable mode: add a narrow Type column (header 'Type') with a <select> for FIXED /
+    TIME_RELATIVE. When switching to TIME_RELATIVE, set unit = 'h/Woche'; when switching to
+    FIXED, set unit = null. When type === 'TIME_RELATIVE' and phaseAbbreviation is null,
+    show '⚠ needs phase' in the offerPT cell instead of '—'.
+    Note: the PERT column always shows the local per-unit PERT (raw effort), which is correct
+    and useful for TR items — offerPT in the calcMap column shows the phase-scaled total."
+
+  - "Backend: add val type: String = \"FIXED\" and val unit: String? = null to
+    EstimationItemUpdateDto. In EstimationVersionResource.updateDraft(), replace the hard-coded
+    DraftFixedEstimationItem() instantiation with:
+      val draftItem: DraftEstimationItem = if (itemDto.type == \"TIME_RELATIVE\")
+          DraftTimeRelativeEstimationItem().also { it.unit = itemDto.unit ?: \"h/Woche\" }
+      else
+          DraftFixedEstimationItem()
+    Then set description, logicalId, minEffort, expectedEffort, maxEffort, assumptions, phase,
+    group on draftItem as before. Import DraftTimeRelativeEstimationItem at the top of the file."
+
+  - "Backend integration tests: add two tests to EstimationVersionResourceIT.kt.
+    1. 'time-relative item offerPT scales with phase duration':
+       Build draft. PUT with:
+         phases: [{name:'Analysis', abbreviation:'AN', durationWeeks:4.0}]
+         parameters: [{name:'Standardabweichungsfaktor', value:0.0}]
+         itemGroups: [{title:'G', items:[{description:'T', type:'TIME_RELATIVE', unit:'h/Woche',
+             minEffort:1.0, expectedEffort:2.0, maxEffort:3.0, phaseAbbreviation:'AN'}]}]
+       Assert: statusCode(200), offerPT == 8.0 (PERT(1,2,3)*4 = 2.0*4), unit == 'h/Woche',
+       type == 'TIME_RELATIVE'.
+    2. 'time-relative item without phase has offerPT zero':
+       Build draft. PUT with stdDevFactor=0 and one TR item (min=1, exp=2, max=3) with no phase.
+       Assert: offerPT == 0.0."
+
+  - "Import.sql: add one TIME_RELATIVE item to Webshop submitted v1 and one to draft v2.
+    All IDs must use hex digits only (0-9, a-f) — 'g', 'h', etc. are invalid in H2 UUIDs.
+
+    Submitted v1 item (KO phase, durationWeeks=3.0 from v1):
+      id='aa000000-0000-0000-0000-000000000020'
+      logical_id='aa010000-0000-0000-0000-000000000021'
+      item_type='TIME_RELATIVE'
+      description='Projektbegleitung'
+      min_effort=2.0, expected_effort=4.0, max_effort=8.0
+      mean=13.0  [= PERT(2,4,8)*3 = (26/6)*3]
+      variance=9.0  [= ((8-2)/6)² * 9 = 1.0 * 9]
+      risk_surcharge=1.17, driver_surcharge=1.95 (approx, consistent with v1 stdDev=2.0/QA=0.15)
+      offer_pt=16.12, cost=14508.0, offer_price=16249.0
+      phase_abbreviation='KO'
+      group_id='f1000000-0000-0000-0000-000000000001'
+
+    Draft v2 item (KO phase, durationWeeks=4.0 from v2):
+      id='ab000000-0000-0000-0000-000000000020'
+      logical_id='aa010000-0000-0000-0000-000000000021'  (same logicalId as v1 — cloned)
+      item_type='TIME_RELATIVE'
+      description='Projektbegleitung'
+      min_effort=2.0, expected_effort=4.0, max_effort=8.0
+      unit='h/Woche'
+      phase_id='e2000000-0000-0000-0000-000000000001'  (KO phase of draft v2)
+      group_id='f2000000-0000-0000-0000-000000000001'"
+
+validation:
+  - Domain unit tests pass: cd src/domain && ./gradlew jvmTest
+  - TR item: mean == PERT(min,exp,max) * durationWeeks (tested for phase=4w, expected=4.0 → 16.0)
+  - TR item: mean == 0 and offerPT == 0 when phase is null or durationWeeks == 0
+  - FixedEstimationItem.mean unchanged (4.0 for min=2,exp=4,max=6) — no regression
+  - Backend IT: 'time-relative item offerPT scales with phase duration' → offerPT == 8.0
+  - Backend IT: 'time-relative item without phase has offerPT zero' → offerPT == 0.0
+  - All existing backend ITs still pass (no regressions)
+  - Dev server starts without errors (tsc 0 errors, no console errors)
+  - Webshop draft shows Projektbegleitung as TIME_RELATIVE with unit badge 'h/Woche'
+  - After assigning the KO phase, offerPT column shows phase-scaled value (≠ raw PERT)
+  - TR item with no phase shows '⚠ needs phase' in offerPT cell
+  - import.sql loads cleanly on H2: no UUID conversion errors, no FK violations
+
+outputs:
+  - domain: src/domain/src/main/kotlin/io/github/theestimator/model/TimeRelativeEstimationItem.kt
+  - domain: src/domain/src/main/kotlin/io/github/theestimator/model/DomainFactory.kt
+  - domain: src/domain/src/test/kotlin/io/github/theestimator/model/TimeRelativeEstimationItemTest.kt (new)
+  - domain-js: src/frontend/src/lib/domain/domain.mjs + domain.mjs.map + domain.d.ts + domain.d.mts
+  - domain-js: src/frontend/src/lib/domain/kotlin-kotlin-stdlib.mjs + kotlin-kotlin-stdlib.mjs.map
+  - frontend: src/frontend/src/lib/domain/adapter.ts
+  - frontend: src/frontend/src/routes/estimations/[id]/versions/[versionNumber]/+page.svelte
+  - frontend: src/frontend/src/lib/components/EstimationGrid.svelte
+  - backend: src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/dto/EstimationVersionDtos.kt
+  - backend: src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/EstimationVersionResource.kt
+  - backend: src/backend/implementation/src/test/kotlin/io/github/theestimator/rest/EstimationVersionResourceIT.kt
+  - data: src/backend/implementation/src/main/resources/import.sql

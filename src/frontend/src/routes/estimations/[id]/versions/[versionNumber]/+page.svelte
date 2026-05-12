@@ -6,7 +6,7 @@
 	import ParametersPanel from '$lib/components/ParametersPanel.svelte';
 	import EffortDriversPanel from '$lib/components/EffortDriversPanel.svelte';
 	import PhasesPanel from '$lib/components/PhasesPanel.svelte';
-	import { computeCalcMap } from '$lib/domain/adapter.js';
+	import { computeCalcMap } from '$lib/adapter.js';
 	import type { ApiVersionResponse } from '$lib/api/types.js';
 
 	let versionData = $state<ApiVersionResponse | null>(null);
@@ -21,21 +21,27 @@
 	let currentDrivers = $state<any[]>([]);
 	let currentPhases = $state<any[]>([]);
 
-	const calcMap = $derived(computeCalcMap(currentGroups, currentParameters, currentDrivers));
-
-	const estimationId = page.params.id;
-	const versionNumber = page.params.versionNumber;
-	const isDraft = page.url.searchParams.get('draft') === 'true';
+	const calcMap = $derived.by(() => {
+		try {
+			return computeCalcMap(currentGroups, currentParameters, currentDrivers, currentPhases);
+		} catch (e) {
+			console.error('calcMap computation failed:', e);
+			return new Map<string, { offerPT: number; cost: number; offerPrice: number }>();
+		}
+	});
 
 	async function loadVersion() {
 		loading = true;
 		error = '';
 		try {
+			const estimationId = page.params.id;
+			const versionNumber = page.params.versionNumber;
+			const isDraft = page.url.searchParams.get('draft') === 'true';
 			const url = isDraft
 				? `/api/estimations/${estimationId}/versions/draft`
 				: `/api/estimations/${estimationId}/versions/${versionNumber}`;
 			const res = await fetch(url);
-			if (!res.ok) throw new Error('Failed to load version');
+			if (!res.ok) throw new Error(`Failed to load version (${res.status})`);
 			versionData = await res.json();
 			currentNotes = versionData!.notes ?? '';
 			currentGroups = versionData!.itemGroups ?? [];
@@ -44,6 +50,7 @@
 			currentPhases = versionData!.phases ?? [];
 		} catch (e: any) {
 			error = e.message;
+			console.error('loadVersion failed:', e);
 		} finally {
 			loading = false;
 		}
@@ -56,7 +63,8 @@
 		saveStatus = 'saving';
 		saveTimer = setTimeout(async () => {
 			try {
-				const res = await fetch(`/api/estimations/${estimationId}/versions/draft`, {
+				const id = page.params.id;
+				const res = await fetch(`/api/estimations/${id}/versions/draft`, {
 					method: 'PUT',
 					headers: { 'Content-Type': 'application/json' },
 					body: JSON.stringify({
@@ -77,10 +85,11 @@
 	}
 
 	async function submitVersion() {
-		const res = await fetch(`/api/estimations/${estimationId}/versions/draft/submit`, {
+		const id = page.params.id;
+		const res = await fetch(`/api/estimations/${id}/versions/draft/submit`, {
 			method: 'POST'
 		});
-		if (res.ok) goto(`/estimations/${estimationId}`);
+		if (res.ok) goto(`/estimations/${id}`);
 	}
 </script>
 
@@ -91,7 +100,7 @@
 		<p class="text-red-600">{error}</p>
 	{:else if versionData}
 		<div class="flex items-center justify-between mb-4">
-			<a href="/estimations/{estimationId}" class="text-sm text-brand-green hover:underline"
+			<a href="/estimations/{page.params.id}" class="text-sm text-brand-green hover:underline"
 				>&larr; Back to estimation</a
 			>
 			<div class="flex items-center gap-3">

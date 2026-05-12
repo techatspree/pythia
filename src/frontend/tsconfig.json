@@ -1,10 +1,9 @@
 {
 	"extends": "./.svelte-kit/tsconfig.json",
-	"exclude": ["src/lib/domain/**/*.js", "src/lib/domain/**/*.mjs"],
 	"compilerOptions": {
 		"rewriteRelativeImportExtensions": true,
 		"allowJs": true,
-		"checkJs": true,
+		"checkJs": false,
 		"esModuleInterop": true,
 		"forceConsistentCasingInFileNames": true,
 		"resolveJsonModule": true,

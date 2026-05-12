@@ -7,6 +7,8 @@
 		maxEffort: number | null;
 		assumptions: string | null;
 		phaseAbbreviation: string | null;
+		type: string;
+		unit: string | null;
 	};
 
 	type Group = {
@@ -50,7 +52,9 @@
 				expectedEffort: i.expectedEffort ?? null,
 				maxEffort: i.maxEffort ?? null,
 				assumptions: i.assumptions ?? null,
-				phaseAbbreviation: i.phaseAbbreviation ?? null
+				phaseAbbreviation: i.phaseAbbreviation ?? null,
+				type: i.type ?? 'FIXED',
+				unit: i.unit ?? null
 			}))
 		}));
 	}
@@ -83,7 +87,9 @@
 					expectedEffort: i.expectedEffort,
 					maxEffort: i.maxEffort,
 					assumptions: i.assumptions,
-					phaseAbbreviation: i.phaseAbbreviation
+					phaseAbbreviation: i.phaseAbbreviation,
+					type: i.type,
+					unit: i.unit
 				}))
 			}))
 		);
@@ -91,6 +97,12 @@
 
 	function updateItemPhase(gi: number, ii: number, val: string) {
 		groups[gi].items[ii].phaseAbbreviation = val === '' ? null : val;
+		notify();
+	}
+
+	function updateItemType(gi: number, ii: number, val: string) {
+		groups[gi].items[ii].type = val;
+		groups[gi].items[ii].unit = val === 'TIME_RELATIVE' ? 'h/Woche' : null;
 		notify();
 	}
 
@@ -108,7 +120,9 @@
 			expectedEffort: null,
 			maxEffort: null,
 			assumptions: null,
-			phaseAbbreviation: null
+			phaseAbbreviation: null,
+			type: 'FIXED',
+			unit: null
 		});
 		// ensure expanded
 		const next = new Set(collapsed);
@@ -134,7 +148,9 @@
 					expectedEffort: null,
 					maxEffort: null,
 					assumptions: null,
-					phaseAbbreviation: null
+					phaseAbbreviation: null,
+					type: 'FIXED',
+					unit: null
 				}
 			]
 		});
@@ -232,7 +248,7 @@
 		}
 	}
 
-	const colCount = $derived(editable ? 12 : 11);
+	const colCount = $derived(editable ? 13 : 12);
 </script>
 
 <div class="border rounded-lg overflow-hidden">
@@ -253,6 +269,7 @@
 				<tr class="bg-brand-green/10 border-b text-left text-xs text-brand-green uppercase tracking-wide">
 					<th class="py-2 px-3 w-6"></th>
 					<th class="py-2 px-3">Description</th>
+					<th class="py-2 px-2 w-20">Type</th>
 					<th class="py-2 px-2 w-24">Phase</th>
 					<th class="py-2 px-2 text-right w-24">Optimistic</th>
 					<th class="py-2 px-2 text-right w-24">Likely</th>
@@ -302,6 +319,22 @@
 										/>
 									{:else}
 										<span class="px-1">{item.description}</span>
+									{/if}
+								</td>
+
+								<!-- Type -->
+								<td class="py-1 px-2">
+									{#if editable}
+										<select
+											class="w-full bg-transparent text-xs focus:outline-none focus:ring-1 focus:ring-brand-green/40 rounded px-1 py-0.5"
+											value={item.type}
+											onchange={(e) => updateItemType(gi, ii, e.currentTarget.value)}
+										>
+											<option value="FIXED">Fixed</option>
+											<option value="TIME_RELATIVE">h/Woche</option>
+										</select>
+									{:else if item.type === 'TIME_RELATIVE'}
+										<span class="px-1.5 py-0.5 text-xs bg-blue-50 text-blue-600 rounded">{item.unit ?? 'h/Woche'}</span>
 									{/if}
 								</td>
 
@@ -402,7 +435,11 @@
 
 								<!-- offerPT (server-calculated, read-only) -->
 								<td class="py-1 px-2 text-right text-gray-600 tabular-nums">
-									{calc != null ? calc.offerPT.toFixed(2) : '—'}
+									{#if item.type === 'TIME_RELATIVE' && !item.phaseAbbreviation}
+										<span class="text-amber-500 text-xs">⚠ needs phase</span>
+									{:else}
+										{calc != null ? calc.offerPT.toFixed(2) : '—'}
+									{/if}
 								</td>
 
 								<!-- Cost (server-calculated, read-only) -->
@@ -448,6 +485,7 @@
 				<tr class="bg-gray-50 border-t-2 border-gray-300 font-semibold text-sm">
 					<td class="py-2 px-3"></td>
 					<td class="py-2 px-3 text-xs text-gray-400 uppercase tracking-wide">Total</td>
+					<td class="py-2 px-2"></td>
 					<td class="py-2 px-2"></td>
 					<td class="py-2 px-2 text-right tabular-nums">{totalOpt.toFixed(2)}</td>
 					<td class="py-2 px-2 text-right tabular-nums">{totalLik.toFixed(2)}</td>

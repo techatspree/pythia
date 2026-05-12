@@ -16,6 +16,9 @@ kotlin {
         compilations.all {
             kotlinOptions.jvmTarget = "21"
         }
+        testRuns["test"].executionTask.configure {
+            useJUnitPlatform()
+        }
     }
 
     js {
@@ -46,11 +49,33 @@ allOpen {
     annotation("io.github.theestimator.model.DomainEntity")
 }
 
+// Create .d.mts companions for .mjs files so TypeScript bundler mode resolves types correctly.
+// domain.mjs → domain.d.mts (copy of domain.d.ts); all other .mjs → empty stub.
+val prepareTypescriptArtifacts by tasks.registering(Copy::class) {
+    dependsOn("jsBrowserProductionLibraryDistribution")
+    from(layout.buildDirectory.dir("dist/js/productionLibrary")) {
+        include("*.mjs", "*.d.ts", "*.js", "*.map", "package.json")
+    }
+    into(layout.buildDirectory.dir("typescript-prep"))
+
+    doLast {
+        val prepDir = layout.buildDirectory.dir("typescript-prep").get().asFile
+        prepDir.listFiles { f -> f.extension == "mjs" }?.forEach { mjs ->
+            val stem = mjs.nameWithoutExtension
+            val dmts = File(prepDir, "$stem.d.mts")
+            if (!dmts.exists()) {
+                val dts = File(prepDir, "$stem.d.ts")
+                if (dts.exists()) dmts.writeText(dts.readText())
+                else dmts.writeText("export {};\n")
+            }
+        }
+    }
+}
+
 // Package the JS production library as a zip for Maven consumption
 val packageTypescript by tasks.registering(Zip::class) {
-    dependsOn("jsBrowserProductionLibraryDistribution")
-    from(layout.buildDirectory.dir("dist/js/productionLibrary"))
-    include("*.js", "*.mjs", "*.d.ts", "package.json")
+    dependsOn(prepareTypescriptArtifacts)
+    from(layout.buildDirectory.dir("typescript-prep"))
     archiveFileName.set("domain-${version}-typescript.zip")
     destinationDirectory.set(layout.buildDirectory.dir("typescript"))
 }

@@ -109,5 +109,7 @@ data class EstimationItemUpdateDto(
     val expectedEffort: Double? = null,
     val maxEffort: Double? = null,
     val assumptions: String? = null,
-    val phaseAbbreviation: String? = null
+    val phaseAbbreviation: String? = null,
+    val type: String = "FIXED",
+    val unit: String? = null
 )

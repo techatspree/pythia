@@ -2,14 +2,22 @@ import {
 	createVersion,
 	createGroup,
 	createFixedItem,
+	createTimeRelativeItem,
+	ProjectPhase,
 	EstimationParameter,
 	EffortDriver
-} from './domain.mjs';
+} from './domain/domain.mjs';
 
 export interface CalcEntry {
 	offerPT: number;
 	cost: number;
 	offerPrice: number;
+}
+
+export interface EditingPhase {
+	name: string;
+	abbreviation: string;
+	durationWeeks: number | null;
 }
 
 interface EditingItem {
@@ -19,6 +27,9 @@ interface EditingItem {
 	expectedEffort: number | null;
 	maxEffort: number | null;
 	assumptions: string | null;
+	type: string;
+	unit: string | null;
+	phaseAbbreviation: string | null;
 }
 
 interface EditingGroup {
@@ -42,8 +53,16 @@ interface EditingDriver {
 export function computeCalcMap(
 	groups: EditingGroup[],
 	parameters: EditingParam[],
-	drivers: EditingDriver[]
+	drivers: EditingDriver[],
+	phases: EditingPhase[]
 ): Map<string, CalcEntry> {
+	const phaseByAbbr = new Map(
+		phases.map((p) => [
+			p.abbreviation,
+			new ProjectPhase(p.name, p.abbreviation, p.durationWeeks ?? 0)
+		])
+	);
+
 	const params = parameters.map((p) => new EstimationParameter(p.name, p.value, p.comment ?? ''));
 	const effortDrivers = drivers.map((d) => new EffortDriver(d.description, d.factor, d.comment ?? ''));
 	const itemGroups = groups.map((g) =>
@@ -51,14 +70,25 @@ export function computeCalcMap(
 			g.title,
 			g.logicalId,
 			g.items.map((i) =>
-				createFixedItem(
-					i.description,
-					i.minEffort ?? 0,
-					i.expectedEffort ?? 0,
-					i.maxEffort ?? 0,
-					i.assumptions ?? '',
-					i.logicalId
-				)
+				i.type === 'TIME_RELATIVE'
+					? createTimeRelativeItem(
+							i.description,
+							i.unit ?? 'h/Woche',
+							i.minEffort ?? 0,
+							i.expectedEffort ?? 0,
+							i.maxEffort ?? 0,
+							i.assumptions ?? '',
+							i.logicalId,
+							phaseByAbbr.get(i.phaseAbbreviation ?? '') ?? null
+						)
+					: createFixedItem(
+							i.description,
+							i.minEffort ?? 0,
+							i.expectedEffort ?? 0,
+							i.maxEffort ?? 0,
+							i.assumptions ?? '',
+							i.logicalId
+						)
 			)
 		)
 	);

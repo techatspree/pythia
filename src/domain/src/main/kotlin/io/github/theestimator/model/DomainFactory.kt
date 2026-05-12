@@ -30,7 +30,8 @@ fun createTimeRelativeItem(
     expectedEffort: Double = 0.0,
     maxEffort: Double = 0.0,
     assumptions: String = "",
-    logicalId: String = newId()
+    logicalId: String = newId(),
+    phase: ProjectPhase? = null
 ): TimeRelativeEstimationItem = TimeRelativeEstimationItem(
     unit = unit,
     _description = description,
@@ -38,7 +39,8 @@ fun createTimeRelativeItem(
     _expectedEffort = expectedEffort,
     _maxEffort = maxEffort,
     _assumptions = assumptions,
-    _logicalId = logicalId
+    _logicalId = logicalId,
+    _phase = phase
 )
 
 @JsExport

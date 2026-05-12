@@ -2,8 +2,9 @@ id: task-019
 phase: phase-5
 title: Build the version editor (the heart of the app)
 depends_on: [task-018]
-status: in_progress
+status: completed
 started: "2026-05-08T08:38:53+00:00"
+completed: "2026-05-11T00:00:00+00:00"
 description: |
   Replace the "coming soon" placeholder at /estimations/[id]/versions/[versionNumber]
   with a real version editor. SvelteKit frontend, Kotlin/Quarkus backend.

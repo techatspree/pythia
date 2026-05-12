@@ -55,7 +55,7 @@ export declare class CalculationParameters {
     equals(other: Nullable<any>): boolean;
 }
 export declare function createFixedItem(description: string, minEffort?: number, expectedEffort?: number, maxEffort?: number, assumptions?: string, logicalId?: string): FixedEstimationItem;
-export declare function createTimeRelativeItem(description: string, unit?: string, minEffort?: number, expectedEffort?: number, maxEffort?: number, assumptions?: string, logicalId?: string): TimeRelativeEstimationItem;
+export declare function createTimeRelativeItem(description: string, unit?: string, minEffort?: number, expectedEffort?: number, maxEffort?: number, assumptions?: string, logicalId?: string, phase?: Nullable<ProjectPhase>): TimeRelativeEstimationItem;
 export declare function createGroup(title: string, logicalId?: string, items?: Array<EstimationItem>): EstimationItemGroup;
 export declare function createVersion(versionNumber: number, isDraft: boolean, notes?: string, parameters?: Array<EstimationParameter>, effortDrivers?: Array<EffortDriver>, phases?: Array<ProjectPhase>, itemGroups?: Array<EstimationItemGroup>): EstimationVersion;
 export declare class EffortDriver extends BaseDomain {
@@ -208,6 +208,8 @@ export declare abstract class ProjectStatus {
 export declare class TimeRelativeEstimationItem extends EstimationItem {
     constructor(unit: string | undefined, _description: string, _code?: string, _minEffort?: number, _expectedEffort?: number, _maxEffort?: number, _assumptions?: string, _phase?: Nullable<ProjectPhase>, _logicalId?: string, _calculationParameters?: CalculationParameters, _id?: Nullable<string>, _createdAt?: Nullable<string>, _updatedAt?: Nullable<string>);
     get unit(): string;
+    get mean(): number;
+    get variance(): number;
     withCalculationParameters(params: CalculationParameters): TimeRelativeEstimationItem;
     copy(unit?: string, _description?: string, _code?: string, _minEffort?: number, _expectedEffort?: number, _maxEffort?: number, _assumptions?: string, _phase?: Nullable<ProjectPhase>, _logicalId?: string, _calculationParameters?: CalculationParameters, _id?: Nullable<string>, _createdAt?: Nullable<string>, _updatedAt?: Nullable<string>): TimeRelativeEstimationItem;
     toString(): string;
