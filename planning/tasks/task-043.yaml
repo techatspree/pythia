@@ -1,0 +1,330 @@
+id: task-043
+phase: phase-4
+title: Replace import.sql with a domain-model-based TestDataSeeder
+depends_on: [task-041]
+description: |
+  The current dev/dev-local test data is loaded via
+  src/backend/implementation/src/main/resources/import.sql — 186 lines of
+  hand-crafted INSERT statements with two structural problems:
+
+  1. Calculated fields are hardcoded. Every submitted item row contains
+     pre-computed mean, variance, riskSurcharge, driverSurcharge, offerPT,
+     cost, offerPrice values. These must stay in sync with the domain model
+     by hand. After any change to PertCalculation or EstimationVersion.calculate()
+     the SQL becomes silently wrong.
+
+  2. Schema fragility. Each Flyway migration that adds, renames, or restructures
+     a table forces a corresponding rewrite of the INSERT statements.
+
+  The fix is a TestDataSeeder CDI bean in the implementation module.
+  The seeder builds draft JPA entities programmatically, then calls
+  EstimationVersionService.submitDraft() to produce submitted versions.
+  submitDraft() already runs draftVersionMapper.toDomain(draft).calculate()
+  (task-041), so all calculated fields on submitted items are derived from the
+  domain model — the seeder never specifies mean, variance, or offerPT.
+
+  The seeder is gated with @IfBuildProfile(anyOf = ["dev", "dev-local"]) so it
+  is a no-op in test and production builds.
+
+  The import.sql file is deleted. There is no SQL test-data fallback.
+
+  The same two scenarios from import.sql are reproduced:
+    - "Webshop Redesign" (client RetailCorp GmbH): submitted v1 + active draft v2
+    - "Mobile App MVP" (client FinanceAG): submitted v1 only
+
+  Note: the seeder does not use EstimationVersionService.createDraft() for v2
+  because that method clones a submitted version. For seeding purposes it is
+  cleaner to build each draft explicitly from scratch, ensuring the seeder is
+  self-contained and readable without knowledge of cloning rules.
+
+steps:
+  - |
+    Create src/backend/implementation/src/main/kotlin/io/github/theestimator/testdata/TestDataSeeder.kt.
+    Annotate with @ApplicationScoped and @IfBuildProfile(anyOf = ["dev", "dev-local"])
+    (import io.quarkus.arc.profile.IfBuildProfile).
+
+    Constructor-inject:
+      ProjectService, EstimationService, EstimationVersionService,
+      DraftEstimationVersionRepository, ProjectRepository, EntityManager
+      (import jakarta.persistence.EntityManager).
+
+    Declare a method seed() that observes StartupEvent and is @Transactional:
+      @Transactional
+      fun seed(@Observes @Priority(1) event: StartupEvent)
+    @Transactional here puts the entire seeding work inside one transaction so
+    that all Panache persist() calls have an active transaction.
+    @Priority(1) controls ordering relative to other StartupEvent observers in
+    this application — it does NOT affect the Hibernate schema-creation lifecycle
+    (StartupEvent always fires after schema creation regardless of priority).
+
+    First line of seed(): guard against double-seeding:
+      if (projectRepository.count() > 0L) return
+
+    Then call seedWebshop() and seedMobileApp() — both are separate private methods.
+
+  - |
+    Implement seedWebshop() as a plain private method (no @Transactional annotation).
+    It is called from seed() which is already @Transactional; annotating a private
+    method @Transactional has no effect because CDI interceptors only apply when
+    the method is invoked through the CDI proxy — self-invocation via this.method()
+    bypasses the proxy entirely.
+
+    Create project:
+      val project = projectService.create(
+          name = "Webshop Redesign",
+          description = "Komplette Neuentwicklung der E-Commerce-Plattform",
+          client = "RetailCorp GmbH"
+      )
+
+    Create estimation:
+      val estimation = estimationService.create(
+          offer = "WS-2026-001",
+          project = project,
+          description = "Erstschätzung Webshop-Redesign"
+      )
+
+    Build DraftEstimationVersion v1 (do NOT call createDraft — build directly):
+
+      val draft1 = DraftEstimationVersion().apply {
+          this.estimation = estimation
+          this.versionNumber = 1
+          this.notes = null
+      }
+
+    Add parameters to draft1.parameters (each DraftEstimationParameter sets
+    version = draft1):
+      Tagessatz = 900.0
+      Standardabweichungsfaktor = 2.0
+      Vertriebszuschlag = 0.12
+
+    Add effort driver to draft1.effortDrivers:
+      Qualitätssicherung (QA), factor = 0.15, comment = "Inkl. automatisierter Tests"
+
+    Add three phases to draft1.phases (keep references: phaseKO, phaseUM, phaseAB):
+      Konzeption (KO), durationWeeks = 3.0
+      Umsetzung (UM), durationWeeks = 12.0
+      Abnahme (AB), durationWeeks = 2.0
+
+    Build item groups with items. Each DraftEstimationItemGroup sets version = draft1.
+    Each DraftEstimationItem (DraftFixedEstimationItem or DraftTimeRelativeEstimationItem)
+    sets group = the enclosing group. Set item.phase = the relevant phase object
+    (phaseKO, phaseUM, or phaseAB). Do NOT specify mean/variance/offerPT — those are
+    calculated by submitDraft.
+
+    Group "U01: Konzeption" (items assigned phaseKO):
+      FIXED: "Anforderungsworkshop & Kickoff"         min=1.0 exp=2.0 max=3.0
+      FIXED: "Systemarchitektur & Tech-Stack-Entscheidung" min=2.0 exp=3.0 max=5.0
+      FIXED: "Datenbankdesign & ER-Modell"            min=1.0 exp=2.0 max=4.0
+      TIME_RELATIVE: "Projektbegleitung" unit="h/Woche" min=2.0 exp=4.0 max=8.0
+
+    Group "U02: Frontend Redesign" (items assigned phaseUM):
+      FIXED: "Produktlisting & Suchfunktion"          min=3.0 exp=5.0 max=8.0
+      FIXED: "Warenkorb & Checkout-Prozess"           min=5.0 exp=8.0 max=12.0
+      FIXED: "Benutzerkonto & Login"                  min=2.0 exp=4.0 max=6.0
+      FIXED: "Responsive Design & Mobile Optimierung" min=2.0 exp=3.0 max=5.0
+
+    Group "U03: Backend & Datenbank" (items assigned phaseUM):
+      FIXED: "REST API Endpoints (CRUD)"              min=4.0 exp=6.0 max=9.0
+      FIXED: "Authentifizierung & Autorisierung"      min=2.0 exp=4.0 max=6.0
+      FIXED: "Datenbankmigrationen & Seeding"         min=1.0 exp=2.0 max=3.0
+      FIXED: "Payment-Integration (Stripe)"           min=3.0 exp=5.0 max=8.0
+
+    Group "U04: Abnahme & Go-live" (items assigned phaseAB):
+      FIXED: "Integrationstests & E2E-Tests"          min=2.0 exp=3.0 max=5.0
+      FIXED: "User Acceptance Testing (UAT)"          min=1.0 exp=2.0 max=3.0
+      FIXED: "Go-live, Deployment & Monitoring-Setup" min=1.0 exp=2.0 max=3.0
+
+    Add additional costs to draft1.additionalCosts:
+      "Software-Lizenzen (Figma, JIRA)" amount=3500.0 type=ONE_TIME phase=phaseKO
+      "Hosting & Infrastruktur (AWS)" amount=0.0 type=RECURRING amountPerWeek=250.0 phase=phaseUM
+
+    Persist:
+      draftRepository.persist(draft1)
+
+    Submit to get submitted v1 (calculation runs automatically):
+      estimationVersionService.submitDraft(estimation.id!!)
+
+    Immediately after submitDraft, flush the EntityManager:
+      entityManager.flush()
+    This is required to avoid a unique-constraint violation on
+    draft_estimation_versions.estimation_id. Within a single Hibernate flush cycle,
+    INSERTs are always ordered before DELETEs. Without an explicit flush here,
+    Hibernate would attempt to INSERT draft2 while the DELETE for draft1 is still
+    pending, hitting the unique constraint. The explicit flush forces
+    INSERT(draft1) + INSERT(submitted_v1) + DELETE(draft1) to execute immediately,
+    so that when draft2 is persisted the constraint slot is free.
+
+    Build DraftEstimationVersion v2 (same approach — build directly, do not clone):
+      val draft2 = DraftEstimationVersion().apply {
+          this.estimation = estimation
+          this.versionNumber = 2
+          this.notes = "Scope nach Kunden-Feedback angepasst — Mobile-Optimierung ersetzt durch UX-Konzept"
+      }
+
+    Add parameters (same as v1: Tagessatz=900.0, stdAbw=2.0, Vertrieb=0.12).
+
+    Add two effort drivers:
+      Qualitätssicherung (QA) factor=0.15 comment="Inkl. automatisierter Tests"
+      Technische Komplexität factor=0.10 comment="Legacy-System-Anbindung (SAP)"
+
+    Add phases for v2 (keep references: phase2KO, phase2UM, phase2AB):
+      Konzeption (KO) durationWeeks=4.0
+      Umsetzung (UM) durationWeeks=10.0
+      Abnahme (AB) durationWeeks=2.0
+
+    Build same four groups with slightly revised estimates and one new item in U01:
+
+    Group "U01: Konzeption" (phase2KO):
+      FIXED: "Anforderungsworkshop & Kickoff"              min=1.0 exp=2.0 max=4.0
+      FIXED: "Systemarchitektur & Tech-Stack-Entscheidung" min=3.0 exp=4.0 max=6.0
+      FIXED: "Datenbankdesign & ER-Modell"                 min=1.0 exp=2.0 max=3.0
+      FIXED: "UX-Konzept & Wireframes"                     min=3.0 exp=5.0 max=8.0
+      TIME_RELATIVE: "Projektbegleitung" unit="h/Woche"    min=2.0 exp=4.0 max=8.0
+
+    Group "U02: Frontend Redesign" (phase2UM):
+      FIXED: "Produktlisting & Suchfunktion"     min=3.0 exp=5.0 max=7.0
+      FIXED: "Warenkorb & Checkout-Prozess"      min=5.0 exp=8.0 max=13.0
+      FIXED: "Benutzerkonto & Login (OAuth2)"    min=2.0 exp=4.0 max=6.0
+      FIXED: "Produkt-Detailseite & Bildergalerie" min=1.0 exp=2.0 max=4.0
+
+    Group "U03: Backend & Datenbank" (phase2UM):
+      FIXED: "REST API Endpoints (CRUD)"                      min=4.0 exp=6.0 max=9.0
+      FIXED: "Authentifizierung & Autorisierung"              min=2.0 exp=3.0 max=5.0
+      FIXED: "Datenbankmigrationen & Seeding"                 min=1.0 exp=2.0 max=3.0
+      FIXED: "Payment-Integration (Stripe)"                   min=3.0 exp=5.0 max=8.0
+      FIXED: "E-Mail-Benachrichtigungen (Bestellung/Versand)" min=1.0 exp=2.0 max=4.0
+
+    Group "U04: Abnahme & Go-live" (phase2AB):
+      FIXED: "Integrationstests & E2E-Tests"          min=2.0 exp=3.0 max=5.0
+      FIXED: "User Acceptance Testing (UAT)"          min=2.0 exp=3.0 max=4.0
+      FIXED: "Go-live, Deployment & Monitoring-Setup" min=1.0 exp=2.0 max=3.0
+
+    Add additional costs for v2:
+      "Software-Lizenzen (Figma, JIRA, Confluence)" amount=2500.0 type=ONE_TIME phase=phase2KO
+      "Hosting & Infrastruktur (AWS)" amount=0.0 type=RECURRING amountPerWeek=300.0 phase=phase2UM
+
+    Persist draft v2:
+      draftRepository.persist(draft2)
+    Do NOT call submitDraft for v2 — it remains the active draft.
+
+  - |
+    Implement seedMobileApp() as a plain private method (no @Transactional annotation,
+    same reasoning as seedWebshop).
+
+    Create project:
+      val project = projectService.create(
+          name = "Mobile App MVP",
+          description = "Native iOS/Android-App für Kunden-Self-Service",
+          client = "FinanceAG"
+      )
+
+    Create estimation:
+      val estimation = estimationService.create(
+          offer = "MA-2026-001",
+          project = project,
+          description = "MVP-Umfangsschätzung"
+      )
+
+    Build DraftEstimationVersion v1:
+      versionNumber = 1, notes = null
+
+    Parameters:
+      Tagessatz = 950.0, comment = "Mobile-Entwickler-Rate"
+      Standardabweichungsfaktor = 2.0
+      Vertriebszuschlag = 0.15
+
+    Effort driver:
+      "iOS & Android Multiplattform" factor=0.20 comment="Native Implementierung auf beiden Plattformen"
+
+    Phases (keep references: phaseKD, phaseS1, phaseS2, phaseAS):
+      Konzeption & Design (KD) durationWeeks=4.0
+      Sprint 1 – Grundlagen (S1) durationWeeks=6.0
+      Sprint 2 – Features (S2) durationWeeks=6.0
+      App Store Release (AS) durationWeeks=2.0
+
+    Groups and items:
+
+    Group "M01: Konzeption & UX" (phaseKD):
+      FIXED: "UX Research & Nutzerinterviews" min=2.0 exp=3.0 max=5.0
+      FIXED: "UI-Design & Designsystem"       min=5.0 exp=8.0 max=12.0
+      FIXED: "App-Architektur & Projektsetup" min=2.0 exp=3.0 max=4.0
+
+    Group "M02: App Features" (mixed phases — phaseS1 or phaseS2 per item):
+      FIXED: "Authentifizierung (Biometrie, PIN)"     phase=phaseS1 min=3.0 exp=5.0 max=8.0
+      FIXED: "Dashboard & Kontoübersicht"             phase=phaseS1 min=3.0 exp=5.0 max=8.0
+      FIXED: "Push-Benachrichtigungen"                phase=phaseS1 min=2.0 exp=3.0 max=5.0
+      FIXED: "Transaktionshistorie & Filter"          phase=phaseS2 min=3.0 exp=5.0 max=7.0
+      FIXED: "Profil & Einstellungen"                 phase=phaseS2 min=2.0 exp=3.0 max=4.0
+      FIXED: "Offline-Modus & Datensynchronisation"   phase=phaseS2 min=4.0 exp=7.0 max=10.0
+
+    Group "M03: Backend & API" (mixed phases — phaseS1 or phaseS2):
+      FIXED: "REST API Design & Dokumentation"  phase=phaseS1 min=2.0 exp=3.0 max=4.0
+      FIXED: "Auth & JWT-Token-Service"         phase=phaseS1 min=2.0 exp=3.0 max=5.0
+      FIXED: "Daten-API & Business Logic"       phase=phaseS2 min=4.0 exp=6.0 max=9.0
+
+    Group "M04: Release & QA" (phaseAS):
+      FIXED: "App Store Einreichung (iOS & Android)" min=2.0 exp=3.0 max=5.0
+      FIXED: "Regression-Tests & Bugfixing"          min=3.0 exp=4.0 max=6.0
+      FIXED: "Beta-Test & Feedback-Implementierung"  min=2.0 exp=3.0 max=5.0
+
+    Additional costs:
+      "Apple Developer Program"   amount=99.0  type=ONE_TIME  phase=phaseAS
+      "Google Play Store Gebühr"  amount=25.0  type=ONE_TIME  phase=phaseAS
+      "Backend-Hosting (Firebase)" amount=0.0 type=RECURRING amountPerWeek=150.0 phase=phaseS1
+
+    Persist:
+      draftRepository.persist(draft)
+
+    Submit to get submitted v1:
+      estimationVersionService.submitDraft(estimation.id!!)
+    No draft v2 for Mobile App — submission only.
+
+  - |
+    Delete src/backend/implementation/src/main/resources/import.sql.
+
+    Verify that no other file in the implementation module references import.sql by
+    running:
+      grep -r "import\.sql" src/backend/implementation/src/main
+    Expected: zero matches.
+
+    The %dev-local profile uses hibernate.database.generation=drop-and-create, which
+    no longer loads import.sql after the file is removed. No properties change needed.
+
+  - |
+    Run the backend integration tests:
+      ./mvnw test -pl src/backend/implementation
+
+    If any test fails because it expected import.sql data to be present, inspect the
+    test. Tests that use buildRealisticDraft() or construct their own data are fine.
+    Tests that query for specific hardcoded IDs from the old import.sql must be
+    rewritten to build their own fixtures using ProjectService/EstimationService/
+    EstimationVersionService before asserting.
+
+validation:
+  - |
+    import.sql is deleted:
+      ls src/backend/implementation/src/main/resources/import.sql → "No such file"
+  - |
+    TestDataSeeder exists in the expected package:
+      find src/backend/implementation/src/main/kotlin -name "TestDataSeeder.kt" returns one file
+  - |
+    The seeder is gated with @IfBuildProfile:
+      grep "@IfBuildProfile" src/backend/implementation/src/main/kotlin/io/github/theestimator/testdata/TestDataSeeder.kt
+      must contain anyOf = ["dev", "dev-local"] (or equivalent)
+  - |
+    The seeder never sets mean, variance, riskSurcharge, driverSurcharge, offerPT, cost,
+    or offerPrice on any item entity — those fields are absent from item construction code:
+      grep -E "\.mean|\.variance|riskSurcharge|driverSurcharge|offerPT|\.cost|offerPrice" \
+        src/backend/implementation/src/main/kotlin/io/github/theestimator/testdata/TestDataSeeder.kt
+      must return zero lines
+  - |
+    ./mvnw test -pl src/backend/implementation passes with zero failures
+  - |
+    Manual verification (dev-local profile): start the application and confirm that
+    GET /api/projects returns two projects (Webshop Redesign, Mobile App MVP) and that
+    GET /api/estimations/{id}/versions/draft returns a version with non-zero offerPT
+    values on items — proving the domain calculation ran via submitDraft.
+
+outputs:
+  - added:   src/backend/implementation/src/main/kotlin/io/github/theestimator/testdata/TestDataSeeder.kt
+  - deleted: src/backend/implementation/src/main/resources/import.sql

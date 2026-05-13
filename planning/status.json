@@ -249,9 +249,15 @@
       "notes": ""
     },
     "task-042": {
-      "status": "in_progress",
+      "status": "done",
       "started_at": "2026-05-11T13:48:26+00:00",
-      "completed_at": null,
+      "completed_at": "2026-05-12T13:30:45+00:00",
+      "notes": ""
+    },
+    "task-043": {
+      "status": "done",
+      "started_at": "2026-05-12T14:58:08+00:00",
+      "completed_at": "2026-05-12T15:06:22+00:00",
       "notes": ""
     }
   }
