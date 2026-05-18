@@ -18,9 +18,15 @@ Implement the planning task whose ID is given in $ARGUMENTS (e.g. `task-041`).
    - If the task covers both backend and frontend, run both.
    - **Do not mark the task done until the build passes with zero failures.** If the build fails, diagnose and fix the root cause, then re-run. Never skip or work around the build step.
 
-7. **Mark done**: only after all validations pass and the build is green, run `./scripts/task.sh done $ARGUMENTS`.
+7. **Update documentation**: after a green build, update any documentation affected by the changes.
+   - If the task added, removed, or renamed a module, endpoint, schema, or public API: update `CLAUDE.md` (or the relevant section of it) to reflect the new state.
+   - If the task's `outputs` section lists `.md` files, ensure they exist and are accurate.
+   - If nothing in the codebase's documented structure changed (e.g. pure internal refactor), skip this step.
+   - Do not create new documentation files unless the task explicitly requires it.
 
-8. **Report**: one short paragraph — what was changed and what the build outcome was. No bullet lists of every file touched.
+8. **Mark done**: only after all validations pass, the build is green, and documentation is up to date, run `./scripts/task.sh done $ARGUMENTS`.
+
+9. **Report**: one short paragraph — what was changed, what the build outcome was, and (if applicable) what documentation was updated. No bullet lists of every file touched.
 
 ## Hard rules
 
