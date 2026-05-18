@@ -557,6 +557,92 @@ class EstimationVersionResourceIT {
             .statusCode(200)
     }
 
+    @Test
+    fun `xlsx export returns a valid spreadsheet`() {
+        buildRealisticDraft(estimationId)
+        given().post("/api/estimations/$estimationId/versions/draft/submit")
+
+        val bytes = given()
+            .`when`().get("/api/estimations/$estimationId/versions/1/export?format=xlsx")
+            .then()
+            .statusCode(200)
+            .contentType("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+            .header("Content-Disposition", containsString("attachment"))
+            .extract().asByteArray()
+        // .xlsx is a ZIP — magic bytes 'P','K'
+        assert(bytes.size > 2 && bytes[0].toInt() == 0x50 && bytes[1].toInt() == 0x4B)
+    }
+
+    @Test
+    fun `csv export total matches the version total effort`() {
+        buildRealisticDraft(estimationId)
+        given().post("/api/estimations/$estimationId/versions/draft/submit")
+
+        val totalEffort = given().get("/api/estimations/$estimationId/versions/1")
+            .then().extract().jsonPath().getDouble("totalEffort")
+
+        val csv = given()
+            .`when`().get("/api/estimations/$estimationId/versions/1/export?format=csv")
+            .then()
+            .statusCode(200)
+            .contentType("text/csv")
+            .extract().asString()
+
+        val lastCell = csv.trim().lines().last().split(",").last().toDouble()
+        assert(Math.abs(lastCell - totalEffort) < 0.001)
+    }
+
+    @Test
+    fun `export defaults to xlsx when no format given`() {
+        buildRealisticDraft(estimationId)
+        given().post("/api/estimations/$estimationId/versions/draft/submit")
+
+        given()
+            .`when`().get("/api/estimations/$estimationId/versions/1/export")
+            .then()
+            .statusCode(200)
+            .contentType("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+    }
+
+    @Test
+    fun `export rejects an unknown format with 400`() {
+        buildRealisticDraft(estimationId)
+        given().post("/api/estimations/$estimationId/versions/draft/submit")
+
+        given()
+            .`when`().get("/api/estimations/$estimationId/versions/1/export?format=pdf")
+            .then()
+            .statusCode(400)
+    }
+
+    @Test
+    fun `export returns 404 for a non-existent version`() {
+        buildRealisticDraft(estimationId)
+        given().post("/api/estimations/$estimationId/versions/draft/submit")
+
+        given()
+            .`when`().get("/api/estimations/$estimationId/versions/99/export?format=csv")
+            .then()
+            .statusCode(404)
+    }
+
+    @Test
+    fun `draft can be exported without submitting it`() {
+        buildRealisticDraft(estimationId)
+
+        given()
+            .`when`().get("/api/estimations/$estimationId/versions/draft/export?format=csv")
+            .then()
+            .statusCode(200)
+            .contentType("text/csv")
+
+        // exporting the draft must not have submitted it
+        given()
+            .`when`().get("/api/estimations/$estimationId/versions/draft")
+            .then()
+            .statusCode(200)
+    }
+
     private fun buildRealisticDraft(estimationId: UUID) {
         given().post("/api/estimations/$estimationId/versions")
             .then().statusCode(201)

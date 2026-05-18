@@ -123,9 +123,9 @@
       "notes": "Reopened 2026-05-18: spec extended so the draft is selectable for comparison (compare path segments accept the literal \"draft\" via a non-persisting snapshotDraft helper) and the color-coded diff is the graphical display. Prior submitted-only implementation (endpoint, types, VersionList, compare page, 4 IT tests) was complete and validated; the draft-comparison additions are not yet implemented."
     },
     "task-021": {
-      "status": "pending",
-      "started_at": null,
-      "completed_at": null,
+      "status": "done",
+      "started_at": "2026-05-18T09:32:28+00:00",
+      "completed_at": "2026-05-18T09:37:57+00:00",
       "notes": ""
     },
     "task-022": {

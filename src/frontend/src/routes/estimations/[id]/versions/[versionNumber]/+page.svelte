@@ -117,6 +117,21 @@
 						Submit
 					</button>
 				{/if}
+				<details class="relative">
+					<summary class="px-4 py-2 text-sm border rounded cursor-pointer select-none">Export</summary>
+					<div class="absolute right-0 mt-1 bg-white border rounded shadow text-sm z-10">
+						<a
+							class="block px-4 py-2 hover:bg-gray-50"
+							download
+							href="/api/estimations/{page.params.id}/versions/{versionData.isDraft ? 'draft' : versionData.versionNumber}/export?format=xlsx"
+						>Excel (.xlsx)</a>
+						<a
+							class="block px-4 py-2 hover:bg-gray-50"
+							download
+							href="/api/estimations/{page.params.id}/versions/{versionData.isDraft ? 'draft' : versionData.versionNumber}/export?format=csv"
+						>CSV (.csv)</a>
+					</div>
+				</details>
 			</div>
 		</div>
 

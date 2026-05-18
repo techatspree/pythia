@@ -4,15 +4,298 @@ title: Add export to Excel and CSV
 depends_on: [task-019]
 description: |
   Allow exporting a version to .xlsx or .csv for sharing with stakeholders
-  who do not use the tool. Server-side rendering of the file is preferred
-  over client-side because it is easier to keep formatting consistent.
+  who do not use the tool. Rendering happens server-side so formatting stays
+  consistent.
+
+  Current state of the codebase (do NOT redo these):
+  - Apache POI is ALREADY a backend dependency:
+    src/backend/implementation/pom.xml declares org.apache.poi:poi-ooxml:5.4.1.
+  - The xlsx writer ALREADY exists: ExcelExporter (@ApplicationScoped) in
+    io.github.theestimator.service, with
+      fun export(version: SubmittedEstimationVersion, output: OutputStream)
+    It writes five sheets (Projektstrukturplan, Zusatzkosten, Pakete,
+    Parameter, Aufwandstreiber). Do not reimplement or modify it.
+
+  What is missing:
+  1. A CSV writer (CsvExporter) — there is no CSV path yet.
+  2. A REST endpoint GET /{versionNumber}/export?format=xlsx|csv on
+     EstimationVersionResource that streams the file with the right
+     Content-Type and a Content-Disposition: attachment header.
+  3. An "Export" control in the version detail/editor page offering both
+     formats.
+  4. Integration tests in the existing EstimationVersionResourceIT.
+
+  Like the compare endpoint (task-020), the version segment may be a
+  submitted version number or the literal "draft" (drafts are exported via a
+  non-persisted snapshot — exporting must NOT submit the draft). The export
+  is read-only and never mutates state.
+
 steps:
-  - add quarkus dependency on Apache POI for xlsx generation
-  - implement GET /api/estimations/{id}/versions/{n}/export?format=xlsx|csv
-  - frontend "Export" dropdown in version editor and detail views
+  - |
+    Create src/backend/implementation/src/main/kotlin/io/github/theestimator/service/CsvExporter.kt.
+
+    A single flat sheet mirroring the numeric columns of ExcelExporter's
+    "Projektstrukturplan", so the totals are cross-checkable. RFC4180
+    quoting (wrap a field in double quotes and double any embedded quote
+    when it contains a comma, quote, or newline). Trailing "Total" row whose
+    last cell is version.totalEffort (the same number the UI shows as
+    "Effort: {totalEffort} PT").
+
+      package io.github.theestimator.service
+
+      import io.github.theestimator.domain.submitted.SubmittedEstimationVersion
+      import jakarta.enterprise.context.ApplicationScoped
+      import java.io.OutputStream
+
+      @ApplicationScoped
+      class CsvExporter {
+
+          fun export(version: SubmittedEstimationVersion, output: OutputStream) {
+              val w = output.bufferedWriter(Charsets.UTF_8)
+              fun cell(s: String): String =
+                  if (s.any { it == ',' || it == '"' || it == '\n' })
+                      "\"" + s.replace("\"", "\"\"") + "\""
+                  else s
+              w.append(
+                  listOf("Group", "Description", "Min", "Expected", "Max", "Mean", "OfferPT")
+                      .joinToString(",")
+              ).append("\n")
+              version.itemGroups.forEach { g ->
+                  g.items.forEach { i ->
+                      w.append(
+                          listOf(
+                              cell(g.title), cell(i.description),
+                              i.minEffort.toString(), i.expectedEffort.toString(),
+                              i.maxEffort.toString(), i.mean.toString(),
+                              i.offerPT.toString()
+                          ).joinToString(",")
+                      ).append("\n")
+                  }
+              }
+              w.append("Total,,,,,,${version.totalEffort}\n")
+              w.flush()
+          }
+      }
+
+  - |
+    Add the export endpoint to EstimationVersionResource.
+
+    Inject ExcelExporter and CsvExporter into the constructor alongside the
+    existing versionService / comparisonService / estimationRepository.
+
+    Add the import:
+      import jakarta.ws.rs.core.StreamingOutput
+    (jakarta.ws.rs.* is already imported and covers @GET/@Path/@PathParam/
+    @QueryParam/@DefaultValue/@Produces/NotFoundException/BadRequestException;
+    jakarta.ws.rs.core.Response is already imported.)
+
+    The class is annotated @Produces(MediaType.APPLICATION_JSON); this method
+    overrides it and sets the Content-Type on the Response builder:
+
+      @GET
+      @Path("/{versionNumber}/export")
+      @Produces("application/octet-stream", "text/csv")
+      fun exportVersion(
+          @PathParam("estimationId") estimationId: UUID,
+          @PathParam("versionNumber") versionNumber: String,
+          @QueryParam("format") @DefaultValue("xlsx") format: String
+      ): Response {
+          ensureEstimationExists(estimationId)
+          val version =
+              if (versionNumber == "draft")
+                  versionService.findDraft(estimationId)
+                      ?.let { versionService.snapshotDraft(it) }
+                      ?: throw NotFoundException("No draft found")
+              else
+                  versionService.findSubmittedVersion(
+                      estimationId,
+                      versionNumber.toIntOrNull()
+                          ?: throw NotFoundException("Version $versionNumber not found")
+                  ) ?: throw NotFoundException("Version $versionNumber not found")
+
+          val label = if (versionNumber == "draft") "draft" else "v$versionNumber"
+          return when (format) {
+              "xlsx" -> Response.ok(StreamingOutput { os -> excelExporter.export(version, os) })
+                  .type("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+                  .header("Content-Disposition", "attachment; filename=\"estimation-$label.xlsx\"")
+                  .build()
+              "csv" -> Response.ok(StreamingOutput { os -> csvExporter.export(version, os) })
+                  .type("text/csv")
+                  .header("Content-Disposition", "attachment; filename=\"estimation-$label.csv\"")
+                  .build()
+              else -> throw BadRequestException("Unsupported format: $format (use xlsx or csv)")
+          }
+      }
+
+  - |
+    Add an "Export" control to the version detail/editor page
+    src/frontend/src/routes/estimations/[id]/versions/[versionNumber]/+page.svelte.
+
+    The page already serves both the submitted detail view and the draft
+    editor (it loads /versions/draft when ?draft=true). The export ref is
+    therefore: versionData.isDraft ? 'draft' : versionData.versionNumber.
+
+    In the header button row (the <div class="flex items-center gap-3"> that
+    contains the Submit button), add a no-JS dropdown using <details> so no
+    extra runes/state are introduced (keeps `npm run check` clean). Two
+    download links hit the new endpoint directly:
+
+      <details class="relative">
+        <summary class="px-4 py-2 text-sm border rounded cursor-pointer select-none">Export</summary>
+        <div class="absolute right-0 mt-1 bg-white border rounded shadow text-sm z-10">
+          <a
+            class="block px-4 py-2 hover:bg-gray-50"
+            download
+            href="/api/estimations/{page.params.id}/versions/{versionData.isDraft ? 'draft' : versionData.versionNumber}/export?format=xlsx"
+          >Excel (.xlsx)</a>
+          <a
+            class="block px-4 py-2 hover:bg-gray-50"
+            download
+            href="/api/estimations/{page.params.id}/versions/{versionData.isDraft ? 'draft' : versionData.versionNumber}/export?format=csv"
+          >CSV (.csv)</a>
+        </div>
+      </details>
+
+    Show it for both drafts and submitted versions (it is always valid).
+
+  - |
+    Add integration tests to the existing EstimationVersionResourceIT.kt. Do
+    NOT create a new file. Place them after the last existing @Test method,
+    before the private buildRealisticDraft helper. Use the existing
+    buildRealisticDraft() helper and the established given()/when()/then()
+    RestAssured pattern. Six tests:
+
+      @Test
+      fun `xlsx export returns a valid spreadsheet`() {
+          buildRealisticDraft(estimationId)
+          given().post("/api/estimations/$estimationId/versions/draft/submit")
+
+          val bytes = given()
+              .`when`().get("/api/estimations/$estimationId/versions/1/export?format=xlsx")
+              .then()
+              .statusCode(200)
+              .contentType("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+              .header("Content-Disposition", containsString("attachment"))
+              .extract().asByteArray()
+          // .xlsx is a ZIP — magic bytes 'P','K'
+          assert(bytes.size > 2 && bytes[0].toInt() == 0x50 && bytes[1].toInt() == 0x4B)
+      }
+
+      @Test
+      fun `csv export total matches the version total effort`() {
+          buildRealisticDraft(estimationId)
+          given().post("/api/estimations/$estimationId/versions/draft/submit")
+
+          val totalEffort = given().get("/api/estimations/$estimationId/versions/1")
+              .then().extract().jsonPath().getDouble("totalEffort")
+
+          val csv = given()
+              .`when`().get("/api/estimations/$estimationId/versions/1/export?format=csv")
+              .then()
+              .statusCode(200)
+              .contentType("text/csv")
+              .extract().asString()
+
+          val lastCell = csv.trim().lines().last().split(",").last().toDouble()
+          assert(Math.abs(lastCell - totalEffort) < 0.001)
+      }
+
+      @Test
+      fun `export defaults to xlsx when no format given`() {
+          buildRealisticDraft(estimationId)
+          given().post("/api/estimations/$estimationId/versions/draft/submit")
+
+          given()
+              .`when`().get("/api/estimations/$estimationId/versions/1/export")
+              .then()
+              .statusCode(200)
+              .contentType("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+      }
+
+      @Test
+      fun `export rejects an unknown format with 400`() {
+          buildRealisticDraft(estimationId)
+          given().post("/api/estimations/$estimationId/versions/draft/submit")
+
+          given()
+              .`when`().get("/api/estimations/$estimationId/versions/1/export?format=pdf")
+              .then()
+              .statusCode(400)
+      }
+
+      @Test
+      fun `export returns 404 for a non-existent version`() {
+          buildRealisticDraft(estimationId)
+          given().post("/api/estimations/$estimationId/versions/draft/submit")
+
+          given()
+              .`when`().get("/api/estimations/$estimationId/versions/99/export?format=csv")
+              .then()
+              .statusCode(404)
+      }
+
+      @Test
+      fun `draft can be exported without submitting it`() {
+          buildRealisticDraft(estimationId)
+
+          given()
+              .`when`().get("/api/estimations/$estimationId/versions/draft/export?format=csv")
+              .then()
+              .statusCode(200)
+              .contentType("text/csv")
+
+          // exporting the draft must not have submitted it
+          given()
+              .`when`().get("/api/estimations/$estimationId/versions/draft")
+              .then()
+              .statusCode(200)
+      }
+
+  - |
+    Run the backend tests:
+      mvn test -pl src/backend/implementation
+
+    Then run the frontend type check:
+      cd src/frontend && npm run check
+
 validation:
-  - downloaded xlsx opens cleanly in Excel and LibreOffice Calc
-  - sums in the file match what is shown in the UI
+  - |
+    Apache POI is present (already declared — must still be there):
+      grep -n "poi-ooxml" src/backend/implementation/pom.xml
+    Must return a match.
+  - |
+    CSV exporter exists:
+      grep -n "class CsvExporter" \
+        src/backend/implementation/src/main/kotlin/io/github/theestimator/service/CsvExporter.kt
+    Must return a match.
+  - |
+    Export endpoint is wired (method + both exporter injections):
+      grep -n "exportVersion\|ExcelExporter\|CsvExporter" \
+        src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/EstimationVersionResource.kt
+    Must show the constructor injections and the exportVersion method.
+  - |
+    Frontend export control exists:
+      grep -n "format=xlsx\|format=csv" \
+        "src/frontend/src/routes/estimations/[id]/versions/[versionNumber]/+page.svelte"
+    Must return both.
+  - |
+    Export tests exist in EstimationVersionResourceIT:
+      grep -c "xlsx export returns a valid spreadsheet\|csv export total matches\|export defaults to xlsx\|rejects an unknown format\|404 for a non-existent version\|draft can be exported without submitting" \
+        src/backend/implementation/src/test/kotlin/io/github/theestimator/rest/EstimationVersionResourceIT.kt
+    Must return 6.
+  - |
+    Sums in the file match the UI: the CSV "Total" cell and the xlsx
+    Projektstrukturplan group OfferPT sums both derive from the same
+    SubmittedEstimationVersion the API returns as totalEffort. The
+    `csv export total matches the version total effort` test asserts this
+    automatically.
+  - |
+    mvn test -pl src/backend/implementation passes with zero failures.
+  - |
+    cd src/frontend && npm run check passes with zero errors.
+
 outputs:
-  - backend ExportResource.java
-  - frontend export buttons
+  - added:    src/backend/implementation/src/main/kotlin/io/github/theestimator/service/CsvExporter.kt
+  - modified: src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/EstimationVersionResource.kt
+  - modified: src/backend/implementation/src/test/kotlin/io/github/theestimator/rest/EstimationVersionResourceIT.kt
+  - modified: src/frontend/src/routes/estimations/[id]/versions/[versionNumber]/+page.svelte

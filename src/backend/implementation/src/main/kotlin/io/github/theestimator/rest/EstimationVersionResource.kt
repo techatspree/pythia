@@ -10,13 +10,16 @@ import io.github.theestimator.domain.draft.DraftTimeRelativeEstimationItem
 import io.github.theestimator.domain.submitted.SubmittedEstimationVersion
 import io.github.theestimator.repository.EstimationRepository
 import io.github.theestimator.rest.dto.*
+import io.github.theestimator.service.CsvExporter
 import io.github.theestimator.service.EstimationVersionService
+import io.github.theestimator.service.ExcelExporter
 import io.github.theestimator.service.VersionComparisonService
 import jakarta.enterprise.context.ApplicationScoped
 import jakarta.transaction.Transactional
 import jakarta.ws.rs.*
 import jakarta.ws.rs.core.MediaType
 import jakarta.ws.rs.core.Response
+import jakarta.ws.rs.core.StreamingOutput
 import java.util.UUID
 
 @Path("/api/estimations/{estimationId}/versions")
@@ -25,7 +28,9 @@ import java.util.UUID
 class EstimationVersionResource(
     private val versionService: EstimationVersionService,
     private val comparisonService: VersionComparisonService,
-    private val estimationRepository: EstimationRepository
+    private val estimationRepository: EstimationRepository,
+    private val excelExporter: ExcelExporter,
+    private val csvExporter: CsvExporter
 ) {
 
     @GET
@@ -199,6 +204,41 @@ class EstimationVersionResource(
         val a = resolve(versionA)
         val b = resolve(versionB)
         return Response.ok(comparisonService.compare(a, b)).build()
+    }
+
+    @GET
+    @Path("/{versionNumber}/export")
+    @Produces("application/octet-stream", "text/csv")
+    fun exportVersion(
+        @PathParam("estimationId") estimationId: UUID,
+        @PathParam("versionNumber") versionNumber: String,
+        @QueryParam("format") @DefaultValue("xlsx") format: String
+    ): Response {
+        ensureEstimationExists(estimationId)
+        val version =
+            if (versionNumber == "draft")
+                versionService.findDraft(estimationId)
+                    ?.let { versionService.snapshotDraft(it) }
+                    ?: throw NotFoundException("No draft found")
+            else
+                versionService.findSubmittedVersion(
+                    estimationId,
+                    versionNumber.toIntOrNull()
+                        ?: throw NotFoundException("Version $versionNumber not found")
+                ) ?: throw NotFoundException("Version $versionNumber not found")
+
+        val label = if (versionNumber == "draft") "draft" else "v$versionNumber"
+        return when (format) {
+            "xlsx" -> Response.ok(StreamingOutput { os -> excelExporter.export(version, os) })
+                .type("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+                .header("Content-Disposition", "attachment; filename=\"estimation-$label.xlsx\"")
+                .build()
+            "csv" -> Response.ok(StreamingOutput { os -> csvExporter.export(version, os) })
+                .type("text/csv")
+                .header("Content-Disposition", "attachment; filename=\"estimation-$label.csv\"")
+                .build()
+            else -> throw BadRequestException("Unsupported format: $format (use xlsx or csv)")
+        }
     }
 
     private fun ensureEstimationExists(estimationId: UUID) {
