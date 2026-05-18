@@ -9,6 +9,7 @@
         <kotlin.version>2.3.21</kotlin.version>
         <maven.compiler.release>21</maven.compiler.release>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+        <project.build.outputTimestamp>2026-05-18T00:00:00Z</project.build.outputTimestamp>
         <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
         <quarkus.platform.artifact-id>quarkus-bom</quarkus.platform.artifact-id>
         <quarkus.platform.group-id>io.quarkus.platform</quarkus.platform.group-id>
@@ -19,6 +20,11 @@
         <quarkus.container-image.group>theestimator</quarkus.container-image.group>
         <quarkus.container-image.name>estimation-backend</quarkus.container-image.name>
         <quarkus.jib.docker-environment-type>local</quarkus.jib.docker-environment-type>
+        <quarkus.jib.use-current-timestamp>false</quarkus.jib.use-current-timestamp>
+        <quarkus.jib.use-current-timestamp-file-modification>false</quarkus.jib.use-current-timestamp-file-modification>
+        <quarkus.jib.base-jvm-image>registry.access.redhat.com/ubi9/openjdk-21-runtime@sha256:87aadb888d0ca7709f09136466fe5c735654c11f7542d6a711f66c1ebdfcbba0</quarkus.jib.base-jvm-image>
+        <quarkus.jib.platforms>linux/amd64</quarkus.jib.platforms>
+        <push.registry></push.registry>
     </properties>
 
     <dependencyManagement>
@@ -246,6 +252,15 @@
             <properties>
                 <quarkus.profile>dev-minikube</quarkus.profile>
                 <quarkus.container-image.build>true</quarkus.container-image.build>
+            </properties>
+        </profile>
+        <profile>
+            <id>push</id>
+            <properties>
+                <quarkus.container-image.build>true</quarkus.container-image.build>
+                <quarkus.container-image.push>true</quarkus.container-image.push>
+                <quarkus.container-image.registry>${push.registry}</quarkus.container-image.registry>
+                <quarkus.jib.docker-environment-type>remote</quarkus.jib.docker-environment-type>
             </properties>
         </profile>
         <profile>

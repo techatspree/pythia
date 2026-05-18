@@ -3,18 +3,164 @@ phase: phase-6
 title: Build backend container image with Jib
 depends_on: [task-014]
 description: |
-  Configure Jib to produce a container image without requiring a Dockerfile.
-  Make the build deterministic and registry-pushable.
+  Produce the backend container image with Jib (no Dockerfile), and make
+  that image deterministic and registry-pushable.
+
+  Current state of the codebase (do NOT redo these — the original premise of
+  this task is already satisfied):
+  - The Jib extension is ALREADY a dependency:
+    src/backend/implementation/pom.xml declares io.quarkus:quarkus-container-image-jib.
+  - The image coordinates are ALREADY configured in pom.xml <properties>
+    (NOT application.properties):
+      quarkus.container-image.build = false
+      quarkus.container-image.group = theestimator
+      quarkus.container-image.name  = estimation-backend
+      quarkus.jib.docker-environment-type = local
+    Quarkus defaults quarkus.container-image.tag to the project version, so
+    the produced reference is theestimator/estimation-backend:1.0.0-SNAPSHOT.
+  - The dev-minikube Maven profile flips quarkus.container-image.build=true.
+  - scripts/minikube-deploy.sh already runs
+      mvn package -Pdev-minikube -DskipTests
+    then `minikube image load theestimator/estimation-backend:1.0.0-SNAPSHOT`,
+    and src/backend/k8s/backend.yaml already references that exact image with
+    imagePullPolicy: Never.
+  - There is NO ./mvnw wrapper; the build command is `mvn`.
+
+  What is actually missing (the real deliverable):
+  1. Determinism. The Jib base image is currently the Quarkus default
+     floating tag, so two builds on different days can differ. Pin the base
+     JVM image by digest and pin the target platform so the produced image
+     is reproducible regardless of build host (devs are on arm64, the
+     cluster runs amd64).
+  2. Registry-pushability. The image can only be built to the local Docker
+     daemon today. Add overridable registry coordinates and a `push` Maven
+     profile so the same artifact can be pushed to a registry — WITHOUT
+     breaking the existing local minikube `image load` flow (default stays
+     no-registry, build-only).
+
+  Do not change the group/name/tag (k8s manifests and the deploy script
+  depend on theestimator/estimation-backend:1.0.0-SNAPSHOT). Do not add config to
+  application.properties — image config lives in pom.xml <properties>.
+
 steps:
-  - in application.properties:
-      quarkus.container-image.builder=jib
-      quarkus.container-image.group=company
-      quarkus.container-image.name=estimation-backend
-      quarkus.container-image.tag=${project.version}
-  - "./mvnw package -Dquarkus.container-image.build=true"
-  - load into Minikube: "minikube image load company/estimation-backend:0.1.0"
+  - |
+    Pin the Jib base image by digest. In src/backend/implementation/pom.xml,
+    inside the existing <properties> block (next to the other
+    quarkus.container-image.* / quarkus.jib.* entries), add:
+
+      <quarkus.jib.base-jvm-image>registry.access.redhat.com/ubi9/openjdk-21-runtime@sha256:REPLACE_WITH_DIGEST</quarkus.jib.base-jvm-image>
+      <quarkus.jib.platforms>linux/amd64</quarkus.jib.platforms>
+
+    Obtain the current digest for the runtime base image Quarkus 3.35 uses
+    (UBI9 OpenJDK 21 runtime) and substitute it for REPLACE_WITH_DIGEST, e.g.:
+
+      docker manifest inspect registry.access.redhat.com/ubi9/openjdk-21-runtime:1.21 \
+        | grep -m1 '"digest"'
+      # or, if skopeo is available:
+      skopeo inspect docker://registry.access.redhat.com/ubi9/openjdk-21-runtime:1.21 \
+        | grep -m1 '"Digest"'
+
+    Use the resolved sha256 so the property reads
+    registry.access.redhat.com/ubi9/openjdk-21-runtime@sha256:<64-hex>.
+    Digest-pinning + a fixed single platform makes the image reproducible
+    (Jib already uses constant file timestamps by default).
+
+  - |
+    Add a `push` Maven profile to src/backend/implementation/pom.xml in the
+    existing <profiles> section (alongside dev-local / dev-minikube / native).
+    It must build AND push, and take the registry host from an overridable
+    property that defaults to empty (empty registry = current local
+    behaviour, so dev-minikube is untouched):
+
+      <profile>
+          <id>push</id>
+          <properties>
+              <quarkus.container-image.build>true</quarkus.container-image.build>
+              <quarkus.container-image.push>true</quarkus.container-image.push>
+              <quarkus.container-image.registry>${push.registry}</quarkus.container-image.registry>
+              <quarkus.jib.docker-environment-type>remote</quarkus.jib.docker-environment-type>
+          </properties>
+      </profile>
+
+    Also declare a default for the override property in the top-level
+    <properties> block so a plain build is unaffected:
+
+      <push.registry></push.registry>
+
+    The documented push command (registry + credentials supplied at
+    invocation, never committed) is:
+
+      mvn package -Ppush -DskipTests \
+        -Dpush.registry=<registry-host> \
+        -Dquarkus.container-image.username=<user> \
+        -Dquarkus.container-image.password=<token>
+
+  - |
+    Verify image-coordinate consistency across the three places that must
+    agree, and fix only if they have drifted (they currently all read
+    theestimator/estimation-backend:1.0.0-SNAPSHOT — do not change them):
+      - pom.xml properties (group + name; tag = project version)
+      - src/backend/k8s/backend.yaml  (image: line)
+      - scripts/minikube-deploy.sh    (minikube image load line)
+    If a future version bump changes ${project.version}, the k8s manifest
+    and deploy script tags must be bumped to match.
+
+  - |
+    Build the image deterministically and sanity-check it.
+
+    Backend regression (must stay green):
+      mvn test -pl src/backend/implementation
+
+    Image build (the task deliverable — requires a running Docker daemon;
+    Jib with docker-environment-type=local builds into the local daemon):
+      mvn package -pl src/backend/implementation -Pdev-minikube -DskipTests
+
+    Determinism check — two consecutive builds must yield the same image ID:
+      mvn package -pl src/backend/implementation -Pdev-minikube -DskipTests
+      ID1=$(docker images --no-trunc --format '{{.ID}}' theestimator/estimation-backend:1.0.0-SNAPSHOT)
+      mvn package -pl src/backend/implementation -Pdev-minikube -DskipTests
+      ID2=$(docker images --no-trunc --format '{{.ID}}' theestimator/estimation-backend:1.0.0-SNAPSHOT)
+      [ "$ID1" = "$ID2" ]
+
+    Runtime smoke check:
+      docker run -d --name est-img-check -p 8088:8080 \
+        -e QUARKUS_OIDC_ENABLED=false theestimator/estimation-backend:1.0.0-SNAPSHOT
+      curl -fsS http://localhost:8088/q/health
+      docker rm -f est-img-check
+
 validation:
-  - "docker images" or "minikube image ls" shows the image
-  - image runs and serves /q/health when started manually
+  - |
+    Jib extension is present:
+      grep -n "quarkus-container-image-jib" src/backend/implementation/pom.xml
+    Must return a match.
+  - |
+    Image coordinates are correct and unchanged:
+      grep -nE "quarkus.container-image.(group|name)" src/backend/implementation/pom.xml
+    Must show group theestimator and name estimation-backend.
+  - |
+    Base image is digest-pinned and platform is fixed:
+      grep -n "quarkus.jib.base-jvm-image" src/backend/implementation/pom.xml | grep "@sha256:"
+      grep -n "quarkus.jib.platforms" src/backend/implementation/pom.xml
+    Both must return a match (the base-jvm-image line must contain @sha256:).
+  - |
+    Push profile exists and pushes:
+      grep -n "<id>push</id>" src/backend/implementation/pom.xml
+      grep -n "quarkus.container-image.push" src/backend/implementation/pom.xml
+    Both must return a match.
+  - |
+    Image reference is consistent across pom, k8s manifest and deploy script:
+      grep -n "estimation-backend" src/backend/k8s/backend.yaml
+      grep -n "estimation-backend" scripts/minikube-deploy.sh
+    Both must read theestimator/estimation-backend:1.0.0-SNAPSHOT.
+  - |
+    mvn test -pl src/backend/implementation passes with zero failures.
+  - |
+    Deployment validation (requires Docker + Minikube; run on a host that
+    has them): `mvn package -pl src/backend/implementation -Pdev-minikube
+    -DskipTests` produces theestimator/estimation-backend:1.0.0-SNAPSHOT;
+    `docker images` (or `minikube image ls`) lists it; two consecutive
+    builds yield the same image ID; a started container serves
+    GET /q/health with HTTP 200.
+
 outputs:
-  - container image company/estimation-backend
+  - modified: src/backend/implementation/pom.xml
