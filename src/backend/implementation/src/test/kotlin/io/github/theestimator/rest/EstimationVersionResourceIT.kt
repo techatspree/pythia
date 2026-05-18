@@ -424,6 +424,139 @@ class EstimationVersionResourceIT {
             .body("itemGroups[0].items[0].offerPT", equalTo(0.0f))
     }
 
+    @Test
+    fun `compare endpoint returns 404 for non-existent version`() {
+        buildRealisticDraft(estimationId)
+        given().post("/api/estimations/$estimationId/versions/draft/submit")
+
+        given()
+            .`when`().get("/api/estimations/$estimationId/versions/1/compare/99")
+            .then()
+            .statusCode(404)
+    }
+
+    @Test
+    fun `comparing identical versions returns empty diff`() {
+        buildRealisticDraft(estimationId)
+        given().post("/api/estimations/$estimationId/versions/draft/submit")
+        given().post("/api/estimations/$estimationId/versions")
+        given().post("/api/estimations/$estimationId/versions/draft/submit")
+
+        given()
+            .`when`().get("/api/estimations/$estimationId/versions/1/compare/2")
+            .then()
+            .statusCode(200)
+            .body("versionA", equalTo(1))
+            .body("versionB", equalTo(2))
+            .body("addedItems.size()", equalTo(0))
+            .body("removedItems.size()", equalTo(0))
+            .body("modifiedItems.size()", equalTo(0))
+            .body("parameterChanges.size()", equalTo(0))
+    }
+
+    @Test
+    fun `replaced items appear as removed from v1 and added in v2`() {
+        buildRealisticDraft(estimationId)
+        given().post("/api/estimations/$estimationId/versions/draft/submit")
+        given().post("/api/estimations/$estimationId/versions")
+
+        given()
+            .contentType(ContentType.JSON)
+            .body("""
+                {"itemGroups": [{"title": "Development", "items": [
+                    {"description": "New Feature X", "minEffort": 1.0, "expectedEffort": 2.0, "maxEffort": 3.0}
+                ]}]}
+            """.trimIndent())
+            .put("/api/estimations/$estimationId/versions/draft")
+        given().post("/api/estimations/$estimationId/versions/draft/submit")
+
+        given()
+            .`when`().get("/api/estimations/$estimationId/versions/1/compare/2")
+            .then()
+            .statusCode(200)
+            .body("removedItems.size()", equalTo(2))
+            .body("addedItems.size()", equalTo(1))
+            .body("addedItems[0].description", equalTo("New Feature X"))
+            .body("modifiedItems.size()", equalTo(0))
+    }
+
+    @Test
+    fun `changed effort values appear in modifiedItems with correct changedFields`() {
+        buildRealisticDraft(estimationId)
+        given().post("/api/estimations/$estimationId/versions/draft/submit")
+        given().post("/api/estimations/$estimationId/versions")
+
+        val jp = given().get("/api/estimations/$estimationId/versions/draft")
+            .then().extract().jsonPath()
+        val groupId = jp.getString("itemGroups[0].logicalId")
+        val idA     = jp.getString("itemGroups[0].items[0].logicalId")
+        val idB     = jp.getString("itemGroups[0].items[1].logicalId")
+
+        given()
+            .contentType(ContentType.JSON)
+            .body("""
+                {"itemGroups": [{"logicalId": "$groupId", "title": "Development", "items": [
+                    {"logicalId": "$idA", "description": "Feature A",
+                     "minEffort": 3.0, "expectedEffort": 6.0, "maxEffort": 9.0},
+                    {"logicalId": "$idB", "description": "Feature B",
+                     "minEffort": 1.0, "expectedEffort": 3.0, "maxEffort": 5.0}
+                ]}]}
+            """.trimIndent())
+            .put("/api/estimations/$estimationId/versions/draft")
+        given().post("/api/estimations/$estimationId/versions/draft/submit")
+
+        given()
+            .`when`().get("/api/estimations/$estimationId/versions/1/compare/2")
+            .then()
+            .statusCode(200)
+            .body("modifiedItems.size()", equalTo(1))
+            .body("modifiedItems[0].description", equalTo("Feature A"))
+            .body("modifiedItems[0].changedFields",
+                  containsInAnyOrder("minEffort", "expectedEffort", "maxEffort"))
+            .body("modifiedItems[0].before.minEffort", equalTo(2.0f))
+            .body("modifiedItems[0].after.minEffort",  equalTo(3.0f))
+            .body("addedItems.size()",   equalTo(0))
+            .body("removedItems.size()", equalTo(0))
+    }
+
+    @Test
+    fun `submitted version can be compared against the draft`() {
+        buildRealisticDraft(estimationId)
+        given().post("/api/estimations/$estimationId/versions/draft/submit")
+        given().post("/api/estimations/$estimationId/versions")
+
+        val jp = given().get("/api/estimations/$estimationId/versions/draft")
+            .then().extract().jsonPath()
+        val groupId = jp.getString("itemGroups[0].logicalId")
+        val idA     = jp.getString("itemGroups[0].items[0].logicalId")
+        val idB     = jp.getString("itemGroups[0].items[1].logicalId")
+
+        given()
+            .contentType(ContentType.JSON)
+            .body("""
+                {"itemGroups": [{"logicalId": "$groupId", "title": "Development", "items": [
+                    {"logicalId": "$idA", "description": "Feature A",
+                     "minEffort": 3.0, "expectedEffort": 6.0, "maxEffort": 9.0},
+                    {"logicalId": "$idB", "description": "Feature B",
+                     "minEffort": 1.0, "expectedEffort": 3.0, "maxEffort": 5.0}
+                ]}]}
+            """.trimIndent())
+            .put("/api/estimations/$estimationId/versions/draft")
+
+        given()
+            .`when`().get("/api/estimations/$estimationId/versions/1/compare/draft")
+            .then()
+            .statusCode(200)
+            .body("modifiedItems.size()", equalTo(1))
+            .body("modifiedItems[0].description", equalTo("Feature A"))
+
+        // selecting the draft for comparison must not have submitted it
+        given()
+            .`when`().get("/api/estimations/$estimationId/versions/draft")
+            .then()
+            .statusCode(200)
+    }
+
     private fun buildRealisticDraft(estimationId: UUID) {
         given().post("/api/estimations/$estimationId/versions")
             .then().statusCode(201)

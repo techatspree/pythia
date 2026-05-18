@@ -3,18 +3,417 @@ phase: phase-5
 title: Build the version comparison view
 depends_on: [task-019, task-015]
 description: |
-  Two-pane diff view showing the differences between two versions of
-  the same estimation. Highlight added, removed, and changed items.
+  Two-pane diff view showing the differences between two submitted versions of
+  the same estimation. Highlights added, removed, and changed items.
+
+  The domain logic lives in VersionComparisonService (already implemented) and
+  the DTOs exist in VersionComparisonDtos.kt. What is missing:
+
+  1. A REST endpoint — GET /{versionA}/compare/{versionB} — wiring
+     VersionComparisonService into EstimationVersionResource. Each path
+     segment is either a submitted version number or the literal "draft".
+  2. TypeScript API types for the comparison response in types.ts.
+  3. A SvelteKit route at /estimations/[id]/compare that reads ?a=<ref>&b=<ref>
+     from the URL (each ref a version number or "draft"), fetches the
+     comparison, and renders the diff.
+  4. A "Compare" trigger in VersionList.svelte: a checkbox on every version
+     row in the list — submitted versions AND the draft. A "Compare" button
+     appears when exactly two rows are checked.
+
+  Comparison shows:
+  - Summary bar: effort delta (totalEffort B − totalEffort A), item count delta.
+  - Parameter changes section (if any): name, old value → new value.
+  - Added groups (green header row, all their items in green).
+  - Removed groups (red header row, all their items in red).
+  - Per-item rows: green = added, red = removed, yellow = modified.
+    For modified items, only the changed cells (minEffort/expectedEffort/maxEffort/
+    offerPT) are highlighted; unchanged cells render normally.
+  - "No differences" message when the diff is fully empty.
+
+  Two versions are picked by checking exactly two rows in the version list
+  (the draft row included) and pressing the Compare button. The computed
+  differences are displayed graphically as the color-coded diff described
+  above: green = added, red = removed, yellow = modified.
+
+  The compare page is read-only — no editing. The draft may be chosen as one
+  of the two compared operands; it is compared as a non-persisted snapshot
+  (selecting it for comparison must NOT submit it).
+
 steps:
-  - route /estimations/:id/compare?a=<n>&b=<m>
-  - call GET /api/estimations/{id}/versions/{a}/compare/{b}
-  - render side-by-side table with color-coded rows:
-      green = added in B
-      red = removed in B (only in A)
-      yellow = modified, with field-level highlight
-  - summary header: total effort delta, item count delta
+  - |
+    Add a compare endpoint to EstimationVersionResource.
+
+    Inject VersionComparisonService into the constructor alongside
+    EstimationVersionService and EstimationRepository (it is already
+    @ApplicationScoped).
+
+    VersionComparisonService.compare takes two SubmittedEstimationVersion.
+    The draft is a DraftEstimationVersion, so to compare against it we need a
+    non-persisted SubmittedEstimationVersion-shaped snapshot of the draft.
+    Extract the draft→submitted object-graph mapping currently inside
+    EstimationVersionService.submitDraft into a reusable function
+    (e.g. snapshotDraft(draft: DraftEstimationVersion): SubmittedEstimationVersion)
+    that builds the graph WITHOUT persisting it, and have submitDraft delegate
+    to it (then persist). This keeps VersionComparisonService unchanged.
+
+    Each compare operand may be a submitted version number or the literal
+    "draft", so the compare path segments are String (the existing
+    GET /{versionNumber} endpoint keeps Int — only compare changes).
+
+    Add this endpoint:
+
+      @GET
+      @Path("/{versionA}/compare/{versionB}")
+      fun compareVersions(
+          @PathParam("estimationId") estimationId: UUID,
+          @PathParam("versionA") versionA: String,
+          @PathParam("versionB") versionB: String
+      ): Response
+
+    Implementation:
+      ensureEstimationExists(estimationId)
+      fun resolve(ref: String): SubmittedEstimationVersion {
+          if (ref == "draft")
+              return versionService.findDraft(estimationId)
+                  ?.let { versionService.snapshotDraft(it) }
+                  ?: throw NotFoundException("No draft found")
+          val n = ref.toIntOrNull()
+              ?: throw NotFoundException("Version $ref not found")
+          return versionService.findSubmittedVersion(estimationId, n)
+              ?: throw NotFoundException("Version $ref not found")
+      }
+      val a = resolve(versionA)
+      val b = resolve(versionB)
+      return Response.ok(comparisonService.compare(a, b)).build()
+
+    (toIntOrNull keeps a bad ref a 404, not a 500. JAX-RS still routes the
+    static /draft sub-paths — list/get/update — correctly.)
+
+  - |
+    Add comparison TypeScript types to src/frontend/src/lib/api/types.ts.
+    Append these interfaces — do not delete or modify existing ones:
+
+      export interface ApiComparisonItem {
+        logicalId: string;
+        description: string | null;
+        minEffort: number | null;
+        expectedEffort: number | null;
+        maxEffort: number | null;
+        offerPT: number | null;
+        groupTitle: string | null;
+      }
+
+      export interface ApiItemModification {
+        logicalId: string;
+        description: string | null;
+        before: ApiComparisonItem;
+        after: ApiComparisonItem;
+        changedFields: string[];
+      }
+
+      export interface ApiParameterChange {
+        name: string;
+        oldValue: number | null;
+        newValue: number | null;
+        changeType: string; // "ADDED" | "REMOVED" | "MODIFIED"
+      }
+
+      export interface ApiComparisonGroup {
+        logicalId: string;
+        title: string | null;
+      }
+
+      export interface ApiVersionComparison {
+        versionA: number;
+        versionB: number;
+        addedItems: ApiComparisonItem[];
+        removedItems: ApiComparisonItem[];
+        modifiedItems: ApiItemModification[];
+        addedGroups: ApiComparisonGroup[];
+        removedGroups: ApiComparisonGroup[];
+        parameterChanges: ApiParameterChange[];
+      }
+
+  - |
+    Add a checkbox-based compare trigger to VersionList.svelte.
+
+    Track a rolling pair of selected version refs. A ref is the submitted
+    version number as a string, or the literal "draft" for the draft row:
+
+      let compareSelection = $state<string[]>([]);
+
+    EVERY version row gets a checkbox before its content — submitted
+    versions AND the draft. Use stopPropagation so the row link does not fire:
+
+      const refOf = (v) => v.isDraft ? 'draft' : String(v.versionNumber);
+
+      <input
+        type="checkbox"
+        checked={compareSelection.includes(refOf(version))}
+        onclick={(e) => { e.stopPropagation(); toggleCompare(refOf(version)); }}
+      />
+
+    toggleCompare adds or removes the ref. Limit selection to 2: if a third
+    is checked, drop the oldest-selected first (treat it as a rolling pair).
+    Selecting the draft for comparison must NOT submit it.
+
+    Below the version list, when compareSelection.length === 2, show:
+
+      <a
+        href="/estimations/{estimationId}/compare?a={refA}&b={refB}"
+        class="mt-3 inline-block px-4 py-2 text-sm bg-brand-green text-white rounded hover:bg-[#007a45]"
+      >
+        Compare {labelA} ↔ {labelB}
+      </a>
+
+    Canonical order, independent of check order: numeric refs ascending, and
+    "draft" always sorts last (it is the newest, unsubmitted state). Put the
+    first in ?a, the second in ?b. Labels: "v{n}" for a number, "draft" for
+    the draft row.
+
+  - |
+    Create src/frontend/src/routes/estimations/[id]/compare/+page.svelte.
+
+    Script section:
+    - Import { page } from '$app/state'
+    - $state: comparison = null, versionA = null, versionB = null, loading, error
+    - On onMount: read page.params.id, page.url.searchParams 'a' and 'b'
+      (each is a version number or the literal "draft").
+      For each ref, fetch its version object for totalEffort/items: use
+      GET /api/estimations/{id}/versions/draft when ref === 'draft',
+      else GET /api/estimations/{id}/versions/{ref}. Fetch both in parallel.
+      Then fetch GET /api/estimations/{id}/versions/{a}/compare/{b}
+      for the diff (the backend accepts "draft" as a path segment, so the
+      ref values pass through unchanged).
+    - Compute: effortDelta = versionB.totalEffort − versionA.totalEffort,
+      itemCountA = sum of versionA items, itemCountB = sum of versionB items.
+
+    Template:
+    - Back link: ← Back to estimation (href="/estimations/{page.params.id}")
+    - Heading: "{labelA} → {labelB}" where a ref labels as "v{n}" for a
+      number and "draft" for the draft (e.g. "v3 → draft").
+    - Summary bar (one row): "Effort: {totalEffort A} PT → {totalEffort B} PT
+      ({effortDelta ≥ 0 ? '+' : ''}{effortDelta} PT)"
+      and "Items: {itemCountA} → {itemCountB}"
+      Color the delta span green if effortDelta < 0, red if > 0, gray if 0.
+    - If comparison.parameterChanges.length > 0, render a "Parameters" section
+      (table: name, old value, new value) before the items table.
+    - Items table columns: Group | Item | Min | Exp | Max | offerPT
+      Row color classes:
+        added item:    bg-green-50, text-green-800 for all cells
+        removed item:  bg-red-50,   text-red-800   for all cells
+        modified item: bg-yellow-50 base; the specific cells whose field name
+                       is in changedFields get an additional font-semibold and
+                       a bg-yellow-200 background; show before → after in those
+                       cells as "{before} → {after}"
+        unchanged items (in neither list): not shown — the compare view shows
+        only rows that differ.
+
+    - Emit added groups as a section header row (colspan=6, green bg):
+      "+ Group added: {title}"
+    - Emit removed groups as a section header row (red bg):
+      "− Group removed: {title}"
+    - When all three lists are empty and parameterChanges is empty,
+      show: <p>No differences between v{a} and v{b}.</p>
+
+  - |
+    Add four tests to the existing EstimationVersionResourceIT.kt. Do NOT create
+    a new file. Place the tests after the last existing @Test method. All tests
+    use the existing buildRealisticDraft() helper and the established
+    given()/when()/then() RestAssured pattern.
+
+    Test 1 — compare returns 404 for a non-existent version number:
+
+      @Test
+      fun `compare endpoint returns 404 for non-existent version`() {
+          buildRealisticDraft(estimationId)
+          given().post("/api/estimations/$estimationId/versions/draft/submit")
+
+          given()
+              .`when`().get("/api/estimations/$estimationId/versions/1/compare/99")
+              .then()
+              .statusCode(404)
+      }
+
+    Test 2 — cloning and re-submitting without any changes yields an empty diff:
+
+      @Test
+      fun `comparing identical versions returns empty diff`() {
+          buildRealisticDraft(estimationId)
+          given().post("/api/estimations/$estimationId/versions/draft/submit")
+          given().post("/api/estimations/$estimationId/versions")
+          given().post("/api/estimations/$estimationId/versions/draft/submit")
+
+          given()
+              .`when`().get("/api/estimations/$estimationId/versions/1/compare/2")
+              .then()
+              .statusCode(200)
+              .body("versionA", equalTo(1))
+              .body("versionB", equalTo(2))
+              .body("addedItems.size()", equalTo(0))
+              .body("removedItems.size()", equalTo(0))
+              .body("modifiedItems.size()", equalTo(0))
+              .body("parameterChanges.size()", equalTo(0))
+      }
+
+    Test 3 — replacing items without preserving logicalIds produces removed and
+    added entries (items without a logicalId in the PUT body get new UUIDs, so
+    they no longer match v1's logicalIds):
+
+      @Test
+      fun `replaced items appear as removed from v1 and added in v2`() {
+          buildRealisticDraft(estimationId)
+          given().post("/api/estimations/$estimationId/versions/draft/submit")
+          given().post("/api/estimations/$estimationId/versions")
+
+          given()
+              .contentType(ContentType.JSON)
+              .body("""
+                  {"itemGroups": [{"title": "Development", "items": [
+                      {"description": "New Feature X", "minEffort": 1.0, "expectedEffort": 2.0, "maxEffort": 3.0}
+                  ]}]}
+              """.trimIndent())
+              .put("/api/estimations/$estimationId/versions/draft")
+          given().post("/api/estimations/$estimationId/versions/draft/submit")
+
+          given()
+              .`when`().get("/api/estimations/$estimationId/versions/1/compare/2")
+              .then()
+              .statusCode(200)
+              .body("removedItems.size()", equalTo(2))
+              .body("addedItems.size()", equalTo(1))
+              .body("addedItems[0].description", equalTo("New Feature X"))
+              .body("modifiedItems.size()", equalTo(0))
+      }
+
+    Test 4 — changing effort values on an item whose logicalId is preserved causes
+    that item to appear in modifiedItems with the correct changedFields list. This
+    test extracts the logicalIds from the cloned draft before updating:
+
+      @Test
+      fun `changed effort values appear in modifiedItems with correct changedFields`() {
+          buildRealisticDraft(estimationId)
+          given().post("/api/estimations/$estimationId/versions/draft/submit")
+          given().post("/api/estimations/$estimationId/versions")
+
+          val jp = given().get("/api/estimations/$estimationId/versions/draft")
+              .then().extract().jsonPath()
+          val groupId = jp.getString("itemGroups[0].logicalId")
+          val idA     = jp.getString("itemGroups[0].items[0].logicalId")
+          val idB     = jp.getString("itemGroups[0].items[1].logicalId")
+
+          // Modify Feature A's effort; keep Feature B identical
+          given()
+              .contentType(ContentType.JSON)
+              .body("""
+                  {"itemGroups": [{"logicalId": "$groupId", "title": "Development", "items": [
+                      {"logicalId": "$idA", "description": "Feature A",
+                       "minEffort": 3.0, "expectedEffort": 6.0, "maxEffort": 9.0},
+                      {"logicalId": "$idB", "description": "Feature B",
+                       "minEffort": 1.0, "expectedEffort": 3.0, "maxEffort": 5.0}
+                  ]}]}
+              """.trimIndent())
+              .put("/api/estimations/$estimationId/versions/draft")
+          given().post("/api/estimations/$estimationId/versions/draft/submit")
+
+          given()
+              .`when`().get("/api/estimations/$estimationId/versions/1/compare/2")
+              .then()
+              .statusCode(200)
+              .body("modifiedItems.size()", equalTo(1))
+              .body("modifiedItems[0].description", equalTo("Feature A"))
+              .body("modifiedItems[0].changedFields",
+                    containsInAnyOrder("minEffort", "expectedEffort", "maxEffort"))
+              .body("modifiedItems[0].before.minEffort", equalTo(2.0f))
+              .body("modifiedItems[0].after.minEffort",  equalTo(3.0f))
+              .body("addedItems.size()",   equalTo(0))
+              .body("removedItems.size()", equalTo(0))
+      }
+
+    Test 5 — a submitted version can be compared against the (unsubmitted)
+    draft. After submit + clone, the draft is modified but NOT submitted; the
+    compare endpoint accepts "draft" as the second operand:
+
+      @Test
+      fun `submitted version can be compared against the draft`() {
+          buildRealisticDraft(estimationId)
+          given().post("/api/estimations/$estimationId/versions/draft/submit")
+          given().post("/api/estimations/$estimationId/versions")
+
+          val jp = given().get("/api/estimations/$estimationId/versions/draft")
+              .then().extract().jsonPath()
+          val groupId = jp.getString("itemGroups[0].logicalId")
+          val idA     = jp.getString("itemGroups[0].items[0].logicalId")
+          val idB     = jp.getString("itemGroups[0].items[1].logicalId")
+
+          given()
+              .contentType(ContentType.JSON)
+              .body("""
+                  {"itemGroups": [{"logicalId": "$groupId", "title": "Development", "items": [
+                      {"logicalId": "$idA", "description": "Feature A",
+                       "minEffort": 3.0, "expectedEffort": 6.0, "maxEffort": 9.0},
+                      {"logicalId": "$idB", "description": "Feature B",
+                       "minEffort": 1.0, "expectedEffort": 3.0, "maxEffort": 5.0}
+                  ]}]}
+              """.trimIndent())
+              .put("/api/estimations/$estimationId/versions/draft")
+
+          given()
+              .`when`().get("/api/estimations/$estimationId/versions/1/compare/draft")
+              .then()
+              .statusCode(200)
+              .body("modifiedItems.size()", equalTo(1))
+              .body("modifiedItems[0].description", equalTo("Feature A"))
+
+          // selecting the draft for comparison must not have submitted it
+          given()
+              .`when`().get("/api/estimations/$estimationId/versions/draft")
+              .then()
+              .statusCode(200)
+      }
+
+  - |
+    Run the backend tests:
+      mvn test -pl src/backend/implementation
+
+    Then run the frontend type check:
+      cd src/frontend && npm run check
+
 validation:
-  - comparing identical versions shows "no differences"
-  - changing one effort value highlights only that cell
+  - |
+    Backend endpoint is wired:
+      grep -n "compareVersions\|VersionComparisonService" \
+        src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/EstimationVersionResource.kt
+    Must show both the injection and the method.
+  - |
+    API types added to types.ts:
+      grep "ApiVersionComparison" src/frontend/src/lib/api/types.ts
+    Must return a match.
+  - |
+    Compare page route exists:
+      find src/frontend/src/routes/estimations -name "+page.svelte" | grep compare
+  - |
+    Compare tests exist in EstimationVersionResourceIT:
+      grep -c "compare endpoint returns 404\|comparing identical\|replaced items\|changed effort values\|compared against the draft" \
+        src/backend/implementation/src/test/kotlin/io/github/theestimator/rest/EstimationVersionResourceIT.kt
+    Must return 5.
+  - |
+    Draft is selectable for comparison — String compare path params and a
+    non-persisting snapshot helper:
+      grep -n "versionA: String" \
+        src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/EstimationVersionResource.kt
+      grep -n "fun snapshotDraft" \
+        src/backend/implementation/src/main/kotlin/io/github/theestimator/service/EstimationVersionService.kt
+    Both must return a match.
+  - |
+    mvn test -pl src/backend/implementation passes with zero failures.
+  - |
+    cd src/frontend && npm run check passes with zero errors.
+
 outputs:
-  - frontend src/pages/VersionComparePage.tsx
+  - modified: src/backend/implementation/src/test/kotlin/io/github/theestimator/rest/EstimationVersionResourceIT.kt
+  - modified: src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/EstimationVersionResource.kt
+  - modified: src/backend/implementation/src/main/kotlin/io/github/theestimator/service/EstimationVersionService.kt
+  - modified: src/frontend/src/lib/api/types.ts
+  - modified: src/frontend/src/lib/components/VersionList.svelte
+  - added:    src/frontend/src/routes/estimations/[id]/compare/+page.svelte

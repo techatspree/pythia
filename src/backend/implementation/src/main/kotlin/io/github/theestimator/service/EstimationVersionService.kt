@@ -67,16 +67,30 @@ class EstimationVersionService(
 
     @Transactional
     fun submitDraft(estimationId: UUID): SubmittedEstimationVersion {
-        val estimation = estimationRepository.findById(estimationId)
+        estimationRepository.findById(estimationId)
             ?: throw WebApplicationException("Estimation not found: $estimationId", Response.Status.NOT_FOUND)
 
         val draft = draftRepository.findByEstimationId(estimationId)
             ?: throw WebApplicationException("No draft found for estimation $estimationId", Response.Status.NOT_FOUND)
 
+        val submitted = snapshotDraft(draft)
+
+        submittedRepository.persist(submitted)
+        draftRepository.delete(draft)
+
+        auditLogService.log(
+            null, "SubmittedEstimationVersion", submitted.id,
+            "SUBMIT", "version=${submitted.versionNumber}"
+        )
+
+        return submitted
+    }
+
+    fun snapshotDraft(draft: DraftEstimationVersion): SubmittedEstimationVersion {
         val calculated = draftVersionMapper.toDomain(draft).calculate()
 
         val submitted = SubmittedEstimationVersion().apply {
-            this.estimation = estimation
+            this.estimation = draft.estimation
             this.versionNumber = draft.versionNumber
             this.totalEffort = calculated.totalEffort
             this.notes = draft.notes
@@ -159,14 +173,6 @@ class EstimationVersionService(
                 version = submitted
             })
         }
-
-        submittedRepository.persist(submitted)
-        draftRepository.delete(draft)
-
-        auditLogService.log(
-            null, "SubmittedEstimationVersion", submitted.id,
-            "SUBMIT", "version=${submitted.versionNumber}"
-        )
 
         return submitted
     }

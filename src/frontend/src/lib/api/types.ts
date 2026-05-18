@@ -97,6 +97,47 @@ export interface ApiProjectSummary {
 	createdAt: string | null;
 }
 
+export interface ApiComparisonItem {
+	logicalId: string;
+	description: string | null;
+	minEffort: number | null;
+	expectedEffort: number | null;
+	maxEffort: number | null;
+	offerPT: number | null;
+	groupTitle: string | null;
+}
+
+export interface ApiItemModification {
+	logicalId: string;
+	description: string | null;
+	before: ApiComparisonItem;
+	after: ApiComparisonItem;
+	changedFields: string[];
+}
+
+export interface ApiParameterChange {
+	name: string;
+	oldValue: number | null;
+	newValue: number | null;
+	changeType: string;
+}
+
+export interface ApiComparisonGroup {
+	logicalId: string;
+	title: string | null;
+}
+
+export interface ApiVersionComparison {
+	versionA: number;
+	versionB: number;
+	addedItems: ApiComparisonItem[];
+	removedItems: ApiComparisonItem[];
+	modifiedItems: ApiItemModification[];
+	addedGroups: ApiComparisonGroup[];
+	removedGroups: ApiComparisonGroup[];
+	parameterChanges: ApiParameterChange[];
+}
+
 export interface ApiProjectDetail {
 	id: string | null;
 	name: string | null;

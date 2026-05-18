@@ -7,9 +7,11 @@ import io.github.theestimator.domain.draft.DraftEstimationParameter
 import io.github.theestimator.domain.draft.DraftFixedEstimationItem
 import io.github.theestimator.domain.draft.DraftProjectPhase
 import io.github.theestimator.domain.draft.DraftTimeRelativeEstimationItem
+import io.github.theestimator.domain.submitted.SubmittedEstimationVersion
 import io.github.theestimator.repository.EstimationRepository
 import io.github.theestimator.rest.dto.*
 import io.github.theestimator.service.EstimationVersionService
+import io.github.theestimator.service.VersionComparisonService
 import jakarta.enterprise.context.ApplicationScoped
 import jakarta.transaction.Transactional
 import jakarta.ws.rs.*
@@ -22,6 +24,7 @@ import java.util.UUID
 @Produces(MediaType.APPLICATION_JSON)
 class EstimationVersionResource(
     private val versionService: EstimationVersionService,
+    private val comparisonService: VersionComparisonService,
     private val estimationRepository: EstimationRepository
 ) {
 
@@ -173,6 +176,29 @@ class EstimationVersionResource(
         val version = versionService.findSubmittedVersion(estimationId, versionNumber)
             ?: throw NotFoundException("Version $versionNumber not found for estimation $estimationId")
         return Response.ok(version.toDto()).build()
+    }
+
+    @GET
+    @Path("/{versionA}/compare/{versionB}")
+    fun compareVersions(
+        @PathParam("estimationId") estimationId: UUID,
+        @PathParam("versionA") versionA: String,
+        @PathParam("versionB") versionB: String
+    ): Response {
+        ensureEstimationExists(estimationId)
+        fun resolve(ref: String): SubmittedEstimationVersion {
+            if (ref == "draft")
+                return versionService.findDraft(estimationId)
+                    ?.let { versionService.snapshotDraft(it) }
+                    ?: throw NotFoundException("No draft found")
+            val n = ref.toIntOrNull()
+                ?: throw NotFoundException("Version $ref not found")
+            return versionService.findSubmittedVersion(estimationId, n)
+                ?: throw NotFoundException("Version $ref not found")
+        }
+        val a = resolve(versionA)
+        val b = resolve(versionB)
+        return Response.ok(comparisonService.compare(a, b)).build()
     }
 
     private fun ensureEstimationExists(estimationId: UUID) {
