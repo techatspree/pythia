@@ -2,7 +2,6 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: backend
-  namespace: estimation
   labels:
     app: backend
 spec:
@@ -21,6 +20,9 @@ spec:
           imagePullPolicy: Never
           ports:
             - containerPort: 8080
+          envFrom:
+            - configMapRef:
+                name: backend-config
           env:
             - name: QUARKUS_DATASOURCE_USERNAME
               valueFrom:
@@ -34,12 +36,17 @@ spec:
                   key: POSTGRES_PASSWORD
             - name: QUARKUS_DATASOURCE_JDBC_URL
               value: jdbc:postgresql://postgres:5432/estimation
-            - name: QUARKUS_OIDC_ENABLED
-              value: "false"
             - name: QUARKUS_FLYWAY_MIGRATE_AT_START
               value: "true"
             - name: QUARKUS_HIBERNATE_ORM_DATABASE_GENERATION
               value: "none"
+          resources:
+            requests:
+              memory: 512Mi
+              cpu: 500m
+            limits:
+              memory: 1Gi
+              cpu: "1"
           readinessProbe:
             httpGet:
               path: /q/health/ready
@@ -52,15 +59,3 @@ spec:
               port: 8080
             initialDelaySeconds: 10
             periodSeconds: 10
----
-apiVersion: v1
-kind: Service
-metadata:
-  name: backend
-  namespace: estimation
-spec:
-  selector:
-    app: backend
-  ports:
-    - port: 8080
-      targetPort: 8080

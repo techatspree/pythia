@@ -1,0 +1,8 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: backend-config
+data:
+  QUARKUS_OIDC_ENABLED: "true"
+  QUARKUS_OIDC_AUTH_SERVER_URL: "https://login.example.com/realms/estimation"
+  QUARKUS_OIDC_CLIENT_ID: "estimation-prod"

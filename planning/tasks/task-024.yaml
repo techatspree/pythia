@@ -3,28 +3,249 @@ phase: phase-6
 title: Author Kubernetes manifests with Kustomize
 depends_on: [task-022, task-023]
 description: |
-  Layout manifests in k8s/ with a base/ directory and overlays per
-  environment. The same manifests should work for Minikube and prod.
-structure:
-  - k8s/base/
-      - namespace.yaml
-      - postgres/ (statefulset, service, pvc, secret)
-      - backend/ (deployment, service, configmap, secret-ref, hpa)
-      - frontend/ (deployment, service, configmap)
-      - ingress.yaml
-      - kustomization.yaml
-  - k8s/overlays/minikube/
-      - kustomization.yaml (patches images, hostnames, replica counts)
-  - k8s/overlays/production/
-      - kustomization.yaml (TLS, replicas, resource limits)
-config_principles:
-  - DB credentials from Kubernetes Secret
-  - OIDC tenant/client IDs from ConfigMap (not secret - they are public)
-  - readiness probe /q/health/ready, liveness probe /q/health/live
-  - resource requests: backend 512Mi/500m, frontend 64Mi/100m
+  Consolidate all Kubernetes manifests into a single Kustomize tree
+  (k8s/base + per-environment overlays) that works for Minikube and prod,
+  add the missing frontend/ingress/config resources, and rewire the deploy
+  script to use it.
+
+  Ground truth in this codebase (the original task text was schematic and
+  did not match what exists — corrected here):
+  - Manifests today are SCATTERED, not under a top-level k8s/:
+      src/k8s/namespace.yaml                      (Namespace "estimation")
+      src/k8s/kustomization.yaml                  (BROKEN — see below)
+      src/backend/k8s/backend.yaml                (Deployment + Service)
+      src/backend/k8s/postgres/statefulset.yaml
+      src/backend/k8s/postgres/service.yaml       (headless, clusterIP None)
+      src/backend/k8s/postgres/secret.yaml        (postgres-credentials)
+  - src/k8s/kustomization.yaml is BROKEN: it lists
+    `../backend/k8s/postgres/postgres.yaml`, a file that does not exist
+    (the real files are statefulset.yaml/service.yaml/secret.yaml). Any
+    `kubectl kustomize src/k8s` fails today. The consolidation removes this.
+  - The existing backend/postgres manifests are otherwise CORRECT and must
+    be reused verbatim where possible (do not reinvent):
+      * namespace: estimation
+      * backend image: theestimator/estimation-backend:1.0.0-SNAPSHOT
+        (task-022), imagePullPolicy: Never (minikube image load)
+      * backend probes ALREADY use /q/health/ready and /q/health/live
+        (valid Quarkus smallrye-health endpoints) — keep them
+      * DB creds via Secret `postgres-credentials`, keys POSTGRES_USER /
+        POSTGRES_PASSWORD / POSTGRES_DB (value estimation/estimation/
+        estimation); JDBC URL jdbc:postgresql://postgres:5432/estimation
+      * backend Service is named `backend` on port 8080; postgres Service
+        is headless `postgres` on 5432
+  - MISSING and to be added: resource requests/limits, a frontend
+    Deployment+Service (none exists — task-023 deferred it here), an
+    Ingress, a backend ConfigMap (public OIDC ids), a backend HPA, and
+    Kustomize overlays.
+  - The frontend image theestimator/estimation-frontend:1.0.0-SNAPSHOT
+    (task-023) serves the SPA AND nginx-proxies /api to the in-cluster
+    `backend` Service (resolver-based). So the Ingress only needs to route
+    one host to the frontend Service; the frontend reaches the backend
+    internally. Do NOT add a separate /api Ingress path.
+  - scripts/minikube-deploy.sh currently does `kubectl apply -f` on the old
+    scattered paths. After consolidation it must `kubectl apply -k
+    k8s/overlays/minikube` instead, or it breaks.
+
+  config principles (from the original task — kept, reconciled to reality):
+  - DB credentials from a Kubernetes Secret (postgres-credentials).
+  - Public OIDC settings (auth-server-url, client-id) from a ConfigMap, not
+    a Secret. Minikube overlay keeps OIDC disabled
+    (QUARKUS_OIDC_ENABLED=false); production overlay enables it and supplies
+    real values by patching the ConfigMap.
+  - readinessProbe /q/health/ready, livenessProbe /q/health/live.
+  - resource requests: backend 512Mi / 500m, frontend 64Mi / 100m
+    (set matching-or-higher limits: backend 1Gi/1, frontend 128Mi/200m).
+
+steps:
+  - |
+    Create the base manifests under k8s/base/. Reuse the EXISTING manifest
+    content (copy the proven backend Deployment/Service and the postgres
+    StatefulSet/Service/Secret), with these changes:
+      - Drop hard-coded `metadata.namespace: estimation` from every
+        resource; the base kustomization sets the namespace instead.
+      - Add resource requests/limits to the backend and (new) frontend
+        containers per the config principles.
+      - Keep backend env exactly as today EXCEPT source the OIDC settings
+        from the new ConfigMap (envFrom) and keep
+        QUARKUS_OIDC_ENABLED as an env the overlays control.
+
+    Files:
+      k8s/base/namespace.yaml            — Namespace estimation (from src/k8s)
+      k8s/base/postgres/statefulset.yaml — from src/backend/k8s/postgres
+      k8s/base/postgres/service.yaml     — headless, clusterIP: None
+      k8s/base/postgres/secret.yaml      — postgres-credentials (stringData)
+      k8s/base/backend/deployment.yaml   — from src/backend/k8s/backend.yaml
+                                           (Deployment only) + resources +
+                                           envFrom backend-config ConfigMap
+      k8s/base/backend/service.yaml      — Service `backend` :8080
+      k8s/base/backend/configmap.yaml    — name backend-config, data:
+                                           QUARKUS_OIDC_ENABLED: "false"
+                                           QUARKUS_OIDC_AUTH_SERVER_URL: ""
+                                           QUARKUS_OIDC_CLIENT_ID: ""
+      k8s/base/backend/hpa.yaml          — HPA v2 targeting Deployment
+                                           backend, min 1 max 3, CPU 80%
+      k8s/base/frontend/deployment.yaml  — image
+                                           theestimator/estimation-frontend:1.0.0-SNAPSHOT
+                                           imagePullPolicy: Never,
+                                           containerPort 80, resources
+                                           64Mi/100m .. 128Mi/200m,
+                                           readiness+liveness httpGet / :80
+      k8s/base/frontend/service.yaml     — Service `frontend` :80 -> 80
+      k8s/base/ingress.yaml              — Ingress `estimation`, one rule
+                                           host: estimation.local, path /
+                                           -> service frontend :80
+      k8s/base/kustomization.yaml        — see next step
+
+  - |
+    Create k8s/base/kustomization.yaml:
+
+      apiVersion: kustomize.config.k8s.io/v1beta1
+      kind: Kustomization
+      namespace: estimation
+      resources:
+        - namespace.yaml
+        - postgres/secret.yaml
+        - postgres/service.yaml
+        - postgres/statefulset.yaml
+        - backend/configmap.yaml
+        - backend/service.yaml
+        - backend/deployment.yaml
+        - backend/hpa.yaml
+        - frontend/service.yaml
+        - frontend/deployment.yaml
+        - ingress.yaml
+
+    (namespace.yaml itself defines the Namespace; the `namespace:` field
+    makes every other resource land in estimation. This replaces — and
+    fixes — the broken src/k8s/kustomization.yaml.)
+
+  - |
+    Create the minikube overlay k8s/overlays/minikube/kustomization.yaml:
+
+      apiVersion: kustomize.config.k8s.io/v1beta1
+      kind: Kustomization
+      resources:
+        - ../../base
+
+    Minikube uses the locally `minikube image load`-ed images with
+    imagePullPolicy: Never and OIDC disabled — the base defaults already
+    match minikube, so this overlay is intentionally thin (it exists so the
+    deploy command and prod overlay are symmetric). If a host other than
+    estimation.local is wanted, patch the Ingress host here.
+
+  - |
+    Create the production overlay k8s/overlays/production/kustomization.yaml.
+    It must render cleanly with `kubectl kustomize` (no cluster). It:
+      - sets replicas (backend 2) via a replicas patch,
+      - patches backend & frontend imagePullPolicy to IfNotPresent and
+        prefixes images with a ${REGISTRY} placeholder image name
+        (documented as overlay-edited, not committed creds),
+      - patches the backend-config ConfigMap to
+        QUARKUS_OIDC_ENABLED: "true" plus real
+        QUARKUS_OIDC_AUTH_SERVER_URL / QUARKUS_OIDC_CLIENT_ID values
+        (placeholders in the committed file),
+      - patches the Ingress host and adds tls.
+
+      apiVersion: kustomize.config.k8s.io/v1beta1
+      kind: Kustomization
+      resources:
+        - ../../base
+      patches:
+        - path: backend-oidc.yaml
+          target: {kind: ConfigMap, name: backend-config}
+        - path: ingress-tls.yaml
+          target: {kind: Ingress, name: estimation}
+      replicas:
+        - name: backend
+          count: 2
+
+    Include the referenced patch files (backend-oidc.yaml with the OIDC
+    data; ingress-tls.yaml with the prod host + a tls block). Keep values
+    as obvious placeholders.
+
+  - |
+    Remove the now-superseded scattered manifests and rewire the deploy
+    script (single source of truth):
+      - delete src/k8s/namespace.yaml, src/k8s/kustomization.yaml
+      - delete src/backend/k8s/backend.yaml,
+        src/backend/k8s/postgres/{statefulset,service,secret}.yaml
+        (and the now-empty src/backend/k8s tree)
+      - in scripts/minikube-deploy.sh replace the three
+        `kubectl apply -f <old path>` invocations (namespace, postgres dir,
+        backend.yaml) with a single:
+            kubectl apply -k "$PROJECT_ROOT/k8s/overlays/minikube"
+        Keep the image build + `minikube image load` lines (backend AND
+        frontend) and the readiness `kubectl wait` lines; add a wait for
+        the frontend pod (-l app=frontend). Update the K8S_DIR variable
+        accordingly.
+
+  - |
+    Render-check every kustomization WITHOUT a cluster (this is the build
+    step). All three must succeed and produce valid multi-doc YAML:
+      kubectl kustomize k8s/base            > /tmp/k8s-base.yaml
+      kubectl kustomize k8s/overlays/minikube    > /tmp/k8s-mk.yaml
+      kubectl kustomize k8s/overlays/production   > /tmp/k8s-prod.yaml
+    Then sanity-grep the minikube render (see validation).
+
 validation:
-  - "kubectl apply -k k8s/overlays/minikube" deploys cleanly
-  - all pods reach Ready state
+  - |
+    Kustomize tree exists and the old scattered manifests are gone:
+      test -f k8s/base/kustomization.yaml
+      test -f k8s/overlays/minikube/kustomization.yaml
+      test -f k8s/overlays/production/kustomization.yaml
+      ! test -e src/k8s
+      ! test -e src/backend/k8s
+  - |
+    All three kustomizations render without error (no cluster needed):
+      kubectl kustomize k8s/base            >/dev/null
+      kubectl kustomize k8s/overlays/minikube    >/dev/null
+      kubectl kustomize k8s/overlays/production   >/dev/null
+  - |
+    The rendered minikube manifest is correct:
+      M=$(kubectl kustomize k8s/overlays/minikube)
+      grep -q "theestimator/estimation-backend:1.0.0-SNAPSHOT"  <<<"$M"
+      grep -q "theestimator/estimation-frontend:1.0.0-SNAPSHOT" <<<"$M"
+      grep -q "namespace: estimation"                       <<<"$M"
+      grep -q "/q/health/ready"                              <<<"$M"
+      grep -q "/q/health/live"                               <<<"$M"
+      grep -q "kind: Ingress"                                <<<"$M"
+      grep -q "kind: HorizontalPodAutoscaler"                <<<"$M"
+      grep -Eq "memory: 512Mi"                               <<<"$M"
+    All must match.
+  - |
+    Deploy script no longer references the deleted paths and uses kustomize:
+      grep -q "kubectl apply -k" scripts/minikube-deploy.sh
+      ! grep -q "src/backend/k8s" scripts/minikube-deploy.sh
+      ! grep -q "src/k8s/namespace.yaml" scripts/minikube-deploy.sh
+  - |
+    Deployment validation (requires a running Minikube with the ingress and
+    metrics-server addons): `kubectl apply -k k8s/overlays/minikube`
+    applies with no errors; postgres, backend and frontend pods all reach
+    Ready (`kubectl -n estimation wait --for=condition=ready pod -l app=...`
+    for postgres, backend, frontend); GET /q/health/ready on the backend
+    Service returns 200 and the frontend Service serves the SPA.
+
 outputs:
-  - k8s/base/**
-  - k8s/overlays/minikube/**
+  - added:    k8s/base/namespace.yaml
+  - added:    k8s/base/postgres/statefulset.yaml
+  - added:    k8s/base/postgres/service.yaml
+  - added:    k8s/base/postgres/secret.yaml
+  - added:    k8s/base/backend/deployment.yaml
+  - added:    k8s/base/backend/service.yaml
+  - added:    k8s/base/backend/configmap.yaml
+  - added:    k8s/base/backend/hpa.yaml
+  - added:    k8s/base/frontend/deployment.yaml
+  - added:    k8s/base/frontend/service.yaml
+  - added:    k8s/base/ingress.yaml
+  - added:    k8s/base/kustomization.yaml
+  - added:    k8s/overlays/minikube/kustomization.yaml
+  - added:    k8s/overlays/production/kustomization.yaml
+  - added:    k8s/overlays/production/backend-oidc.yaml
+  - added:    k8s/overlays/production/ingress-tls.yaml
+  - modified: scripts/minikube-deploy.sh
+  - deleted:  src/k8s/namespace.yaml
+  - deleted:  src/k8s/kustomization.yaml
+  - deleted:  src/backend/k8s/backend.yaml
+  - deleted:  src/backend/k8s/postgres/statefulset.yaml
+  - deleted:  src/backend/k8s/postgres/service.yaml
+  - deleted:  src/backend/k8s/postgres/secret.yaml
