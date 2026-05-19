@@ -3,19 +3,285 @@ phase: phase-6
 title: Build frontend container image
 depends_on: [task-021]
 description: |
-  Multi-stage Dockerfile that builds the SPA with Node and serves it
-  with nginx. Use a minimal nginx config that serves index.html for
-  all unknown routes (SPA fallback).
+  Multi-stage Dockerfile that builds the SvelteKit SPA with Node and serves
+  the static output with nginx, including SPA deep-link fallback and an
+  /api reverse proxy to the backend.
+
+  Ground truth in this codebase (the original task text was written against
+  assumptions that do not hold here — corrected below):
+  - The frontend lives at src/frontend (NOT ./frontend).
+  - SvelteKit uses @sveltejs/adapter-static with fallback: 'index.html'.
+    The build output directory is `build/` (NOT `dist/`).
+  - Node version is v22.14.0 (src/frontend/pom.xml <node.version>), NOT 20.
+  - npm scripts: build = `vite build`; there is no separate dist step.
+  - CRITICAL: `npm run build` depends on src/frontend/src/lib/domain/*.mjs
+    (the KMP domain compiled to TypeScript). Those files are produced by the
+    frontend Maven module (maven-dependency-plugin unpacks the
+    io.github.theestimator:domain:1.0.0-SNAPSHOT:typescript artifact into
+    src/lib/domain/, and `mvn clean` deletes them). src/lib/adapter.ts
+    imports from './domain/domain.mjs'. A Dockerfile that only copies the
+    frontend source and runs `npm run build` WILL FAIL unless src/lib/domain/
+    is present in the build context. The Dockerfile must therefore be built
+    after that directory has been populated (see step 1).
+  - The SPA calls the API with relative URLs (e.g. fetch('/api/...')); the
+    Vite dev proxy (/api -> http://localhost:8080) only applies to `vite
+    dev`. In the container nginx must reverse-proxy /api to the backend.
+  - Image naming must match the backend convention established in task-022:
+    theestimator/estimation-frontend:1.0.0-SNAPSHOT
+    (NOT company/estimation-frontend:0.1.0).
+  - The backend Kubernetes Service is named `backend` on port 8080
+    (src/backend/k8s/backend.yaml), so the in-cluster proxy target is
+    http://backend:8080.
+
+  Also in scope: wiring the image build into the Maven reactor so that
+  `mvn package -Pdev-minikube` (the command scripts/minikube-deploy.sh
+  already runs for the backend) ALSO produces the frontend image — mirroring
+  how the backend image is built only under the dev-minikube profile
+  (root pom sets quarkus.container-image.build=true there).
+
+  Out of scope (do NOT do here): a frontend Kubernetes manifest, and
+  changing scripts/minikube-deploy.sh to load/deploy the frontend image.
+  This task delivers the Dockerfile, nginx config, .dockerignore and the
+  src/frontend/pom.xml reactor wiring only.
+
 steps:
-  - create frontend/Dockerfile:
-      stage 1: node:20-alpine, "npm ci && npm run build"
-      stage 2: nginx:alpine, copy dist/ to /usr/share/nginx/html
-  - create frontend/nginx.conf with try_files $uri /index.html
-  - "docker build -t company/estimation-frontend:0.1.0 ."
-  - "minikube image load company/estimation-frontend:0.1.0"
+  - |
+    Prerequisite — ensure the generated KMP TypeScript is present so the
+    Node build can resolve src/lib/domain/domain.mjs. It is created by the
+    frontend module's generate-sources phase (which requires the domain
+    artifact to be installed). From the repo root:
+
+      mvn -pl src/domain -am install -DskipTests
+      mvn -pl src/frontend generate-sources
+
+    Confirm src/frontend/src/lib/domain/domain.mjs exists before building
+    the image. (These files are also currently committed, but treat them as
+    a generated build input, not source.) Once the reactor wiring in the
+    later step is in place, the canonical build
+    `mvn -pl src/frontend -am package -Pdev-minikube` performs this
+    generate-sources step itself, so this is only needed for a standalone
+    `docker build`.
+
+  - |
+    Create src/frontend/.dockerignore so the build context is small and free
+    of host-only / regenerated artifacts. It must NOT exclude
+    src/lib/domain (that is a required build input):
+
+      node_modules
+      .svelte-kit
+      build
+      .git
+      *.log
+
+  - |
+    Create src/frontend/Dockerfile — a two-stage build. The build context is
+    src/frontend (so src/lib/domain/ is included via the source copy):
+
+      # syntax=docker/dockerfile:1
+      FROM node:22.14-alpine AS build
+      WORKDIR /app
+      COPY package.json package-lock.json ./
+      RUN npm ci
+      COPY . .
+      RUN npm run build
+
+      FROM nginx:1.27-alpine
+      ENV NGINX_ENTRYPOINT_LOCAL_RESOLVERS=1
+      COPY nginx.conf /etc/nginx/templates/default.conf.template
+      COPY --from=build /app/build /usr/share/nginx/html
+      EXPOSE 80
+
+    Note the copied output is /app/build (adapter-static default), not dist.
+    nginx.conf is installed as a TEMPLATE (not directly into conf.d): the
+    official nginx entrypoint runs `15-local-resolvers.envsh` then
+    `20-envsubst-on-templates.sh`. CRITICAL: 15-local-resolvers.envsh is
+    guarded by `[ "${NGINX_ENTRYPOINT_LOCAL_RESOLVERS:-}" ] || return 0`, so
+    it only exports NGINX_LOCAL_RESOLVERS (the nameserver from the
+    container's /etc/resolv.conf — Docker DNS standalone, cluster DNS in
+    k8s) when NGINX_ENTRYPOINT_LOCAL_RESOLVERS is set. Hence the
+    `ENV NGINX_ENTRYPOINT_LOCAL_RESOLVERS=1`. envsubst then substitutes
+    ${NGINX_LOCAL_RESOLVERS} into /etc/nginx/conf.d/default.conf; nginx's
+    own $variables are not env vars so they pass through untouched.
+
+  - |
+    Create src/frontend/nginx.conf — minimal config (an envsubst template)
+    with SPA deep-link fallback and an /api reverse proxy to the in-cluster
+    backend Service. A literal `proxy_pass http://backend:8080;` makes nginx
+    resolve `backend` at STARTUP, so the container refuses to start whenever
+    backend is unresolvable (standalone, or merely started before backend in
+    k8s). Use a `resolver` plus a variable proxy target so resolution is
+    deferred to request time and nginx always starts:
+
+      server {
+          listen 80;
+          server_name _;
+          root /usr/share/nginx/html;
+          index index.html;
+
+          resolver ${NGINX_LOCAL_RESOLVERS} valid=10s ipv6=off;
+
+          location /api/ {
+              set $backend_upstream http://backend:8080;
+              proxy_pass $backend_upstream;
+              proxy_set_header Host $host;
+              proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+              proxy_set_header X-Forwarded-Proto $scheme;
+          }
+
+          location / {
+              try_files $uri $uri/ /index.html;
+          }
+      }
+
+    The fallback target is /index.html because adapter-static is configured
+    with fallback: 'index.html'. Because proxy_pass uses a variable, nginx
+    starts even when `backend` is down; it resolves per request via the
+    resolver (cluster DNS in k8s → reaches the backend Service in the
+    estimation namespace). For a standalone local `docker run` the /api
+    location simply returns 502 (no backend) — expected; only static routing
+    and deep links are smoke-tested locally, the /api proxy is validated
+    in-cluster.
+
+  - |
+    Wire the image build into the Maven reactor, mirroring the backend.
+    The backend builds its image only under the dev-minikube profile; do the
+    equivalent for the frontend in src/frontend/pom.xml.
+
+    src/frontend/pom.xml is <packaging>pom</packaging> and currently has NO
+    <profiles> section. Add one as a direct child of <project>, immediately
+    after </build>, containing a dev-minikube profile that runs `docker
+    build` in the package phase. Activating -Pdev-minikube propagates to
+    every reactor module, so `mvn package -Pdev-minikube` (what
+    scripts/minikube-deploy.sh runs) will also build the frontend image.
+    Use exec-maven-plugin 3.5.0 (the version already used by
+    src/domain/pom.xml), honour the existing ${skip.frontend} flag, set the
+    working directory to the module base (so the Dockerfile context is
+    src/frontend), and tag with ${project.version} so the reference is
+    theestimator/estimation-frontend:1.0.0-SNAPSHOT:
+
+      <profiles>
+          <profile>
+              <id>dev-minikube</id>
+              <build>
+                  <plugins>
+                      <plugin>
+                          <groupId>org.codehaus.mojo</groupId>
+                          <artifactId>exec-maven-plugin</artifactId>
+                          <version>3.5.0</version>
+                          <executions>
+                              <execution>
+                                  <id>docker-build-frontend-image</id>
+                                  <phase>package</phase>
+                                  <goals>
+                                      <goal>exec</goal>
+                                  </goals>
+                                  <configuration>
+                                      <skip>${skip.frontend}</skip>
+                                      <executable>docker</executable>
+                                      <workingDirectory>${project.basedir}</workingDirectory>
+                                      <arguments>
+                                          <argument>build</argument>
+                                          <argument>-t</argument>
+                                          <argument>theestimator/estimation-frontend:${project.version}</argument>
+                                          <argument>.</argument>
+                                      </arguments>
+                                  </configuration>
+                              </execution>
+                          </executions>
+                      </plugin>
+                  </plugins>
+              </build>
+          </profile>
+      </profiles>
+
+    A plain `mvn package` (no profile) must NOT invoke docker — only
+    -Pdev-minikube does, exactly like the backend. The npm-build execution
+    already runs in the `compile` phase, so `build/` exists before this
+    package-phase docker build.
+
+  - |
+    Build, smoke-test and load the image.
+
+    Canonical build via the Maven reactor — this runs generate-sources
+    (unpacks the domain TS), the SvelteKit build, then the wired docker
+    build:
+      mvn -pl src/frontend -am package -Pdev-minikube -DskipTests
+    (Low-level call the profile makes, build context src/frontend:
+      docker build -t theestimator/estimation-frontend:1.0.0-SNAPSHOT src/frontend )
+
+    Smoke test static serving + SPA deep links:
+      docker rm -f est-fe-check 2>/dev/null || true
+      docker run -d --name est-fe-check -p 8090:80 \
+        theestimator/estimation-frontend:1.0.0-SNAPSHOT
+      sleep 3
+      # root serves the SPA shell
+      curl -fsS -o /tmp/fe-root.html -w '%{http_code}\n' http://localhost:8090/
+      # deep link must NOT 404 — adapter-static fallback returns index.html
+      DEEP=$(curl -s -o /tmp/fe-deep.html -w '%{http_code}' \
+        http://localhost:8090/estimations/123/compare)
+      diff -q /tmp/fe-root.html /tmp/fe-deep.html   # identical SPA shell
+      [ "$DEEP" = "200" ]
+      docker rm -f est-fe-check
+
+    Load into Minikube (deployment):
+      minikube image load theestimator/estimation-frontend:1.0.0-SNAPSHOT
+
 validation:
-  - container starts and serves the SPA on port 80
-  - deep-link routes (/projects/123) load correctly
+  - |
+    Dockerfile and configs exist:
+      ls src/frontend/Dockerfile src/frontend/nginx.conf src/frontend/.dockerignore
+    All three must exist.
+  - |
+    Dockerfile uses the correct Node and the correct (build/, not dist/)
+    output, and an nginx final stage:
+      grep -n "node:22" src/frontend/Dockerfile
+      grep -n "/app/build /usr/share/nginx/html" src/frontend/Dockerfile
+      grep -n "FROM nginx" src/frontend/Dockerfile
+      grep -n "NGINX_ENTRYPOINT_LOCAL_RESOLVERS=1" src/frontend/Dockerfile
+      grep -n "templates/default.conf.template" src/frontend/Dockerfile
+    All five greps must return a match; `dist` must NOT appear:
+      ! grep -q "dist" src/frontend/Dockerfile
+  - |
+    nginx.conf has the SPA fallback and a deferred-resolution /api proxy:
+      grep -n "try_files .* /index.html" src/frontend/nginx.conf
+      grep -nF 'backend:8080' src/frontend/nginx.conf
+      grep -nF 'resolver ${NGINX_LOCAL_RESOLVERS}' src/frontend/nginx.conf
+      grep -nF 'proxy_pass $backend_upstream' src/frontend/nginx.conf
+    All four must return a match (variable proxy_pass + resolver ⇒ nginx
+    starts even when backend is unresolvable).
+  - |
+    .dockerignore does not exclude the generated domain TypeScript:
+      ! grep -qx "src/lib/domain" src/frontend/.dockerignore
+      ! grep -qx "src/lib/domain/" src/frontend/.dockerignore
+  - |
+    Image name matches the project convention:
+      grep -rn "theestimator/estimation-frontend:1.0.0-SNAPSHOT" \
+        planning/tasks/task-023.yaml
+    (And no occurrence of company/estimation-frontend or :0.1.0 in the
+    Dockerfile / task.)
+  - |
+    Reactor wiring present and profile-gated in src/frontend/pom.xml:
+      grep -n "<id>dev-minikube</id>" src/frontend/pom.xml
+      grep -n "exec-maven-plugin" src/frontend/pom.xml
+      grep -n "estimation-frontend:.{project.version}" src/frontend/pom.xml
+    All must match. exec-maven-plugin must appear ONLY inside the
+    dev-minikube <profile> (its line number is greater than the
+    <id>dev-minikube</id> line), so a plain build never invokes docker.
+  - |
+    Deployment validation (requires Docker; Minikube for the load step):
+    `mvn -pl src/frontend -am package -Pdev-minikube -DskipTests` succeeds
+    and produces theestimator/estimation-frontend:1.0.0-SNAPSHOT (visible in
+    `docker images`); the SAME command without -Pdev-minikube
+    (`mvn -pl src/frontend -am package -DskipTests`) does NOT invoke docker
+    / does not (re)create that image. A container started from the image
+    returns HTTP 200 for `/` and for a deep link such as
+    `/estimations/123/compare`, with the deep-link body byte-identical to
+    `/` (adapter-static SPA fallback to index.html); `minikube image load
+    theestimator/estimation-frontend:1.0.0-SNAPSHOT` then lists it in
+    `minikube image ls`.
+
 outputs:
-  - frontend/Dockerfile
-  - frontend/nginx.conf
+  - added: src/frontend/Dockerfile
+  - added: src/frontend/nginx.conf
+  - added: src/frontend/.dockerignore
+  - modified: src/frontend/pom.xml
