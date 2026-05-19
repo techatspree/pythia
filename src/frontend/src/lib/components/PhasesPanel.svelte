@@ -132,7 +132,7 @@
 								{#if editable}
 									<input
 										type="number"
-										step="0.5"
+										step="0.1"
 										min="0"
 										class="w-full text-right bg-transparent focus:outline-none focus:ring-1 focus:ring-brand-green/40 rounded px-1 py-0.5"
 										value={item.durationWeeks ?? ''}

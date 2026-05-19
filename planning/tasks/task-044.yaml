@@ -1,0 +1,75 @@
+id: task-044
+phase: phase-4
+title: Support one decimal place in version editor number inputs
+depends_on: []
+description: |
+  The effort input fields (optimistic, expected, pessimistic) in EstimationGrid
+  and the duration field in PhasesPanel currently use step="0.5". The browser
+  spinner increments in 0.5 steps and, via HTML constraint validation, rejects
+  freehand values that are not multiples of 0.5 (e.g. 1.3 is flagged invalid in
+  some browsers).
+
+  Fix: change step="0.5" to step="0.1" on the three effort inputs in
+  EstimationGrid.svelte and on the durationWeeks input in PhasesPanel.svelte.
+
+  Verified against the current code (all accurate):
+  - EstimationGrid.svelte has EXACTLY three step="0.5" occurrences, at lines
+    364 (minEffort input, block 362-371), 382 (expectedEffort, 380-389) and
+    400 (maxEffort, 398-407). Each input also has min="0".
+  - PhasesPanel.svelte has EXACTLY one step="0.5", at line 135 (durationWeeks
+    input, block 133-140), which also has min="0".
+  - These four inputs are the ONLY step="0.5" occurrences in src/frontend.
+  - updateField() in EstimationGrid (line 160) parses numeric fields with
+    parseFloat(), and PhasesPanel.update() likewise — any decimal value is
+    accepted by the JS; the constraint is purely the HTML `step` attribute.
+  - The backend domain stores efforts and durations as Double — no
+    restriction.
+  - ParametersPanel uses step="any" (line 103) and EffortDriversPanel uses
+    step="0.01" (line 86); both are already fine and MUST NOT be changed.
+
+  Design note (so this is not later "corrected" to step="any"): because each
+  input has min="0", the HTML step base is 0, so step="0.1" makes the valid
+  values 0.0, 0.1, 0.2 … i.e. exactly one decimal place. That is the intended
+  behaviour per the title — two-decimal freehand input (e.g. 1.25) remains
+  invalid by design. step="any" (unrestricted) is deliberately NOT used here;
+  it is only appropriate for ParametersPanel.
+
+steps:
+  - |
+    In src/frontend/src/lib/components/EstimationGrid.svelte, change every
+    step="0.5" to step="0.1". There are exactly three (lines 364, 382, 400 —
+    the minEffort, expectedEffort and maxEffort number inputs). Replace all
+    three; leave every other attribute (including min="0") untouched.
+
+  - |
+    In src/frontend/src/lib/components/PhasesPanel.svelte, change the single
+    step="0.5" (line 135, the durationWeeks input) to step="0.1". Leave
+    min="0" and the other attributes untouched.
+
+  - |
+    Run the frontend type-check (frontend-only change; this is the build
+    step):
+      cd src/frontend && npm run check
+
+validation:
+  - |
+    EstimationGrid has exactly three step="0.1" and zero step="0.5":
+      test "$(grep -c 'step="0.1"' src/frontend/src/lib/components/EstimationGrid.svelte)" -eq 3
+      ! grep -q 'step="0.5"' src/frontend/src/lib/components/EstimationGrid.svelte
+  - |
+    PhasesPanel has exactly one step="0.1" and zero step="0.5":
+      test "$(grep -c 'step="0.1"' src/frontend/src/lib/components/PhasesPanel.svelte)" -eq 1
+      ! grep -q 'step="0.5"' src/frontend/src/lib/components/PhasesPanel.svelte
+  - |
+    The unrelated panels are untouched:
+      grep -q 'step="any"' src/frontend/src/lib/components/ParametersPanel.svelte
+      grep -q 'step="0.01"' src/frontend/src/lib/components/EffortDriversPanel.svelte
+  - |
+    No step="0.5" remains anywhere under src/frontend/src:
+      ! grep -rq 'step="0.5"' src/frontend/src
+  - |
+    cd src/frontend && npm run check passes with zero errors.
+
+outputs:
+  - modified: src/frontend/src/lib/components/EstimationGrid.svelte
+  - modified: src/frontend/src/lib/components/PhasesPanel.svelte
