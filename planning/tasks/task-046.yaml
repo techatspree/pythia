@@ -1,0 +1,124 @@
+id: task-046
+phase: phase-4
+title: Use the full browser width on every page
+depends_on: []
+description: |
+  Every page in the SvelteKit frontend currently centers its content in a
+  fixed-width column (`max-w-5xl` or `max-w-6xl` + `mx-auto`). On wide
+  monitors that leaves large empty margins on either side, while the data
+  grids (EstimationGrid, ParametersPanel, …) waste horizontal space and force
+  the user to scroll for content that would fit. Make every top-level page
+  container span the full viewport width while keeping its existing inner
+  padding so content does not touch the edges.
+
+  Current state (verified by `grep -rn 'max-w-' src/frontend/src`):
+
+  Page-level containers to widen (REMOVE the max-w + mx-auto):
+    1. src/frontend/src/routes/+layout.svelte:13
+         class="max-w-5xl mx-auto px-6 py-3 flex items-center gap-3"
+    2. src/frontend/src/routes/projects/+page.svelte:38
+         class="max-w-5xl mx-auto p-6"
+    3. src/frontend/src/routes/projects/[id]/+page.svelte:24
+         class="max-w-5xl mx-auto p-6"
+    4. src/frontend/src/routes/estimations/[id]/+page.svelte:52
+         class="max-w-5xl mx-auto p-6"
+    5. src/frontend/src/routes/estimations/[id]/compare/+page.svelte:83
+         class="max-w-6xl mx-auto p-6"
+    6. src/frontend/src/routes/estimations/[id]/versions/[versionNumber]/+page.svelte:96
+         class="max-w-6xl mx-auto p-6"
+
+  Intentional inner width constraints that MUST be left alone (they are
+  element-level, not page-level):
+    - src/frontend/src/lib/components/CreateProjectDialog.svelte:44
+        `max-w-md` on the modal dialog itself — the modal should stay narrow
+        and centered.
+    - src/frontend/src/routes/projects/+page.svelte:50
+        `max-w-sm` on the search input — a search field should not stretch
+        across the whole viewport.
+
+  Out of scope (do NOT do here): adding a new full-width design system,
+  introducing a max-width-for-readability constraint on prose pages,
+  responsive breakpoints beyond what Tailwind already provides, changes to
+  the data grids' internal layout. The deliverable is the six class-list
+  edits above and nothing else.
+
+steps:
+  - |
+    For each of the six files listed in the description, remove the
+    `max-w-5xl mx-auto` or `max-w-6xl mx-auto` tokens from the page-level
+    wrapper's class list. Keep every other class (padding, layout, flex,
+    gap, etc.) untouched.
+
+    Exact substitutions (each appears exactly once in its file):
+
+      src/frontend/src/routes/+layout.svelte
+        "max-w-5xl mx-auto px-6 py-3 flex items-center gap-3"
+        → "px-6 py-3 flex items-center gap-3"
+
+      src/frontend/src/routes/projects/+page.svelte
+        "max-w-5xl mx-auto p-6"  →  "p-6"
+
+      src/frontend/src/routes/projects/[id]/+page.svelte
+        "max-w-5xl mx-auto p-6"  →  "p-6"
+
+      src/frontend/src/routes/estimations/[id]/+page.svelte
+        "max-w-5xl mx-auto p-6"  →  "p-6"
+
+      src/frontend/src/routes/estimations/[id]/compare/+page.svelte
+        "max-w-6xl mx-auto p-6"  →  "p-6"
+
+      src/frontend/src/routes/estimations/[id]/versions/[versionNumber]/+page.svelte
+        "max-w-6xl mx-auto p-6"  →  "p-6"
+
+    Do not touch CreateProjectDialog.svelte's `max-w-md` or the search
+    input's `max-w-sm` on projects/+page.svelte.
+
+  - |
+    Run the frontend type-check (the build step — no source semantics
+    change, only class lists):
+      cd src/frontend && npm run check
+
+validation:
+  - |
+    No page-level max-w constraint remains anywhere under src/frontend/src
+    (the only remaining max-w-* tokens must be the two intentional inner
+    ones: max-w-md on the modal, max-w-sm on the search input):
+      ! grep -rq "max-w-5xl" src/frontend/src
+      ! grep -rq "max-w-6xl" src/frontend/src
+  - |
+    Each of the six page-level wrappers no longer has `max-w-` + `mx-auto`
+    on the same element:
+      ! grep -q "max-w-" src/frontend/src/routes/+layout.svelte
+      ! grep -q "max-w-" src/frontend/src/routes/projects/[id]/+page.svelte
+      ! grep -q "max-w-" src/frontend/src/routes/estimations/[id]/+page.svelte
+      ! grep -q "max-w-" src/frontend/src/routes/estimations/[id]/compare/+page.svelte
+      ! grep -q "max-w-" "src/frontend/src/routes/estimations/[id]/versions/[versionNumber]/+page.svelte"
+    (projects/+page.svelte still legitimately contains `max-w-sm` on the
+    search input — see next check.)
+  - |
+    The intentional inner constraints are untouched:
+      grep -q "max-w-md" src/frontend/src/lib/components/CreateProjectDialog.svelte
+      grep -q "max-w-sm" src/frontend/src/routes/projects/+page.svelte
+    Both must match.
+  - |
+    Padding is preserved on every page wrapper (no class-list was emptied
+    or stripped of padding by accident):
+      grep -q "px-6 py-3" src/frontend/src/routes/+layout.svelte
+      for f in \
+        src/frontend/src/routes/projects/+page.svelte \
+        src/frontend/src/routes/projects/[id]/+page.svelte \
+        src/frontend/src/routes/estimations/[id]/+page.svelte \
+        src/frontend/src/routes/estimations/[id]/compare/+page.svelte \
+        "src/frontend/src/routes/estimations/[id]/versions/[versionNumber]/+page.svelte"; do
+        grep -q '"p-6"\|class="p-6 ' "$f" || { echo "MISSING p-6 in $f"; exit 1; }
+      done
+  - |
+    cd src/frontend && npm run check passes with zero errors.
+
+outputs:
+  - modified: src/frontend/src/routes/+layout.svelte
+  - modified: src/frontend/src/routes/projects/+page.svelte
+  - modified: src/frontend/src/routes/projects/[id]/+page.svelte
+  - modified: src/frontend/src/routes/estimations/[id]/+page.svelte
+  - modified: src/frontend/src/routes/estimations/[id]/compare/+page.svelte
+  - modified: src/frontend/src/routes/estimations/[id]/versions/[versionNumber]/+page.svelte
