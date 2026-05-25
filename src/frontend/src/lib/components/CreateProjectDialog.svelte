@@ -1,19 +1,21 @@
 <script lang="ts">
+	import ErrorBanner from '$lib/components/ErrorBanner.svelte';
+
 	let { open = $bindable(false), oncreated }: { open: boolean; oncreated: () => void } = $props();
 
 	let name = $state('');
 	let description = $state('');
 	let client = $state('');
 	let loading = $state(false);
-	let error = $state('');
+	let bannerMessage = $state<string | null>(null);
 
 	async function handleSubmit() {
 		if (!name.trim()) {
-			error = 'Name is required';
+			bannerMessage = 'Name is required';
 			return;
 		}
 		loading = true;
-		error = '';
+		bannerMessage = null;
 		try {
 			const res = await fetch('/api/projects', {
 				method: 'POST',
@@ -27,7 +29,7 @@
 			open = false;
 			oncreated();
 		} catch (e: any) {
-			error = e.message;
+			bannerMessage = e.message;
 		} finally {
 			loading = false;
 		}
@@ -35,7 +37,7 @@
 
 	function handleCancel() {
 		open = false;
-		error = '';
+		bannerMessage = null;
 	}
 </script>
 
@@ -44,9 +46,7 @@
 		<div class="bg-white rounded-lg shadow-xl p-6 w-full max-w-md">
 			<h2 class="text-lg font-semibold mb-4">New Project</h2>
 
-			{#if error}
-				<p class="text-red-600 text-sm mb-3">{error}</p>
-			{/if}
+			<ErrorBanner message={bannerMessage} ondismiss={() => (bannerMessage = null)} />
 
 			<form onsubmit={handleSubmit}>
 				<div class="mb-3">

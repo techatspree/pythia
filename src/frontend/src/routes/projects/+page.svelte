@@ -2,22 +2,23 @@
 	import { onMount } from 'svelte';
 	import ProjectList from '$lib/components/ProjectList.svelte';
 	import CreateProjectDialog from '$lib/components/CreateProjectDialog.svelte';
+	import ErrorBanner from '$lib/components/ErrorBanner.svelte';
 
 	let projects = $state<any[]>([]);
 	let loading = $state(true);
-	let error = $state('');
+	let bannerMessage = $state<string | null>(null);
 	let showCreate = $state(false);
 	let search = $state('');
 
 	async function loadProjects() {
 		loading = true;
-		error = '';
+		bannerMessage = null;
 		try {
 			const res = await fetch('/api/projects');
 			if (!res.ok) throw new Error('Failed to load projects');
 			projects = await res.json();
 		} catch (e: any) {
-			error = e.message;
+			bannerMessage = e.message;
 		} finally {
 			loading = false;
 		}
@@ -51,6 +52,8 @@
 		/>
 	</div>
 
-	<ProjectList projects={filteredProjects} {loading} {error} />
+	<ErrorBanner message={bannerMessage} ondismiss={() => (bannerMessage = null)} />
+
+	<ProjectList projects={filteredProjects} {loading} error="" />
 	<CreateProjectDialog bind:open={showCreate} oncreated={loadProjects} />
 </div>

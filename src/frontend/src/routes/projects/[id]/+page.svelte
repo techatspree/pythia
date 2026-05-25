@@ -2,10 +2,11 @@
 	import { page } from '$app/state';
 	import { onMount } from 'svelte';
 	import ProjectDetail from '$lib/components/ProjectDetail.svelte';
+	import ErrorBanner from '$lib/components/ErrorBanner.svelte';
 
 	let project = $state<any | null>(null);
 	let loading = $state(true);
-	let error = $state('');
+	let bannerMessage = $state<string | null>(null);
 
 	onMount(async () => {
 		const id = page.params.id;
@@ -14,7 +15,7 @@
 			if (!res.ok) throw new Error('Project not found');
 			project = await res.json();
 		} catch (e: any) {
-			error = e.message;
+			bannerMessage = e.message;
 		} finally {
 			loading = false;
 		}
@@ -23,5 +24,6 @@
 
 <div class="max-w-5xl mx-auto p-6">
 	<a href="/projects" class="text-sm text-brand-green hover:underline mb-4 inline-block">&larr; Back to projects</a>
-	<ProjectDetail {project} {loading} {error} />
+	<ErrorBanner message={bannerMessage} ondismiss={() => (bannerMessage = null)} />
+	<ProjectDetail {project} {loading} error="" />
 </div>

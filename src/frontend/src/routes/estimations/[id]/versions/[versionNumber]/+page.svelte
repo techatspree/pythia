@@ -6,12 +6,13 @@
 	import ParametersPanel from '$lib/components/ParametersPanel.svelte';
 	import EffortDriversPanel from '$lib/components/EffortDriversPanel.svelte';
 	import PhasesPanel from '$lib/components/PhasesPanel.svelte';
+	import ErrorBanner from '$lib/components/ErrorBanner.svelte';
 	import { computeCalcMap } from '$lib/adapter.js';
 	import type { ApiVersionResponse } from '$lib/api/types.js';
 
 	let versionData = $state<ApiVersionResponse | null>(null);
 	let loading = $state(true);
-	let error = $state('');
+	let bannerMessage = $state<string | null>(null);
 	let saveStatus = $state<'idle' | 'saving' | 'saved'>('idle');
 	let saveTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -24,15 +25,16 @@
 	const calcMap = $derived.by(() => {
 		try {
 			return computeCalcMap(currentGroups, currentParameters, currentDrivers, currentPhases);
-		} catch (e) {
+		} catch (e: any) {
 			console.error('calcMap computation failed:', e);
+			bannerMessage = `Calculation failed: ${e?.message ?? e}`;
 			return new Map<string, { offerPT: number; cost: number; offerPrice: number }>();
 		}
 	});
 
 	async function loadVersion() {
 		loading = true;
-		error = '';
+		bannerMessage = null;
 		try {
 			const estimationId = page.params.id;
 			const versionNumber = page.params.versionNumber;
@@ -49,7 +51,7 @@
 			currentDrivers = versionData!.effortDrivers ?? [];
 			currentPhases = versionData!.phases ?? [];
 		} catch (e: any) {
-			error = e.message;
+			bannerMessage = e.message;
 			console.error('loadVersion failed:', e);
 		} finally {
 			loading = false;
@@ -78,8 +80,9 @@
 				if (!res.ok) throw new Error('Save failed');
 				saveStatus = 'saved';
 				setTimeout(() => (saveStatus = 'idle'), 2000);
-			} catch {
+			} catch (e: any) {
 				saveStatus = 'idle';
+				bannerMessage = `Autosave failed: ${e?.message ?? e}`;
 			}
 		}, 800);
 	}
@@ -96,9 +99,8 @@
 <div class="max-w-6xl mx-auto p-6">
 	{#if loading}
 		<p class="text-gray-500">Loading...</p>
-	{:else if error}
-		<p class="text-red-600">{error}</p>
 	{:else if versionData}
+		<ErrorBanner message={bannerMessage} ondismiss={() => (bannerMessage = null)} />
 		<div class="flex items-center justify-between mb-4">
 			<a href="/estimations/{page.params.id}" class="text-sm text-brand-green hover:underline"
 				>&larr; Back to estimation</a
@@ -199,5 +201,7 @@
 				scheduleSave();
 			}}
 		/>
+	{:else}
+		<ErrorBanner message={bannerMessage} ondismiss={() => (bannerMessage = null)} />
 	{/if}
 </div>

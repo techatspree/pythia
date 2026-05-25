@@ -1,13 +1,14 @@
 <script lang="ts">
 	import { page } from '$app/state';
 	import { onMount } from 'svelte';
+	import ErrorBanner from '$lib/components/ErrorBanner.svelte';
 	import type { ApiVersionComparison, ApiVersionResponse } from '$lib/api/types.js';
 
 	let comparison = $state<ApiVersionComparison | null>(null);
 	let versionA = $state<ApiVersionResponse | null>(null);
 	let versionB = $state<ApiVersionResponse | null>(null);
 	let loading = $state(true);
-	let error = $state('');
+	let bannerMessage = $state<string | null>(null);
 
 	let paramA = $derived(page.url.searchParams.get('a') ?? '');
 	let paramB = $derived(page.url.searchParams.get('b') ?? '');
@@ -41,7 +42,7 @@
 
 	onMount(async () => {
 		loading = true;
-		error = '';
+		bannerMessage = null;
 		try {
 			const id = page.params.id;
 			const a = page.url.searchParams.get('a');
@@ -63,7 +64,7 @@
 			versionB = await resB.json();
 			comparison = await resCmp.json();
 		} catch (e: any) {
-			error = e.message;
+			bannerMessage = e.message;
 		} finally {
 			loading = false;
 		}
@@ -85,10 +86,10 @@
 		&larr; Back to estimation
 	</a>
 
+	<ErrorBanner message={bannerMessage} ondismiss={() => (bannerMessage = null)} />
+
 	{#if loading}
 		<p class="mt-4 text-gray-500">Loading…</p>
-	{:else if error}
-		<p class="mt-4 text-red-600">{error}</p>
 	{:else if comparison && versionA && versionB}
 		<h1 class="text-2xl font-bold mt-4 mb-4">{labelA} → {labelB}</h1>
 
