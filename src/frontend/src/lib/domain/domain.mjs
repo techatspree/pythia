@@ -1390,7 +1390,7 @@ protoOf(TimeRelativeEstimationItem).dc = function () {
   return this.qb_1;
 };
 protoOf(TimeRelativeEstimationItem).s6 = function () {
-  var tmp = this.mean;
+  var tmp = PertCalculation_instance.mean(this.minEffort, this.expectedEffort, this.maxEffort);
   var tmp0_safe_receiver = this.phase;
   var tmp1_elvis_lhs = tmp0_safe_receiver == null ? null : tmp0_safe_receiver.durationWeeks;
   return tmp * (tmp1_elvis_lhs == null ? 0.0 : tmp1_elvis_lhs);
@@ -1399,7 +1399,7 @@ protoOf(TimeRelativeEstimationItem).t6 = function () {
   var tmp0_safe_receiver = this.phase;
   var tmp1_elvis_lhs = tmp0_safe_receiver == null ? null : tmp0_safe_receiver.durationWeeks;
   var d = tmp1_elvis_lhs == null ? 0.0 : tmp1_elvis_lhs;
-  return this.variance * d * d;
+  return PertCalculation_instance.variance(this.minEffort, this.maxEffort) * d * d;
 };
 protoOf(TimeRelativeEstimationItem).withCalculationParameters = function (params) {
   return this.copy(VOID, VOID, VOID, VOID, VOID, VOID, VOID, VOID, VOID, params);

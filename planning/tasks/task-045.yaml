@@ -1,0 +1,187 @@
+id: task-045
+phase: phase-4
+title: Replace silent try/catch blocks with a user-visible ErrorBanner
+depends_on: []
+description: |
+  When a try/catch in the SvelteKit frontend swallows an exception with no
+  user-visible signal, real bugs hide as blank cells or as a click that
+  silently does nothing. The recent stack-overflow in TimeRelativeEstimationItem
+  surfaced only as `—` in offerPT/cost/price cells because the calcMap
+  computation was wrapped in a silent try/catch that logged to the console
+  and returned an empty Map.
+
+  Audit the frontend, classify every try/catch, and route failures through a
+  single reusable ErrorBanner component so:
+    - Truly silent catches (NO UI signal today) become visible.
+    - Catches that already surface the error via ad-hoc markup
+      (`<p class="text-red-600">{error}</p>` etc.) move to the same banner
+      for a consistent dismissible UX.
+
+  Current state (verified by grep on src/frontend/src; line numbers as of now):
+
+  Truly silent — MUST become visible:
+    1. src/frontend/src/routes/estimations/[id]/versions/[versionNumber]/+page.svelte:24-31
+       calcMap = $derived.by(() => { try { ... } catch (e) { console.error(...); return new Map(...); } })
+       (the calcMap bug case — blank cells, no user feedback)
+    2. src/frontend/src/routes/estimations/[id]/versions/[versionNumber]/+page.svelte:61-85
+       scheduleSave: `catch { saveStatus = 'idle'; }` — the user sees "Saving…"
+       then nothing; no indication the autosave failed.
+
+  Already user-visible (sets a local `error` state and renders a snippet) —
+  migrate to the same component for consistency, no behaviour change:
+    - src/frontend/src/routes/estimations/[id]/versions/[versionNumber]/+page.svelte:33-57 (loadVersion)
+    - src/frontend/src/routes/estimations/[id]/+page.svelte:16-23 (loadEstimation)
+    - src/frontend/src/routes/estimations/[id]/+page.svelte:31-37 (createVersion)
+    - src/frontend/src/routes/estimations/[id]/+page.svelte:42-48 (submitVersion)
+    - src/frontend/src/routes/estimations/[id]/compare/+page.svelte:43-67 (loadComparison)
+    - src/frontend/src/routes/projects/+page.svelte:13-23 (loadProjects)
+    - src/frontend/src/routes/projects/[id]/+page.svelte:10-20 (loadProject)
+    - src/frontend/src/lib/components/CreateProjectDialog.svelte:16-33 (create)
+
+  Out of scope (do NOT do here): backend error handling, toast/snackbar
+  system, retry logic, global unhandled-rejection handler. The deliverable
+  is one component and the audit/replacement above.
+
+steps:
+  - |
+    Create src/frontend/src/lib/components/ErrorBanner.svelte — a single
+    reusable, dismissible banner. Svelte 5 runes; no new $state inside the
+    component (parent owns the message). Props:
+
+      let { message, ondismiss }: {
+          message: string | null;
+          ondismiss?: () => void;
+      } = $props();
+
+    Markup (renders only when message is non-null, Tailwind classes
+    consistent with the rest of the app — red-50/red-200/red-800 like the
+    existing per-page snippets):
+
+      {#if message}
+        <div
+          role="alert"
+          class="mb-4 px-4 py-3 bg-red-50 border border-red-200 rounded text-red-800 text-sm flex items-start gap-3"
+        >
+          <span class="flex-1">{message}</span>
+          {#if ondismiss}
+            <button
+              type="button"
+              aria-label="Dismiss"
+              class="text-red-800 hover:text-red-900 leading-none text-lg"
+              onclick={() => ondismiss?.()}
+            >×</button>
+          {/if}
+        </div>
+      {/if}
+
+  - |
+    Fix the two TRULY SILENT catches in
+    src/frontend/src/routes/estimations/[id]/versions/[versionNumber]/+page.svelte.
+
+    Add a banner state at the top of the <script> alongside the other $state
+    declarations:
+
+      let bannerMessage = $state<string | null>(null);
+
+    For the calcMap derived (around lines 24-31), keep the empty-Map fallback
+    so the page does not crash, but ALSO set the banner so the user knows
+    the live calculation is broken:
+
+      const calcMap = $derived.by(() => {
+          try {
+              return computeCalcMap(currentGroups, currentParameters, currentDrivers, currentPhases);
+          } catch (e: any) {
+              console.error('calcMap computation failed:', e);
+              bannerMessage = `Calculation failed: ${e?.message ?? e}`;
+              return new Map<string, { offerPT: number; cost: number; offerPrice: number }>();
+          }
+      });
+
+    For scheduleSave (around lines 61-85), replace the silent
+    `catch { saveStatus = 'idle'; }` with:
+
+      } catch (e: any) {
+          saveStatus = 'idle';
+          bannerMessage = `Autosave failed: ${e?.message ?? e}`;
+      }
+
+    Render <ErrorBanner> at the top of the main content wrapper (inside the
+    {#if versionData} block so it sits above the heading):
+
+      <ErrorBanner message={bannerMessage} ondismiss={() => (bannerMessage = null)} />
+
+    Import it next to the other component imports:
+
+      import ErrorBanner from '$lib/components/ErrorBanner.svelte';
+
+  - |
+    Migrate the already-visible catches to use ErrorBanner so the whole app
+    shows errors in one consistent way. In each of the files listed in the
+    description (loadVersion, loadEstimation/createVersion/submitVersion,
+    loadComparison, loadProjects, loadProject, CreateProjectDialog), do
+    exactly:
+      - rename the local `error` $state to `bannerMessage` (or keep `error`
+        as the name — pick one consistently per file),
+      - replace any inline `<p class="text-red-...">{error}</p>` snippet
+        with `<ErrorBanner message={error} ondismiss={() => (error = null)} />`
+        placed in the same DOM position,
+      - import ErrorBanner from '$lib/components/ErrorBanner.svelte' at the
+        top of the <script>,
+      - leave the catch bodies otherwise unchanged (still `error = e.message`).
+
+    Do NOT change the URL-fetch logic, the loading-state handling, or the
+    surrounding behaviour. This is a UI/component standardisation only.
+
+  - |
+    Run the frontend type-check (the build step):
+      cd src/frontend && npm run check
+
+validation:
+  - |
+    ErrorBanner component exists with the expected shape:
+      test -f src/frontend/src/lib/components/ErrorBanner.svelte
+      grep -q "let { message, ondismiss }" src/frontend/src/lib/components/ErrorBanner.svelte
+      grep -q "role=\"alert\""              src/frontend/src/lib/components/ErrorBanner.svelte
+      grep -q "{#if message}"                src/frontend/src/lib/components/ErrorBanner.svelte
+    All four must match.
+  - |
+    Both originally-silent catches now set a banner state and the page
+    imports ErrorBanner:
+      F="src/frontend/src/routes/estimations/[id]/versions/[versionNumber]/+page.svelte"
+      grep -q "bannerMessage"                                    "$F"
+      grep -q "Calculation failed"                                "$F"
+      grep -q "Autosave failed"                                   "$F"
+      grep -q "import ErrorBanner from '\$lib/components/ErrorBanner.svelte'" "$F"
+    All four must match.
+  - |
+    No silent fallback returns remain. A `console.error(` followed within
+    the same catch by `return ` (the empty-fallback pattern) must not occur
+    anywhere under src/frontend/src:
+      ! grep -rzPq "console\.error\([^)]*\);\s*return " src/frontend/src
+    And no `catch ` block exists that has neither an assignment to a
+    banner/error state nor a re-throw — manually confirm by inspecting:
+      grep -rn "} catch" src/frontend/src --include='*.svelte' --include='*.ts'
+    Every match's body must either set an *error/bannerMessage state or
+    rethrow.
+  - |
+    Every page/component that had a try/catch imports ErrorBanner:
+      for f in \
+        "src/frontend/src/routes/estimations/[id]/versions/[versionNumber]/+page.svelte" \
+        "src/frontend/src/routes/estimations/[id]/+page.svelte" \
+        "src/frontend/src/routes/estimations/[id]/compare/+page.svelte" \
+        "src/frontend/src/routes/projects/+page.svelte" \
+        "src/frontend/src/routes/projects/[id]/+page.svelte" \
+        "src/frontend/src/lib/components/CreateProjectDialog.svelte"; do
+        grep -q "ErrorBanner" "$f" || { echo "MISSING: $f"; exit 1; }
+      done
+  - |
+    cd src/frontend && npm run check passes with zero errors.
+
+outputs:
+  - added:    src/frontend/src/lib/components/ErrorBanner.svelte
+  - modified: src/frontend/src/routes/estimations/[id]/versions/[versionNumber]/+page.svelte
+  - modified: src/frontend/src/routes/estimations/[id]/+page.svelte
+  - modified: src/frontend/src/routes/estimations/[id]/compare/+page.svelte
+  - modified: src/frontend/src/routes/projects/+page.svelte
+  - modified: src/frontend/src/routes/projects/[id]/+page.svelte
+  - modified: src/frontend/src/lib/components/CreateProjectDialog.svelte
