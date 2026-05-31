@@ -671,4 +671,49 @@ class EstimationVersionResourceIT {
             .put("/api/estimations/$estimationId/versions/draft")
             .then().statusCode(200)
     }
+
+    @Test
+    fun `update draft additional costs persists and replaces them`() {
+        given().post("/api/estimations/$estimationId/versions")
+            .then().statusCode(201)
+
+        given()
+            .contentType(ContentType.JSON)
+            .body("""
+                {
+                    "phases": [{"name": "Implementation", "abbreviation": "IMPL", "durationWeeks": 4.0}],
+                    "additionalCosts": [
+                        {"description": "License", "amount": 1000.0, "type": "ONE_TIME"},
+                        {"description": "Hosting", "amount": 0.0, "type": "RECURRING", "amountPerWeek": 50.0, "phaseAbbreviation": "IMPL"}
+                    ]
+                }
+            """.trimIndent())
+            .`when`().put("/api/estimations/$estimationId/versions/draft")
+            .then()
+            .statusCode(200)
+            .body("additionalCosts.size()", equalTo(2))
+            .body("additionalCosts[0].description", equalTo("License"))
+            .body("additionalCosts[0].type", equalTo("ONE_TIME"))
+            .body("additionalCosts[0].amount", equalTo(1000.0f))
+            .body("additionalCosts[1].description", equalTo("Hosting"))
+            .body("additionalCosts[1].type", equalTo("RECURRING"))
+            .body("additionalCosts[1].amountPerWeek", equalTo(50.0f))
+            .body("additionalCosts[1].phaseAbbreviation", equalTo("IMPL"))
+
+        // Second PUT replaces the list entirely (clear() semantics)
+        given()
+            .contentType(ContentType.JSON)
+            .body("""
+                {
+                    "additionalCosts": [
+                        {"description": "Replaced", "amount": 42.0, "type": "ONE_TIME"}
+                    ]
+                }
+            """.trimIndent())
+            .`when`().put("/api/estimations/$estimationId/versions/draft")
+            .then()
+            .statusCode(200)
+            .body("additionalCosts.size()", equalTo(1))
+            .body("additionalCosts[0].description", equalTo("Replaced"))
+    }
 }

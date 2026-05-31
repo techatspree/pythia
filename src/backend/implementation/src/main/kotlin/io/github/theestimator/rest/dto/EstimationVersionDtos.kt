@@ -82,6 +82,15 @@ data class AdditionalCostDto(
     val phaseAbbreviation: String?
 )
 
+data class AdditionalCostUpdateDto(
+    val id: UUID? = null,
+    val description: String,
+    val amount: Double = 0.0,
+    val type: AdditionalCostType,
+    val amountPerWeek: Double? = null,
+    val phaseAbbreviation: String? = null
+)
+
 data class PhaseUpdateDto(
     val name: String,
     val abbreviation: String,
@@ -93,7 +102,8 @@ data class DraftUpdateDto(
     val parameters: List<EstimationParameterDto>? = null,
     val effortDrivers: List<EffortDriverDto>? = null,
     val phases: List<PhaseUpdateDto>? = null,
-    val itemGroups: List<ItemGroupUpdateDto>? = null
+    val itemGroups: List<ItemGroupUpdateDto>? = null,
+    val additionalCosts: List<AdditionalCostUpdateDto>? = null
 )
 
 data class ItemGroupUpdateDto(

@@ -1,5 +1,6 @@
 package io.github.theestimator.rest
 
+import io.github.theestimator.domain.draft.DraftAdditionalCost
 import io.github.theestimator.domain.draft.DraftEffortDriver
 import io.github.theestimator.domain.draft.DraftEstimationItem
 import io.github.theestimator.domain.draft.DraftEstimationItemGroup
@@ -146,6 +147,23 @@ class EstimationVersionResource(
                     })
                 }
                 draft.itemGroups.add(group)
+            }
+        }
+
+        update.additionalCosts?.let { costDtos ->
+            draft.additionalCosts.clear()
+            costDtos.forEach { dto ->
+                val costPhase = dto.phaseAbbreviation?.let { abbr ->
+                    draft.phases.find { it.abbreviation == abbr }
+                }
+                draft.additionalCosts.add(DraftAdditionalCost().apply {
+                    description = dto.description
+                    amount = dto.amount
+                    type = dto.type
+                    amountPerWeek = dto.amountPerWeek
+                    phase = costPhase
+                    version = draft
+                })
             }
         }
 

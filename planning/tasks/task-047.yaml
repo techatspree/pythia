@@ -1,0 +1,191 @@
+id: task-047
+phase: phase-4
+title: Extend the draft update REST API to support editing additional costs
+depends_on: []
+description: |
+  The domain model (src/domain) already has AdditionalCost (description,
+  amount, type ONE_TIME/RECURRING, amountPerWeek, phase) and the backend
+  already persists DraftAdditionalCost / SubmittedAdditionalCost entities and
+  returns them in GET responses. However the PUT /api/estimations/{id}/versions/draft
+  endpoint cannot update additional costs: DraftUpdateDto has no additionalCosts
+  field and updateDraft() in EstimationVersionResource ignores them entirely.
+
+  Goal: make additional costs editable via the existing draft-update endpoint so
+  that a future frontend panel can persist changes.
+
+  Relevant files:
+    - src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/dto/EstimationVersionDtos.kt
+        → DraftUpdateDto (add additionalCosts field)
+    - src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/EstimationVersionResource.kt
+        → updateDraft() (handle the new field)
+    - src/backend/implementation/src/main/kotlin/io/github/theestimator/domain/draft/DraftAdditionalCost.kt
+        → the entity to populate (description, amount, type, amountPerWeek, phase, version)
+    - src/backend/implementation/src/main/kotlin/io/github/theestimator/domain/AdditionalCostType.kt
+        → the backend-side enum (ONE_TIME, RECURRING)
+
+  Spreadsheet context (planning/inputdata/reference-spreadsheet_Zusatzkosten.xlsx,
+  sheet "Zusatzkosten"):
+    Einmalige Kosten (ONE_TIME): Beschreibung | Betrag | Paket
+    Laufende Kosten (RECURRING): Beschreibung | Betrag pro Woche | Paket | Gesamtkosten
+
+  A ONE_TIME cost has amount > 0 and amountPerWeek = null.
+  A RECURRING cost has amountPerWeek > 0 and amount = null/0.
+  Both carry a phaseAbbreviation that identifies the phase by its abbreviation.
+
+steps:
+  - |
+    In EstimationVersionDtos.kt, add an AdditionalCostUpdateDto data class and
+    add an additionalCosts field to DraftUpdateDto.
+
+    Add directly after the AdditionalCostDto class (around line 84):
+
+      data class AdditionalCostUpdateDto(
+          val id: UUID? = null,
+          val description: String,
+          val amount: Double = 0.0,
+          val type: AdditionalCostType,
+          val amountPerWeek: Double? = null,
+          val phaseAbbreviation: String? = null
+      )
+
+    Then in DraftUpdateDto (around line 91), add:
+
+          val additionalCosts: List<AdditionalCostUpdateDto>? = null,
+
+    The full DraftUpdateDto becomes:
+
+      data class DraftUpdateDto(
+          val notes: String? = null,
+          val parameters: List<EstimationParameterDto>? = null,
+          val effortDrivers: List<EffortDriverDto>? = null,
+          val phases: List<PhaseUpdateDto>? = null,
+          val itemGroups: List<ItemGroupUpdateDto>? = null,
+          val additionalCosts: List<AdditionalCostUpdateDto>? = null
+      )
+
+  - |
+    In EstimationVersionResource.kt, add the import for DraftAdditionalCost.
+    The existing draft imports are alphabetically sorted, so DraftAdditionalCost
+    becomes the FIRST entry (before DraftEffortDriver):
+
+      import io.github.theestimator.domain.draft.DraftAdditionalCost
+      import io.github.theestimator.domain.draft.DraftEffortDriver
+      ...
+
+    Then in updateDraft(), after the update.itemGroups?.let { ... } block and
+    before the final calculate call, add:
+
+      update.additionalCosts?.let { costDtos ->
+          draft.additionalCosts.clear()
+          costDtos.forEach { dto ->
+              val costPhase = dto.phaseAbbreviation?.let { abbr ->
+                  draft.phases.find { it.abbreviation == abbr }
+              }
+              draft.additionalCosts.add(DraftAdditionalCost().apply {
+                  description = dto.description
+                  amount = dto.amount
+                  type = dto.type
+                  amountPerWeek = dto.amountPerWeek
+                  phase = costPhase
+                  version = draft
+              })
+          }
+      }
+
+    Note: `dto.type` is already a `io.github.theestimator.domain.AdditionalCostType`
+    (the same enum used by the entity field — `AdditionalCostType` is imported
+    on line 3 of EstimationVersionDtos.kt). Assign it directly; do NOT go
+    through `AdditionalCostType.valueOf(dto.type.name)` — that's a no-op
+    round-trip and inconsistent with the other handler blocks above
+    (`name = dto.name`, `factor = dto.factor`, etc.).
+
+  - |
+    Add an integration test in
+    src/backend/implementation/src/test/kotlin/io/github/theestimator/rest/EstimationVersionResourceIT.kt
+    (just before the final closing `}` of the class — last test ends around
+    line 673). The PUT endpoint has 15+ existing tests for parameters,
+    effortDrivers, phases, and itemGroups, but nothing for additionalCosts;
+    the new behaviour must not land untested.
+
+    Follow the file's RestAssured style. The test sends a single payload
+    that ALSO sets a phase, so the RECURRING cost can resolve its
+    `phaseAbbreviation`, then a second PUT to confirm clear()/replace
+    semantics match the other update blocks:
+
+      @Test
+      fun `update draft additional costs persists and replaces them`() {
+          given().post("/api/estimations/$estimationId/versions")
+              .then().statusCode(201)
+
+          given()
+              .contentType(ContentType.JSON)
+              .body("""
+                  {
+                      "phases": [{"name": "Implementation", "abbreviation": "IMPL", "durationWeeks": 4.0}],
+                      "additionalCosts": [
+                          {"description": "License", "amount": 1000.0, "type": "ONE_TIME"},
+                          {"description": "Hosting", "amount": 0.0, "type": "RECURRING", "amountPerWeek": 50.0, "phaseAbbreviation": "IMPL"}
+                      ]
+                  }
+              """.trimIndent())
+              .`when`().put("/api/estimations/$estimationId/versions/draft")
+              .then()
+              .statusCode(200)
+              .body("additionalCosts.size()", equalTo(2))
+              .body("additionalCosts[0].description", equalTo("License"))
+              .body("additionalCosts[0].type", equalTo("ONE_TIME"))
+              .body("additionalCosts[0].amount", equalTo(1000.0f))
+              .body("additionalCosts[1].description", equalTo("Hosting"))
+              .body("additionalCosts[1].type", equalTo("RECURRING"))
+              .body("additionalCosts[1].amountPerWeek", equalTo(50.0f))
+              .body("additionalCosts[1].phaseAbbreviation", equalTo("IMPL"))
+
+          // Second PUT replaces the list entirely (clear() semantics)
+          given()
+              .contentType(ContentType.JSON)
+              .body("""
+                  {
+                      "additionalCosts": [
+                          {"description": "Replaced", "amount": 42.0, "type": "ONE_TIME"}
+                      ]
+                  }
+              """.trimIndent())
+              .`when`().put("/api/estimations/$estimationId/versions/draft")
+              .then()
+              .statusCode(200)
+              .body("additionalCosts.size()", equalTo(1))
+              .body("additionalCosts[0].description", equalTo("Replaced"))
+      }
+
+  - |
+    Run the backend build and integration tests to verify:
+      cd src/backend && mvn verify -q
+
+validation:
+  - |
+    The backend builds and all tests pass:
+      cd src/backend && mvn verify -q
+  - |
+    The DraftUpdateDto in EstimationVersionDtos.kt has the additionalCosts field
+    and the new AdditionalCostUpdateDto class exists:
+      grep -q "additionalCosts: List<AdditionalCostUpdateDto>" \
+        src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/dto/EstimationVersionDtos.kt
+      grep -q "data class AdditionalCostUpdateDto" \
+        src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/dto/EstimationVersionDtos.kt
+  - |
+    The updateDraft() handler clears and repopulates additionalCosts, and
+    assigns the enum directly (no valueOf round-trip):
+      grep -q "draft.additionalCosts.clear()" \
+        src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/EstimationVersionResource.kt
+      ! grep -q "AdditionalCostType.valueOf" \
+        src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/EstimationVersionResource.kt
+  - |
+    The integration test for additionalCosts is present and gets exercised
+    by the build:
+      grep -q "update draft additional costs persists and replaces them" \
+        src/backend/implementation/src/test/kotlin/io/github/theestimator/rest/EstimationVersionResourceIT.kt
+
+outputs:
+  - modified: src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/dto/EstimationVersionDtos.kt
+  - modified: src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/EstimationVersionResource.kt
+  - modified: src/backend/implementation/src/test/kotlin/io/github/theestimator/rest/EstimationVersionResourceIT.kt

@@ -10,6 +10,8 @@ Usage:
     ./executor.py done <task-id>      # mark a task as done
     ./executor.py block <task-id> <reason>   # mark a task as blocked
     ./executor.py reset <task-id>     # reset a task back to pending
+    ./executor.py add-task <title> [--phase <phase>] [--depends-on <id> ...]
+                                      # create a new task and register it
 
 A task is "runnable" when its status is pending and all dependencies are done.
 """
@@ -18,7 +20,7 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parent.parent
+ROOT = Path(__file__).resolve().parent
 STATUS_FILE = ROOT / "status.json"
 TASKS_DIR = ROOT / "tasks"
 
@@ -166,6 +168,77 @@ def cmd_reset(task_id):
     print(f"Reset {task_id} to pending")
 
 
+def cmd_add_task(title, phase="phase-4", depends_on=None):
+    depends_on = depends_on or []
+
+    # Determine the next task number.
+    existing = sorted(TASKS_DIR.glob("task-*.yaml"))
+    if existing:
+        last_num = max(int(p.stem.split("-")[1]) for p in existing)
+    else:
+        last_num = 0
+    new_num = last_num + 1
+    task_id = f"task-{new_num:03d}"
+
+    # Render the YAML stub.
+    deps_str = "[" + ", ".join(depends_on) + "]"
+    yaml_content = f"""\
+id: {task_id}
+phase: {phase}
+title: {title}
+depends_on: {deps_str}
+description: |
+  TODO: describe what this task should accomplish.
+
+steps:
+  - |
+    TODO: add implementation steps.
+
+validation:
+  - |
+    TODO: add validation commands.
+
+outputs: []
+"""
+    task_path = TASKS_DIR / f"{task_id}.yaml"
+    task_path.write_text(yaml_content)
+
+    # Register in status.json.
+    status = load_status()
+    status["tasks"][task_id] = {"status": "pending", "started_at": None, "completed_at": None, "notes": ""}
+    save_status(status)
+
+    print(f"Created {task_id}: {title}")
+    print(f"  File:    planning/tasks/{task_id}.yaml")
+    print(f"  Phase:   {phase}")
+    print(f"  Depends: {depends_on if depends_on else 'nothing'}")
+
+
+def parse_add_task_args(args):
+    """Parse add-task arguments: <title> [--phase <p>] [--depends-on <id> ...]"""
+    if not args:
+        print("Usage: ./executor.py add-task <title> [--phase <phase>] [--depends-on <id> ...]")
+        sys.exit(1)
+    title = args[0]
+    rest = args[1:]
+    phase = "phase-4"
+    depends_on = []
+    i = 0
+    while i < len(rest):
+        if rest[i] == "--phase" and i + 1 < len(rest):
+            phase = rest[i + 1]
+            i += 2
+        elif rest[i] == "--depends-on":
+            i += 1
+            while i < len(rest) and not rest[i].startswith("--"):
+                depends_on.append(rest[i])
+                i += 1
+        else:
+            print(f"Unknown option: {rest[i]}")
+            sys.exit(1)
+    return title, phase, depends_on
+
+
 def main():
     if len(sys.argv) < 2:
         print(__doc__)
@@ -173,13 +246,14 @@ def main():
     cmd = sys.argv[1]
     args = sys.argv[2:]
     handlers = {
-        "status": lambda: cmd_status(),
-        "next":   lambda: cmd_next(),
-        "show":   lambda: cmd_show(args[0]),
-        "start":  lambda: cmd_start(args[0]),
-        "done":   lambda: cmd_done(args[0]),
-        "block":  lambda: cmd_block(args[0], " ".join(args[1:])),
-        "reset":  lambda: cmd_reset(args[0]),
+        "status":   lambda: cmd_status(),
+        "next":     lambda: cmd_next(),
+        "show":     lambda: cmd_show(args[0]),
+        "start":    lambda: cmd_start(args[0]),
+        "done":     lambda: cmd_done(args[0]),
+        "block":    lambda: cmd_block(args[0], " ".join(args[1:])),
+        "reset":    lambda: cmd_reset(args[0]),
+        "add-task": lambda: cmd_add_task(*parse_add_task_args(args)),
     }
     if cmd not in handlers:
         print(f"Unknown command: {cmd}")
