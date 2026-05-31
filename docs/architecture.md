@@ -17,11 +17,26 @@
 src/
   backend/    — Quarkus REST API
   frontend/   — SvelteKit SPA
+  domain/     — Kotlin Multiplatform: single source of truth for domain logic
   k8s/        — Kubernetes manifests (Kustomize)
 docs/         — Architecture and design documents
 scripts/      — Helper scripts for local development
 planning/     — Project plan and task definitions
 ```
+
+## Domain module: single source of truth
+
+The `domain` module is a Kotlin Multiplatform project that contains **all
+business logic and domain models** shared between frontend and backend.
+
+- **Backend** consumes it as a regular JVM dependency (compiled to a JAR via
+  the `domain-jvm` Gradle target).
+- **Frontend** consumes it as TypeScript, compiled to JS/TS by the
+  Kotlin/JS compiler and published as an npm package during the Maven build.
+
+Domain logic (calculations, validation, data structures) must live in `domain`.
+Neither the Quarkus backend nor the SvelteKit frontend should duplicate or
+reimplement domain rules — they only call into the shared domain code.
 
 ## Frontend conventions
 
