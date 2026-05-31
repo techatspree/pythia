@@ -10,7 +10,7 @@
 </svelte:head>
 
 <header class="bg-white">
-	<div class="max-w-5xl mx-auto px-6 py-3 flex items-center gap-3">
+	<div class="px-6 py-3 flex items-center gap-3">
 		<a href="/projects">
 			<picture>
 				<source srcset="/estimator_logo.webp" type="image/webp" />

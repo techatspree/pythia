@@ -81,7 +81,7 @@
 	}
 </script>
 
-<div class="max-w-6xl mx-auto p-6">
+<div class="p-6">
 	<a href="/estimations/{page.params.id}" class="text-sm text-brand-green hover:underline">
 		&larr; Back to estimation
 	</a>

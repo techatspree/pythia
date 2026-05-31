@@ -50,7 +50,7 @@
 	}
 </script>
 
-<div class="max-w-5xl mx-auto p-6">
+<div class="p-6">
 	{#if loading}
 		<p class="text-gray-500">Loading estimation...</p>
 	{:else}

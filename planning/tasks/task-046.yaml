@@ -16,23 +16,23 @@ description: |
   Page-level containers to widen (REMOVE the max-w + mx-auto):
     1. src/frontend/src/routes/+layout.svelte:13
          class="max-w-5xl mx-auto px-6 py-3 flex items-center gap-3"
-    2. src/frontend/src/routes/projects/+page.svelte:38
+    2. src/frontend/src/routes/projects/+page.svelte:39
          class="max-w-5xl mx-auto p-6"
-    3. src/frontend/src/routes/projects/[id]/+page.svelte:24
+    3. src/frontend/src/routes/projects/[id]/+page.svelte:25
          class="max-w-5xl mx-auto p-6"
-    4. src/frontend/src/routes/estimations/[id]/+page.svelte:52
+    4. src/frontend/src/routes/estimations/[id]/+page.svelte:53
          class="max-w-5xl mx-auto p-6"
-    5. src/frontend/src/routes/estimations/[id]/compare/+page.svelte:83
+    5. src/frontend/src/routes/estimations/[id]/compare/+page.svelte:84
          class="max-w-6xl mx-auto p-6"
-    6. src/frontend/src/routes/estimations/[id]/versions/[versionNumber]/+page.svelte:96
+    6. src/frontend/src/routes/estimations/[id]/versions/[versionNumber]/+page.svelte:99
          class="max-w-6xl mx-auto p-6"
 
   Intentional inner width constraints that MUST be left alone (they are
   element-level, not page-level):
-    - src/frontend/src/lib/components/CreateProjectDialog.svelte:44
+    - src/frontend/src/lib/components/CreateProjectDialog.svelte:46
         `max-w-md` on the modal dialog itself — the modal should stay narrow
         and centered.
-    - src/frontend/src/routes/projects/+page.svelte:50
+    - src/frontend/src/routes/projects/+page.svelte:51
         `max-w-sm` on the search input — a search field should not stretch
         across the whole viewport.
 
@@ -78,6 +78,15 @@ steps:
     change, only class lists):
       cd src/frontend && npm run check
 
+  - |
+    Visual smoke-check (npm run check cannot verify layout intent):
+    start the dev server (`cd src/frontend && npm run dev`), open one of
+    the affected pages in a viewport >1400px wide — e.g. an estimation
+    versions page or the compare view — and confirm the data grid /
+    parameters panel actually spans more of the screen than before. If
+    an inner component still caps its own width, note it in the task
+    output (fixing it is out of scope here per the description).
+
 validation:
   - |
     No page-level max-w constraint remains anywhere under src/frontend/src
@@ -110,7 +119,7 @@ validation:
         src/frontend/src/routes/estimations/[id]/+page.svelte \
         src/frontend/src/routes/estimations/[id]/compare/+page.svelte \
         "src/frontend/src/routes/estimations/[id]/versions/[versionNumber]/+page.svelte"; do
-        grep -q '"p-6"\|class="p-6 ' "$f" || { echo "MISSING p-6 in $f"; exit 1; }
+        grep -q 'class="p-6"' "$f" || { echo "MISSING p-6 in $f"; exit 1; }
       done
   - |
     cd src/frontend && npm run check passes with zero errors.

@@ -22,7 +22,7 @@
 	});
 </script>
 
-<div class="max-w-5xl mx-auto p-6">
+<div class="p-6">
 	<a href="/projects" class="text-sm text-brand-green hover:underline mb-4 inline-block">&larr; Back to projects</a>
 	<ErrorBanner message={bannerMessage} ondismiss={() => (bannerMessage = null)} />
 	<ProjectDetail {project} {loading} error="" />

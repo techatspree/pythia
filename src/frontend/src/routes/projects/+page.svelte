@@ -36,7 +36,7 @@
 	);
 </script>
 
-<div class="max-w-5xl mx-auto p-6">
+<div class="p-6">
 	<div class="flex items-center justify-between mb-6">
 		<h1 class="text-2xl font-bold">Projects</h1>
 		<button onclick={() => showCreate = true} class="px-4 py-2 text-sm bg-brand-green text-white rounded hover:bg-[#007a45]">
