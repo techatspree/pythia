@@ -26,14 +26,25 @@ description: |
     Gesamtkosten for a RECURRING row = amountPerWeek × durationWeeks of the
     assigned phase (durationWeeks comes from currentPhases).
 
-  The panel should follow the same collapsible-section pattern as PhasesPanel
-  (src/frontend/src/lib/components/PhasesPanel.svelte): a button header that
-  toggles an open state, a table inside when open, an "Add" button at the
-  bottom when editable, and a delete button per row when editable.
+  The panel must follow the same collapsible-section pattern AND state idiom
+  as the three sibling panels (PhasesPanel, ParametersPanel, EffortDriversPanel
+  in src/frontend/src/lib/components/): a button header that toggles `open`,
+  a table inside when open, an "Add" link-button at the bottom when editable,
+  and a delete (✕) button per row when editable.
 
-  The two cost types must be displayed in separate sub-sections ("Einmalige
-  Kosten" / "Laufende Kosten") within the same collapsible panel, or as a
-  single table with a "Type" column — either layout is acceptable.
+  State idiom (verified across all three sibling panels — follow verbatim):
+    let items = $state<T[]>(props.X.map(p => ({...})));
+    let open = $state(true);
+    function notify() { onchange(items.map(i => ({...}))); }
+  Do NOT use `$derived` or two-way bindings to keep `items` in sync with the
+  prop. The sibling panels intentionally snapshot the prop into local state
+  once and never re-sync; the new panel must match that convention.
+
+  Layout: TWO sub-tables inside one collapsible panel — "Einmalige Kosten"
+  for ONE_TIME and "Laufende Kosten" for RECURRING. The column sets differ
+  (one-time has Amount; recurring has €/Week + computed Total), and the
+  spreadsheet model itself splits them, so a single combined table is NOT
+  acceptable here.
 
 steps:
   - |
@@ -65,7 +76,7 @@ steps:
 
     Behaviour:
       - Collapsible section header (same style as PhasesPanel: brand-green/10
-        background, uppercase label, ▼/▶ chevron).
+        background, uppercase label "Additional Costs", ▼/▶ chevron).
       - ONE_TIME costs shown in one sub-table with columns:
           Description | Amount (€) | Phase | (delete button if editable)
       - RECURRING costs shown in a second sub-table with columns:
@@ -73,12 +84,36 @@ steps:
         where Total = amountPerWeek × phase.durationWeeks (show "—" if the
         phase has no durationWeeks or if no phase is selected).
       - Below each sub-table (when editable): an "+ Add one-time cost" /
-        "+ Add recurring cost" link-button.
+        "+ Add recurring cost" link-button using the same style as PhasesPanel's
+        "+ Add phase" button (`text-sm text-brand-green hover:text-[#007a45]`).
       - Editing: inline inputs for description (text), amount/amountPerWeek
         (number, step 0.01), and a <select> for the phase abbreviation
         (options built from the phases prop, plus an empty/none option).
       - Deletion: a ✕ button per row (same style as PhasesPanel).
-      - On any change, call onchange() with the updated full list.
+      - On any change, call onchange() with the updated full list (both
+        sub-tables merged — onchange always receives ALL costs, not just the
+        sub-section that changed).
+
+    Default row shapes for the "+ Add" buttons (insert verbatim — keeps the
+    autosave payload clean and the backend's clear()/replace semantics happy):
+
+      One-time:
+        { id: null, description: '', amount: 0, type: 'ONE_TIME',
+          amountPerWeek: null, phaseAbbreviation: null }
+
+      Recurring:
+        { id: null, description: '', amount: 0, type: 'RECURRING',
+          amountPerWeek: 0, phaseAbbreviation: null }
+
+    Empty-state behaviour (match PhasesPanel's "No phases defined" pattern):
+      - When a sub-table has zero rows AND editable: show a centered
+        "No one-time costs" / "No recurring costs" muted line followed by
+        the "+ Add" button.
+      - When a sub-table has zero rows AND NOT editable: show only the
+        muted "No one-time costs" / "No recurring costs" line.
+      - When BOTH sub-tables are empty AND NOT editable, the collapsible
+        body is just two muted lines (do not hide the panel entirely —
+        consistency with other panels).
 
     Use the ApiAdditionalCost and ApiPhase types imported from '$lib/api/types.js'.
 
@@ -87,18 +122,28 @@ steps:
     src/frontend/src/routes/estimations/[id]/versions/[versionNumber]/+page.svelte
 
     a) Import AdditionalCostsPanel at the top with the other panel imports.
+       ALSO expand the existing type-only import to include ApiAdditionalCost:
 
-    b) Add a currentAdditionalCosts state variable (initialised to []):
+         import type { ApiVersionResponse, ApiAdditionalCost } from '$lib/api/types.js';
+
+       Without this, step (b)'s $state<ApiAdditionalCost[]> will not compile.
+
+    b) Add a currentAdditionalCosts state variable next to the other
+       `currentXxx` declarations (initialised to []):
 
          let currentAdditionalCosts = $state<ApiAdditionalCost[]>([]);
 
-    c) In loadVersion(), after the existing assignments, add:
+    c) In loadVersion(), after the existing assignments
+       (currentNotes/Groups/Parameters/Drivers/Phases), add:
          currentAdditionalCosts = versionData!.additionalCosts ?? [];
 
-    d) In the scheduleSave() body JSON, add:
+    d) In the scheduleSave() body JSON, append `additionalCosts` as the
+       LAST field — i.e. after `effortDrivers`, matching the backend DTO
+       field order in DraftUpdateDto:
          additionalCosts: currentAdditionalCosts
 
-    e) In the template (after the closing tag of <PhasesPanel>), add:
+    e) In the template (after the closing tag of <PhasesPanel>, before
+       <EstimationGrid>), add:
 
          <AdditionalCostsPanel
            costs={currentAdditionalCosts}
@@ -110,6 +155,18 @@ steps:
   - |
     Run the frontend type-check:
       cd src/frontend && npm run check
+
+  - |
+    Visual smoke-check (npm run check cannot verify layout, persistence, or
+    the autosave round-trip):
+      1. start the dev server: `cd src/frontend && npm run dev`
+      2. open a draft version page on a wide viewport (>1400px)
+      3. add one ONE_TIME cost and one RECURRING cost (assign the recurring
+         one to a phase that has durationWeeks > 0)
+      4. confirm the "Total (€)" column shows amountPerWeek × durationWeeks
+         and recomputes when you change either input
+      5. reload the page and confirm both costs are still there
+      6. confirm the saveStatus indicator went through saving → saved
 
 validation:
   - |
@@ -123,6 +180,13 @@ validation:
   - |
     The version page imports the panel and includes it in the template:
       grep -q "AdditionalCostsPanel" \
+        "src/frontend/src/routes/estimations/[id]/versions/[versionNumber]/+page.svelte"
+  - |
+    The version page imports the ApiAdditionalCost type and declares the
+    local state variable:
+      grep -q "ApiAdditionalCost" \
+        "src/frontend/src/routes/estimations/[id]/versions/[versionNumber]/+page.svelte"
+      grep -q "currentAdditionalCosts" \
         "src/frontend/src/routes/estimations/[id]/versions/[versionNumber]/+page.svelte"
   - |
     The autosave payload includes additionalCosts:

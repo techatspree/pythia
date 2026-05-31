@@ -19,7 +19,7 @@
 	let items = $state<Phase[]>(
 		phases.map((p) => ({ name: p.name ?? '', abbreviation: p.abbreviation ?? '', durationWeeks: p.durationWeeks ?? null }))
 	);
-	let open = $state(true);
+	let open = $state(false);
 
 	function notify() {
 		onchange(items.map((i) => ({ name: i.name, abbreviation: i.abbreviation, durationWeeks: i.durationWeeks })));

@@ -6,9 +6,10 @@
 	import ParametersPanel from '$lib/components/ParametersPanel.svelte';
 	import EffortDriversPanel from '$lib/components/EffortDriversPanel.svelte';
 	import PhasesPanel from '$lib/components/PhasesPanel.svelte';
+	import AdditionalCostsPanel from '$lib/components/AdditionalCostsPanel.svelte';
 	import ErrorBanner from '$lib/components/ErrorBanner.svelte';
 	import { computeCalcMap } from '$lib/adapter.js';
-	import type { ApiVersionResponse } from '$lib/api/types.js';
+	import type { ApiVersionResponse, ApiAdditionalCost } from '$lib/api/types.js';
 
 	let versionData = $state<ApiVersionResponse | null>(null);
 	let loading = $state(true);
@@ -21,6 +22,7 @@
 	let currentParameters = $state<any[]>([]);
 	let currentDrivers = $state<any[]>([]);
 	let currentPhases = $state<any[]>([]);
+	let currentAdditionalCosts = $state<ApiAdditionalCost[]>([]);
 
 	const calcMap = $derived.by(() => {
 		try {
@@ -50,6 +52,7 @@
 			currentParameters = versionData!.parameters ?? [];
 			currentDrivers = versionData!.effortDrivers ?? [];
 			currentPhases = versionData!.phases ?? [];
+			currentAdditionalCosts = versionData!.additionalCosts ?? [];
 		} catch (e: any) {
 			bannerMessage = e.message;
 			console.error('loadVersion failed:', e);
@@ -74,7 +77,8 @@
 						phases: currentPhases,
 						itemGroups: currentGroups,
 						parameters: currentParameters,
-						effortDrivers: currentDrivers
+						effortDrivers: currentDrivers,
+						additionalCosts: currentAdditionalCosts
 					})
 				});
 				if (!res.ok) throw new Error('Save failed');
@@ -187,6 +191,16 @@
 			editable={versionData.isDraft}
 			onchange={(phases) => {
 				currentPhases = phases;
+				scheduleSave();
+			}}
+		/>
+
+		<AdditionalCostsPanel
+			costs={currentAdditionalCosts}
+			phases={currentPhases}
+			editable={versionData?.isDraft ?? false}
+			onchange={(c) => {
+				currentAdditionalCosts = c;
 				scheduleSave();
 			}}
 		/>

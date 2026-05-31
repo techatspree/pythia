@@ -20,7 +20,7 @@
 	let items = $state<Param[]>(
 		parameters.map((p) => ({ name: p.name ?? '', value: p.value ?? 0, comment: p.comment ?? '' }))
 	);
-	let open = $state(true);
+	let open = $state(false);
 
 	function notify() {
 		onchange(items.map((i) => ({ name: i.name, value: i.value, comment: i.comment })));

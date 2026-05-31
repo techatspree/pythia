@@ -18,7 +18,7 @@
 			comment: d.comment ?? ''
 		}))
 	);
-	let open = $state(true);
+	let open = $state(false);
 
 	const totalFactor = $derived(items.reduce((s, d) => s + (d.factor ?? 0), 0));
 

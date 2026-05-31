@@ -45,6 +45,15 @@ export interface ApiItemGroup {
 	items: ApiItem[];
 }
 
+export interface ApiAdditionalCost {
+	id: string | null;
+	description: string;
+	amount: number;
+	type: 'ONE_TIME' | 'RECURRING';
+	amountPerWeek: number | null;
+	phaseAbbreviation: string | null;
+}
+
 export interface ApiVersionResponse {
 	versionNumber: number;
 	isDraft: boolean;
@@ -56,6 +65,7 @@ export interface ApiVersionResponse {
 	effortDrivers: ApiEffortDriver[];
 	phases: ApiPhase[];
 	itemGroups: ApiItemGroup[];
+	additionalCosts: ApiAdditionalCost[];
 }
 
 export interface ApiVersionSummary {
