@@ -58,7 +58,7 @@ A `leaves()` extension on `EstimationNode` flat-walks the tree and returns the l
 Single self-referential table per side, JPA `SINGLE_TABLE` inheritance with a `node_type` discriminator (`GROUP` | `FIXED` | `TIME_RELATIVE`). Children ordered by an integer `position` column (`@OrderColumn`). The version's `roots` use `@SQLRestriction("parent_id IS NULL")` to pick out the top-level rows.
 
 - **Draft** side: `draft_estimation_nodes` (V6 migration); JPA entity `DraftEstimationNode` with three `@DiscriminatorValue` subclasses (`DraftGroupNode`, `DraftFixedItemNode`, `DraftTimeRelativeItemNode`). Mutable, edited via the REST PUT endpoint.
-- **Submitted** side: still flat `submitted_estimation_item_groups` + `submitted_estimation_items` as of the current state — task-051 moves it to the same tree shape. **Submitted entities are immutable snapshots** that store the calculated values directly (mean, offerPT, cost, …); the backend never recomputes on read.
+- **Submitted** side: `submitted_estimation_nodes` (V7 migration); mirrors the draft shape with `SubmittedEstimationNode` + `SubmittedGroupNode`/`SubmittedFixedItemNode`/`SubmittedTimeRelativeItemNode`. **Submitted entities are immutable snapshots** that store the calculated values directly on every row (mean, offerPT, cost, …); group rows store accumulated values for their subtree. The backend never recomputes on read.
 
 Use `@SQLRestriction`, not the deprecated `@Where`, for filtered collections.
 

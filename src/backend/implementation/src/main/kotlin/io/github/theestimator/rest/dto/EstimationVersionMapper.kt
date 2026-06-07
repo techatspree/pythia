@@ -33,7 +33,7 @@ fun SubmittedEstimationVersion.toDto() = EstimationVersionDto(
     parameters = parameters.map { it.toDto() },
     effortDrivers = effortDrivers.map { it.toDto() },
     phases = phases.map { it.toDto() },
-    roots = itemGroups.map { it.toRootDto() },
+    roots = roots.map { it.toDto() },
     additionalCosts = additionalCosts.map { it.toDto() }
 )
 
@@ -165,9 +165,8 @@ fun SubmittedProjectPhase.toDto() = ProjectPhaseDto(
     durationWeeks = durationWeeks
 )
 
-fun SubmittedEstimationItemGroup.toRootDto(): EstimationNodeDto {
-    val children = items.map { it.toLeafDto() }
-    return EstimationNodeDto(
+fun SubmittedEstimationNode.toDto(): EstimationNodeDto = when (this) {
+    is SubmittedGroupNode -> EstimationNodeDto(
         logicalId = logicalId,
         type = "GROUP",
         title = title,
@@ -177,43 +176,39 @@ fun SubmittedEstimationItemGroup.toRootDto(): EstimationNodeDto {
         expectedEffort = null,
         maxEffort = null,
         assumptions = null,
-        mean = children.sumOf { it.mean },
-        variance = children.sumOf { it.variance },
-        riskSurcharge = children.sumOf { it.riskSurcharge },
-        driverSurcharge = children.sumOf { it.driverSurcharge },
-        offerPT = children.sumOf { it.offerPT },
-        cost = children.sumOf { it.cost },
-        offerPrice = children.sumOf { it.offerPrice },
+        mean = mean,
+        variance = variance,
+        riskSurcharge = riskSurcharge,
+        driverSurcharge = driverSurcharge,
+        offerPT = offerPT,
+        cost = cost,
+        offerPrice = offerPrice,
         unit = null,
         phaseAbbreviation = null,
-        children = children
+        children = children.map { it.toDto() }
+    )
+    else -> EstimationNodeDto(
+        logicalId = logicalId,
+        type = if (this is SubmittedTimeRelativeItemNode) "TIME_RELATIVE" else "FIXED",
+        title = null,
+        description = description,
+        code = code,
+        minEffort = minEffort,
+        expectedEffort = expectedEffort,
+        maxEffort = maxEffort,
+        assumptions = assumptions,
+        mean = mean,
+        variance = variance,
+        riskSurcharge = riskSurcharge,
+        driverSurcharge = driverSurcharge,
+        offerPT = offerPT,
+        cost = cost,
+        offerPrice = offerPrice,
+        unit = if (this is SubmittedTimeRelativeItemNode) unit else null,
+        phaseAbbreviation = phaseAbbreviation,
+        children = emptyList()
     )
 }
-
-fun SubmittedEstimationItem.toLeafDto() = EstimationNodeDto(
-    logicalId = logicalId,
-    type = when (this) {
-        is SubmittedTimeRelativeEstimationItem -> "TIME_RELATIVE"
-        else -> "FIXED"
-    },
-    title = null,
-    description = description,
-    code = code,
-    minEffort = minEffort,
-    expectedEffort = expectedEffort,
-    maxEffort = maxEffort,
-    assumptions = assumptions,
-    mean = mean,
-    variance = variance,
-    riskSurcharge = riskSurcharge,
-    driverSurcharge = driverSurcharge,
-    offerPT = offerPT,
-    cost = cost,
-    offerPrice = offerPrice,
-    unit = if (this is SubmittedTimeRelativeEstimationItem) unit else null,
-    phaseAbbreviation = phaseAbbreviation,
-    children = emptyList()
-)
 
 fun SubmittedAdditionalCost.toDto() = AdditionalCostDto(
     id = id,

@@ -2,6 +2,7 @@ package io.github.theestimator.domain.submitted
 
 import io.github.theestimator.domain.Estimation
 import jakarta.persistence.*
+import org.hibernate.annotations.SQLRestriction
 import java.time.Instant
 import java.util.UUID
 
@@ -44,7 +45,9 @@ class SubmittedEstimationVersion {
     var phases: MutableList<SubmittedProjectPhase> = mutableListOf()
 
     @OneToMany(mappedBy = "version", cascade = [CascadeType.ALL], orphanRemoval = true)
-    var itemGroups: MutableList<SubmittedEstimationItemGroup> = mutableListOf()
+    @SQLRestriction("parent_id IS NULL")
+    @OrderColumn(name = "position")
+    var roots: MutableList<SubmittedEstimationNode> = mutableListOf()
 
     @OneToMany(mappedBy = "version", cascade = [CascadeType.ALL], orphanRemoval = true)
     var additionalCosts: MutableList<SubmittedAdditionalCost> = mutableListOf()

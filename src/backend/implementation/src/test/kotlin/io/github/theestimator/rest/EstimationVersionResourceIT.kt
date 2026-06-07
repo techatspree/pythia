@@ -295,6 +295,57 @@ class EstimationVersionResourceIT {
     }
 
     @Test
+    fun `submit preserves a three-level tree end-to-end`() {
+        given().post("/api/estimations/$estimationId/versions").then().statusCode(201)
+
+        given()
+            .contentType(ContentType.JSON)
+            .body("""
+                {
+                    "parameters": [{"name": "Standardabweichungsfaktor", "value": 0.0}],
+                    "roots": [{
+                        "type": "GROUP",
+                        "title": "Backend",
+                        "children": [
+                            {
+                                "type": "GROUP",
+                                "title": "Auth",
+                                "children": [
+                                    {"type": "FIXED", "description": "Token endpoint", "minEffort": 1.0, "expectedEffort": 2.0, "maxEffort": 3.0},
+                                    {"type": "FIXED", "description": "Session storage", "minEffort": 2.0, "expectedEffort": 4.0, "maxEffort": 6.0}
+                                ]
+                            },
+                            {"type": "FIXED", "description": "Health endpoint", "minEffort": 1.0, "expectedEffort": 1.0, "maxEffort": 1.0}
+                        ]
+                    }]
+                }
+            """.trimIndent())
+            .put("/api/estimations/$estimationId/versions/draft")
+            .then().statusCode(200)
+
+        given().post("/api/estimations/$estimationId/versions/draft/submit").then().statusCode(200)
+
+        given()
+            .`when`().get("/api/estimations/$estimationId/versions/1")
+            .then()
+            .statusCode(200)
+            .body("roots.size()", equalTo(1))
+            .body("roots[0].type", equalTo("GROUP"))
+            .body("roots[0].title", equalTo("Backend"))
+            .body("roots[0].children.size()", equalTo(2))
+            .body("roots[0].children[0].type", equalTo("GROUP"))
+            .body("roots[0].children[0].title", equalTo("Auth"))
+            .body("roots[0].children[0].children.size()", equalTo(2))
+            .body("roots[0].children[0].children[0].description", equalTo("Token endpoint"))
+            .body("roots[0].children[0].children[1].description", equalTo("Session storage"))
+            .body("roots[0].children[1].description", equalTo("Health endpoint"))
+            // Accumulated values stored on group rows: Auth has 2.0 + 4.0 = 6.0 PT
+            .body("roots[0].children[0].offerPT", equalTo(6.0f))
+            // Backend root accumulates Auth + Health = 7.0 PT
+            .body("roots[0].offerPT", equalTo(7.0f))
+    }
+
+    @Test
     fun `effort drivers increase offerPT`() {
         given().post("/api/estimations/$estimationId/versions")
             .then().statusCode(201)
