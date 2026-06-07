@@ -15,33 +15,33 @@ sealed class EstimationItem(
     val maxEffort: Double = 0.0,
     val assumptions: String = "",
     val phase: ProjectPhase? = null,
-    val logicalId: String = newId(),
+    logicalId: String = newId(),
     val calculationParameters: CalculationParameters = CalculationParameters(),
     id: String? = null,
     createdAt: String? = null,
     updatedAt: String? = null
-) : BaseDomain(id, createdAt, updatedAt) {
+) : EstimationNode(logicalId, id, createdAt, updatedAt) {
 
-    val mean: Double
+    override val mean: Double
         get() = PertCalculation.mean(minEffort, expectedEffort, maxEffort)
 
-    val variance: Double
+    override val variance: Double
         get() = PertCalculation.variance(minEffort, maxEffort)
 
-    val riskSurcharge: Double
+    override val riskSurcharge: Double
         get() = mean * calculationParameters.riskFactor
 
-    val driverSurcharge: Double
+    override val driverSurcharge: Double
         get() = mean * calculationParameters.totalDriverFactor
 
-    val offerPT: Double
+    override val offerPT: Double
         get() = mean + riskSurcharge + driverSurcharge
 
-    val cost: Double
+    override val cost: Double
         get() = offerPT * calculationParameters.dailyRate
 
-    val offerPrice: Double
+    override val offerPrice: Double
         get() = cost * (1 + calculationParameters.salesSurcharge)
 
-    abstract fun withCalculationParameters(params: CalculationParameters): EstimationItem
+    abstract override fun withCalculationParameters(params: CalculationParameters): EstimationItem
 }

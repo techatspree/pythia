@@ -70,5 +70,7 @@ fun createVersion(
     parameters = parameters.toList(),
     effortDrivers = effortDrivers.toList(),
     phases = phases.toList(),
-    itemGroups = itemGroups.toList()
+    roots = itemGroups.map { g ->
+        EstimationGroup(title = g.title, children = g.items, _logicalId = g.logicalId)
+    }
 )

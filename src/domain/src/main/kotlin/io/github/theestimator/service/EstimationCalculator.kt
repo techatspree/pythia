@@ -16,7 +16,7 @@ open class EstimationCalculator {
 
     fun validateInvariants(version: EstimationVersion): Array<InvariantResult> {
         val results = mutableListOf<InvariantResult>()
-        val allItems = version.itemGroups.flatMap { it.items }
+        val allItems = version.roots.flatMap { it.leaves().toList() }
         val tolerance = 0.2
 
         val totalOfferPT = allItems.sumOf { it.offerPT }
@@ -37,12 +37,10 @@ open class EstimationCalculator {
             tolerance
         ))
 
-        val sumByGroups = version.itemGroups.sumOf { group ->
-            group.items.sumOf { it.offerPT }
-        }
+        val sumByRoots = version.roots.sumOf { it.offerPT }
         results.add(InvariantResult(
-            "Summe über Arbeitspakete = Summe über Teilsummen",
-            totalOfferPT - sumByGroups,
+            "Summe der Wurzeln = Summe der Blätter (Akkumulation konsistent)",
+            sumByRoots - totalOfferPT,
             tolerance
         ))
 
@@ -55,13 +53,10 @@ open class EstimationCalculator {
             tolerance
         ))
 
-        val varianceTotal = allItems.sumOf { it.variance }
-        val varianceByGroups = version.itemGroups.sumOf { group ->
-            group.items.sumOf { it.variance }
-        }
+        val varianceByRoots = version.roots.sumOf { it.variance }
         results.add(InvariantResult(
-            "Summe der Varianzen = Summe der Varianzen der Gruppen",
-            varianceTotal - varianceByGroups,
+            "Varianzakkumulation an der Wurzel = Summe der Blätter-Varianzen",
+            varianceByRoots - totalVariance,
             tolerance
         ))
 
