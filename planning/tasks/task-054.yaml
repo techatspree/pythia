@@ -72,6 +72,25 @@ description: |
       old ApiItemGroup/ApiEstimationItem types removed. ApiVersionResponse
       gets `roots: ApiEstimationNode[]`.
 
+  Domain (Kotlin/JS) cleanup that becomes safe in this task:
+    - Rewrite src/frontend/src/lib/adapter.ts so it no longer calls
+      `version.itemGroups.asJsReadonlyArrayView()`. The frontend
+      computes the calc map from the new tree: walk
+      `calculated.roots.asJsReadonlyArrayView()` recursively, and for
+      every leaf (filterIsInstance against EstimationItem on the JS
+      side via the discriminator) push an entry into the map. Group
+      entries are pushed too if the EstimationGrid wants per-group
+      accumulated values shown.
+    - Remove the deprecated `itemGroups` shim from EstimationVersion.kt
+      (added in task-049, kept alive through task-050/051/052/053
+      solely for adapter.ts).
+    - Update DomainFactory.createVersion so its parameter is now
+      `roots: Array<EstimationNode>` rather than
+      `itemGroups: Array<EstimationItemGroup>` — and adapter.ts is
+      updated to call it that way. Keep createGroup/createFixedItem/
+      createTimeRelativeItem; createGroup now returns EstimationGroup
+      instead of EstimationItemGroup.
+
   Tests:
     - Playwright smoke test in src/frontend/e2e/smoke.test.ts: extend
       it to create a 3-level tree via the UI and assert it persists
@@ -97,6 +116,23 @@ steps:
       - rename currentGroups → currentRoots
       - rename the autosave payload field itemGroups → roots
       - pass currentRoots into EstimationGrid
+
+  - |
+    Rewrite src/frontend/src/lib/adapter.ts so it walks
+    `calculated.roots.asJsReadonlyArrayView()` recursively instead of
+    `calculated.itemGroups`. Update the EditingGroup/EditingItem types
+    if helpful, or drop EditingGroup entirely in favour of a single
+    EditingNode union.
+
+  - |
+    Remove the deprecated `itemGroups` getter from
+    src/domain/src/main/kotlin/io/github/theestimator/model/EstimationVersion.kt
+    (the shim added in task-049). Update DomainFactory.createVersion to
+    take `roots: Array<EstimationNode>` instead of `itemGroups:
+    Array<EstimationItemGroup>`; createGroup now returns
+    EstimationGroup rather than EstimationItemGroup. Confirm no other
+    Kotlin/JS-exported surface still references EstimationItemGroup:
+      ! grep -rn "EstimationItemGroup" src/domain
 
   - |
     Run the frontend type-check:
@@ -143,6 +179,9 @@ validation:
 
 outputs:
   - modified: src/frontend/src/lib/api/types.ts
+  - modified: src/frontend/src/lib/adapter.ts
   - modified: src/frontend/src/lib/components/EstimationGrid.svelte
   - modified: src/frontend/src/routes/estimations/[id]/versions/[versionNumber]/+page.svelte
   - modified: src/frontend/e2e/smoke.test.ts
+  - modified: src/domain/src/main/kotlin/io/github/theestimator/model/EstimationVersion.kt
+  - modified: src/domain/src/main/kotlin/io/github/theestimator/model/DomainFactory.kt

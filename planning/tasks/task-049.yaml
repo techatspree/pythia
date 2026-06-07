@@ -11,42 +11,60 @@ description: |
   with an arbitrarily deep tree.
 
   Target model (lives next to the existing types in
-  src/domain/src/main/kotlin/io/github/theestimator/model/):
+  src/domain/src/main/kotlin/io/github/theestimator/model/). The base
+  carries ONLY logicalId and the accumulation contract — leaves have a
+  description (already), groups have a title (added below); a shared
+  `title` on the base is intentionally rejected as ill-fitting.
 
+    @JsExport
+    @DomainEntity
     sealed class EstimationNode(
-        val title: String,          // "" for items, group title for groups
         val logicalId: String,
         id: String?, createdAt: String?, updatedAt: String?
     ) : BaseDomain(id, createdAt, updatedAt) {
         abstract val mean: Double
         abstract val variance: Double
+        abstract val riskSurcharge: Double
+        abstract val driverSurcharge: Double
         abstract val offerPT: Double
         abstract val cost: Double
         abstract val offerPrice: Double
         abstract fun withCalculationParameters(p: CalculationParameters): EstimationNode
     }
 
+    @JsExport
+    @DomainEntity
     data class EstimationGroup(
         val title: String,
         val children: List<EstimationNode> = emptyList(),
-        val logicalId: String = newId(),
-        ...
-    ) : EstimationNode(title, logicalId, ...) {
-        override val mean        = children.sumOf { it.mean }
-        override val variance    = children.sumOf { it.variance }
-        override val offerPT     = children.sumOf { it.offerPT }
-        override val cost        = children.sumOf { it.cost }
-        override val offerPrice  = children.sumOf { it.offerPrice }
-        override fun withCalculationParameters(p) =
+        private val _logicalId: String = newId(),
+        private val _id: String? = null,
+        private val _createdAt: String? = null,
+        private val _updatedAt: String? = null
+    ) : EstimationNode(_logicalId, _id, _createdAt, _updatedAt) {
+        // Accumulation MUST be computed via `get() = ...` not eager `val = …`:
+        // children may be deep, mean is not always read, and a data class
+        // re-evaluates property initializers on copy() anyway.
+        override val mean: Double            get() = children.sumOf { it.mean }
+        override val variance: Double        get() = children.sumOf { it.variance }
+        override val riskSurcharge: Double   get() = children.sumOf { it.riskSurcharge }
+        override val driverSurcharge: Double get() = children.sumOf { it.driverSurcharge }
+        override val offerPT: Double         get() = children.sumOf { it.offerPT }
+        override val cost: Double            get() = children.sumOf { it.cost }
+        override val offerPrice: Double      get() = children.sumOf { it.offerPrice }
+        override fun withCalculationParameters(p: CalculationParameters): EstimationGroup =
             copy(children = children.map { it.withCalculationParameters(p) })
     }
 
   EstimationItem is moved INTO this hierarchy as a sibling of EstimationGroup
   by changing its declaration to `sealed class EstimationItem(...) :
-  EstimationNode(...)`. Its existing computed properties (mean, variance,
-  offerPT, cost, offerPrice) become the leaf overrides. The two concrete
+  EstimationNode(logicalId, id, createdAt, updatedAt)`. Its existing
+  computed properties (mean, variance, riskSurcharge, driverSurcharge,
+  offerPT, cost, offerPrice) become the leaf overrides — just add the
+  `override` modifier; the getter bodies do not change. The two concrete
   leaf classes (FixedEstimationItem, TimeRelativeEstimationItem) keep
-  their existing constructor shapes and Kotlin/JS export annotations.
+  their existing constructor shapes, Kotlin/JS export annotations, and
+  `_logicalId` forwarding pattern unchanged.
 
   REMEMBER the Kotlin/JS super-property pitfall already documented in
   TimeRelativeEstimationItem.kt and in the memory note
@@ -64,22 +82,43 @@ description: |
 
   EstimationItemGroup is NOT deleted in this task — it stays as dead code
   for one task so the JVM backend (which still references it from JPA and
-  the mapper) keeps compiling. It is removed in task-055.
+  the mapper) and the frontend (which calls `version.itemGroups.asJsRead
+  onlyArrayView()` in adapter.ts) keep working. It is removed in task-055.
 
   EstimationCalculator.validateInvariants currently uses
   version.itemGroups.flatMap { it.items }. Update it to walk roots via a
-  helper `fun EstimationNode.leaves(): Sequence<EstimationItem>` (returns
-  itself if it is an item, otherwise flat-recurses through children).
-  The invariant "Summe über Arbeitspakete = Summe über Teilsummen"
-  becomes "Summe der Wurzeln = Summe der Blätter" — wording in German
-  stays, only the computation changes.
+  helper added as a top-level extension in EstimationNode.kt:
 
-  The JVM backend side (DraftVersionMapper, DTOs, JPA entities) will fail
-  to compile after this task because EstimationVersion.itemGroups no longer
-  exists. To keep the overall Maven build green, this task ALSO adds a
-  thin temporary compatibility shim on EstimationVersion:
+      fun EstimationNode.leaves(): Sequence<EstimationItem> = when (this) {
+          is EstimationItem  -> sequenceOf(this)
+          is EstimationGroup -> children.asSequence().flatMap { it.leaves() }
+      }
 
-      @Deprecated("Use roots; removed in task-050")
+  Two of the invariants change their *meaning*, not just their *source*,
+  and the German wording is updated accordingly:
+
+    "Summe über Arbeitspakete = Summe über Teilsummen"   (line 44)
+    →  "Summe der Wurzeln = Summe der Blätter (Akkumulation konsistent)"
+       Computation: roots.sumOf { it.offerPT } vs leaves.sumOf { it.offerPT }.
+
+    "Summe der Varianzen = Summe der Varianzen der Gruppen"   (line 62)
+    →  "Varianzakkumulation an der Wurzel = Summe der Blätter-Varianzen"
+       Computation: roots.sumOf { it.variance } vs leaves.sumOf { it.variance }.
+
+  The other three invariants change only the computation source (leaves
+  via the helper instead of flatMap), not the wording.
+
+  The JVM backend side (DraftVersionMapper, DTOs, JPA entities, the JS
+  factories in DomainFactory.kt) will fail to compile after this task
+  because EstimationVersion.itemGroups no longer exists on the
+  constructor. To keep the overall Maven AND frontend builds green,
+  this task ALSO adds:
+
+  (a) a JS-visible deprecated shim on EstimationVersion. NO
+      `@JsExport.Ignore` — adapter.ts still calls `version.itemGroups
+      .asJsReadonlyArrayView()` until task-054 rewrites it.
+
+      @Deprecated("Use roots; removed when adapter.ts moves to roots in task-054")
       val itemGroups: List<EstimationItemGroup>
           get() = roots.filterIsInstance<EstimationGroup>().map { g ->
               EstimationItemGroup(
@@ -89,69 +128,142 @@ description: |
               )
           }
 
-  task-050 removes this shim as it rewrites the JVM side onto the tree.
+  (b) DomainFactory.createVersion keeps its `itemGroups:
+      Array<EstimationItemGroup>` parameter (frontend compat) but
+      internally converts each EstimationItemGroup to an EstimationGroup
+      and passes them through `roots = …`:
+
+      @JsExport
+      fun createVersion(
+          versionNumber: Int,
+          isDraft: Boolean,
+          notes: String = "",
+          parameters: Array<EstimationParameter> = emptyArray(),
+          effortDrivers: Array<EffortDriver> = emptyArray(),
+          phases: Array<ProjectPhase> = emptyArray(),
+          itemGroups: Array<EstimationItemGroup> = emptyArray()
+      ): EstimationVersion = EstimationVersion(
+          versionNumber = versionNumber,
+          status = if (isDraft) EstimationVersionStatus.DRAFT else EstimationVersionStatus.SUBMITTED,
+          notes = notes,
+          parameters = parameters.toList(),
+          effortDrivers = effortDrivers.toList(),
+          phases = phases.toList(),
+          roots = itemGroups.map { g ->
+              EstimationGroup(title = g.title, children = g.items, _logicalId = g.logicalId)
+          }
+      )
+
+      DomainFactory.createGroup stays unchanged — it still produces
+      EstimationItemGroup for adapter.ts.
+
+  Both (a) and (b) disappear in task-054 when adapter.ts is rewritten to
+  speak the tree directly. task-050 removes any *JVM* consumer of
+  itemGroups; the JS-visible shim survives one task longer than the
+  Kotlin shim because the frontend rewrite happens later in the chain.
 
 steps:
   - |
     Create src/domain/src/main/kotlin/io/github/theestimator/model/EstimationNode.kt
-    with the sealed base described above. Mark with @JsExport and
-    @DomainEntity to match the rest of the model.
+    with the @JsExport @DomainEntity sealed base shown in the description,
+    and the top-level `EstimationNode.leaves()` extension function. Mark
+    the file with @file:OptIn(ExperimentalJsExport::class) like its
+    siblings.
 
   - |
     Change EstimationItem.kt so its declaration is
-      sealed class EstimationItem(...) : EstimationNode(title = "", ...)
-    instead of `: BaseDomain(...)`. Keep all existing fields and computed
-    properties. Override `offerPrice` / `cost` etc. with the existing
-    formulas (they are already getters — just add the `override` modifier).
+      sealed class EstimationItem(...) : EstimationNode(logicalId, id, createdAt, updatedAt)
+    instead of `: BaseDomain(id, createdAt, updatedAt)`. Add the
+    `override` modifier to every accumulation getter (mean, variance,
+    riskSurcharge, driverSurcharge, offerPT, cost, offerPrice). Keep
+    every other field and constructor parameter unchanged. The two
+    concrete subclasses (FixedEstimationItem, TimeRelativeEstimationItem)
+    require no edits — their getters already override correctly via the
+    sealed parent.
 
   - |
-    Create EstimationGroup.kt as a data class extending EstimationNode,
-    with `children: List<EstimationNode>` and accumulation overrides
-    summing over children.
+    Create EstimationGroup.kt as a @JsExport @DomainEntity data class
+    extending EstimationNode. Use the underscore-prefixed private-val
+    forwarding pattern (_logicalId, _id, _createdAt, _updatedAt) so
+    copy() keeps working — identical pattern to
+    TimeRelativeEstimationItem.kt. Accumulation properties MUST be
+    `override val X: Double get() = children.sumOf { it.X }`, not
+    eager `val X = …`, both for laziness and because data class copy()
+    re-evaluates eager initializers.
 
   - |
     Update EstimationVersion.kt:
       - replace `itemGroups: List<EstimationItemGroup>` with
         `roots: List<EstimationNode>`
       - rewrite calculate() to:
-          1. collect all leaves from roots (sequence of EstimationItem)
-          2. compute totalMean / totalVariance / riskFactor as today
-          3. build CalculationParameters
-          4. newRoots = roots.map { it.withCalculationParameters(params) }
-          5. newTotalEffort = newRoots.sumOf { it.offerPT }
+          1. val leaves = roots.flatMap { it.leaves().toList() }
+          2. totalMean = leaves.sumOf { it.mean }, totalVariance =
+             leaves.sumOf { it.variance }, then riskFactor as today
+          3. build CalculationParameters as today
+          4. val newRoots = roots.map { it.withCalculationParameters(params) }
+          5. val newTotalEffort = newRoots.sumOf { it.offerPT }
           6. return copy(roots = newRoots, totalEffort = newTotalEffort)
-      - add the deprecated `itemGroups` getter shim described in the
-        description (literally — JVM-only callers depend on it until
-        task-050 lands)
+      - add the JS-visible deprecated `itemGroups` getter shim shown in
+        the description (NO @JsExport.Ignore — the frontend depends on
+        it until task-054).
+
+  - |
+    Update src/domain/src/main/kotlin/io/github/theestimator/model/DomainFactory.kt
+    so createVersion keeps its `itemGroups: Array<EstimationItemGroup>`
+    parameter (the frontend calls it that way and is not rewritten until
+    task-054) but internally converts each EstimationItemGroup to an
+    EstimationGroup and passes them via `roots = …`. createGroup,
+    createFixedItem, and createTimeRelativeItem stay unchanged.
 
   - |
     Update src/domain/src/main/kotlin/io/github/theestimator/service/EstimationCalculator.kt
-    so validateInvariants walks the tree (via a private helper
-    `fun EstimationNode.leaves(): Sequence<EstimationItem>`). The five
-    invariants keep their German descriptions; only the underlying
-    summation source changes (allItems comes from
-    `version.roots.flatMap { it.leaves().toList() }`).
+    so validateInvariants walks the tree via `version.roots.flatMap
+    { it.leaves().toList() }`. Update the wording of the two invariants
+    that change meaning (lines 44 and 62 — see the description for the
+    new German strings). Keep the other three invariants' descriptions
+    verbatim; only their summation source changes.
 
   - |
     Add tests to src/domain/src/test/kotlin/io/github/theestimator/model/
     covering:
-      - EstimationNodeTest: a Group(Item, Item) has mean = sum of leaf means;
-        a Group(Group(Item, Item), Item) accumulates two levels deep;
-        withCalculationParameters propagates through nested groups
-        (assert that a deep leaf receives the params).
-      - EstimationVersionTreeTest: calculate() on a 3-level tree assigns
-        identical risk/driver params to leaves at every depth and produces
-        the same totalEffort as the equivalent flat layout.
+      - EstimationNodeTest:
+          * Group(Item, Item).mean == sum of leaf means
+          * Group(Group(Item, Item), Item) accumulates two levels deep
+            (assert variance, offerPT, cost as well)
+          * withCalculationParameters on a depth-3 tree returns a NEW
+            tree whose deepest leaf carries the passed params (use
+            referential inequality on the root + value equality on the
+            params)
+          * data class equality is structural: two groups with
+            structurally-equal children compare equal
+      - EstimationVersionTreeTest:
+          * calculate() on a 3-level tree produces the same totalEffort
+            as the equivalent depth-1 layout (same leaves, same totals)
+          * calculate() assigns identical CalculationParameters to
+            every leaf, regardless of depth
+      - EstimationCalculatorInvariantsTest:
+          * All five invariants pass on a calculated 3-level tree
+          * The accumulation invariant detects a tampered group (force
+            its computed offerPT to disagree by mutating a leaf in a
+            re-built tree and confirm the invariant fails)
     The existing TimeRelativeEstimationItemTest must continue to pass
-    unchanged.
+    unchanged — do not edit it.
 
   - |
-    Build the domain module:
+    Build and test the domain module:
       ./mvnw -pl src/domain -am test
-    All tests must pass. The JVM backend (src/backend) WILL still compile
-    because of the deprecated itemGroups shim; do not rebuild it here
-    (that is task-050's responsibility), but the full build
-    `./mvnw -DskipTests package` should still succeed.
+
+  - |
+    Build the full project (JVM backend compiles via the shim;
+    Kotlin/JS output is produced for the frontend):
+      ./mvnw -DskipTests package
+
+  - |
+    Verify the frontend still type-checks against the regenerated
+    domain.d.ts — the deprecated itemGroups shim must export to JS,
+    and adapter.ts must still see `EstimationVersion.itemGroups` and
+    `EstimationItemGroup`:
+      cd src/frontend && npm run check
 
 validation:
   - |
@@ -166,18 +278,32 @@ validation:
     EstimationVersion exposes roots and the deprecated itemGroups shim:
       grep -q "val roots: List<EstimationNode>" src/domain/src/main/kotlin/io/github/theestimator/model/EstimationVersion.kt
       grep -q "@Deprecated" src/domain/src/main/kotlin/io/github/theestimator/model/EstimationVersion.kt
+      # The shim MUST stay JS-visible (no @JsExport.Ignore) so adapter.ts
+      # keeps working until task-054:
+      ! grep -q "JsExport.Ignore" src/domain/src/main/kotlin/io/github/theestimator/model/EstimationVersion.kt
+  - |
+    DomainFactory.createVersion still accepts itemGroups (frontend compat)
+    and now converts internally to roots:
+      grep -q "itemGroups: Array<EstimationItemGroup>" src/domain/src/main/kotlin/io/github/theestimator/model/DomainFactory.kt
+      grep -q "roots = itemGroups" src/domain/src/main/kotlin/io/github/theestimator/model/DomainFactory.kt
   - |
     Domain tests pass:
       ./mvnw -pl src/domain -am test
   - |
-    Full build still succeeds (the JVM backend compiles via the shim):
+    Full Maven build succeeds (JVM backend compiles via the shim):
       ./mvnw -DskipTests package
+  - |
+    Frontend type-check still passes against the regenerated domain.d.ts
+    (verifies the JS-exported shim is still seen by adapter.ts):
+      cd src/frontend && npm run check
 
 outputs:
   - created: src/domain/src/main/kotlin/io/github/theestimator/model/EstimationNode.kt
   - created: src/domain/src/main/kotlin/io/github/theestimator/model/EstimationGroup.kt
   - modified: src/domain/src/main/kotlin/io/github/theestimator/model/EstimationItem.kt
   - modified: src/domain/src/main/kotlin/io/github/theestimator/model/EstimationVersion.kt
+  - modified: src/domain/src/main/kotlin/io/github/theestimator/model/DomainFactory.kt
   - modified: src/domain/src/main/kotlin/io/github/theestimator/service/EstimationCalculator.kt
   - created: src/domain/src/test/kotlin/io/github/theestimator/model/EstimationNodeTest.kt
   - created: src/domain/src/test/kotlin/io/github/theestimator/model/EstimationVersionTreeTest.kt
+  - created: src/domain/src/test/kotlin/io/github/theestimator/model/EstimationCalculatorInvariantsTest.kt

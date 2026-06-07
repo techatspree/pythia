@@ -144,10 +144,13 @@ description: |
       manually and asserts the mapped EstimationVersion.roots has the
       expected nested shape.
 
-  Remove the deprecated EstimationVersion.itemGroups shim added by
-  task-049. After this task the codebase should not reference
-  EstimationItemGroup anywhere except in the submitted-side files that
-  task-051 will rewrite.
+  The deprecated EstimationVersion.itemGroups shim added by task-049
+  STAYS in place — adapter.ts on the frontend still uses
+  `version.itemGroups.asJsReadonlyArrayView()` to compute the local
+  calc map, and that rewrite happens in task-054. After this task the
+  JVM side should not reference EstimationItemGroup anywhere except in
+  the submitted-side files that task-051 will rewrite (and the
+  remaining JS-export shim path).
 
 steps:
   - |
@@ -191,8 +194,9 @@ steps:
     calculated per-node values from the calculate() result.
 
   - |
-    Remove the deprecated `itemGroups` shim from EstimationVersion.kt
-    (added in task-049). Anything that still references it should be
+    Leave the deprecated `itemGroups` shim on EstimationVersion in place
+    (task-049 added it; the frontend still depends on it via adapter.ts
+    until task-054). Any JVM-side caller that still uses it must be
     rewritten to use `roots` in this task.
 
   - |
@@ -238,8 +242,14 @@ validation:
       ! grep -r "DraftEstimationItemGroup\|DraftEstimationItem\b" \
               src/backend/implementation/src/main/kotlin
   - |
-    EstimationVersion no longer carries the deprecated itemGroups shim:
-      ! grep -q "@Deprecated" src/domain/src/main/kotlin/io/github/theestimator/model/EstimationVersion.kt
+    EstimationVersion still carries the deprecated itemGroups shim
+    (frontend uses it until task-054):
+      grep -q "@Deprecated" src/domain/src/main/kotlin/io/github/theestimator/model/EstimationVersion.kt
+  - |
+    No JVM-side (non-test) Kotlin file under src/backend still reads
+    `version.itemGroups` or constructs EstimationItemGroup from the
+    domain — only the JS-export shim and tests may reference it:
+      ! grep -rn "\.itemGroups" src/backend/implementation/src/main/kotlin
   - |
     DraftUpdateDto and EstimationVersionDto expose `roots`, not
     `itemGroups`:
@@ -267,6 +277,5 @@ outputs:
   - modified: src/backend/implementation/src/main/kotlin/io/github/theestimator/service/DraftVersionMapper.kt
   - modified: src/backend/implementation/src/main/kotlin/io/github/theestimator/service/EstimationVersionService.kt
   - modified: src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/EstimationVersionResource.kt
-  - modified: src/domain/src/main/kotlin/io/github/theestimator/model/EstimationVersion.kt
   - created: src/backend/implementation/src/test/kotlin/io/github/theestimator/service/DraftVersionMapperTest.kt
   - modified: src/backend/implementation/src/test/kotlin/io/github/theestimator/rest/EstimationVersionResourceIT.kt
