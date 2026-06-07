@@ -69,8 +69,10 @@ description: |
       parent_id (nullable, NULL for roots).
     - Update DraftEstimationVersion to expose
         roots: List<DraftEstimationNode>
-      via @OneToMany(mappedBy = "version") with @Where(parent_id IS NULL)
-      and @OrderColumn(name = "position"). Remove itemGroups.
+      via @OneToMany(mappedBy = "version") with @SQLRestriction("parent_id
+      IS NULL") and @OrderColumn(name = "position"). Use @SQLRestriction,
+      not @Where — @Where is deprecated in Hibernate 6 and Quarkus 3.x
+      ships Hibernate 6. Remove itemGroups.
 
   DTOs (src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/dto/
   EstimationVersionDtos.kt):
@@ -131,15 +133,25 @@ description: |
       passed-in parent (nullable), and recurses for children. Use a local
       function — do NOT introduce a separate service class.
 
-  EstimationVersionService.calculateDraft and the existing draft → snapshot
-  path must be reviewed too — calculateDraft already delegates to
-  EstimationVersion.calculate() which is tree-aware after task-049, so
-  the only change is that the mapper now produces the tree directly.
-  snapshotDraft for "compare against draft" must still produce a
-  SubmittedEstimationVersion; for now it can flatten the tree into the
-  old SubmittedEstimationItemGroup shape (depth ≥ 2 trees temporarily
-  lose their internal structure on submit). task-051 removes that
-  flattening when the submitted side moves to the tree shape.
+  EstimationVersionService has THREE call sites that touch itemGroups
+  and all three need rewiring in this task:
+    - calculateDraft already delegates to EstimationVersion.calculate()
+      which is tree-aware after task-049; the only change is that the
+      mapper now produces the tree directly.
+    - snapshotDraft (the "compare against draft" path, ~lines 128-136
+      today) must still produce a SubmittedEstimationVersion; for now
+      it flattens the tree into the old SubmittedEstimationItemGroup
+      shape (depth ≥ 2 trees temporarily lose their internal structure
+      on submit). task-051 removes that flattening when the submitted
+      side moves to the tree shape.
+    - The deep-copy path that creates a new draft from an existing
+      submitted version (~lines 218-224 today, `source.itemGroups
+      .forEach { ... target.itemGroups.add(draftGroup) }`) must be
+      rewritten to walk the submitted entity's still-flat itemGroups
+      and emit a one-level tree of DraftEstimationNode entities into
+      `target.roots`. (Submitted is still flat until task-051, so this
+      path produces depth-1 trees only; once task-051 lands the same
+      path will naturally preserve depth.)
 
   Tests:
     - Update existing EstimationVersionResourceIT cases that PUT itemGroups
@@ -158,15 +170,36 @@ description: |
   the submitted-side files that task-051 will rewrite (and the
   remaining JS-export shim path).
 
+  Files that ALSO need to be rewritten (entity rename DraftEstimationVersion
+  .itemGroups → .roots and switch from DraftEstimationItemGroup/
+  DraftEstimationItem to DraftEstimationNode entities):
+    - src/backend/.../testdata/TestDataSeeder.kt — 3 draft seeds, each
+      with 4 groups and several leaves. Convert to building
+      DraftEstimationNode trees (depth-1 is fine here; task-055 will
+      give it depth ≥ 3).
+    - src/backend/.../service/ExcelImporter.kt — the importEstimationItems
+      helper currently maintains a `currentGroup: DraftEstimationItemGroup?`
+      and appends items. Convert to building DraftEstimationNode roots
+      with GROUP+LEAF children (still a flat depth-1 tree on import;
+      task-053 will teach the importer about depth).
+
+  Submitted-side files (ExcelExporter, CsvExporter, VersionComparisonService,
+  and the SUBMITTED branches of EstimationVersionService) keep using
+  SubmittedEstimationVersion.itemGroups in this task. task-051 rewrites
+  them. The .itemGroups validation grep is scoped so it does not catch
+  these.
+
 steps:
   - |
     Write src/backend/implementation/src/main/resources/db/migration/V6__draft_tree.sql
     with: CREATE TABLE draft_estimation_nodes, indexes, data migration
     from the two old draft tables, and the two DROP TABLE statements.
-    Test it locally with `./mvnw -pl src/backend/implementation flyway:migrate`
-    against a populated dev database (or trust the Testcontainers IT run
-    in the validation step) and verify row counts match
-    (groups → GROUP nodes, items → leaf nodes).
+    Remember: groups have no created_at (ORDER BY id only); items do
+    (ORDER BY created_at, id). Old groups.phase_id is dropped, not
+    propagated. Test it locally with `mvn -pl src/backend/implementation
+    flyway:migrate` against a populated dev database (or trust the
+    Testcontainers IT run in the validation step) and verify row counts
+    match (groups → GROUP nodes, items → leaf nodes).
 
   - |
     Delete the four old draft entity files:
@@ -202,16 +235,39 @@ steps:
   - |
     Leave the deprecated `itemGroups` shim on EstimationVersion in place
     (task-049 added it; the frontend still depends on it via adapter.ts
-    until task-054). Any JVM-side caller that still uses it must be
-    rewritten to use `roots` in this task.
+    until task-054). Any JVM-side caller of the DRAFT entity's
+    .itemGroups must be rewritten to use .roots in this task.
 
   - |
-    Adjust snapshotDraft in EstimationVersionService so it still produces
-    a SubmittedEstimationVersion for the compare-against-draft path.
-    Until task-051 rewires the submitted side, this means flattening
-    the tree: every leaf becomes a SubmittedEstimationItem whose group
-    is the closest GROUP ancestor; deeper nesting is dropped. Add a
-    short comment marking this as task-050's temporary behaviour.
+    Rewrite all three EstimationVersionService.kt call sites:
+      a) calculateDraft — only the inner read of `calculated.itemGroups`
+         (~line 128) needs updating to walk `calculated.roots.flatMap
+         { it.leaves().toList() }`.
+      b) snapshotDraft (~lines 128-136) — still produces a
+         SubmittedEstimationVersion. Flatten the tree: every leaf
+         becomes a SubmittedEstimationItem whose group is the closest
+         GROUP ancestor; deeper nesting is dropped. Add a short comment
+         marking this as task-050's temporary behaviour.
+      c) The deep-copy-from-submitted path (~lines 218-224) — convert
+         `source.itemGroups.forEach { ... target.itemGroups.add(...) }`
+         to emit a depth-1 tree of DraftEstimationNode entities into
+         `target.roots`.
+
+  - |
+    Rewrite TestDataSeeder.kt: each of the three draft seeds currently
+    builds 4 DraftEstimationItemGroup instances and calls
+    `draftN.itemGroups.addAll(...)`. Convert to building
+    DraftEstimationNode roots (one per group) with leaf children; keep
+    the existing titles and item content unchanged. Depth stays at 1
+    in this task — task-055 introduces depth ≥ 3 sample data.
+
+  - |
+    Rewrite ExcelImporter.kt importEstimationItems: replace the
+    `currentGroup: DraftEstimationItemGroup?` accumulator with a
+    `currentGroup: DraftEstimationNode?` (a GROUP-discriminator node)
+    and append leaf nodes as children. Set parent linkage and position.
+    The import stays depth-1 in this task — task-053 teaches the
+    importer about depth.
 
   - |
     Update existing tests:
@@ -223,39 +279,53 @@ steps:
 
   - |
     Run the backend tests:
-      ./mvnw -pl src/backend/implementation -am test
+      mvn -pl src/backend/implementation -am test
     All tests, including the IT classes that exercise Flyway via the
     Testcontainers Dev Services, must pass.
 
   - |
     Run the full Maven build:
-      ./mvnw -DskipTests package
+      mvn -DskipTests package
     The frontend will still build because adapter.ts and the generated
     TS types do not change shape until task-054 wires the frontend.
     However the openapi schema regeneration (if part of the build) will
-    now expose roots/EstimationNodeDto — confirm src/frontend/src/lib/
-    api/schema.d.ts is regenerated cleanly and any consuming code in
-    src/frontend that breaks gets a follow-up TODO referencing task-054.
+    now expose roots/EstimationNodeDto — this is intentional, and
+    src/frontend/src/lib/api/schema.d.ts widens accordingly. Any
+    consuming code in src/frontend that breaks gets a follow-up TODO
+    referencing task-054.
 
 validation:
   - |
-    The V6 migration exists and the two old draft tables are gone from
-    the schema:
+    The V6 migration exists and drops both old draft tables:
       test -f src/backend/implementation/src/main/resources/db/migration/V6__draft_tree.sql
-      ! grep -q "draft_estimation_item_groups" src/backend/implementation/src/main/resources/db/migration/V6__draft_tree.sql || true
+      grep -q "DROP TABLE draft_estimation_items"       src/backend/implementation/src/main/resources/db/migration/V6__draft_tree.sql
+      grep -q "DROP TABLE draft_estimation_item_groups" src/backend/implementation/src/main/resources/db/migration/V6__draft_tree.sql
   - |
-    No reference to the old draft entities remains anywhere except in V6:
-      ! grep -r "DraftEstimationItemGroup\|DraftEstimationItem\b" \
+    No reference to the old DRAFT entities remains in backend source
+    (portable: explicit class names via -E alternation, follow-on
+    char must not be a letter):
+      ! grep -rE "DraftEstimationItemGroup|DraftEstimationItem([^A-Za-z]|$)" \
               src/backend/implementation/src/main/kotlin
   - |
     EstimationVersion still carries the deprecated itemGroups shim
     (frontend uses it until task-054):
       grep -q "@Deprecated" src/domain/src/main/kotlin/io/github/theestimator/model/EstimationVersion.kt
   - |
-    No JVM-side (non-test) Kotlin file under src/backend still reads
-    `version.itemGroups` or constructs EstimationItemGroup from the
-    domain — only the JS-export shim and tests may reference it:
-      ! grep -rn "\.itemGroups" src/backend/implementation/src/main/kotlin
+    No DRAFT-side Kotlin file still reads `.itemGroups`. The submitted
+    side (ExcelExporter, CsvExporter, VersionComparisonService, and
+    submitted branches of EstimationVersionService) is excluded — that
+    is task-051's territory. The grep targets the draft files this task
+    rewrites:
+      ! grep -n "\.itemGroups" \
+            src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/EstimationVersionResource.kt \
+            src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/dto/EstimationVersionMapper.kt \
+            src/backend/implementation/src/main/kotlin/io/github/theestimator/service/DraftVersionMapper.kt \
+            src/backend/implementation/src/main/kotlin/io/github/theestimator/service/ExcelImporter.kt \
+            src/backend/implementation/src/main/kotlin/io/github/theestimator/testdata/TestDataSeeder.kt
+    EstimationVersionService is allowed to read submitted.itemGroups in
+    the snapshotDraft + deep-copy paths until task-051 — that file is
+    intentionally NOT in the list above. After task-051 the global
+    grep below replaces this one.
   - |
     DraftUpdateDto and EstimationVersionDto expose `roots`, not
     `itemGroups`:
@@ -265,10 +335,10 @@ validation:
             src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/dto/EstimationVersionDtos.kt
   - |
     Backend tests pass:
-      ./mvnw -pl src/backend/implementation -am test
+      mvn -pl src/backend/implementation -am test
   - |
     Full build succeeds:
-      ./mvnw -DskipTests package
+      mvn -DskipTests package
 
 outputs:
   - created: src/backend/implementation/src/main/resources/db/migration/V6__draft_tree.sql
@@ -283,5 +353,7 @@ outputs:
   - modified: src/backend/implementation/src/main/kotlin/io/github/theestimator/service/DraftVersionMapper.kt
   - modified: src/backend/implementation/src/main/kotlin/io/github/theestimator/service/EstimationVersionService.kt
   - modified: src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/EstimationVersionResource.kt
+  - modified: src/backend/implementation/src/main/kotlin/io/github/theestimator/service/ExcelImporter.kt
+  - modified: src/backend/implementation/src/main/kotlin/io/github/theestimator/testdata/TestDataSeeder.kt
   - created: src/backend/implementation/src/test/kotlin/io/github/theestimator/service/DraftVersionMapperTest.kt
   - modified: src/backend/implementation/src/test/kotlin/io/github/theestimator/rest/EstimationVersionResourceIT.kt
