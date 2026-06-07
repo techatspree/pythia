@@ -42,12 +42,17 @@ description: |
         is dereferenced into phase_abbreviation as today)
 
     - Data migration: every submitted_estimation_item_groups row becomes a
-      GROUP node (parent_id=NULL, position by created_at then id), every
-      submitted_estimation_items row becomes a FIXED or TIME_RELATIVE
-      node under that GROUP. For the GROUP rows the accumulated columns
-      (mean/variance/risk_surcharge/driver_surcharge/offer_pt/cost/
-      offer_price) are computed by summing the leaf values within the
-      same group (SQL: SUM over the items in that group).
+      GROUP node (parent_id=NULL, position = row_number() OVER (PARTITION
+      BY version_id ORDER BY id) - 1). Every submitted_estimation_items
+      row becomes a FIXED or TIME_RELATIVE node under that GROUP, position
+      = row_number() OVER (PARTITION BY group_id ORDER BY id) - 1. Both
+      old submitted tables (per V3) have NO created_at column — only
+      `id` is a stable per-parent ordering. For the GROUP rows the
+      accumulated columns (mean/variance/risk_surcharge/driver_surcharge/
+      offer_pt/cost/offer_price) are computed by summing the leaf values
+      within the same group (SQL: SUM over the items in that group).
+      For LEAF rows, copy mean/variance/risk_surcharge/driver_surcharge/
+      offer_pt/cost/offer_price straight from the old item row.
 
     - DROP TABLE submitted_estimation_items;
       DROP TABLE submitted_estimation_item_groups;
@@ -62,8 +67,10 @@ description: |
       TIME_RELATIVE).
     - Update SubmittedEstimationVersion to expose
         roots: List<SubmittedEstimationNode>
-      via @OneToMany(mappedBy = "version") with @Where(parent_id IS NULL)
-      and @OrderColumn(name = "position"). Remove itemGroups.
+      via @OneToMany(mappedBy = "version") with @SQLRestriction("parent_id
+      IS NULL") and @OrderColumn(name = "position"). Use @SQLRestriction,
+      not @Where (deprecated in Hibernate 6 — DraftEstimationVersion uses
+      the same form after task-050). Remove itemGroups.
 
   Submit / snapshot path
   (EstimationVersionService.submitDraft and .snapshotDraft):
@@ -94,6 +101,38 @@ description: |
   remaining reference to SubmittedEstimationItem(Group) after this task
   except inside V7 migration SQL.
 
+  Three other files currently read SubmittedEstimationVersion.itemGroups
+  and/or reference the deleted SubmittedEstimationItem(Group) types. They
+  must be compile-fixed in THIS task even though their richer rewrites
+  belong to later tasks:
+    - src/backend/.../service/VersionComparisonService.kt — imports
+      SubmittedEstimationItem, walks `versionA.itemGroups.flatMap { group ->
+      group.items.map { … } }`. The tree-aware diff is task-052. Here:
+      swap the type to SubmittedEstimationNode, walk `version.roots`
+      recursively, flatten leaves the same way the current code does
+      (via a local `fun SubmittedEstimationNode.leaves(): List<…>`
+      helper that mirrors EstimationNode.leaves on the domain side).
+      Produce the same ComparisonItemDto shape. Group-level comparisons
+      (addedGroups/removedGroups) keep working off the top-level GROUP
+      roots. Add a one-line "task-051 compile shim — task-052 rewrites"
+      comment.
+    - src/backend/.../service/ExcelExporter.kt — reads
+      `version.itemGroups.filter { … }` four times. Task-053 owns the
+      outline-level / nested-tree export. Here: walk `version.roots`
+      with a `collectGroupsAndLeaves(roots): Pair<List<GroupNode>,
+      List<LeafNode>>` helper that returns top-level GROUPs and their
+      direct leaves so the existing depth-1 spreadsheet layout keeps
+      working. Deeper nesting collapses to a flat per-group leaf list
+      for now (matches the current visible behaviour).
+    - src/backend/.../service/CsvExporter.kt — same pattern, smaller
+      file: `version.itemGroups.forEach { g -> … }` becomes a walk of
+      `version.roots` that emits one group header per top-level GROUP
+      and its flattened leaves underneath.
+
+  These three compile-fixes are the minimum to keep `mvn package` green
+  after the entity rename; the richer behaviour change is each owner
+  task's responsibility.
+
   Tests:
     - Update EstimationVersionResourceIT cases that submit a draft and
       then GET the submitted version to assert the nested `roots`
@@ -110,52 +149,93 @@ steps:
   - |
     Write src/backend/implementation/src/main/resources/db/migration/V7__submitted_tree.sql:
     CREATE TABLE submitted_estimation_nodes, indexes, data migration
-    from the two old submitted tables (computing accumulated columns
-    for GROUP rows via SUM(...) over their items), and DROP TABLEs.
+    from the two old submitted tables. Remember: both old tables lack
+    created_at — ORDER BY id only when computing position. For GROUP
+    rows compute the accumulated columns via SUM(...) over the same
+    group's items; for LEAF rows copy the per-item calculated columns
+    straight from the old item row. Finish with DROP TABLE
+    submitted_estimation_items then DROP TABLE submitted_estimation_item_groups.
 
   - |
     Delete the four old submitted entity files and add
     SubmittedEstimationNode.kt with @Inheritance(SINGLE_TABLE) and
     three @DiscriminatorValue subclasses. Update
-    SubmittedEstimationVersion to expose `roots` and drop itemGroups.
+    SubmittedEstimationVersion to expose `roots` (with @SQLRestriction,
+    not @Where) and drop itemGroups.
 
   - |
     Rewrite the submit / snapshot path in EstimationVersionService so it
     walks the calculated EstimationVersion.roots recursively, creating
-    SubmittedEstimationNode entities (parent linkage + position). Drop
-    the temporary depth-flattening behaviour added in task-050.
+    SubmittedEstimationNode entities (parent linkage + position) at every
+    depth. Drop the temporary depth-flattening behaviour added in
+    task-050 (the `// task-050 temporary: …` comment block).
 
   - |
     Update SubmittedEstimationVersion.toDto / EstimationVersionMapper so
     it walks `version.roots` recursively and emits the nested
-    EstimationNodeDto with the stored values.
+    EstimationNodeDto with the stored values. The existing
+    SubmittedEstimationItemGroup.toRootDto and SubmittedEstimationItem
+    .toLeafDto extensions (added in task-050) are replaced by a single
+    recursive SubmittedEstimationNode.toDto.
+
+  - |
+    Compile-fix the three submitted-side consumers so `mvn package`
+    stays green. The richer rewrites belong to later tasks (task-052
+    for comparison, task-053 for export):
+      a) VersionComparisonService.kt — replace SubmittedEstimationItem
+         with SubmittedEstimationNode, walk `version.roots` recursively
+         via a local `leaves()` helper, produce the same ComparisonItemDto
+         output. Top-level GROUP roots feed the addedGroups/removedGroups
+         logic.
+      b) ExcelExporter.kt — replace the four `version.itemGroups.filter`
+         calls with a single walk that collects top-level GROUPs and
+         their direct (flattened) leaves; keep the depth-1 spreadsheet
+         layout unchanged.
+      c) CsvExporter.kt — same: walk `version.roots`, emit one group
+         header per top-level GROUP and its flattened leaves.
 
   - |
     Update / add backend tests:
       - EstimationVersionResourceIT: convert any submitted-version cases
-        that still read itemGroups; add a 3-level submit + read case.
-      - SubmissionTreeIT (new): cover the persistence layer round-trip
-        for a multi-level tree.
+        that still read itemGroups; add a 3-level submit + read case
+        that confirms depth ≥ 2 survives a submit and round-trips via
+        GET /api/estimations/{id}/versions/{n}.
+      - SubmissionTreeIT (new): inject EntityManager and run a native
+        query `SELECT id, parent_id, node_type, position FROM
+        submitted_estimation_nodes WHERE version_id = ?` after
+        submitting a Group(Group(Item, Item), Item) draft. Assert:
+        the row count (1 root group + 1 nested group + 2 leaves + 1
+        leaf), the parent/child wiring (positions, parent_ids), and
+        that the GROUP rows' offer_pt equals the SUM of their
+        subtree's leaf offer_pt values.
+
+  - |
+    Update CLAUDE.md: the "**Submitted** side: still flat … as of the
+    current state — task-051 moves it to the same tree shape" sentence
+    in the "Persistence shape" section is no longer accurate. Rewrite
+    it to say submitted_estimation_nodes mirrors the draft side; the
+    immutable-snapshot property and the SINGLE_TABLE + @SQLRestriction
+    pattern still apply.
 
   - |
     Run the backend tests:
-      ./mvnw -pl src/backend/implementation -am test
+      mvn -pl src/backend/implementation -am test
 
   - |
     Run the full Maven build:
-      ./mvnw -DskipTests package
+      mvn -DskipTests package
 
 validation:
   - |
-    The V7 migration exists and the two old submitted tables are dropped
-    in it:
+    The V7 migration exists and drops both old submitted tables:
       test -f src/backend/implementation/src/main/resources/db/migration/V7__submitted_tree.sql
       grep -q "DROP TABLE submitted_estimation_items"        src/backend/implementation/src/main/resources/db/migration/V7__submitted_tree.sql
       grep -q "DROP TABLE submitted_estimation_item_groups"  src/backend/implementation/src/main/resources/db/migration/V7__submitted_tree.sql
   - |
-    No reference to the old submitted entities remains anywhere except
-    in V7 migration:
-      ! grep -r "SubmittedEstimationItemGroup\|SubmittedEstimationItem\b" \
+    No reference to the old submitted entities remains in backend
+    source (portable: explicit class names via -E alternation, follow-on
+    char must not be a letter):
+      ! grep -rE "SubmittedEstimationItemGroup|SubmittedEstimationItem([^A-Za-z]|$)" \
               src/backend/implementation/src/main/kotlin
   - |
     SubmittedEstimationVersion exposes roots, not itemGroups:
@@ -164,11 +244,18 @@ validation:
       ! grep -q "itemGroups" \
             src/backend/implementation/src/main/kotlin/io/github/theestimator/domain/submitted/SubmittedEstimationVersion.kt
   - |
+    No Kotlin file under src/backend reads `.itemGroups` anywhere — both
+    sides are now tree-shaped. (Replaces task-050's per-file scoping.):
+      ! grep -rn "\.itemGroups" src/backend/implementation/src/main/kotlin
+  - |
+    CLAUDE.md no longer claims the submitted side is flat:
+      ! grep -q "still flat" CLAUDE.md
+  - |
     Backend tests pass:
-      ./mvnw -pl src/backend/implementation -am test
+      mvn -pl src/backend/implementation -am test
   - |
     Full build succeeds:
-      ./mvnw -DskipTests package
+      mvn -DskipTests package
 
 outputs:
   - created: src/backend/implementation/src/main/resources/db/migration/V7__submitted_tree.sql
@@ -179,6 +266,10 @@ outputs:
   - deleted: src/backend/implementation/src/main/kotlin/io/github/theestimator/domain/submitted/SubmittedTimeRelativeEstimationItem.kt
   - modified: src/backend/implementation/src/main/kotlin/io/github/theestimator/domain/submitted/SubmittedEstimationVersion.kt
   - modified: src/backend/implementation/src/main/kotlin/io/github/theestimator/service/EstimationVersionService.kt
+  - modified: src/backend/implementation/src/main/kotlin/io/github/theestimator/service/VersionComparisonService.kt
+  - modified: src/backend/implementation/src/main/kotlin/io/github/theestimator/service/ExcelExporter.kt
+  - modified: src/backend/implementation/src/main/kotlin/io/github/theestimator/service/CsvExporter.kt
   - modified: src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/dto/EstimationVersionMapper.kt
   - created: src/backend/implementation/src/test/kotlin/io/github/theestimator/rest/SubmissionTreeIT.kt
   - modified: src/backend/implementation/src/test/kotlin/io/github/theestimator/rest/EstimationVersionResourceIT.kt
+  - modified: CLAUDE.md
