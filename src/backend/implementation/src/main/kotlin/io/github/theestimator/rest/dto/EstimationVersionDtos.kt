@@ -22,7 +22,7 @@ data class EstimationVersionDto(
     val parameters: List<EstimationParameterDto>,
     val effortDrivers: List<EffortDriverDto>,
     val phases: List<ProjectPhaseDto>,
-    val itemGroups: List<EstimationItemGroupDto>,
+    val roots: List<EstimationNodeDto>,
     val additionalCosts: List<AdditionalCostDto>
 )
 
@@ -47,20 +47,15 @@ data class ProjectPhaseDto(
     val durationWeeks: Double? = null
 )
 
-data class EstimationItemGroupDto(
-    val logicalId: UUID?,
-    val title: String,
-    val items: List<EstimationItemDto>
-)
-
-data class EstimationItemDto(
+data class EstimationNodeDto(
     val logicalId: UUID?,
     val type: String,
-    val description: String,
+    val title: String?,
+    val description: String?,
     val code: String?,
-    val minEffort: Double,
-    val expectedEffort: Double,
-    val maxEffort: Double,
+    val minEffort: Double?,
+    val expectedEffort: Double?,
+    val maxEffort: Double?,
     val assumptions: String?,
     val mean: Double,
     val variance: Double,
@@ -70,7 +65,8 @@ data class EstimationItemDto(
     val cost: Double,
     val offerPrice: Double,
     val unit: String?,
-    val phaseAbbreviation: String? = null
+    val phaseAbbreviation: String?,
+    val children: List<EstimationNodeDto>
 )
 
 data class AdditionalCostDto(
@@ -102,24 +98,21 @@ data class DraftUpdateDto(
     val parameters: List<EstimationParameterDto>? = null,
     val effortDrivers: List<EffortDriverDto>? = null,
     val phases: List<PhaseUpdateDto>? = null,
-    val itemGroups: List<ItemGroupUpdateDto>? = null,
+    val roots: List<EstimationNodeUpdateDto>? = null,
     val additionalCosts: List<AdditionalCostUpdateDto>? = null
 )
 
-data class ItemGroupUpdateDto(
+data class EstimationNodeUpdateDto(
     val logicalId: UUID? = null,
-    val title: String,
-    val items: List<EstimationItemUpdateDto>
-)
-
-data class EstimationItemUpdateDto(
-    val logicalId: UUID? = null,
-    val description: String,
+    val type: String,
+    val title: String? = null,
+    val description: String? = null,
+    val code: String? = null,
     val minEffort: Double? = null,
     val expectedEffort: Double? = null,
     val maxEffort: Double? = null,
     val assumptions: String? = null,
+    val unit: String? = null,
     val phaseAbbreviation: String? = null,
-    val type: String = "FIXED",
-    val unit: String? = null
+    val children: List<EstimationNodeUpdateDto> = emptyList()
 )

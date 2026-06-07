@@ -80,7 +80,8 @@ class ExcelImporter {
 
     private fun importEstimationItems(sheet: Sheet, version: DraftEstimationVersion) {
         val headerRow = 3
-        var currentGroup: DraftEstimationItemGroup? = null
+        var currentGroup: DraftGroupNode? = null
+        var rootPosition = 0
         var isTimeRelativeSection = false
 
         for (rowIdx in (headerRow + 1)..sheet.lastRowNum) {
@@ -99,21 +100,22 @@ class ExcelImporter {
             val max = row.cellNumericValue(3)
 
             if (min == null && expected == null && max == null) {
-                currentGroup = DraftEstimationItemGroup().apply {
+                currentGroup = DraftGroupNode().apply {
                     this.title = description
                     this.version = version
+                    this.position = rootPosition++
                 }
-                version.itemGroups.add(currentGroup)
+                version.roots.add(currentGroup)
             } else if (currentGroup != null) {
                 val phaseAbbr = row.cellStringValue(14)
                 val itemPhase = phaseAbbr?.let { abbr ->
                     version.phases.find { it.abbreviation == abbr }
                 }
 
-                val item: DraftEstimationItem = if (isTimeRelativeSection) {
-                    DraftTimeRelativeEstimationItem()
+                val item: DraftEstimationNode = if (isTimeRelativeSection) {
+                    DraftTimeRelativeItemNode()
                 } else {
-                    DraftFixedEstimationItem()
+                    DraftFixedItemNode()
                 }
 
                 item.apply {
@@ -123,9 +125,11 @@ class ExcelImporter {
                     this.maxEffort = max
                     this.assumptions = row.cellStringValue(15)
                     this.phase = itemPhase
-                    this.group = currentGroup
+                    this.version = version
+                    this.parent = currentGroup
+                    this.position = currentGroup.children.size
                 }
-                currentGroup.items.add(item)
+                currentGroup.children.add(item)
             }
         }
     }

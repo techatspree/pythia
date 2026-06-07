@@ -33,6 +33,62 @@ class TestDataSeeder(
         seedMobileApp()
     }
 
+    private fun fixedLeaf(
+        version: DraftEstimationVersion,
+        description: String,
+        min: Double,
+        exp: Double,
+        max: Double,
+        phase: DraftProjectPhase?
+    ) = DraftFixedItemNode().apply {
+        this.version = version
+        this.description = description
+        this.minEffort = min
+        this.expectedEffort = exp
+        this.maxEffort = max
+        this.phase = phase
+    }
+
+    private fun timeRelativeLeaf(
+        version: DraftEstimationVersion,
+        description: String,
+        unit: String,
+        min: Double,
+        exp: Double,
+        max: Double,
+        phase: DraftProjectPhase?
+    ) = DraftTimeRelativeItemNode().apply {
+        this.version = version
+        this.description = description
+        this.unit = unit
+        this.minEffort = min
+        this.expectedEffort = exp
+        this.maxEffort = max
+        this.phase = phase
+    }
+
+    private fun group(
+        version: DraftEstimationVersion,
+        title: String,
+        children: List<DraftEstimationNode>
+    ): DraftGroupNode {
+        val groupNode = DraftGroupNode().apply {
+            this.version = version
+            this.title = title
+        }
+        children.forEachIndexed { idx, child ->
+            child.parent = groupNode
+            child.position = idx
+        }
+        groupNode.children.addAll(children)
+        return groupNode
+    }
+
+    private fun addRoots(version: DraftEstimationVersion, roots: List<DraftGroupNode>) {
+        roots.forEachIndexed { idx, root -> root.position = idx }
+        version.roots.addAll(roots)
+    }
+
     private fun seedWebshop() {
         val project = projectService.create(
             name = "Webshop Redesign",
@@ -68,38 +124,31 @@ class TestDataSeeder(
         val phaseAB = DraftProjectPhase().apply { name = "Abnahme"; abbreviation = "AB"; durationWeeks = 2.0; version = draft1 }
         draft1.phases.addAll(listOf(phaseKO, phaseUM, phaseAB))
 
-        val groupU01 = DraftEstimationItemGroup().apply { title = "U01: Konzeption"; version = draft1 }
-        groupU01.items.addAll(listOf(
-            DraftFixedEstimationItem().apply { description = "Anforderungsworkshop & Kickoff"; minEffort = 1.0; expectedEffort = 2.0; maxEffort = 3.0; phase = phaseKO; group = groupU01 },
-            DraftFixedEstimationItem().apply { description = "Systemarchitektur & Tech-Stack-Entscheidung"; minEffort = 2.0; expectedEffort = 3.0; maxEffort = 5.0; phase = phaseKO; group = groupU01 },
-            DraftFixedEstimationItem().apply { description = "Datenbankdesign & ER-Modell"; minEffort = 1.0; expectedEffort = 2.0; maxEffort = 4.0; phase = phaseKO; group = groupU01 },
-            DraftTimeRelativeEstimationItem().apply { description = "Projektbegleitung"; unit = "h/Woche"; minEffort = 2.0; expectedEffort = 4.0; maxEffort = 8.0; phase = phaseKO; group = groupU01 }
+        addRoots(draft1, listOf(
+            group(draft1, "U01: Konzeption", listOf(
+                fixedLeaf(draft1, "Anforderungsworkshop & Kickoff", 1.0, 2.0, 3.0, phaseKO),
+                fixedLeaf(draft1, "Systemarchitektur & Tech-Stack-Entscheidung", 2.0, 3.0, 5.0, phaseKO),
+                fixedLeaf(draft1, "Datenbankdesign & ER-Modell", 1.0, 2.0, 4.0, phaseKO),
+                timeRelativeLeaf(draft1, "Projektbegleitung", "h/Woche", 2.0, 4.0, 8.0, phaseKO)
+            )),
+            group(draft1, "U02: Frontend Redesign", listOf(
+                fixedLeaf(draft1, "Produktlisting & Suchfunktion", 3.0, 5.0, 8.0, phaseUM),
+                fixedLeaf(draft1, "Warenkorb & Checkout-Prozess", 5.0, 8.0, 12.0, phaseUM),
+                fixedLeaf(draft1, "Benutzerkonto & Login", 2.0, 4.0, 6.0, phaseUM),
+                fixedLeaf(draft1, "Responsive Design & Mobile Optimierung", 2.0, 3.0, 5.0, phaseUM)
+            )),
+            group(draft1, "U03: Backend & Datenbank", listOf(
+                fixedLeaf(draft1, "REST API Endpoints (CRUD)", 4.0, 6.0, 9.0, phaseUM),
+                fixedLeaf(draft1, "Authentifizierung & Autorisierung", 2.0, 4.0, 6.0, phaseUM),
+                fixedLeaf(draft1, "Datenbankmigrationen & Seeding", 1.0, 2.0, 3.0, phaseUM),
+                fixedLeaf(draft1, "Payment-Integration (Stripe)", 3.0, 5.0, 8.0, phaseUM)
+            )),
+            group(draft1, "U04: Abnahme & Go-live", listOf(
+                fixedLeaf(draft1, "Integrationstests & E2E-Tests", 2.0, 3.0, 5.0, phaseAB),
+                fixedLeaf(draft1, "User Acceptance Testing (UAT)", 1.0, 2.0, 3.0, phaseAB),
+                fixedLeaf(draft1, "Go-live, Deployment & Monitoring-Setup", 1.0, 2.0, 3.0, phaseAB)
+            ))
         ))
-
-        val groupU02 = DraftEstimationItemGroup().apply { title = "U02: Frontend Redesign"; version = draft1 }
-        groupU02.items.addAll(listOf(
-            DraftFixedEstimationItem().apply { description = "Produktlisting & Suchfunktion"; minEffort = 3.0; expectedEffort = 5.0; maxEffort = 8.0; phase = phaseUM; group = groupU02 },
-            DraftFixedEstimationItem().apply { description = "Warenkorb & Checkout-Prozess"; minEffort = 5.0; expectedEffort = 8.0; maxEffort = 12.0; phase = phaseUM; group = groupU02 },
-            DraftFixedEstimationItem().apply { description = "Benutzerkonto & Login"; minEffort = 2.0; expectedEffort = 4.0; maxEffort = 6.0; phase = phaseUM; group = groupU02 },
-            DraftFixedEstimationItem().apply { description = "Responsive Design & Mobile Optimierung"; minEffort = 2.0; expectedEffort = 3.0; maxEffort = 5.0; phase = phaseUM; group = groupU02 }
-        ))
-
-        val groupU03 = DraftEstimationItemGroup().apply { title = "U03: Backend & Datenbank"; version = draft1 }
-        groupU03.items.addAll(listOf(
-            DraftFixedEstimationItem().apply { description = "REST API Endpoints (CRUD)"; minEffort = 4.0; expectedEffort = 6.0; maxEffort = 9.0; phase = phaseUM; group = groupU03 },
-            DraftFixedEstimationItem().apply { description = "Authentifizierung & Autorisierung"; minEffort = 2.0; expectedEffort = 4.0; maxEffort = 6.0; phase = phaseUM; group = groupU03 },
-            DraftFixedEstimationItem().apply { description = "Datenbankmigrationen & Seeding"; minEffort = 1.0; expectedEffort = 2.0; maxEffort = 3.0; phase = phaseUM; group = groupU03 },
-            DraftFixedEstimationItem().apply { description = "Payment-Integration (Stripe)"; minEffort = 3.0; expectedEffort = 5.0; maxEffort = 8.0; phase = phaseUM; group = groupU03 }
-        ))
-
-        val groupU04 = DraftEstimationItemGroup().apply { title = "U04: Abnahme & Go-live"; version = draft1 }
-        groupU04.items.addAll(listOf(
-            DraftFixedEstimationItem().apply { description = "Integrationstests & E2E-Tests"; minEffort = 2.0; expectedEffort = 3.0; maxEffort = 5.0; phase = phaseAB; group = groupU04 },
-            DraftFixedEstimationItem().apply { description = "User Acceptance Testing (UAT)"; minEffort = 1.0; expectedEffort = 2.0; maxEffort = 3.0; phase = phaseAB; group = groupU04 },
-            DraftFixedEstimationItem().apply { description = "Go-live, Deployment & Monitoring-Setup"; minEffort = 1.0; expectedEffort = 2.0; maxEffort = 3.0; phase = phaseAB; group = groupU04 }
-        ))
-
-        draft1.itemGroups.addAll(listOf(groupU01, groupU02, groupU03, groupU04))
 
         draft1.additionalCosts.addAll(listOf(
             DraftAdditionalCost().apply { description = "Software-Lizenzen (Figma, JIRA)"; amount = 3500.0; type = AdditionalCostType.ONE_TIME; phase = phaseKO; version = draft1 },
@@ -138,40 +187,33 @@ class TestDataSeeder(
         val phase2AB = DraftProjectPhase().apply { name = "Abnahme"; abbreviation = "AB"; durationWeeks = 2.0; version = draft2 }
         draft2.phases.addAll(listOf(phase2KO, phase2UM, phase2AB))
 
-        val group2U01 = DraftEstimationItemGroup().apply { title = "U01: Konzeption"; version = draft2 }
-        group2U01.items.addAll(listOf(
-            DraftFixedEstimationItem().apply { description = "Anforderungsworkshop & Kickoff"; minEffort = 1.0; expectedEffort = 2.0; maxEffort = 4.0; phase = phase2KO; group = group2U01 },
-            DraftFixedEstimationItem().apply { description = "Systemarchitektur & Tech-Stack-Entscheidung"; minEffort = 3.0; expectedEffort = 4.0; maxEffort = 6.0; phase = phase2KO; group = group2U01 },
-            DraftFixedEstimationItem().apply { description = "Datenbankdesign & ER-Modell"; minEffort = 1.0; expectedEffort = 2.0; maxEffort = 3.0; phase = phase2KO; group = group2U01 },
-            DraftFixedEstimationItem().apply { description = "UX-Konzept & Wireframes"; minEffort = 3.0; expectedEffort = 5.0; maxEffort = 8.0; phase = phase2KO; group = group2U01 },
-            DraftTimeRelativeEstimationItem().apply { description = "Projektbegleitung"; unit = "h/Woche"; minEffort = 2.0; expectedEffort = 4.0; maxEffort = 8.0; phase = phase2KO; group = group2U01 }
+        addRoots(draft2, listOf(
+            group(draft2, "U01: Konzeption", listOf(
+                fixedLeaf(draft2, "Anforderungsworkshop & Kickoff", 1.0, 2.0, 4.0, phase2KO),
+                fixedLeaf(draft2, "Systemarchitektur & Tech-Stack-Entscheidung", 3.0, 4.0, 6.0, phase2KO),
+                fixedLeaf(draft2, "Datenbankdesign & ER-Modell", 1.0, 2.0, 3.0, phase2KO),
+                fixedLeaf(draft2, "UX-Konzept & Wireframes", 3.0, 5.0, 8.0, phase2KO),
+                timeRelativeLeaf(draft2, "Projektbegleitung", "h/Woche", 2.0, 4.0, 8.0, phase2KO)
+            )),
+            group(draft2, "U02: Frontend Redesign", listOf(
+                fixedLeaf(draft2, "Produktlisting & Suchfunktion", 3.0, 5.0, 7.0, phase2UM),
+                fixedLeaf(draft2, "Warenkorb & Checkout-Prozess", 5.0, 8.0, 13.0, phase2UM),
+                fixedLeaf(draft2, "Benutzerkonto & Login (OAuth2)", 2.0, 4.0, 6.0, phase2UM),
+                fixedLeaf(draft2, "Produkt-Detailseite & Bildergalerie", 1.0, 2.0, 4.0, phase2UM)
+            )),
+            group(draft2, "U03: Backend & Datenbank", listOf(
+                fixedLeaf(draft2, "REST API Endpoints (CRUD)", 4.0, 6.0, 9.0, phase2UM),
+                fixedLeaf(draft2, "Authentifizierung & Autorisierung", 2.0, 3.0, 5.0, phase2UM),
+                fixedLeaf(draft2, "Datenbankmigrationen & Seeding", 1.0, 2.0, 3.0, phase2UM),
+                fixedLeaf(draft2, "Payment-Integration (Stripe)", 3.0, 5.0, 8.0, phase2UM),
+                fixedLeaf(draft2, "E-Mail-Benachrichtigungen (Bestellung/Versand)", 1.0, 2.0, 4.0, phase2UM)
+            )),
+            group(draft2, "U04: Abnahme & Go-live", listOf(
+                fixedLeaf(draft2, "Integrationstests & E2E-Tests", 2.0, 3.0, 5.0, phase2AB),
+                fixedLeaf(draft2, "User Acceptance Testing (UAT)", 2.0, 3.0, 4.0, phase2AB),
+                fixedLeaf(draft2, "Go-live, Deployment & Monitoring-Setup", 1.0, 2.0, 3.0, phase2AB)
+            ))
         ))
-
-        val group2U02 = DraftEstimationItemGroup().apply { title = "U02: Frontend Redesign"; version = draft2 }
-        group2U02.items.addAll(listOf(
-            DraftFixedEstimationItem().apply { description = "Produktlisting & Suchfunktion"; minEffort = 3.0; expectedEffort = 5.0; maxEffort = 7.0; phase = phase2UM; group = group2U02 },
-            DraftFixedEstimationItem().apply { description = "Warenkorb & Checkout-Prozess"; minEffort = 5.0; expectedEffort = 8.0; maxEffort = 13.0; phase = phase2UM; group = group2U02 },
-            DraftFixedEstimationItem().apply { description = "Benutzerkonto & Login (OAuth2)"; minEffort = 2.0; expectedEffort = 4.0; maxEffort = 6.0; phase = phase2UM; group = group2U02 },
-            DraftFixedEstimationItem().apply { description = "Produkt-Detailseite & Bildergalerie"; minEffort = 1.0; expectedEffort = 2.0; maxEffort = 4.0; phase = phase2UM; group = group2U02 }
-        ))
-
-        val group2U03 = DraftEstimationItemGroup().apply { title = "U03: Backend & Datenbank"; version = draft2 }
-        group2U03.items.addAll(listOf(
-            DraftFixedEstimationItem().apply { description = "REST API Endpoints (CRUD)"; minEffort = 4.0; expectedEffort = 6.0; maxEffort = 9.0; phase = phase2UM; group = group2U03 },
-            DraftFixedEstimationItem().apply { description = "Authentifizierung & Autorisierung"; minEffort = 2.0; expectedEffort = 3.0; maxEffort = 5.0; phase = phase2UM; group = group2U03 },
-            DraftFixedEstimationItem().apply { description = "Datenbankmigrationen & Seeding"; minEffort = 1.0; expectedEffort = 2.0; maxEffort = 3.0; phase = phase2UM; group = group2U03 },
-            DraftFixedEstimationItem().apply { description = "Payment-Integration (Stripe)"; minEffort = 3.0; expectedEffort = 5.0; maxEffort = 8.0; phase = phase2UM; group = group2U03 },
-            DraftFixedEstimationItem().apply { description = "E-Mail-Benachrichtigungen (Bestellung/Versand)"; minEffort = 1.0; expectedEffort = 2.0; maxEffort = 4.0; phase = phase2UM; group = group2U03 }
-        ))
-
-        val group2U04 = DraftEstimationItemGroup().apply { title = "U04: Abnahme & Go-live"; version = draft2 }
-        group2U04.items.addAll(listOf(
-            DraftFixedEstimationItem().apply { description = "Integrationstests & E2E-Tests"; minEffort = 2.0; expectedEffort = 3.0; maxEffort = 5.0; phase = phase2AB; group = group2U04 },
-            DraftFixedEstimationItem().apply { description = "User Acceptance Testing (UAT)"; minEffort = 2.0; expectedEffort = 3.0; maxEffort = 4.0; phase = phase2AB; group = group2U04 },
-            DraftFixedEstimationItem().apply { description = "Go-live, Deployment & Monitoring-Setup"; minEffort = 1.0; expectedEffort = 2.0; maxEffort = 3.0; phase = phase2AB; group = group2U04 }
-        ))
-
-        draft2.itemGroups.addAll(listOf(group2U01, group2U02, group2U03, group2U04))
 
         draft2.additionalCosts.addAll(listOf(
             DraftAdditionalCost().apply { description = "Software-Lizenzen (Figma, JIRA, Confluence)"; amount = 2500.0; type = AdditionalCostType.ONE_TIME; phase = phase2KO; version = draft2 },
@@ -217,38 +259,31 @@ class TestDataSeeder(
         val phaseAS = DraftProjectPhase().apply { name = "App Store Release"; abbreviation = "AS"; durationWeeks = 2.0; version = draft }
         draft.phases.addAll(listOf(phaseKD, phaseS1, phaseS2, phaseAS))
 
-        val groupM01 = DraftEstimationItemGroup().apply { title = "M01: Konzeption & UX"; version = draft }
-        groupM01.items.addAll(listOf(
-            DraftFixedEstimationItem().apply { description = "UX Research & Nutzerinterviews"; minEffort = 2.0; expectedEffort = 3.0; maxEffort = 5.0; phase = phaseKD; group = groupM01 },
-            DraftFixedEstimationItem().apply { description = "UI-Design & Designsystem"; minEffort = 5.0; expectedEffort = 8.0; maxEffort = 12.0; phase = phaseKD; group = groupM01 },
-            DraftFixedEstimationItem().apply { description = "App-Architektur & Projektsetup"; minEffort = 2.0; expectedEffort = 3.0; maxEffort = 4.0; phase = phaseKD; group = groupM01 }
+        addRoots(draft, listOf(
+            group(draft, "M01: Konzeption & UX", listOf(
+                fixedLeaf(draft, "UX Research & Nutzerinterviews", 2.0, 3.0, 5.0, phaseKD),
+                fixedLeaf(draft, "UI-Design & Designsystem", 5.0, 8.0, 12.0, phaseKD),
+                fixedLeaf(draft, "App-Architektur & Projektsetup", 2.0, 3.0, 4.0, phaseKD)
+            )),
+            group(draft, "M02: App Features", listOf(
+                fixedLeaf(draft, "Authentifizierung (Biometrie, PIN)", 3.0, 5.0, 8.0, phaseS1),
+                fixedLeaf(draft, "Dashboard & Kontoübersicht", 3.0, 5.0, 8.0, phaseS1),
+                fixedLeaf(draft, "Push-Benachrichtigungen", 2.0, 3.0, 5.0, phaseS1),
+                fixedLeaf(draft, "Transaktionshistorie & Filter", 3.0, 5.0, 7.0, phaseS2),
+                fixedLeaf(draft, "Profil & Einstellungen", 2.0, 3.0, 4.0, phaseS2),
+                fixedLeaf(draft, "Offline-Modus & Datensynchronisation", 4.0, 7.0, 10.0, phaseS2)
+            )),
+            group(draft, "M03: Backend & API", listOf(
+                fixedLeaf(draft, "REST API Design & Dokumentation", 2.0, 3.0, 4.0, phaseS1),
+                fixedLeaf(draft, "Auth & JWT-Token-Service", 2.0, 3.0, 5.0, phaseS1),
+                fixedLeaf(draft, "Daten-API & Business Logic", 4.0, 6.0, 9.0, phaseS2)
+            )),
+            group(draft, "M04: Release & QA", listOf(
+                fixedLeaf(draft, "App Store Einreichung (iOS & Android)", 2.0, 3.0, 5.0, phaseAS),
+                fixedLeaf(draft, "Regression-Tests & Bugfixing", 3.0, 4.0, 6.0, phaseAS),
+                fixedLeaf(draft, "Beta-Test & Feedback-Implementierung", 2.0, 3.0, 5.0, phaseAS)
+            ))
         ))
-
-        val groupM02 = DraftEstimationItemGroup().apply { title = "M02: App Features"; version = draft }
-        groupM02.items.addAll(listOf(
-            DraftFixedEstimationItem().apply { description = "Authentifizierung (Biometrie, PIN)"; minEffort = 3.0; expectedEffort = 5.0; maxEffort = 8.0; phase = phaseS1; group = groupM02 },
-            DraftFixedEstimationItem().apply { description = "Dashboard & Kontoübersicht"; minEffort = 3.0; expectedEffort = 5.0; maxEffort = 8.0; phase = phaseS1; group = groupM02 },
-            DraftFixedEstimationItem().apply { description = "Push-Benachrichtigungen"; minEffort = 2.0; expectedEffort = 3.0; maxEffort = 5.0; phase = phaseS1; group = groupM02 },
-            DraftFixedEstimationItem().apply { description = "Transaktionshistorie & Filter"; minEffort = 3.0; expectedEffort = 5.0; maxEffort = 7.0; phase = phaseS2; group = groupM02 },
-            DraftFixedEstimationItem().apply { description = "Profil & Einstellungen"; minEffort = 2.0; expectedEffort = 3.0; maxEffort = 4.0; phase = phaseS2; group = groupM02 },
-            DraftFixedEstimationItem().apply { description = "Offline-Modus & Datensynchronisation"; minEffort = 4.0; expectedEffort = 7.0; maxEffort = 10.0; phase = phaseS2; group = groupM02 }
-        ))
-
-        val groupM03 = DraftEstimationItemGroup().apply { title = "M03: Backend & API"; version = draft }
-        groupM03.items.addAll(listOf(
-            DraftFixedEstimationItem().apply { description = "REST API Design & Dokumentation"; minEffort = 2.0; expectedEffort = 3.0; maxEffort = 4.0; phase = phaseS1; group = groupM03 },
-            DraftFixedEstimationItem().apply { description = "Auth & JWT-Token-Service"; minEffort = 2.0; expectedEffort = 3.0; maxEffort = 5.0; phase = phaseS1; group = groupM03 },
-            DraftFixedEstimationItem().apply { description = "Daten-API & Business Logic"; minEffort = 4.0; expectedEffort = 6.0; maxEffort = 9.0; phase = phaseS2; group = groupM03 }
-        ))
-
-        val groupM04 = DraftEstimationItemGroup().apply { title = "M04: Release & QA"; version = draft }
-        groupM04.items.addAll(listOf(
-            DraftFixedEstimationItem().apply { description = "App Store Einreichung (iOS & Android)"; minEffort = 2.0; expectedEffort = 3.0; maxEffort = 5.0; phase = phaseAS; group = groupM04 },
-            DraftFixedEstimationItem().apply { description = "Regression-Tests & Bugfixing"; minEffort = 3.0; expectedEffort = 4.0; maxEffort = 6.0; phase = phaseAS; group = groupM04 },
-            DraftFixedEstimationItem().apply { description = "Beta-Test & Feedback-Implementierung"; minEffort = 2.0; expectedEffort = 3.0; maxEffort = 5.0; phase = phaseAS; group = groupM04 }
-        ))
-
-        draft.itemGroups.addAll(listOf(groupM01, groupM02, groupM03, groupM04))
 
         draft.additionalCosts.addAll(listOf(
             DraftAdditionalCost().apply { description = "Apple Developer Program"; amount = 99.0; type = AdditionalCostType.ONE_TIME; phase = phaseAS; version = draft },

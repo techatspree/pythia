@@ -16,7 +16,7 @@ class DraftVersionMapper {
             effortDrivers = draft.effortDrivers.map { it.toDomain() },
             phases = phaseMap.values.toList(),
             additionalCosts = draft.additionalCosts.map { it.toDomain(phaseMap) },
-            itemGroups = draft.itemGroups.map { it.toDomain(phaseMap) }
+            roots = draft.roots.map { it.toDomain(phaseMap) }
         )
     }
 
@@ -46,38 +46,33 @@ class DraftVersionMapper {
         phase = phase?.abbreviation?.let { phaseMap[it] }
     )
 
-    private fun DraftEstimationItemGroup.toDomain(phaseMap: Map<String, ProjectPhase>): EstimationItemGroup {
-        return EstimationItemGroup(
-            title = title,
-            logicalId = logicalId.toString(),
-            items = items.map { it.toDomain(phaseMap) }
+    private fun DraftEstimationNode.toDomain(phaseMap: Map<String, ProjectPhase>): EstimationNode = when (this) {
+        is DraftGroupNode -> EstimationGroup(
+            title = title ?: "",
+            children = children.map { it.toDomain(phaseMap) },
+            _logicalId = logicalId.toString()
         )
-    }
-
-    private fun DraftEstimationItem.toDomain(phaseMap: Map<String, ProjectPhase>): EstimationItem {
-        val domainPhase = phase?.abbreviation?.let { phaseMap[it] }
-        return when (this) {
-            is DraftTimeRelativeEstimationItem -> TimeRelativeEstimationItem(
-                unit = unit ?: "h/Woche",
-                _description = description,
-                _code = code ?: "",
-                _minEffort = minEffort ?: 0.0,
-                _expectedEffort = expectedEffort ?: 0.0,
-                _maxEffort = maxEffort ?: 0.0,
-                _assumptions = assumptions ?: "",
-                _phase = domainPhase,
-                _logicalId = logicalId.toString()
-            )
-            else -> FixedEstimationItem(
-                _description = description,
-                _code = code ?: "",
-                _minEffort = minEffort ?: 0.0,
-                _expectedEffort = expectedEffort ?: 0.0,
-                _maxEffort = maxEffort ?: 0.0,
-                _assumptions = assumptions ?: "",
-                _phase = domainPhase,
-                _logicalId = logicalId.toString()
-            )
-        }
+        is DraftTimeRelativeItemNode -> TimeRelativeEstimationItem(
+            unit = unit ?: "h/Woche",
+            _description = description ?: "",
+            _code = code ?: "",
+            _minEffort = minEffort ?: 0.0,
+            _expectedEffort = expectedEffort ?: 0.0,
+            _maxEffort = maxEffort ?: 0.0,
+            _assumptions = assumptions ?: "",
+            _phase = phase?.abbreviation?.let { phaseMap[it] },
+            _logicalId = logicalId.toString()
+        )
+        is DraftFixedItemNode -> FixedEstimationItem(
+            _description = description ?: "",
+            _code = code ?: "",
+            _minEffort = minEffort ?: 0.0,
+            _expectedEffort = expectedEffort ?: 0.0,
+            _maxEffort = maxEffort ?: 0.0,
+            _assumptions = assumptions ?: "",
+            _phase = phase?.abbreviation?.let { phaseMap[it] },
+            _logicalId = logicalId.toString()
+        )
+        else -> error("Unknown node type: ${this::class.simpleName}")
     }
 }

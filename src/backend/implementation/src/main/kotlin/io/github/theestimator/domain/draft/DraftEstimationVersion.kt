@@ -3,6 +3,7 @@ package io.github.theestimator.domain.draft
 import io.github.theestimator.domain.BaseEntity
 import io.github.theestimator.domain.Estimation
 import jakarta.persistence.*
+import org.hibernate.annotations.SQLRestriction
 
 @Entity
 @Table(name = "draft_estimation_versions")
@@ -27,7 +28,9 @@ class DraftEstimationVersion : BaseEntity() {
     var phases: MutableList<DraftProjectPhase> = mutableListOf()
 
     @OneToMany(mappedBy = "version", cascade = [CascadeType.ALL], orphanRemoval = true)
-    var itemGroups: MutableList<DraftEstimationItemGroup> = mutableListOf()
+    @SQLRestriction("parent_id IS NULL")
+    @OrderColumn(name = "position")
+    var roots: MutableList<DraftEstimationNode> = mutableListOf()
 
     @OneToMany(mappedBy = "version", cascade = [CascadeType.ALL], orphanRemoval = true)
     var additionalCosts: MutableList<DraftAdditionalCost> = mutableListOf()

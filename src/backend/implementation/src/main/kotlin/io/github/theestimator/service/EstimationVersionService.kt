@@ -3,6 +3,7 @@ package io.github.theestimator.service
 import io.github.theestimator.domain.draft.*
 import io.github.theestimator.domain.submitted.*
 import io.github.theestimator.model.EstimationVersion
+import io.github.theestimator.model.leaves
 import io.github.theestimator.repository.DraftEstimationVersionRepository
 import io.github.theestimator.repository.EstimationRepository
 import io.github.theestimator.repository.SubmittedEstimationVersionRepository
@@ -125,29 +126,40 @@ class EstimationVersionService(
             })
         }
 
-        val itemResultMap = calculated.itemGroups.flatMap { it.items }.associateBy { it.logicalId }
+        // task-050 temporary: the submitted side is still flat (itemGroups + items).
+        // Each top-level DraftGroupNode becomes one SubmittedEstimationItemGroup, and
+        // every leaf in its subtree is appended to it. Deeper nesting is dropped on
+        // submit; task-051 removes this flattening when the submitted side becomes
+        // tree-shaped. Roots that are leaves (no group ancestor) get wrapped in an
+        // empty-title synthetic group.
+        val itemResultMap = calculated.roots.flatMap { it.leaves().toList() }.associateBy { it.logicalId }
 
-        draft.itemGroups.forEach { group ->
+        fun collectLeaves(node: DraftEstimationNode): List<DraftEstimationNode> = when (node) {
+            is DraftGroupNode -> node.children.flatMap { collectLeaves(it) }
+            else -> listOf(node)
+        }
+
+        draft.roots.forEach { root ->
             val submittedGroup = SubmittedEstimationItemGroup().apply {
-                logicalId = group.logicalId
-                title = group.title
+                logicalId = if (root is DraftGroupNode) root.logicalId else UUID.randomUUID()
+                title = if (root is DraftGroupNode) (root.title ?: "") else ""
                 version = submitted
             }
             submitted.itemGroups.add(submittedGroup)
 
-            group.items.forEach { item ->
-                val calc = itemResultMap[item.logicalId.toString()]
-                val submittedItem = when (item) {
-                    is DraftTimeRelativeEstimationItem -> SubmittedTimeRelativeEstimationItem().apply { unit = item.unit }
+            collectLeaves(root).forEach { leaf ->
+                val calc = itemResultMap[leaf.logicalId.toString()]
+                val submittedItem = when (leaf) {
+                    is DraftTimeRelativeItemNode -> SubmittedTimeRelativeEstimationItem().apply { unit = leaf.unit }
                     else -> SubmittedFixedEstimationItem()
                 }
                 submittedItem.apply {
-                    logicalId = item.logicalId
-                    description = item.description
-                    code = item.code
-                    minEffort = item.minEffort ?: 0.0
-                    expectedEffort = item.expectedEffort ?: 0.0
-                    maxEffort = item.maxEffort ?: 0.0
+                    logicalId = leaf.logicalId
+                    description = leaf.description ?: ""
+                    code = leaf.code
+                    minEffort = leaf.minEffort ?: 0.0
+                    expectedEffort = leaf.expectedEffort ?: 0.0
+                    maxEffort = leaf.maxEffort ?: 0.0
                     mean = calc?.mean ?: 0.0
                     variance = calc?.variance ?: 0.0
                     riskSurcharge = calc?.riskSurcharge ?: 0.0
@@ -155,8 +167,8 @@ class EstimationVersionService(
                     offerPT = calc?.offerPT ?: 0.0
                     cost = calc?.cost ?: 0.0
                     offerPrice = calc?.offerPrice ?: 0.0
-                    assumptions = item.assumptions
-                    phaseAbbreviation = item.phase?.abbreviation
+                    assumptions = leaf.assumptions
+                    phaseAbbreviation = leaf.phase?.abbreviation
                     this.group = submittedGroup
                 }
                 submittedGroup.items.add(submittedItem)
@@ -215,18 +227,19 @@ class EstimationVersionService(
             target.phases.add(draftPhase)
         }
 
-        source.itemGroups.forEach { group ->
-            val draftGroup = DraftEstimationItemGroup().apply {
+        source.itemGroups.forEachIndexed { groupIdx, group ->
+            val draftGroup = DraftGroupNode().apply {
                 logicalId = group.logicalId
                 title = group.title
+                position = groupIdx
                 version = target
             }
-            target.itemGroups.add(draftGroup)
+            target.roots.add(draftGroup)
 
-            group.items.forEach { item ->
+            group.items.forEachIndexed { itemIdx, item ->
                 val draftItem = when (item) {
-                    is SubmittedTimeRelativeEstimationItem -> DraftTimeRelativeEstimationItem().apply { unit = item.unit }
-                    else -> DraftFixedEstimationItem()
+                    is SubmittedTimeRelativeEstimationItem -> DraftTimeRelativeItemNode().apply { unit = item.unit }
+                    else -> DraftFixedItemNode()
                 }
                 draftItem.apply {
                     logicalId = item.logicalId
@@ -237,9 +250,11 @@ class EstimationVersionService(
                     maxEffort = item.maxEffort
                     assumptions = item.assumptions
                     phase = item.phaseAbbreviation?.let { phaseMapping[it] }
-                    this.group = draftGroup
+                    position = itemIdx
+                    version = target
+                    parent = draftGroup
                 }
-                draftGroup.items.add(draftItem)
+                draftGroup.children.add(draftItem)
             }
         }
 

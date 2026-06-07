@@ -2,12 +2,13 @@ package io.github.theestimator.rest
 
 import io.github.theestimator.domain.draft.DraftAdditionalCost
 import io.github.theestimator.domain.draft.DraftEffortDriver
-import io.github.theestimator.domain.draft.DraftEstimationItem
-import io.github.theestimator.domain.draft.DraftEstimationItemGroup
+import io.github.theestimator.domain.draft.DraftEstimationNode
 import io.github.theestimator.domain.draft.DraftEstimationParameter
-import io.github.theestimator.domain.draft.DraftFixedEstimationItem
+import io.github.theestimator.domain.draft.DraftEstimationVersion
+import io.github.theestimator.domain.draft.DraftFixedItemNode
+import io.github.theestimator.domain.draft.DraftGroupNode
 import io.github.theestimator.domain.draft.DraftProjectPhase
-import io.github.theestimator.domain.draft.DraftTimeRelativeEstimationItem
+import io.github.theestimator.domain.draft.DraftTimeRelativeItemNode
 import io.github.theestimator.domain.submitted.SubmittedEstimationVersion
 import io.github.theestimator.repository.EstimationRepository
 import io.github.theestimator.rest.dto.*
@@ -119,34 +120,43 @@ class EstimationVersionResource(
             }
         }
 
-        update.itemGroups?.let { groupDtos ->
-            draft.itemGroups.clear()
-            groupDtos.forEach { groupDto ->
-                val group = DraftEstimationItemGroup().apply {
-                    logicalId = groupDto.logicalId ?: UUID.randomUUID()
-                    title = groupDto.title
+        update.roots?.let { rootDtos ->
+            fun buildNode(
+                dto: EstimationNodeUpdateDto,
+                parentNode: DraftEstimationNode?,
+                pos: Int
+            ): DraftEstimationNode {
+                val node: DraftEstimationNode = when (dto.type) {
+                    "GROUP" -> DraftGroupNode().apply { title = dto.title }
+                    "TIME_RELATIVE" -> DraftTimeRelativeItemNode().apply { unit = dto.unit ?: "h/Woche" }
+                    else -> DraftFixedItemNode()
+                }
+                node.apply {
+                    logicalId = dto.logicalId ?: UUID.randomUUID()
+                    position = pos
                     version = draft
-                }
-                groupDto.items.forEach { itemDto ->
-                    val itemPhase = itemDto.phaseAbbreviation?.let { abbr ->
-                        draft.phases.find { it.abbreviation == abbr }
+                    parent = parentNode
+                    if (dto.type != "GROUP") {
+                        description = dto.description
+                        code = dto.code
+                        minEffort = dto.minEffort
+                        expectedEffort = dto.expectedEffort
+                        maxEffort = dto.maxEffort
+                        assumptions = dto.assumptions
+                        phase = dto.phaseAbbreviation?.let { abbr ->
+                            draft.phases.find { it.abbreviation == abbr }
+                        }
                     }
-                    val draftItem: DraftEstimationItem = if (itemDto.type == "TIME_RELATIVE")
-                        DraftTimeRelativeEstimationItem().also { it.unit = itemDto.unit ?: "h/Woche" }
-                    else
-                        DraftFixedEstimationItem()
-                    group.items.add(draftItem.apply {
-                        logicalId = itemDto.logicalId ?: UUID.randomUUID()
-                        description = itemDto.description
-                        minEffort = itemDto.minEffort
-                        expectedEffort = itemDto.expectedEffort
-                        maxEffort = itemDto.maxEffort
-                        assumptions = itemDto.assumptions
-                        this.phase = itemPhase
-                        this.group = group
-                    })
                 }
-                draft.itemGroups.add(group)
+                dto.children.forEachIndexed { idx, childDto ->
+                    node.children.add(buildNode(childDto, node, idx))
+                }
+                return node
+            }
+
+            draft.roots.clear()
+            rootDtos.forEachIndexed { idx, dto ->
+                draft.roots.add(buildNode(dto, null, idx))
             }
         }
 

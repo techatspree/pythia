@@ -119,8 +119,8 @@ class EstimationVersionResourceIT {
             .body("versionNumber", equalTo(1))
             .body("submittedAt", notNullValue())
             .body("totalEffort", notNullValue())
-            .body("itemGroups[0].items.size()", equalTo(2))
-            .body("itemGroups[0].items[0].offerPT", greaterThan(0.0f))
+            .body("roots[0].children.size()", equalTo(2))
+            .body("roots[0].children[0].offerPT", greaterThan(0.0f))
 
         given()
             .`when`().get("/api/estimations/$estimationId/versions/draft")
@@ -186,11 +186,11 @@ class EstimationVersionResourceIT {
             .body("parameters.find { it.name == 'Tagessatz' }.value", equalTo(900.0f))
             .body("effortDrivers.size()", equalTo(1))
             .body("effortDrivers[0].description", equalTo("QA"))
-            .body("itemGroups[0].items.size()", equalTo(2))
+            .body("roots[0].children.size()", equalTo(2))
     }
 
     @Test
-    fun `update draft with item groups persists items`() {
+    fun `update draft with roots persists items`() {
         given().post("/api/estimations/$estimationId/versions")
             .then().statusCode(201)
 
@@ -198,11 +198,12 @@ class EstimationVersionResourceIT {
             .contentType(ContentType.JSON)
             .body("""
                 {
-                    "itemGroups": [{
+                    "roots": [{
+                        "type": "GROUP",
                         "title": "Backend",
-                        "items": [
-                            {"description": "Task A", "minEffort": 1.0, "expectedEffort": 2.0, "maxEffort": 3.0},
-                            {"description": "Task B", "minEffort": 2.0, "expectedEffort": 4.0, "maxEffort": 6.0, "assumptions": "Needs design"}
+                        "children": [
+                            {"type": "FIXED", "description": "Task A", "minEffort": 1.0, "expectedEffort": 2.0, "maxEffort": 3.0},
+                            {"type": "FIXED", "description": "Task B", "minEffort": 2.0, "expectedEffort": 4.0, "maxEffort": 6.0, "assumptions": "Needs design"}
                         ]
                     }]
                 }
@@ -210,35 +211,87 @@ class EstimationVersionResourceIT {
             .`when`().put("/api/estimations/$estimationId/versions/draft")
             .then()
             .statusCode(200)
-            .body("itemGroups.size()", equalTo(1))
-            .body("itemGroups[0].title", equalTo("Backend"))
-            .body("itemGroups[0].items.size()", equalTo(2))
-            .body("itemGroups[0].items[0].description", equalTo("Task A"))
-            .body("itemGroups[0].items[0].minEffort", equalTo(1.0f))
-            .body("itemGroups[0].items[0].expectedEffort", equalTo(2.0f))
-            .body("itemGroups[0].items[0].maxEffort", equalTo(3.0f))
-            .body("itemGroups[0].items[0].mean", equalTo(2.0f))
-            .body("itemGroups[0].items[1].assumptions", equalTo("Needs design"))
+            .body("roots.size()", equalTo(1))
+            .body("roots[0].title", equalTo("Backend"))
+            .body("roots[0].children.size()", equalTo(2))
+            .body("roots[0].children[0].description", equalTo("Task A"))
+            .body("roots[0].children[0].minEffort", equalTo(1.0f))
+            .body("roots[0].children[0].expectedEffort", equalTo(2.0f))
+            .body("roots[0].children[0].maxEffort", equalTo(3.0f))
+            .body("roots[0].children[0].mean", equalTo(2.0f))
+            .body("roots[0].children[1].assumptions", equalTo("Needs design"))
     }
 
     @Test
-    fun `update draft item groups replaces previous groups`() {
+    fun `update draft roots replaces previous roots`() {
         given().post("/api/estimations/$estimationId/versions")
         given()
             .contentType(ContentType.JSON)
-            .body("""{"itemGroups": [{"title": "First", "items": [{"description": "Old"}]}]}""")
+            .body("""{"roots": [{"type": "GROUP", "title": "First", "children": [{"type": "FIXED", "description": "Old"}]}]}""")
             .put("/api/estimations/$estimationId/versions/draft")
 
         given()
             .contentType(ContentType.JSON)
-            .body("""{"itemGroups": [{"title": "Second", "items": [{"description": "New", "minEffort": 2.0, "expectedEffort": 4.0, "maxEffort": 6.0}]}]}""")
+            .body("""{"roots": [{"type": "GROUP", "title": "Second", "children": [{"type": "FIXED", "description": "New", "minEffort": 2.0, "expectedEffort": 4.0, "maxEffort": 6.0}]}]}""")
             .`when`().put("/api/estimations/$estimationId/versions/draft")
             .then()
             .statusCode(200)
-            .body("itemGroups.size()", equalTo(1))
-            .body("itemGroups[0].title", equalTo("Second"))
-            .body("itemGroups[0].items[0].description", equalTo("New"))
+            .body("roots.size()", equalTo(1))
+            .body("roots[0].title", equalTo("Second"))
+            .body("roots[0].children[0].description", equalTo("New"))
             .body("totalEffort", greaterThan(0.0f))
+    }
+
+    @Test
+    fun `update draft with a three-level tree round-trips`() {
+        given().post("/api/estimations/$estimationId/versions")
+            .then().statusCode(201)
+
+        given()
+            .contentType(ContentType.JSON)
+            .body("""
+                {
+                    "parameters": [{"name": "Standardabweichungsfaktor", "value": 0.0}],
+                    "roots": [{
+                        "type": "GROUP",
+                        "title": "Backend",
+                        "children": [
+                            {
+                                "type": "GROUP",
+                                "title": "Auth",
+                                "children": [
+                                    {"type": "FIXED", "description": "Token endpoint", "minEffort": 1.0, "expectedEffort": 2.0, "maxEffort": 3.0},
+                                    {"type": "FIXED", "description": "Session storage", "minEffort": 2.0, "expectedEffort": 4.0, "maxEffort": 6.0}
+                                ]
+                            },
+                            {"type": "FIXED", "description": "Health endpoint", "minEffort": 1.0, "expectedEffort": 1.0, "maxEffort": 1.0}
+                        ]
+                    }]
+                }
+            """.trimIndent())
+            .`when`().put("/api/estimations/$estimationId/versions/draft")
+            .then()
+            .statusCode(200)
+            .body("roots.size()", equalTo(1))
+            .body("roots[0].type", equalTo("GROUP"))
+            .body("roots[0].title", equalTo("Backend"))
+            .body("roots[0].children.size()", equalTo(2))
+            .body("roots[0].children[0].type", equalTo("GROUP"))
+            .body("roots[0].children[0].title", equalTo("Auth"))
+            .body("roots[0].children[0].children.size()", equalTo(2))
+            .body("roots[0].children[0].children[0].description", equalTo("Token endpoint"))
+            .body("roots[0].children[1].description", equalTo("Health endpoint"))
+            // Backend.offerPT should sum the two leaves under Auth plus the Health leaf
+            .body("roots[0].offerPT", equalTo(7.0f))
+            .body("roots[0].children[0].offerPT", equalTo(6.0f))
+
+        // GET round-trip preserves the nested shape
+        given()
+            .`when`().get("/api/estimations/$estimationId/versions/draft")
+            .then()
+            .statusCode(200)
+            .body("roots[0].children[0].children.size()", equalTo(2))
+            .body("roots[0].children[0].children[1].description", equalTo("Session storage"))
     }
 
     @Test
@@ -252,13 +305,13 @@ class EstimationVersionResourceIT {
             .body("""
                 {
                     "parameters": [{"name": "Standardabweichungsfaktor", "value": 0.0}],
-                    "itemGroups": [{"title": "G", "items": [{"description": "T", "minEffort": 2.0, "expectedEffort": 4.0, "maxEffort": 6.0}]}]
+                    "roots": [{"type": "GROUP", "title": "G", "children": [{"type": "FIXED", "description": "T", "minEffort": 2.0, "expectedEffort": 4.0, "maxEffort": 6.0}]}]
                 }
             """.trimIndent())
             .`when`().put("/api/estimations/$estimationId/versions/draft")
             .then()
             .statusCode(200)
-            .body("itemGroups[0].items[0].offerPT", equalTo(4.0f))
+            .body("roots[0].children[0].offerPT", equalTo(4.0f))
 
         // driver factor=0.5: driverSurcharge = mean*0.5, offerPT = mean + 0 + mean*0.5 = 1.5*mean = 6.0
         given()
@@ -267,13 +320,13 @@ class EstimationVersionResourceIT {
                 {
                     "parameters": [{"name": "Standardabweichungsfaktor", "value": 0.0}],
                     "effortDrivers": [{"description": "QA", "factor": 0.5}],
-                    "itemGroups": [{"title": "G", "items": [{"description": "T", "minEffort": 2.0, "expectedEffort": 4.0, "maxEffort": 6.0}]}]
+                    "roots": [{"type": "GROUP", "title": "G", "children": [{"type": "FIXED", "description": "T", "minEffort": 2.0, "expectedEffort": 4.0, "maxEffort": 6.0}]}]
                 }
             """.trimIndent())
             .`when`().put("/api/estimations/$estimationId/versions/draft")
             .then()
             .statusCode(200)
-            .body("itemGroups[0].items[0].offerPT", equalTo(6.0f))
+            .body("roots[0].children[0].offerPT", equalTo(6.0f))
             .body("totalEffort", equalTo(6.0f))
     }
 
@@ -290,14 +343,14 @@ class EstimationVersionResourceIT {
                         {"name": "Tagessatz", "value": 800.0},
                         {"name": "Standardabweichungsfaktor", "value": 0.0}
                     ],
-                    "itemGroups": [{"title": "G", "items": [{"description": "T", "minEffort": 2.0, "expectedEffort": 4.0, "maxEffort": 6.0}]}]
+                    "roots": [{"type": "GROUP", "title": "G", "children": [{"type": "FIXED", "description": "T", "minEffort": 2.0, "expectedEffort": 4.0, "maxEffort": 6.0}]}]
                 }
             """.trimIndent())
             .`when`().put("/api/estimations/$estimationId/versions/draft")
             .then()
             .statusCode(200)
-            .body("itemGroups[0].items[0].offerPT", equalTo(4.0f))
-            .body("itemGroups[0].items[0].cost", equalTo(3200.0f))
+            .body("roots[0].children[0].offerPT", equalTo(4.0f))
+            .body("roots[0].children[0].cost", equalTo(3200.0f))
 
         // Doubling Tagessatz doubles cost but leaves offerPT unchanged
         given()
@@ -308,15 +361,15 @@ class EstimationVersionResourceIT {
                         {"name": "Tagessatz", "value": 1600.0},
                         {"name": "Standardabweichungsfaktor", "value": 0.0}
                     ],
-                    "itemGroups": [{"title": "G", "items": [{"description": "T", "minEffort": 2.0, "expectedEffort": 4.0, "maxEffort": 6.0}]}]
+                    "roots": [{"type": "GROUP", "title": "G", "children": [{"type": "FIXED", "description": "T", "minEffort": 2.0, "expectedEffort": 4.0, "maxEffort": 6.0}]}]
                 }
             """.trimIndent())
             .`when`().put("/api/estimations/$estimationId/versions/draft")
             .then()
             .statusCode(200)
-            .body("itemGroups[0].items[0].offerPT", equalTo(4.0f))
-            .body("itemGroups[0].items[0].cost", equalTo(6400.0f))
-            .body("itemGroups[0].items[0].offerPrice", equalTo(7040.0f))
+            .body("roots[0].children[0].offerPT", equalTo(4.0f))
+            .body("roots[0].children[0].cost", equalTo(6400.0f))
+            .body("roots[0].children[0].offerPrice", equalTo(7040.0f))
     }
 
     @Test
@@ -340,8 +393,8 @@ class EstimationVersionResourceIT {
                 {
                     "phases": [{"name": "Analysis", "abbreviation": "AN", "durationWeeks": 2.0}],
                     "parameters": [{"name": "Standardabweichungsfaktor", "value": 0.0}],
-                    "itemGroups": [{"title": "G", "items": [
-                        {"description": "T", "minEffort": 2.0, "expectedEffort": 4.0, "maxEffort": 6.0, "phaseAbbreviation": "AN"}
+                    "roots": [{"type": "GROUP", "title": "G", "children": [
+                        {"type": "FIXED", "description": "T", "minEffort": 2.0, "expectedEffort": 4.0, "maxEffort": 6.0, "phaseAbbreviation": "AN"}
                     ]}]
                 }
             """.trimIndent())
@@ -349,8 +402,8 @@ class EstimationVersionResourceIT {
             .then()
             .statusCode(200)
             .body("phases.size()", equalTo(1))
-            .body("itemGroups[0].items[0].phaseAbbreviation", equalTo("AN"))
-            .body("itemGroups[0]", not(hasKey("phaseAbbreviation")))
+            .body("roots[0].children[0].phaseAbbreviation", equalTo("AN"))
+            .body("roots[0].phaseAbbreviation", nullValue())
 
         // Submit and verify phaseAbbreviation on submitted snapshot
         given().post("/api/estimations/$estimationId/versions/draft/submit").then().statusCode(200)
@@ -359,15 +412,15 @@ class EstimationVersionResourceIT {
             .`when`().get("/api/estimations/$estimationId/versions/1")
             .then()
             .statusCode(200)
-            .body("itemGroups[0].items[0].phaseAbbreviation", equalTo("AN"))
-            .body("itemGroups[0]", not(hasKey("phaseAbbreviation")))
+            .body("roots[0].children[0].phaseAbbreviation", equalTo("AN"))
+            .body("roots[0].phaseAbbreviation", nullValue())
 
         // Clone into new draft — phaseAbbreviation must be preserved
         given().post("/api/estimations/$estimationId/versions")
             .then()
             .statusCode(201)
             .body("versionNumber", equalTo(2))
-            .body("itemGroups[0].items[0].phaseAbbreviation", equalTo("AN"))
+            .body("roots[0].children[0].phaseAbbreviation", equalTo("AN"))
     }
 
     @Test
@@ -380,9 +433,9 @@ class EstimationVersionResourceIT {
                 {
                     "phases": [{"name": "Analysis", "abbreviation": "AN", "durationWeeks": 4.0}],
                     "parameters": [{"name": "Standardabweichungsfaktor", "value": 0.0}],
-                    "itemGroups": [{"title": "G", "items": [{
-                        "description": "T",
+                    "roots": [{"type": "GROUP", "title": "G", "children": [{
                         "type": "TIME_RELATIVE",
+                        "description": "T",
                         "unit": "h/Woche",
                         "minEffort": 1.0,
                         "expectedEffort": 2.0,
@@ -395,9 +448,9 @@ class EstimationVersionResourceIT {
             .then()
             .statusCode(200)
             // PERT(1,2,3) = 2.0, * 4 weeks = 8.0
-            .body("itemGroups[0].items[0].offerPT", equalTo(8.0f))
-            .body("itemGroups[0].items[0].unit", equalTo("h/Woche"))
-            .body("itemGroups[0].items[0].type", equalTo("TIME_RELATIVE"))
+            .body("roots[0].children[0].offerPT", equalTo(8.0f))
+            .body("roots[0].children[0].unit", equalTo("h/Woche"))
+            .body("roots[0].children[0].type", equalTo("TIME_RELATIVE"))
     }
 
     @Test
@@ -409,9 +462,9 @@ class EstimationVersionResourceIT {
             .body("""
                 {
                     "parameters": [{"name": "Standardabweichungsfaktor", "value": 0.0}],
-                    "itemGroups": [{"title": "G", "items": [{
-                        "description": "T",
+                    "roots": [{"type": "GROUP", "title": "G", "children": [{
                         "type": "TIME_RELATIVE",
+                        "description": "T",
                         "minEffort": 1.0,
                         "expectedEffort": 2.0,
                         "maxEffort": 3.0
@@ -421,7 +474,7 @@ class EstimationVersionResourceIT {
             .`when`().put("/api/estimations/$estimationId/versions/draft")
             .then()
             .statusCode(200)
-            .body("itemGroups[0].items[0].offerPT", equalTo(0.0f))
+            .body("roots[0].children[0].offerPT", equalTo(0.0f))
     }
 
     @Test
@@ -463,8 +516,8 @@ class EstimationVersionResourceIT {
         given()
             .contentType(ContentType.JSON)
             .body("""
-                {"itemGroups": [{"title": "Development", "items": [
-                    {"description": "New Feature X", "minEffort": 1.0, "expectedEffort": 2.0, "maxEffort": 3.0}
+                {"roots": [{"type": "GROUP", "title": "Development", "children": [
+                    {"type": "FIXED", "description": "New Feature X", "minEffort": 1.0, "expectedEffort": 2.0, "maxEffort": 3.0}
                 ]}]}
             """.trimIndent())
             .put("/api/estimations/$estimationId/versions/draft")
@@ -488,17 +541,17 @@ class EstimationVersionResourceIT {
 
         val jp = given().get("/api/estimations/$estimationId/versions/draft")
             .then().extract().jsonPath()
-        val groupId = jp.getString("itemGroups[0].logicalId")
-        val idA     = jp.getString("itemGroups[0].items[0].logicalId")
-        val idB     = jp.getString("itemGroups[0].items[1].logicalId")
+        val groupId = jp.getString("roots[0].logicalId")
+        val idA     = jp.getString("roots[0].children[0].logicalId")
+        val idB     = jp.getString("roots[0].children[1].logicalId")
 
         given()
             .contentType(ContentType.JSON)
             .body("""
-                {"itemGroups": [{"logicalId": "$groupId", "title": "Development", "items": [
-                    {"logicalId": "$idA", "description": "Feature A",
+                {"roots": [{"logicalId": "$groupId", "type": "GROUP", "title": "Development", "children": [
+                    {"logicalId": "$idA", "type": "FIXED", "description": "Feature A",
                      "minEffort": 3.0, "expectedEffort": 6.0, "maxEffort": 9.0},
-                    {"logicalId": "$idB", "description": "Feature B",
+                    {"logicalId": "$idB", "type": "FIXED", "description": "Feature B",
                      "minEffort": 1.0, "expectedEffort": 3.0, "maxEffort": 5.0}
                 ]}]}
             """.trimIndent())
@@ -527,17 +580,17 @@ class EstimationVersionResourceIT {
 
         val jp = given().get("/api/estimations/$estimationId/versions/draft")
             .then().extract().jsonPath()
-        val groupId = jp.getString("itemGroups[0].logicalId")
-        val idA     = jp.getString("itemGroups[0].items[0].logicalId")
-        val idB     = jp.getString("itemGroups[0].items[1].logicalId")
+        val groupId = jp.getString("roots[0].logicalId")
+        val idA     = jp.getString("roots[0].children[0].logicalId")
+        val idB     = jp.getString("roots[0].children[1].logicalId")
 
         given()
             .contentType(ContentType.JSON)
             .body("""
-                {"itemGroups": [{"logicalId": "$groupId", "title": "Development", "items": [
-                    {"logicalId": "$idA", "description": "Feature A",
+                {"roots": [{"logicalId": "$groupId", "type": "GROUP", "title": "Development", "children": [
+                    {"logicalId": "$idA", "type": "FIXED", "description": "Feature A",
                      "minEffort": 3.0, "expectedEffort": 6.0, "maxEffort": 9.0},
-                    {"logicalId": "$idB", "description": "Feature B",
+                    {"logicalId": "$idB", "type": "FIXED", "description": "Feature B",
                      "minEffort": 1.0, "expectedEffort": 3.0, "maxEffort": 5.0}
                 ]}]}
             """.trimIndent())
@@ -659,11 +712,12 @@ class EstimationVersionResourceIT {
                     "effortDrivers": [
                         {"description": "QA", "factor": 0.15}
                     ],
-                    "itemGroups": [{
+                    "roots": [{
+                        "type": "GROUP",
                         "title": "Development",
-                        "items": [
-                            {"description": "Feature A", "minEffort": 2.0, "expectedEffort": 4.0, "maxEffort": 6.0},
-                            {"description": "Feature B", "minEffort": 1.0, "expectedEffort": 3.0, "maxEffort": 5.0}
+                        "children": [
+                            {"type": "FIXED", "description": "Feature A", "minEffort": 2.0, "expectedEffort": 4.0, "maxEffort": 6.0},
+                            {"type": "FIXED", "description": "Feature B", "minEffort": 1.0, "expectedEffort": 3.0, "maxEffort": 5.0}
                         ]
                     }]
                 }

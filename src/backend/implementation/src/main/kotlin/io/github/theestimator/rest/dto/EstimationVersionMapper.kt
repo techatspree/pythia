@@ -2,7 +2,9 @@ package io.github.theestimator.rest.dto
 
 import io.github.theestimator.domain.draft.*
 import io.github.theestimator.domain.submitted.*
+import io.github.theestimator.model.EstimationGroup
 import io.github.theestimator.model.EstimationItem
+import io.github.theestimator.model.EstimationNode
 import io.github.theestimator.model.EstimationVersion
 
 fun SubmittedEstimationVersion.toSummaryDto() = EstimationVersionSummaryDto(
@@ -31,23 +33,34 @@ fun SubmittedEstimationVersion.toDto() = EstimationVersionDto(
     parameters = parameters.map { it.toDto() },
     effortDrivers = effortDrivers.map { it.toDto() },
     phases = phases.map { it.toDto() },
-    itemGroups = itemGroups.map { it.toDto() },
+    roots = itemGroups.map { it.toRootDto() },
     additionalCosts = additionalCosts.map { it.toDto() }
 )
 
-fun DraftEstimationVersion.toDto(calculated: EstimationVersion) = EstimationVersionDto(
-    versionNumber = versionNumber,
-    isDraft = true,
-    totalEffort = calculated.totalEffort,
-    notes = notes,
-    createdAt = createdAt,
-    submittedAt = null,
-    parameters = parameters.map { it.toDto() },
-    effortDrivers = effortDrivers.map { it.toDto() },
-    phases = phases.map { it.toDto() },
-    itemGroups = itemGroups.map { it.toDtoWithCalc(calculated) },
-    additionalCosts = additionalCosts.map { it.toDto() }
-)
+fun DraftEstimationVersion.toDto(calculated: EstimationVersion): EstimationVersionDto {
+    val calcMap: Map<String, EstimationNode> = collectNodes(calculated.roots).associateBy { it.logicalId }
+    return EstimationVersionDto(
+        versionNumber = versionNumber,
+        isDraft = true,
+        totalEffort = calculated.totalEffort,
+        notes = notes,
+        createdAt = createdAt,
+        submittedAt = null,
+        parameters = parameters.map { it.toDto() },
+        effortDrivers = effortDrivers.map { it.toDto() },
+        phases = phases.map { it.toDto() },
+        roots = roots.map { it.toDtoWithCalc(calcMap) },
+        additionalCosts = additionalCosts.map { it.toDto() }
+    )
+}
+
+private fun collectNodes(nodes: List<EstimationNode>): List<EstimationNode> =
+    nodes.flatMap { node ->
+        when (node) {
+            is EstimationGroup -> listOf(node) + collectNodes(node.children)
+            else -> listOf(node)
+        }
+    }
 
 fun DraftEstimationParameter.toDto() = EstimationParameterDto(
     id = id,
@@ -70,21 +83,40 @@ fun DraftProjectPhase.toDto() = ProjectPhaseDto(
     durationWeeks = durationWeeks
 )
 
-fun DraftEstimationItemGroup.toDtoWithCalc(calculated: EstimationVersion): EstimationItemGroupDto {
-    val itemResultMap = calculated.itemGroups.flatMap { it.items }.associateBy { it.logicalId }
-    return EstimationItemGroupDto(
-        logicalId = logicalId,
-        title = title,
-        items = items.map { it.toDto(itemResultMap[it.logicalId.toString()]) }
-    )
+fun DraftEstimationNode.toDtoWithCalc(calcMap: Map<String, EstimationNode>): EstimationNodeDto {
+    val calc = calcMap[logicalId.toString()]
+    return when (this) {
+        is DraftGroupNode -> EstimationNodeDto(
+            logicalId = logicalId,
+            type = "GROUP",
+            title = title,
+            description = null,
+            code = null,
+            minEffort = null,
+            expectedEffort = null,
+            maxEffort = null,
+            assumptions = null,
+            mean = calc?.mean ?: 0.0,
+            variance = calc?.variance ?: 0.0,
+            riskSurcharge = calc?.riskSurcharge ?: 0.0,
+            driverSurcharge = calc?.driverSurcharge ?: 0.0,
+            offerPT = calc?.offerPT ?: 0.0,
+            cost = calc?.cost ?: 0.0,
+            offerPrice = calc?.offerPrice ?: 0.0,
+            unit = null,
+            phaseAbbreviation = null,
+            children = children.map { it.toDtoWithCalc(calcMap) }
+        )
+        is DraftTimeRelativeItemNode -> leafDto(calc, "TIME_RELATIVE", unit)
+        is DraftFixedItemNode -> leafDto(calc, "FIXED", null)
+        else -> error("Unknown node type: ${this::class.simpleName}")
+    }
 }
 
-fun DraftEstimationItem.toDto(calc: EstimationItem?): EstimationItemDto = EstimationItemDto(
+private fun DraftEstimationNode.leafDto(calc: EstimationNode?, type: String, unitValue: String?) = EstimationNodeDto(
     logicalId = logicalId,
-    type = when (this) {
-        is DraftTimeRelativeEstimationItem -> "TIME_RELATIVE"
-        else -> "FIXED"
-    },
+    type = type,
+    title = null,
     description = description,
     code = code,
     minEffort = minEffort ?: 0.0,
@@ -98,8 +130,9 @@ fun DraftEstimationItem.toDto(calc: EstimationItem?): EstimationItemDto = Estima
     offerPT = calc?.offerPT ?: 0.0,
     cost = calc?.cost ?: 0.0,
     offerPrice = calc?.offerPrice ?: 0.0,
-    unit = if (this is DraftTimeRelativeEstimationItem) unit else null,
-    phaseAbbreviation = phase?.abbreviation
+    unit = unitValue,
+    phaseAbbreviation = phase?.abbreviation,
+    children = emptyList()
 )
 
 fun DraftAdditionalCost.toDto() = AdditionalCostDto(
@@ -132,18 +165,38 @@ fun SubmittedProjectPhase.toDto() = ProjectPhaseDto(
     durationWeeks = durationWeeks
 )
 
-fun SubmittedEstimationItemGroup.toDto() = EstimationItemGroupDto(
-    logicalId = logicalId,
-    title = title,
-    items = items.map { it.toDto() }
-)
+fun SubmittedEstimationItemGroup.toRootDto(): EstimationNodeDto {
+    val children = items.map { it.toLeafDto() }
+    return EstimationNodeDto(
+        logicalId = logicalId,
+        type = "GROUP",
+        title = title,
+        description = null,
+        code = null,
+        minEffort = null,
+        expectedEffort = null,
+        maxEffort = null,
+        assumptions = null,
+        mean = children.sumOf { it.mean },
+        variance = children.sumOf { it.variance },
+        riskSurcharge = children.sumOf { it.riskSurcharge },
+        driverSurcharge = children.sumOf { it.driverSurcharge },
+        offerPT = children.sumOf { it.offerPT },
+        cost = children.sumOf { it.cost },
+        offerPrice = children.sumOf { it.offerPrice },
+        unit = null,
+        phaseAbbreviation = null,
+        children = children
+    )
+}
 
-fun SubmittedEstimationItem.toDto() = EstimationItemDto(
+fun SubmittedEstimationItem.toLeafDto() = EstimationNodeDto(
     logicalId = logicalId,
     type = when (this) {
         is SubmittedTimeRelativeEstimationItem -> "TIME_RELATIVE"
         else -> "FIXED"
     },
+    title = null,
     description = description,
     code = code,
     minEffort = minEffort,
@@ -158,7 +211,8 @@ fun SubmittedEstimationItem.toDto() = EstimationItemDto(
     cost = cost,
     offerPrice = offerPrice,
     unit = if (this is SubmittedTimeRelativeEstimationItem) unit else null,
-    phaseAbbreviation = phaseAbbreviation
+    phaseAbbreviation = phaseAbbreviation,
+    children = emptyList()
 )
 
 fun SubmittedAdditionalCost.toDto() = AdditionalCostDto(
