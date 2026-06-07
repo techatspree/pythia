@@ -1,0 +1,248 @@
+id: task-056
+phase: phase-10
+title: Add static-analysis reports for Kotlin, TS and HTML
+depends_on: [task-055]
+description: |
+  The build currently has no static analysis. It compiles, type-checks
+  (svelte-check), and runs unit/IT/e2e tests, but nothing inspects the
+  source for code-quality issues, smells, or stylistic problems. This
+  task wires linting / static-analysis tools into the existing Maven
+  build so that every layer of source — Kotlin (domain + backend),
+  TypeScript, Svelte templates, and plain HTML — is checked, and so
+  each tool emits BOTH a machine-readable report (XML or JSON, short)
+  and a human-readable HTML report.
+
+  Current state:
+    - Build is a Maven reactor at the repo root (pom.xml, modules in
+      order: src/domain → src/frontend → src/backend). There is NO
+      mvnw wrapper; the system `mvn` is used.
+    - src/domain is Kotlin Multiplatform, compiled/tested via Gradle
+      (./gradlew) invoked through exec-maven-plugin in src/domain/pom.xml.
+      It already applies the kotlin("multiplatform") Gradle plugin
+      (Kotlin 2.1.21).
+    - src/backend/implementation is Quarkus + Kotlin built with the
+      kotlin-maven-plugin (kotlin.version 2.3.21).
+    - src/frontend is SvelteKit + TypeScript built with
+      frontend-maven-plugin (com.github.eirslett, node v22.14.0,
+      npm 10.9.2). Scripts today: dev/build/preview/check/gen:api.
+      `check` runs svelte-check (type errors only). There is NO ESLint.
+    - There is no lint/static-analysis config of any kind in the repo.
+    - Source surface to cover: Kotlin under src/domain/src/main/kotlin
+      and src/backend/implementation/src/main/kotlin (+ test dirs);
+      ~8 .ts files, ~18 .svelte files under src/frontend/src; and one
+      plain HTML file src/frontend/src/app.html.
+
+  Target state:
+    - Kotlin → detekt. One shared config file at config/detekt/detekt.yml
+      (buildUponDefaultConfig: true) used by both modules.
+        * Backend (Maven): the detekt-maven-plugin
+          (com.github.ozsie:detekt-maven-plugin, current 1.23.x line)
+          runs in the `verify` phase, emitting xml + html reports to
+          src/backend/implementation/target/detekt/.
+        * Domain (Gradle): the io.gitlab.arturbosch.detekt Gradle plugin
+          (same 1.23.x version) is applied in src/domain/build.gradle.kts,
+          configured to emit xml + html to build/reports/detekt/, and a
+          new exec-maven-plugin execution in src/domain/pom.xml runs
+          `./gradlew detekt` in the `verify` phase.
+    - TypeScript + Svelte + HTML → ESLint v9 flat config
+      (src/frontend/eslint.config.js) combining:
+        * typescript-eslint (recommended, NON type-checked — see design
+          note below) for .ts,
+        * eslint-plugin-svelte + svelte-eslint-parser for .svelte
+          (covers both the <script lang="ts"> and the HTML template),
+        * @html-eslint/eslint-plugin + @html-eslint/parser for *.html
+          (app.html).
+      Two npm scripts:
+        * `lint`     — strict console run a developer can use locally
+                       (non-zero exit on findings).
+        * `lint:report` — emits reports/eslint.json (ESLint `json`
+                       formatter) AND reports/eslint.html (ESLint
+                       bundled `html` formatter), and ALWAYS exits 0 so
+                       report generation never breaks the reactor build.
+      A new frontend-maven-plugin execution `npm-lint` runs
+      `run lint:report` in the `verify` phase.
+
+  Key design decisions (leave no ambiguity for the implementer):
+    - Reports are informational, NOT a hard gate, in this task. The
+      existing codebase has never been linted, so a strict gate would
+      turn the reactor red on day one. Therefore:
+        * detekt: set failOnError/ignoreFailures so the build stays
+          green while still WRITING the reports (Maven plugin: do not
+          fail the build on issues; Gradle plugin: ignoreFailures = true).
+        * ESLint: `lint:report` ends with a guard so its exit code is 0.
+      A follow-up task can flip these to enforcing once the backlog is
+      triaged. State this in the README section you add.
+    - typescript-eslint MUST use the NON type-checked ("recommended",
+      not "recommendedTypeChecked") rule set. Type-aware linting needs
+      the generated Kotlin/JS domain types in src/frontend/src/lib/domain/
+      (produced by the Maven generate-sources step) and a full tsconfig
+      project, which would couple lint to the domain build and slow it
+      down. Non type-checked rules run on source alone — svelte-check
+      already covers type errors, so this is not a regression.
+    - Report locations are per-module (each tool writes next to its
+      own build output). Do NOT attempt a single merged dashboard in
+      this task; just document the three locations in the README.
+    - Add the new report output dirs to .gitignore (reports/,
+      **/build/reports/, target/detekt/ are covered by existing target/
+      and build/ ignores where they apply — only src/frontend/reports/
+      needs an explicit entry; verify and add what is missing).
+    - This is build-tooling/hardening work, orthogonal to the phase-9
+      tree refactor. It is assigned to a NEW phase-10 ("Code Quality &
+      Static Analysis") which is not yet in plan.yaml — see the report;
+      do not edit plan.yaml as part of this task. It depends on task-055
+      only so it lints the final tree-shaped code, not code that
+      task-049…055 were still rewriting.
+
+steps:
+  - |
+    Create the shared detekt config config/detekt/detekt.yml at the repo
+    root with `buildUponDefaultConfig: true` and a minimal top section
+    (build.maxIssues: 0 is the default; rely on the per-tool
+    fail-suppression below rather than maxIssues). Keep the file small —
+    it only needs the build/config header plus any rule the default set
+    would otherwise make too noisy on this codebase (e.g. raise
+    complexity.LongMethod / style.MagicNumber thresholds if the first
+    run is unusable). Start from `detekt --generate-config` output,
+    trimmed.
+
+  - |
+    Backend (Maven): in src/backend/implementation/pom.xml add the
+    detekt-maven-plugin (com.github.ozsie:detekt-maven-plugin, pin a
+    1.23.x version property e.g. detekt.version=1.23.8) with an execution
+    bound to the `verify` phase, goal `check`, configured with:
+      <config>${project.basedir}/../../../config/detekt/detekt.yml</config>
+      <input>${project.basedir}/src/main/kotlin</input>
+      reports: xml -> target/detekt/detekt.xml,
+               html -> target/detekt/detekt.html
+    and set the plugin so it does NOT fail the build on findings
+    (detekt-maven exposes a flag for this — use it; the goal still
+    writes the reports). Verify the goal name and report-config syntax
+    against the plugin's current docs before finalizing.
+
+  - |
+    Domain (Gradle): in src/domain/build.gradle.kts add
+    `id("io.gitlab.arturbosch.detekt") version "1.23.8"` to the plugins
+    block and a `detekt { ... }` configuration block that:
+      - points config to ${rootDir}/../../config/detekt/detekt.yml
+        (the same shared file; compute the correct relative path from
+        src/domain),
+      - sets buildUponDefaultConfig = true,
+      - sets ignoreFailures = true,
+      - enables xml and html reports under build/reports/detekt/.
+    Because this is a Kotlin Multiplatform project, point detekt at the
+    common/jvm source set src dir (src/main/kotlin) via `source.setFrom(...)`
+    so it does not choke on the multiplatform layout.
+
+  - |
+    Domain (Maven): in src/domain/pom.xml add a new exec-maven-plugin
+    execution (mirroring the existing compile/test/package gradle
+    executions) with id `gradle-detekt`, bound to the `verify` phase,
+    running `./gradlew detekt` (use the same executable/args pattern the
+    existing executions use). It must run AFTER the existing test/package
+    executions.
+
+  - |
+    Frontend tooling: add the ESLint toolchain to
+    src/frontend/package.json devDependencies — eslint (^9), globals,
+    @eslint/js, typescript-eslint (^8), eslint-plugin-svelte,
+    svelte-eslint-parser, @html-eslint/eslint-plugin, @html-eslint/parser
+    (pin to current compatible versions; svelte plugin must match the
+    installed svelte 5 line). Run `npm install --legacy-peer-deps`
+    (the project installs with that flag — see frontend pom).
+
+  - |
+    Create src/frontend/eslint.config.js (flat config, ESM). Compose:
+      - js.configs.recommended for .js,
+      - tseslint.configs.recommended (NON type-checked) for **/*.ts,
+      - svelte flat recommended for **/*.svelte with
+        languageOptions.parserOptions.parser = tseslint.parser so the
+        <script lang="ts"> blocks are parsed,
+      - @html-eslint flat recommended for **/*.html with
+        @html-eslint/parser,
+      - an ignores block for build artifacts: .svelte-kit/, build/,
+        node/, node_modules/, src/lib/domain/ (generated Kotlin/JS),
+        src/lib/api/schema.d.ts (generated), reports/.
+    Keep the rule set close to the recommended presets; only disable a
+    rule if the first run proves it unworkable on generated-adjacent code.
+
+  - |
+    Add npm scripts to src/frontend/package.json:
+      "lint": "eslint .",
+      "lint:report": "eslint . -f json -o reports/eslint.json ; eslint . -f html -o reports/eslint.html ; exit 0"
+    (the trailing `exit 0` guarantees report generation never fails the
+    Maven reactor — see the design note). Ensure the reports/ directory
+    is created by ESLint's -o option automatically; if not, prepend a
+    mkdir-equivalent that is cross-platform (node -e "require('fs').mkdirSync('reports',{recursive:true})")).
+
+  - |
+    Frontend (Maven): in src/frontend/pom.xml add a frontend-maven-plugin
+    execution `npm-lint` (goal `npm`, `<arguments>run lint:report</arguments>`)
+    bound to the `verify` phase, after the existing `npm-check` (test
+    phase) execution.
+
+  - |
+    Update .gitignore: add `src/frontend/reports/` (and a top-level
+    `/reports/` only if you introduce one). Confirm target/ and build/
+    are already ignored so the detekt outputs are not committed.
+
+  - |
+    Update README.md (project root): add a short "Code quality / static
+    analysis" section listing the three tools, the four report files
+    (backend target/detekt/detekt.{xml,html}, domain
+    build/reports/detekt/detekt.{xml,html}, frontend
+    reports/eslint.{json,html}), how to run each in isolation, and the
+    note that the reports are currently informational (build stays green)
+    with a pointer that a future task can make them enforcing.
+
+  - |
+    Run each tool in isolation first to confirm it produces reports:
+      mvn -pl src/backend/implementation detekt:check
+      (cd src/domain && ./gradlew detekt)
+      (cd src/frontend && npm install --legacy-peer-deps && npm run lint:report)
+    Then run the wired full build end-to-end:
+      mvn verify
+    Confirm the reactor stays GREEN and all six report files exist.
+
+validation:
+  - |
+    Shared detekt config exists:
+      test -f config/detekt/detekt.yml
+  - |
+    Backend wires detekt and produces reports:
+      grep -q "detekt-maven-plugin" src/backend/implementation/pom.xml
+      mvn -pl src/backend/implementation detekt:check
+      test -f src/backend/implementation/target/detekt/detekt.xml
+      test -f src/backend/implementation/target/detekt/detekt.html
+  - |
+    Domain wires detekt (Gradle plugin + Maven exec) and produces reports:
+      grep -q "io.gitlab.arturbosch.detekt" src/domain/build.gradle.kts
+      grep -q "gradle-detekt" src/domain/pom.xml
+      (cd src/domain && ./gradlew detekt)
+      test -f src/domain/build/reports/detekt/detekt.xml
+      test -f src/domain/build/reports/detekt/detekt.html
+  - |
+    Frontend has ESLint flat config covering ts/svelte/html and produces
+    JSON + HTML reports:
+      test -f src/frontend/eslint.config.js
+      grep -q "svelte" src/frontend/eslint.config.js
+      grep -q "html-eslint" src/frontend/eslint.config.js
+      grep -q "\"lint:report\"" src/frontend/package.json
+      (cd src/frontend && npm install --legacy-peer-deps && npm run lint:report)
+      test -f src/frontend/reports/eslint.json
+      test -f src/frontend/reports/eslint.html
+  - |
+    The full wired build runs all three tools in the verify phase and
+    stays green:
+      mvn verify
+
+outputs:
+  - created: config/detekt/detekt.yml
+  - created: src/frontend/eslint.config.js
+  - modified: src/backend/implementation/pom.xml
+  - modified: src/domain/build.gradle.kts
+  - modified: src/domain/pom.xml
+  - modified: src/frontend/pom.xml
+  - modified: src/frontend/package.json
+  - modified: src/frontend/package-lock.json
+  - modified: .gitignore
+  - modified: README.md
