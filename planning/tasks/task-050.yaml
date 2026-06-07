@@ -41,11 +41,17 @@ description: |
 
     - Data migration in the same V6 file: for every row in
       draft_estimation_item_groups, insert one node_type='GROUP' row with
-      parent_id = NULL, position = row_number() over its version (ordered
-      by created_at then id for determinism). For every row in
+      parent_id = NULL, position = row_number() over its version
+      (ORDER BY id — the V3 groups table has no created_at column, so id
+      is the only stable per-version ordering). For every row in
       draft_estimation_items, insert one node_type = item_type row with
       parent_id = the new GROUP id derived from group_id, position =
-      row_number() over its group.
+      row_number() over its group (ORDER BY created_at, id — items DO
+      have created_at). For GROUP rows set every leaf-only column to
+      NULL; for leaf rows set title NULL. The old groups.phase_id is
+      DROPPED in the migration — tree-model groups carry no phase, and
+      legacy fixed-side items in those groups already had their own
+      item-level phase_id (V5 migration); no propagation is needed.
 
     - After the data migration, DROP TABLE draft_estimation_items, then
       DROP TABLE draft_estimation_item_groups (order matters for FKs).
