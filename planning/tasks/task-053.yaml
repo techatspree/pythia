@@ -1,0 +1,130 @@
+id: task-053
+phase: phase-9
+title: Excel and CSV exporters and Excel importer for nested trees
+depends_on: [task-052]
+description: |
+  ExcelExporter, CsvExporter and ExcelImporter currently traverse
+  itemGroups → items and write one row per item with a separate row per
+  group header. After task-051 the data is a tree; this task updates the
+  three services to round-trip the nesting.
+
+  Output format for Excel (.xlsx):
+    - Use POI's row outline level (XSSF setRowGroupCollapsed /
+      Row.setOutlineLevel) to encode depth. Root nodes are level 0,
+      their children level 1, etc.
+    - GROUP rows display the title in column A indented with a
+      depth-prefix (e.g., "  Backend > Auth") for readability AND set
+      the outline level — the visual indent is for users who collapse
+      the outlines; outline level is for users who use POI's groupings.
+    - Calculated columns on GROUP rows show the accumulated values from
+      the SubmittedEstimationNode (which already stores them after
+      task-051) — no recomputation inside the exporter.
+
+  Output format for CSV:
+    - Add a leading "Path" column whose value is the slash-joined
+      ancestor titles plus the node's own title/description, e.g.
+      "Backend/Auth/Token endpoint" for a leaf and "Backend/Auth" for a
+      group. This is the simplest format that preserves nesting
+      losslessly in a flat CSV.
+    - GROUP rows still appear (with empty effort columns and filled
+      accumulated columns) so a CSV reader can reconstruct depth from
+      either the path column OR the presence of GROUP rows above.
+
+  Import (ExcelImporter):
+    - Read outline level from each row. A row at level N becomes a child
+      of the most recent row at level N-1; level-0 rows are roots.
+    - GROUP rows are detected by node_type column (added next to the
+      existing columns); leaf rows produce FIXED or TIME_RELATIVE
+      DraftEstimationNode entities based on the type column.
+    - The importer builds the entity tree (parent_id linkage + position
+      derived from row order within siblings) and replaces the draft's
+      roots.
+
+  Behaviour that does NOT change:
+    - Sheet names and the location of the parameters/drivers/phases/
+      additional-costs sheets stay the same.
+    - The estimation-items sheet keeps the existing column set apart
+      from the additions noted above (a new "Path" column in CSV; a
+      "Node type" discriminator column in both formats).
+    - Cell formatting, header style, and the existing freeze-pane stay
+      the same.
+
+  Tests:
+    - ExcelExporterTreeTest (new): build a 3-level
+      SubmittedEstimationVersion, export to a ByteArrayOutputStream,
+      reopen with POI, assert outline levels and the indented title
+      strings.
+    - CsvExporterTreeTest (new): same fixture, export to a string,
+      parse with kotlin-csv or split lines, assert the Path column.
+    - ExcelImporterTreeTest (new): export then re-import a 3-level
+      tree and assert the resulting DraftEstimationVersion.roots are
+      structurally equal to the original (logicalIds, titles,
+      descriptions, depths, sibling order). This is the round-trip
+      property test that catches most mistakes in either side.
+
+steps:
+  - |
+    Read the current ExcelExporter.kt, CsvExporter.kt and
+    ExcelImporter.kt end-to-end before editing — the formats are not
+    documented anywhere else and the round-trip test below depends on
+    the exact column choices.
+
+  - |
+    Update ExcelExporter to walk version.roots recursively (helper:
+    `fun writeNode(node: SubmittedEstimationNode, depth: Int, sheet: Sheet,
+    rowIdx: Int): Int` returning the next row index). Set
+    Row.setOutlineLevel(depth) per row. Add a "Node type" column
+    (GROUP / FIXED / TIME_RELATIVE).
+
+  - |
+    Update CsvExporter similarly. Add the leading "Path" column.
+
+  - |
+    Update ExcelImporter to read outline level OR path column (prefer
+    outline level if present, fall back to splitting the Path column).
+    Reconstruct the tree and build DraftEstimationNode entities,
+    setting parent and position. Replace draft.roots in the same
+    transaction.
+
+  - |
+    Write ExcelExporterTreeTest, CsvExporterTreeTest, ExcelImporterTreeTest
+    under src/backend/implementation/src/test/kotlin/io/github/theestimator/service/
+    using the 3-level fixture described in the task description.
+
+  - |
+    Run the backend tests:
+      ./mvnw -pl src/backend/implementation -am test
+
+  - |
+    Manual sanity check (the round-trip test catches programmatic
+    correctness, but a human eye is needed for layout):
+      a) start the dev server, create a draft with at least one
+         3-level subtree
+      b) export as XLSX, open in LibreOffice/Excel: outline levels
+         expand and collapse, titles read sensibly
+      c) export as CSV, open in a text editor: Path column is readable
+      d) re-import the XLSX: structure round-trips with no data loss
+
+validation:
+  - |
+    All three services walk roots, not itemGroups:
+      ! grep -q "itemGroups" \
+            src/backend/implementation/src/main/kotlin/io/github/theestimator/service/ExcelExporter.kt
+      ! grep -q "itemGroups" \
+            src/backend/implementation/src/main/kotlin/io/github/theestimator/service/CsvExporter.kt
+      ! grep -q "itemGroups" \
+            src/backend/implementation/src/main/kotlin/io/github/theestimator/service/ExcelImporter.kt
+  - |
+    The three new test files exist and pass:
+      test -f src/backend/implementation/src/test/kotlin/io/github/theestimator/service/ExcelExporterTreeTest.kt
+      test -f src/backend/implementation/src/test/kotlin/io/github/theestimator/service/CsvExporterTreeTest.kt
+      test -f src/backend/implementation/src/test/kotlin/io/github/theestimator/service/ExcelImporterTreeTest.kt
+      ./mvnw -pl src/backend/implementation -am test
+
+outputs:
+  - modified: src/backend/implementation/src/main/kotlin/io/github/theestimator/service/ExcelExporter.kt
+  - modified: src/backend/implementation/src/main/kotlin/io/github/theestimator/service/CsvExporter.kt
+  - modified: src/backend/implementation/src/main/kotlin/io/github/theestimator/service/ExcelImporter.kt
+  - created: src/backend/implementation/src/test/kotlin/io/github/theestimator/service/ExcelExporterTreeTest.kt
+  - created: src/backend/implementation/src/test/kotlin/io/github/theestimator/service/CsvExporterTreeTest.kt
+  - created: src/backend/implementation/src/test/kotlin/io/github/theestimator/service/ExcelImporterTreeTest.kt

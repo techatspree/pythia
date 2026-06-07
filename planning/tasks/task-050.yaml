@@ -1,0 +1,272 @@
+id: task-050
+phase: phase-9
+title: Draft persistence and REST API rewired onto the tree model
+depends_on: [task-049]
+description: |
+  task-049 introduced EstimationNode/EstimationGroup in the shared domain
+  but left the JVM side talking to the old EstimationItemGroup shim. This
+  task makes the draft side speak trees end to end: persistence, mapper,
+  DTOs, the REST PUT endpoint, and integration tests. The submitted side
+  remains on the old shape until task-051.
+
+  Database (Flyway V6, src/backend/implementation/src/main/resources/db/migration/):
+    - CREATE TABLE draft_estimation_nodes (
+          id UUID PRIMARY KEY,
+          logical_id UUID NOT NULL,
+          version_id UUID NOT NULL,
+          parent_id UUID NULL,
+          node_type VARCHAR(31) NOT NULL,   -- GROUP | FIXED | TIME_RELATIVE
+          position INT NOT NULL,            -- order among siblings
+          title VARCHAR(255) NULL,          -- group label, NULL for leaves
+          description VARCHAR(255) NULL,    -- leaf only
+          code VARCHAR(255) NULL,
+          min_effort DOUBLE PRECISION NULL,
+          expected_effort DOUBLE PRECISION NULL,
+          max_effort DOUBLE PRECISION NULL,
+          assumptions TEXT NULL,
+          unit VARCHAR(255) NULL,
+          phase_id UUID NULL,
+          created_at TIMESTAMP NOT NULL,
+          updated_at TIMESTAMP NULL,
+          CONSTRAINT fk_draft_nodes_version FOREIGN KEY (version_id)
+              REFERENCES draft_estimation_versions(id) ON DELETE CASCADE,
+          CONSTRAINT fk_draft_nodes_parent FOREIGN KEY (parent_id)
+              REFERENCES draft_estimation_nodes(id) ON DELETE CASCADE,
+          CONSTRAINT fk_draft_nodes_phase FOREIGN KEY (phase_id)
+              REFERENCES draft_project_phases(id)
+      );
+      CREATE INDEX idx_draft_nodes_version ON draft_estimation_nodes(version_id);
+      CREATE INDEX idx_draft_nodes_parent  ON draft_estimation_nodes(parent_id);
+      CREATE INDEX idx_draft_nodes_phase   ON draft_estimation_nodes(phase_id);
+
+    - Data migration in the same V6 file: for every row in
+      draft_estimation_item_groups, insert one node_type='GROUP' row with
+      parent_id = NULL, position = row_number() over its version (ordered
+      by created_at then id for determinism). For every row in
+      draft_estimation_items, insert one node_type = item_type row with
+      parent_id = the new GROUP id derived from group_id, position =
+      row_number() over its group.
+
+    - After the data migration, DROP TABLE draft_estimation_items, then
+      DROP TABLE draft_estimation_item_groups (order matters for FKs).
+
+  JPA layer (src/backend/implementation/src/main/kotlin/io/github/theestimator/domain/draft/):
+    - Delete DraftEstimationItemGroup.kt, DraftEstimationItem.kt,
+      DraftFixedEstimationItem.kt, DraftTimeRelativeEstimationItem.kt.
+    - Add DraftEstimationNode.kt — single @Entity with SINGLE_TABLE
+      @Inheritance and a `node_type` discriminator. Nullable leaf-only
+      fields directly on the base. Two @DiscriminatorValue subclasses for
+      'FIXED' / 'TIME_RELATIVE' carrying the same shape (unit is only
+      meaningful for TIME_RELATIVE), plus a 'GROUP' subclass that carries
+      title and a @OneToMany List<DraftEstimationNode> children mapped by
+      parent_id with @OrderColumn(name = "position"). Self-referential
+      parent_id (nullable, NULL for roots).
+    - Update DraftEstimationVersion to expose
+        roots: List<DraftEstimationNode>
+      via @OneToMany(mappedBy = "version") with @Where(parent_id IS NULL)
+      and @OrderColumn(name = "position"). Remove itemGroups.
+
+  DTOs (src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/dto/
+  EstimationVersionDtos.kt):
+    - Replace EstimationItemGroupDto and EstimationItemDto with a single
+      recursive EstimationNodeDto:
+
+        data class EstimationNodeDto(
+            val logicalId: UUID?,
+            val type: String,                 // "GROUP" | "FIXED" | "TIME_RELATIVE"
+            val title: String?,               // group only
+            val description: String?,         // leaf only
+            val code: String?,
+            val minEffort: Double?,           // leaf only
+            val expectedEffort: Double?,
+            val maxEffort: Double?,
+            val assumptions: String?,
+            val mean: Double,                 // present at every level
+            val variance: Double,
+            val riskSurcharge: Double,
+            val driverSurcharge: Double,
+            val offerPT: Double,
+            val cost: Double,
+            val offerPrice: Double,
+            val unit: String?,
+            val phaseAbbreviation: String?,
+            val children: List<EstimationNodeDto>
+        )
+
+    - Replace ItemGroupUpdateDto and EstimationItemUpdateDto with a single
+      EstimationNodeUpdateDto that mirrors the structure above but only
+      keeps the user-editable fields (logicalId, type, title,
+      description, min/expected/max effort, assumptions, unit,
+      phaseAbbreviation, children).
+
+    - EstimationVersionDto: replace itemGroups with roots:
+      List<EstimationNodeDto>.
+    - DraftUpdateDto: replace itemGroups with roots:
+      List<EstimationNodeUpdateDto>?.
+
+  Mapper (DraftVersionMapper.kt):
+    - Drop the DraftEstimationItemGroup/DraftEstimationItem branches; emit
+      EstimationGroup/EstimationItem directly from DraftEstimationNode.
+    - The mapping is recursive: a GROUP entity → EstimationGroup whose
+      children are recursive maps; a FIXED entity → FixedEstimationItem;
+      TIME_RELATIVE → TimeRelativeEstimationItem.
+
+  Resource (EstimationVersionResource.updateDraft):
+    - Replace the itemGroups branch with a roots branch that recursively
+      materialises the entity tree:
+        update.roots?.let { rootDtos ->
+            draft.roots.clear()
+            rootDtos.forEachIndexed { idx, dto ->
+                draft.roots.add(buildNode(dto, parent = null, position = idx,
+                                          version = draft, phases = draft.phases))
+            }
+        }
+      where buildNode recursively constructs the entity, sets parent =
+      passed-in parent (nullable), and recurses for children. Use a local
+      function — do NOT introduce a separate service class.
+
+  EstimationVersionService.calculateDraft and the existing draft → snapshot
+  path must be reviewed too — calculateDraft already delegates to
+  EstimationVersion.calculate() which is tree-aware after task-049, so
+  the only change is that the mapper now produces the tree directly.
+  snapshotDraft for "compare against draft" must still produce a
+  SubmittedEstimationVersion; for now it can flatten the tree into the
+  old SubmittedEstimationItemGroup shape (depth ≥ 2 trees temporarily
+  lose their internal structure on submit). task-051 removes that
+  flattening when the submitted side moves to the tree shape.
+
+  Tests:
+    - Update existing EstimationVersionResourceIT cases that PUT itemGroups
+      to PUT roots instead. Add at least one case that posts a 3-level
+      tree (Group(Group(Item, Item), Item)) and confirms a GET returns
+      the same structure with children intact.
+    - Add a DraftVersionMapperTest that builds a 3-level entity tree
+      manually and asserts the mapped EstimationVersion.roots has the
+      expected nested shape.
+
+  Remove the deprecated EstimationVersion.itemGroups shim added by
+  task-049. After this task the codebase should not reference
+  EstimationItemGroup anywhere except in the submitted-side files that
+  task-051 will rewrite.
+
+steps:
+  - |
+    Write src/backend/implementation/src/main/resources/db/migration/V6__draft_tree.sql
+    with: CREATE TABLE draft_estimation_nodes, indexes, data migration
+    from the two old draft tables, and the two DROP TABLE statements.
+    Test it locally with `./mvnw -pl src/backend/implementation flyway:migrate`
+    against a populated dev database (or trust the Testcontainers IT run
+    in the validation step) and verify row counts match
+    (groups → GROUP nodes, items → leaf nodes).
+
+  - |
+    Delete the four old draft entity files:
+      git rm src/backend/implementation/src/main/kotlin/io/github/theestimator/domain/draft/DraftEstimationItemGroup.kt
+      git rm src/backend/implementation/src/main/kotlin/io/github/theestimator/domain/draft/DraftEstimationItem.kt
+      git rm src/backend/implementation/src/main/kotlin/io/github/theestimator/domain/draft/DraftFixedEstimationItem.kt
+      git rm src/backend/implementation/src/main/kotlin/io/github/theestimator/domain/draft/DraftTimeRelativeEstimationItem.kt
+    Add DraftEstimationNode.kt + DraftGroupNode/DraftFixedItemNode/
+    DraftTimeRelativeItemNode as @DiscriminatorValue subclasses in the
+    same file. Update DraftEstimationVersion to replace itemGroups with
+    roots (filtered to parent IS NULL, ordered by position).
+
+  - |
+    Update EstimationVersionDtos.kt: replace EstimationItemGroupDto,
+    EstimationItemDto, ItemGroupUpdateDto, EstimationItemUpdateDto with
+    the recursive EstimationNodeDto and EstimationNodeUpdateDto;
+    rename EstimationVersionDto.itemGroups → roots and
+    DraftUpdateDto.itemGroups → roots.
+
+  - |
+    Rewrite DraftVersionMapper.toDomain so it walks the entity tree
+    recursively and emits EstimationGroup / FixedEstimationItem /
+    TimeRelativeEstimationItem nodes.
+
+  - |
+    Rewrite EstimationVersionResource.updateDraft: replace the
+    `update.itemGroups?.let { … }` block with the `update.roots?.let { … }`
+    block described above. Use a local recursive `buildNode` helper.
+    Update toDto / toSummaryDto and EstimationVersionMapper to emit the
+    `roots` field with the recursive EstimationNodeDto including the
+    calculated per-node values from the calculate() result.
+
+  - |
+    Remove the deprecated `itemGroups` shim from EstimationVersion.kt
+    (added in task-049). Anything that still references it should be
+    rewritten to use `roots` in this task.
+
+  - |
+    Adjust snapshotDraft in EstimationVersionService so it still produces
+    a SubmittedEstimationVersion for the compare-against-draft path.
+    Until task-051 rewires the submitted side, this means flattening
+    the tree: every leaf becomes a SubmittedEstimationItem whose group
+    is the closest GROUP ancestor; deeper nesting is dropped. Add a
+    short comment marking this as task-050's temporary behaviour.
+
+  - |
+    Update existing tests:
+      - EstimationVersionResourceIT and any other IT that builds DraftUpdateDto
+        — switch itemGroups → roots; convert flat helpers to nested
+        helpers.
+      - Add a 3-level POST/GET round-trip case.
+      - Add DraftVersionMapperTest covering nested mapping.
+
+  - |
+    Run the backend tests:
+      ./mvnw -pl src/backend/implementation -am test
+    All tests, including the IT classes that exercise Flyway via the
+    Testcontainers Dev Services, must pass.
+
+  - |
+    Run the full Maven build:
+      ./mvnw -DskipTests package
+    The frontend will still build because adapter.ts and the generated
+    TS types do not change shape until task-054 wires the frontend.
+    However the openapi schema regeneration (if part of the build) will
+    now expose roots/EstimationNodeDto — confirm src/frontend/src/lib/
+    api/schema.d.ts is regenerated cleanly and any consuming code in
+    src/frontend that breaks gets a follow-up TODO referencing task-054.
+
+validation:
+  - |
+    The V6 migration exists and the two old draft tables are gone from
+    the schema:
+      test -f src/backend/implementation/src/main/resources/db/migration/V6__draft_tree.sql
+      ! grep -q "draft_estimation_item_groups" src/backend/implementation/src/main/resources/db/migration/V6__draft_tree.sql || true
+  - |
+    No reference to the old draft entities remains anywhere except in V6:
+      ! grep -r "DraftEstimationItemGroup\|DraftEstimationItem\b" \
+              src/backend/implementation/src/main/kotlin
+  - |
+    EstimationVersion no longer carries the deprecated itemGroups shim:
+      ! grep -q "@Deprecated" src/domain/src/main/kotlin/io/github/theestimator/model/EstimationVersion.kt
+  - |
+    DraftUpdateDto and EstimationVersionDto expose `roots`, not
+    `itemGroups`:
+      grep -q "val roots: List<EstimationNodeUpdateDto>" \
+            src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/dto/EstimationVersionDtos.kt
+      grep -q "val roots: List<EstimationNodeDto>" \
+            src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/dto/EstimationVersionDtos.kt
+  - |
+    Backend tests pass:
+      ./mvnw -pl src/backend/implementation -am test
+  - |
+    Full build succeeds:
+      ./mvnw -DskipTests package
+
+outputs:
+  - created: src/backend/implementation/src/main/resources/db/migration/V6__draft_tree.sql
+  - created: src/backend/implementation/src/main/kotlin/io/github/theestimator/domain/draft/DraftEstimationNode.kt
+  - deleted: src/backend/implementation/src/main/kotlin/io/github/theestimator/domain/draft/DraftEstimationItemGroup.kt
+  - deleted: src/backend/implementation/src/main/kotlin/io/github/theestimator/domain/draft/DraftEstimationItem.kt
+  - deleted: src/backend/implementation/src/main/kotlin/io/github/theestimator/domain/draft/DraftFixedEstimationItem.kt
+  - deleted: src/backend/implementation/src/main/kotlin/io/github/theestimator/domain/draft/DraftTimeRelativeEstimationItem.kt
+  - modified: src/backend/implementation/src/main/kotlin/io/github/theestimator/domain/draft/DraftEstimationVersion.kt
+  - modified: src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/dto/EstimationVersionDtos.kt
+  - modified: src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/dto/EstimationVersionMapper.kt
+  - modified: src/backend/implementation/src/main/kotlin/io/github/theestimator/service/DraftVersionMapper.kt
+  - modified: src/backend/implementation/src/main/kotlin/io/github/theestimator/service/EstimationVersionService.kt
+  - modified: src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/EstimationVersionResource.kt
+  - modified: src/domain/src/main/kotlin/io/github/theestimator/model/EstimationVersion.kt
+  - created: src/backend/implementation/src/test/kotlin/io/github/theestimator/service/DraftVersionMapperTest.kt
+  - modified: src/backend/implementation/src/test/kotlin/io/github/theestimator/rest/EstimationVersionResourceIT.kt

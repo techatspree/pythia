@@ -1,0 +1,123 @@
+id: task-055
+phase: phase-9
+title: Remove the legacy group abstraction and refresh seed data and docs
+depends_on: [task-054]
+description: |
+  By the time task-054 lands, every layer of the system speaks trees.
+  EstimationItemGroup (the shared-domain class) still exists in
+  src/domain because task-049 left it as dead code so the JVM build
+  would keep compiling, and various README / CLAUDE / planning notes
+  still talk about "groups". This task removes the last traces and
+  brings the test data seeder and documentation in line.
+
+  Scope:
+    1. Delete src/domain/src/main/kotlin/io/github/theestimator/model/
+       EstimationItemGroup.kt. Confirm with `grep -r "EstimationItemGroup"
+       src` that nothing still references it. If anything does, fix it.
+
+    2. TestDataSeeder
+       (src/backend/implementation/src/main/kotlin/io/github/theestimator/
+       testdata/TestDataSeeder.kt) currently seeds two or three groups,
+       each with a handful of items. Replace this with a sample tree
+       that includes at least one depth-3 subtree, e.g.:
+
+           Root group: "Backend"
+             - Item: "Project setup"
+             - Sub-group: "Auth"
+                 - Item: "Token endpoint"
+                 - Sub-group: "Session storage"
+                     - Item: "Redis adapter"
+                     - Item: "Cleanup job"
+             - Item: "Health endpoint"
+           Root group: "Frontend"
+             - Item: "Project setup"
+             - Sub-group: "Routing"
+                 - Item: "Layout"
+                 - Item: "Error boundary"
+
+       The seeder must build DraftEstimationNode entities (parent_id
+       linkage + position) — no shortcuts through deleted types. Keep
+       the rest of the seed (parameters, drivers, phases, additional
+       costs) unchanged.
+
+    3. Documentation sweep — files that need wording updates:
+         - README.md (project root): any mention of "estimation item
+           groups" or the flat group → item structure.
+         - planning/plan.yaml: domain_entities.EstimationItem comment
+           should reflect the tree shape; phase-9 should be listed.
+         - planning/README.md: phase table needs phase-9.
+         - .claude/ or CLAUDE.md if it exists and mentions the old shape
+           (use `git grep -i "itemGroup\|estimation group" -- 'CLAUDE.md'
+           '.claude' '*.md'` to find them all).
+
+    4. Memory note — update the [[user_preferences]] / [[project_kmp_domain]]
+       memory if either of them references the old group structure
+       (read MEMORY.md and check). DO NOT add a memory just for this
+       refactor — the codebase IS the documentation after this task.
+
+    5. After everything compiles, run the full build and the e2e
+       suite once more end-to-end to confirm nothing regressed since
+       task-054.
+
+steps:
+  - |
+    Delete the dead-code class:
+      git rm src/domain/src/main/kotlin/io/github/theestimator/model/EstimationItemGroup.kt
+    Verify no remaining reference:
+      ! grep -r "EstimationItemGroup" src
+
+  - |
+    Rewrite TestDataSeeder to build a 3-level tree of DraftEstimationNode
+    entities for the seed estimation. Keep parameters/drivers/phases/
+    additional-costs seeding unchanged.
+
+  - |
+    Search and update documentation references:
+      git grep -in "itemGroup\|estimation group\|estimation item group" -- \
+          README.md '*.md' planning/
+    For each hit, update the wording to "estimation node" / "tree" /
+    "subtree" as appropriate. Do not invent new docs — only edit what
+    already exists.
+
+  - |
+    Update planning/plan.yaml so phase-9 is listed in the phases
+    section with its task ids (task-049 through task-055) and a brief
+    description. Update planning/README.md's phase table similarly.
+
+  - |
+    Read MEMORY.md and the memories it indexes. If any memory body
+    references the old group-and-item structure, update it. Update or
+    leave alone — do not create a new memory for the refactor.
+
+  - |
+    Run the full build and tests:
+      ./mvnw -DskipTests package
+      ./mvnw test
+      cd src/frontend && npm run check && npm run test:e2e
+
+validation:
+  - |
+    EstimationItemGroup is gone from the source tree:
+      ! grep -r "EstimationItemGroup" src
+      ! test -f src/domain/src/main/kotlin/io/github/theestimator/model/EstimationItemGroup.kt
+  - |
+    TestDataSeeder builds tree entities and includes a depth-3 subtree:
+      grep -q "DraftEstimationNode" \
+            src/backend/implementation/src/main/kotlin/io/github/theestimator/testdata/TestDataSeeder.kt
+      # spot-check: at least one node in the seeder has a non-empty
+      # grand-child list (depth ≥ 3). Visual inspection counts here —
+      # the grep cannot prove depth, so this validation is human-checked.
+  - |
+    phase-9 is listed in plan.yaml:
+      grep -q "phase-9" planning/plan.yaml
+  - |
+    Full build, all tests, frontend type-check and e2e all pass:
+      ./mvnw test
+      cd src/frontend && npm run check && npm run test:e2e
+
+outputs:
+  - deleted: src/domain/src/main/kotlin/io/github/theestimator/model/EstimationItemGroup.kt
+  - modified: src/backend/implementation/src/main/kotlin/io/github/theestimator/testdata/TestDataSeeder.kt
+  - modified: planning/plan.yaml
+  - modified: planning/README.md
+  - modified: README.md

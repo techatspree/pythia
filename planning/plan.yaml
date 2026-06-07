@@ -75,6 +75,10 @@ phases:
     name: Polish and Production Readiness
     duration_weeks: 1
     tasks: [task-030, task-031, task-032]
+  - id: phase-9
+    name: Tree-shaped Estimation Hierarchy
+    duration_weeks: 1
+    tasks: [task-049, task-050, task-051, task-052, task-053, task-054, task-055]
 
 execution:
   task_format: tasks/<task-id>.yaml
