@@ -1,0 +1,65 @@
+package io.github.theestimator.domain.draft
+
+import io.github.theestimator.domain.BaseEntity
+import jakarta.persistence.*
+import java.util.UUID
+
+@Entity
+@Table(name = "draft_estimation_nodes")
+@Inheritance(strategy = InheritanceType.SINGLE_TABLE)
+@DiscriminatorColumn(name = "node_type", discriminatorType = DiscriminatorType.STRING)
+abstract class DraftEstimationNode : BaseEntity() {
+
+    @Column(name = "logical_id", nullable = false)
+    var logicalId: UUID = UUID.randomUUID()
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "version_id", nullable = false)
+    var version: DraftEstimationVersion? = null
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "parent_id")
+    var parent: DraftEstimationNode? = null
+
+    @Column(name = "position", nullable = false)
+    var position: Int = 0
+
+    var title: String? = null
+
+    var description: String? = null
+
+    var code: String? = null
+
+    @Column(name = "min_effort")
+    var minEffort: Double? = null
+
+    @Column(name = "expected_effort")
+    var expectedEffort: Double? = null
+
+    @Column(name = "max_effort")
+    var maxEffort: Double? = null
+
+    var assumptions: String? = null
+
+    var unit: String? = null
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "phase_id")
+    var phase: DraftProjectPhase? = null
+
+    @OneToMany(mappedBy = "parent", cascade = [CascadeType.ALL], orphanRemoval = true)
+    @OrderColumn(name = "position")
+    var children: MutableList<DraftEstimationNode> = mutableListOf()
+}
+
+@Entity
+@DiscriminatorValue("GROUP")
+class DraftGroupNode : DraftEstimationNode()
+
+@Entity
+@DiscriminatorValue("FIXED")
+class DraftFixedItemNode : DraftEstimationNode()
+
+@Entity
+@DiscriminatorValue("TIME_RELATIVE")
+class DraftTimeRelativeItemNode : DraftEstimationNode()
