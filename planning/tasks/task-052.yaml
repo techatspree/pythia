@@ -34,12 +34,25 @@ description: |
         path: List<String> (ancestor group titles, empty for roots),
         minEffort, expectedEffort, maxEffort, offerPT — all nullable
         for groups
-    - ItemModificationDto is renamed to NodeModificationDto with before /
-      after of type ComparisonNodeDto.
+    - ItemModificationDto is renamed to NodeModificationDto with this
+      shape (drop the redundant top-level `description` — it duplicates
+      `after.description`/`after.title`):
+        logicalId: UUID
+        type: String
+        before: ComparisonNodeDto
+        after: ComparisonNodeDto
+        changedFields: List<String>
     - VersionComparisonDto: addedItems/removedItems/modifiedItems
       become addedNodes/removedNodes/modifiedNodes; addedGroups/
       removedGroups are removed (they fold into the nodes lists).
     - parameterChanges keeps its current shape.
+
+  Behaviour note for "group with N descendants deleted": the diff
+  produces 1 + N entries in removedNodes — one for the group itself and
+  one per descendant leaf (because every node has its own logicalId).
+  A moved leaf — same logicalId, different parent — produces a SINGLE
+  modifiedNodes entry with changedFields=["parent"]; it must NOT also
+  appear in addedNodes/removedNodes. The test plan covers both cases.
 
   Frontend implications (compare page +page.svelte under
   src/frontend/src/routes/estimations/[id]/compare/): the rendered table
@@ -50,6 +63,24 @@ description: |
   the user can locate it in the tree. The frontend change here is
   small — task-054 will rewrite the editor view, but the compare table
   is independently small enough to handle in this task.
+
+  TypeScript types (src/frontend/src/lib/api/types.ts) must be updated
+  IN THIS TASK too: replace ApiComparisonItem, ApiComparisonGroup,
+  ApiItemModification with ApiComparisonNode and ApiNodeModification;
+  rewrite the field list on ApiVersionComparison
+  (addedItems/removedItems/modifiedItems/addedGroups/removedGroups →
+  addedNodes/removedNodes/modifiedNodes). Without this, npm run check
+  still passes against the old type definitions but the runtime data
+  doesn't match — silent breakage.
+
+  Ambient regression to fix in the same Svelte page: lines 26-30
+  currently read `versionA.itemGroups.reduce(...)` for the item-count
+  chip. After task-050/051 the API returns `roots`, not `itemGroups` —
+  this read is already silently returning 0 in production. Replace
+  with a recursive leaf-count over `versionA.roots` / `versionB.roots`
+  so the chip works again. (The wider itemGroups → roots cleanup on
+  ApiVersionResponse is still task-054's job; only this one chip's
+  read changes here.)
 
   Tests:
     - VersionComparisonServiceTest (new unit test): construct two
@@ -80,28 +111,56 @@ steps:
     with SubmittedEstimationNode.toComparisonDto(path: List<String>).
 
   - |
+    Update src/frontend/src/lib/api/types.ts:
+      - Delete ApiComparisonItem, ApiComparisonGroup, ApiItemModification.
+      - Add ApiComparisonNode { logicalId, type, title, description,
+        path: string[], minEffort, expectedEffort, maxEffort, offerPT }
+        (everything except logicalId, type, and path is nullable).
+      - Add ApiNodeModification { logicalId, type, before, after,
+        changedFields }.
+      - On ApiVersionComparison: replace addedItems/removedItems/
+        modifiedItems/addedGroups/removedGroups with addedNodes/
+        removedNodes/modifiedNodes (typed ApiComparisonNode[] /
+        ApiNodeModification[]). Keep parameterChanges.
+
+  - |
     Update the frontend compare page so it consumes the new DTO field
     names and shows the path column. Use the path joined with " > " as
-    the value. Verify TypeScript via `cd src/frontend && npm run check`.
+    the value. Group-level rows render with their title; leaf rows with
+    description. ALSO fix the ambient item-count regression (lines
+    26-30): replace the `versionA.itemGroups.reduce(...)` reads with a
+    recursive leaf-count over `versionA.roots` (helper that walks
+    children when type === "GROUP"). Verify TypeScript via
+    `cd src/frontend && npm run check`.
 
   - |
     Write VersionComparisonServiceTest covering:
-      a) Leaf added under an existing group → added with correct path.
-      b) Group renamed → modified with changedFields=["title"].
-      c) Leaf moved from one group to another → modified with
-         changedFields=["parent"] and differing before.path / after.path.
-      d) Three-level tree where a middle group disappears → both that
-         group AND its surviving children appear modified (children
-         have a shorter path) — confirm this matches the design intent
-         (verifies the model is correct rather than just convenient).
+      a) Leaf added under an existing group → in addedNodes with
+         correct path.
+      b) Group renamed → in modifiedNodes with changedFields=["title"].
+      c) Leaf moved from one group to another → exactly ONE
+         modifiedNodes entry with changedFields=["parent"] and differing
+         before.path / after.path; assert it is NOT also in addedNodes
+         or removedNodes.
+      d) Top-level GROUP with two descendants deleted → 3 entries in
+         removedNodes (the group itself plus both leaves).
+      e) Three-level tree where a middle group disappears → the
+         middle group is in removedNodes; its descendants reparent and
+         appear in modifiedNodes with changedFields=["parent"] and a
+         shorter after.path. Confirms the model handles structural
+         collapses sensibly.
 
   - |
     Update relevant IT cases (search EstimationVersionResourceIT and any
     other test that touches `/compare`) for the new field names.
+    Rename addedItems→addedNodes, removedItems→removedNodes,
+    modifiedItems→modifiedNodes throughout. Reuse the existing
+    `modifiedItems[0].before.minEffort` style — only the top-level
+    field name changes.
 
   - |
     Run the backend tests and the frontend check:
-      ./mvnw -pl src/backend/implementation -am test
+      mvn -pl src/backend/implementation -am test
       cd src/frontend && npm run check
 
 validation:
@@ -111,22 +170,43 @@ validation:
             src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/dto/VersionComparisonDtos.kt
       grep -q "NodeModificationDto" \
             src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/dto/VersionComparisonDtos.kt
-      ! grep -q "ComparisonItemDto\|ComparisonGroupDto\|ItemModificationDto" \
+      ! grep -qE "ComparisonItemDto|ComparisonGroupDto|ItemModificationDto" \
             src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/dto/VersionComparisonDtos.kt
+  - |
+    The frontend TS types are renamed too — no stale field names left in
+    types.ts or the compare page (this is the silent-runtime-break guard):
+      grep -q "ApiComparisonNode"   src/frontend/src/lib/api/types.ts
+      grep -q "ApiNodeModification" src/frontend/src/lib/api/types.ts
+      ! grep -qE "ApiComparisonItem|ApiComparisonGroup|ApiItemModification" \
+            src/frontend/src/lib/api/types.ts
+      ! grep -qE "addedItems|removedItems|modifiedItems|addedGroups|removedGroups" \
+            "src/frontend/src/routes/estimations/[id]/compare/+page.svelte"
   - |
     VersionComparisonService no longer flattens itemGroups:
       ! grep -q "itemGroups" \
             src/backend/implementation/src/main/kotlin/io/github/theestimator/service/VersionComparisonService.kt
   - |
     Backend tests pass:
-      ./mvnw -pl src/backend/implementation -am test
+      mvn -pl src/backend/implementation -am test
   - |
     Frontend type-check passes:
       cd src/frontend && npm run check
+  - |
+    Manual visual smoke (npm run check cannot see the rendered table):
+    create two versions where v2 (a) renames a top-level group, (b)
+    moves a leaf into a different group, and (c) deletes a nested
+    group containing two leaves. Open /estimations/{id}/compare?a=1&b=2
+    and confirm: the path column shows ancestor titles for each row;
+    the renamed group appears once with changedFields=["title"]; the
+    moved leaf appears once (not twice) with changedFields=["parent"];
+    the deleted nested group plus its two children produce three
+    removed-node rows; the item-count chip shows the correct leaf
+    counts for both sides.
 
 outputs:
   - modified: src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/dto/VersionComparisonDtos.kt
   - modified: src/backend/implementation/src/main/kotlin/io/github/theestimator/service/VersionComparisonService.kt
+  - modified: src/frontend/src/lib/api/types.ts
   - modified: src/frontend/src/routes/estimations/[id]/compare/+page.svelte
   - created: src/backend/implementation/src/test/kotlin/io/github/theestimator/service/VersionComparisonServiceTest.kt
   - modified: src/backend/implementation/src/test/kotlin/io/github/theestimator/rest/EstimationVersionResourceIT.kt
