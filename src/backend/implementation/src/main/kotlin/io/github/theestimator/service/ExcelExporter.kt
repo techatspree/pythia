@@ -3,10 +3,11 @@ package io.github.theestimator.service
 import io.github.theestimator.domain.AdditionalCostType
 import io.github.theestimator.domain.submitted.*
 import jakarta.enterprise.context.ApplicationScoped
+import org.apache.poi.ss.usermodel.Sheet
+import org.apache.poi.xssf.usermodel.XSSFRow
 import org.apache.poi.xssf.usermodel.XSSFWorkbook
 import java.io.OutputStream
 
-// task-051 compile shim — task-053 introduces outline levels for nested trees.
 @ApplicationScoped
 class ExcelExporter {
 
@@ -22,11 +23,6 @@ class ExcelExporter {
         workbook.write(output)
         workbook.close()
     }
-
-    // For depth-1 export: pair each top-level GROUP root with the flattened
-    // list of leaves in its subtree (deeper nesting collapses to a flat list).
-    private fun flattenedGroups(version: SubmittedEstimationVersion): List<Pair<SubmittedGroupNode, List<SubmittedEstimationNode>>> =
-        version.roots.filterIsInstance<SubmittedGroupNode>().map { g -> g to collectLeaves(g) }
 
     private fun collectLeaves(node: SubmittedEstimationNode): List<SubmittedEstimationNode> = when (node) {
         is SubmittedGroupNode -> node.children.flatMap { collectLeaves(it) }
@@ -45,68 +41,62 @@ class ExcelExporter {
             "Mittelwert pro Gruppe", "Varianz", "Varianz pro Gruppe",
             "Zuschl. Risiko (PT)", "Zuschl. Aufwandstreiber (PT)",
             "Angebots-PT", "Angebots-PT pro Gruppe", "Kosten",
-            "Angebots-preis", "Paket", "Annahmen, Abgrenzungen, Kommentare"
+            "Angebots-preis", "Paket", "Annahmen, Abgrenzungen, Kommentare",
+            "Node type", "Logical ID", "Unit"
         )
         headers.forEachIndexed { idx, header -> headerRow.createCell(idx).setCellValue(header) }
 
         var rowIdx = 1
-        val groups = flattenedGroups(version)
-        val fixedGroups = groups.filter { (_, items) ->
-            items.none { it is SubmittedTimeRelativeItemNode }
+        for (root in version.roots) {
+            rowIdx = writeNode(root, depth = 0, sheet = sheet, rowIdx = rowIdx)
         }
-        val timeRelativeGroups = groups.filter { (_, items) ->
-            items.any { it is SubmittedTimeRelativeItemNode }
-        }
+    }
 
-        for ((group, items) in fixedGroups) {
-            val groupRow = sheet.createRow(rowIdx++)
-            groupRow.createCell(0).setCellValue(group.title ?: "")
-            val groupMean = items.sumOf { it.mean }
-            val groupVariance = items.sumOf { it.variance }
-            val groupOfferPT = items.sumOf { it.offerPT }
-            groupRow.createCell(5).setCellValue(groupMean)
-            groupRow.createCell(7).setCellValue(groupVariance)
-            groupRow.createCell(11).setCellValue(groupOfferPT)
-            items.firstOrNull()?.phaseAbbreviation?.let { groupRow.createCell(14).setCellValue(it) }
-
-            for (item in items) {
-                val itemRow = sheet.createRow(rowIdx++)
-                itemRow.createCell(0).setCellValue(item.description ?: "")
-                itemRow.createCell(1).setCellValue(item.minEffort ?: 0.0)
-                itemRow.createCell(2).setCellValue(item.expectedEffort ?: 0.0)
-                itemRow.createCell(3).setCellValue(item.maxEffort ?: 0.0)
-                itemRow.createCell(4).setCellValue(item.mean)
-                itemRow.createCell(6).setCellValue(item.variance)
-                itemRow.createCell(8).setCellValue(item.riskSurcharge)
-                itemRow.createCell(9).setCellValue(item.driverSurcharge)
-                itemRow.createCell(10).setCellValue(item.offerPT)
-                itemRow.createCell(12).setCellValue(item.cost)
-                itemRow.createCell(13).setCellValue(item.offerPrice)
-                item.assumptions?.let { itemRow.createCell(15).setCellValue(it) }
+    private fun writeNode(node: SubmittedEstimationNode, depth: Int, sheet: Sheet, rowIdx: Int): Int {
+        val row = sheet.createRow(rowIdx) as XSSFRow
+        // XSSFRow only exposes getOutlineLevel() (reads from the underlying
+        // CTRow). To set it, go through the CTRow proxy directly.
+        row.ctRow.outlineLevel = depth.toShort()
+        val indent = "  ".repeat(depth)
+        when (node) {
+            is SubmittedGroupNode -> {
+                row.createCell(0).setCellValue(indent + (node.title ?: ""))
+                row.createCell(5).setCellValue(node.mean)
+                row.createCell(7).setCellValue(node.variance)
+                row.createCell(11).setCellValue(node.offerPT)
+                row.createCell(16).setCellValue("GROUP")
             }
-            rowIdx++
-        }
-
-        if (timeRelativeGroups.isNotEmpty()) {
-            rowIdx++
-            val trHeaderRow = sheet.createRow(rowIdx++)
-            trHeaderRow.createCell(0).setCellValue("Aufwände relativ zur Zeit")
-
-            for ((group, items) in timeRelativeGroups) {
-                val groupRow = sheet.createRow(rowIdx++)
-                groupRow.createCell(0).setCellValue(group.title ?: "")
-
-                for (item in items) {
-                    val itemRow = sheet.createRow(rowIdx++)
-                    itemRow.createCell(0).setCellValue(item.description ?: "")
-                    itemRow.createCell(1).setCellValue(item.minEffort ?: 0.0)
-                    itemRow.createCell(2).setCellValue(item.expectedEffort ?: 0.0)
-                    itemRow.createCell(3).setCellValue(item.maxEffort ?: 0.0)
-                    itemRow.createCell(4).setCellValue(item.mean)
-                    itemRow.createCell(6).setCellValue(item.variance)
+            else -> {
+                row.createCell(0).setCellValue(indent + (node.description ?: ""))
+                row.createCell(1).setCellValue(node.minEffort ?: 0.0)
+                row.createCell(2).setCellValue(node.expectedEffort ?: 0.0)
+                row.createCell(3).setCellValue(node.maxEffort ?: 0.0)
+                row.createCell(4).setCellValue(node.mean)
+                row.createCell(6).setCellValue(node.variance)
+                row.createCell(8).setCellValue(node.riskSurcharge)
+                row.createCell(9).setCellValue(node.driverSurcharge)
+                row.createCell(10).setCellValue(node.offerPT)
+                row.createCell(12).setCellValue(node.cost)
+                row.createCell(13).setCellValue(node.offerPrice)
+                node.phaseAbbreviation?.let { row.createCell(14).setCellValue(it) }
+                node.assumptions?.let { row.createCell(15).setCellValue(it) }
+                row.createCell(16).setCellValue(
+                    if (node is SubmittedTimeRelativeItemNode) "TIME_RELATIVE" else "FIXED"
+                )
+                if (node is SubmittedTimeRelativeItemNode) {
+                    node.unit?.let { row.createCell(18).setCellValue(it) }
                 }
             }
         }
+        row.createCell(17).setCellValue(node.logicalId.toString())
+
+        var next = rowIdx + 1
+        if (node is SubmittedGroupNode) {
+            for (child in node.children) {
+                next = writeNode(child, depth + 1, sheet, next)
+            }
+        }
+        return next
     }
 
     private fun writeAdditionalCosts(workbook: XSSFWorkbook, version: SubmittedEstimationVersion) {

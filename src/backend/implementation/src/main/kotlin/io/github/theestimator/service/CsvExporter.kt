@@ -3,10 +3,10 @@ package io.github.theestimator.service
 import io.github.theestimator.domain.submitted.SubmittedEstimationNode
 import io.github.theestimator.domain.submitted.SubmittedEstimationVersion
 import io.github.theestimator.domain.submitted.SubmittedGroupNode
+import io.github.theestimator.domain.submitted.SubmittedTimeRelativeItemNode
 import jakarta.enterprise.context.ApplicationScoped
 import java.io.OutputStream
 
-// task-051 compile shim — task-053 adds depth-aware Path column.
 @ApplicationScoped
 class CsvExporter {
 
@@ -16,28 +16,60 @@ class CsvExporter {
             if (s.any { it == ',' || it == '"' || it == '\n' })
                 "\"" + s.replace("\"", "\"\"") + "\""
             else s
+
+        // Header: Path,Group,Description,Min,Expected,Max,Mean,OfferPT,Node type
         w.append(
-            listOf("Group", "Description", "Min", "Expected", "Max", "Mean", "OfferPT")
+            listOf("Path", "Group", "Description", "Min", "Expected", "Max", "Mean", "OfferPT", "Node type")
                 .joinToString(",")
         ).append("\n")
-        version.roots.filterIsInstance<SubmittedGroupNode>().forEach { g ->
-            collectLeaves(g).forEach { i ->
-                w.append(
-                    listOf(
-                        cell(g.title ?: ""), cell(i.description ?: ""),
-                        (i.minEffort ?: 0.0).toString(), (i.expectedEffort ?: 0.0).toString(),
-                        (i.maxEffort ?: 0.0).toString(), i.mean.toString(),
-                        i.offerPT.toString()
-                    ).joinToString(",")
-                ).append("\n")
+
+        fun writeNode(node: SubmittedEstimationNode, ancestors: List<String>) {
+            val ownLabel = if (node is SubmittedGroupNode) (node.title ?: "") else (node.description ?: "")
+            val path = (ancestors + ownLabel).joinToString("/")
+            val parentTitle = ancestors.lastOrNull() ?: ""
+            val nodeType = when (node) {
+                is SubmittedGroupNode -> "GROUP"
+                is SubmittedTimeRelativeItemNode -> "TIME_RELATIVE"
+                else -> "FIXED"
+            }
+            val cells = if (node is SubmittedGroupNode) {
+                listOf(
+                    cell(path),
+                    cell(parentTitle),
+                    cell(node.title ?: ""),
+                    "", "", "",
+                    node.mean.toString(),
+                    node.offerPT.toString(),
+                    nodeType
+                )
+            } else {
+                listOf(
+                    cell(path),
+                    cell(parentTitle),
+                    cell(node.description ?: ""),
+                    (node.minEffort ?: 0.0).toString(),
+                    (node.expectedEffort ?: 0.0).toString(),
+                    (node.maxEffort ?: 0.0).toString(),
+                    node.mean.toString(),
+                    node.offerPT.toString(),
+                    nodeType
+                )
+            }
+            w.append(cells.joinToString(",")).append("\n")
+
+            if (node is SubmittedGroupNode) {
+                val childAncestors = ancestors + (node.title ?: "")
+                node.children.forEach { writeNode(it, childAncestors) }
             }
         }
-        w.append("Total,,,,,,${version.totalEffort}\n")
-        w.flush()
-    }
 
-    private fun collectLeaves(node: SubmittedEstimationNode): List<SubmittedEstimationNode> = when (node) {
-        is SubmittedGroupNode -> node.children.flatMap { collectLeaves(it) }
-        else -> listOf(node)
+        version.roots.forEach { writeNode(it, ancestors = emptyList()) }
+
+        // Totals row: 9 columns. Path empty, Group="Total", four empty cells,
+        // empty Mean cell, the total in the OfferPT column, empty Node type.
+        // The total stays at column index 7 — see EstimationVersionResourceIT
+        // `csv export total matches the version total effort`.
+        w.append(",Total,,,,,,${version.totalEffort},\n")
+        w.flush()
     }
 }

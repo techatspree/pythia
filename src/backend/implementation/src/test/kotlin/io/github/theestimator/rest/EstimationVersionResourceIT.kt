@@ -777,8 +777,17 @@ class EstimationVersionResourceIT {
             .contentType("text/csv")
             .extract().asString()
 
-        val lastCell = csv.trim().lines().last().split(",").last().toDouble()
-        assert(Math.abs(lastCell - totalEffort) < 0.001)
+        // Locate the totals row by its "Total" marker in the Group column,
+        // then read the OfferPT column directly (column-aware so future
+        // CSV-shape changes break the test loudly, not silently).
+        val lines = csv.trim().lines()
+        val headers = lines.first().split(",")
+        val groupCol = headers.indexOf("Group")
+        val offerPtCol = headers.indexOf("OfferPT")
+        assert(groupCol >= 0 && offerPtCol >= 0) { "CSV missing Group or OfferPT header" }
+        val totalsRow = lines.first { it.split(",").getOrNull(groupCol) == "Total" }
+        val totalsCells = totalsRow.split(",")
+        assert(Math.abs(totalsCells[offerPtCol].toDouble() - totalEffort) < 0.001)
     }
 
     @Test

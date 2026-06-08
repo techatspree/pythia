@@ -6,8 +6,10 @@ import io.github.theestimator.domain.draft.*
 import jakarta.enterprise.context.ApplicationScoped
 import org.apache.poi.ss.usermodel.Row
 import org.apache.poi.ss.usermodel.Sheet
+import org.apache.poi.xssf.usermodel.XSSFRow
 import org.apache.poi.xssf.usermodel.XSSFWorkbook
 import java.io.InputStream
+import java.util.UUID
 
 @ApplicationScoped
 class ExcelImporter {
@@ -79,58 +81,62 @@ class ExcelImporter {
     }
 
     private fun importEstimationItems(sheet: Sheet, version: DraftEstimationVersion) {
-        val headerRow = 3
-        var currentGroup: DraftGroupNode? = null
-        var rootPosition = 0
-        var isTimeRelativeSection = false
+        // The exporter writes one row per node in tree order. We read:
+        //   col 0  — indented title/description
+        //   col 1..3, 14, 15 — leaf effort/phase/assumptions (unchanged)
+        //   col 16 — "Node type" (GROUP / FIXED / TIME_RELATIVE)
+        //   col 17 — "Logical ID" (UUID, preserves identity across round-trips)
+        //   col 18 — "Unit" (TIME_RELATIVE only)
+        // POI's outline level encodes depth: a level-N row attaches to the
+        // most recent row at level N-1.
+        val lastAtLevel = mutableListOf<DraftEstimationNode>()
 
-        for (rowIdx in (headerRow + 1)..sheet.lastRowNum) {
+        for (rowIdx in 1..sheet.lastRowNum) {
             val row = sheet.getRow(rowIdx) ?: continue
-            val description = row.cellStringValue(0) ?: continue
+            val nodeType = row.cellStringValue(16) ?: continue
+            val level = (row as XSSFRow).outlineLevel.toInt()
+            val label = row.cellStringValue(0)?.trimStart() ?: ""
 
-            if (description == "Zusammenfassung") break
-
-            if (description == "Aufwände relativ zur Zeit") {
-                isTimeRelativeSection = true
-                continue
+            val node: DraftEstimationNode = when (nodeType) {
+                "GROUP" -> DraftGroupNode().apply { title = label }
+                "TIME_RELATIVE" -> DraftTimeRelativeItemNode().apply {
+                    description = label
+                    unit = row.cellStringValue(18) ?: "h/Woche"
+                }
+                "FIXED" -> DraftFixedItemNode().apply { description = label }
+                else -> continue
             }
 
-            val min = row.cellNumericValue(1)
-            val expected = row.cellNumericValue(2)
-            val max = row.cellNumericValue(3)
+            row.cellStringValue(17)?.let { node.logicalId = UUID.fromString(it) }
 
-            if (min == null && expected == null && max == null) {
-                currentGroup = DraftGroupNode().apply {
-                    this.title = description
-                    this.version = version
-                    this.position = rootPosition++
+            if (nodeType != "GROUP") {
+                node.minEffort = row.cellNumericValue(1)
+                node.expectedEffort = row.cellNumericValue(2)
+                node.maxEffort = row.cellNumericValue(3)
+                node.assumptions = row.cellStringValue(15)
+                row.cellStringValue(14)?.let { abbr ->
+                    node.phase = version.phases.find { it.abbreviation == abbr }
                 }
-                version.roots.add(currentGroup)
-            } else if (currentGroup != null) {
-                val phaseAbbr = row.cellStringValue(14)
-                val itemPhase = phaseAbbr?.let { abbr ->
-                    version.phases.find { it.abbreviation == abbr }
-                }
-
-                val item: DraftEstimationNode = if (isTimeRelativeSection) {
-                    DraftTimeRelativeItemNode()
-                } else {
-                    DraftFixedItemNode()
-                }
-
-                item.apply {
-                    this.description = description
-                    this.minEffort = min
-                    this.expectedEffort = expected
-                    this.maxEffort = max
-                    this.assumptions = row.cellStringValue(15)
-                    this.phase = itemPhase
-                    this.version = version
-                    this.parent = currentGroup
-                    this.position = currentGroup.children.size
-                }
-                currentGroup.children.add(item)
             }
+
+            node.version = version
+
+            if (level == 0) {
+                node.parent = null
+                node.position = version.roots.size
+                version.roots.add(node)
+            } else {
+                val parent = lastAtLevel.getOrNull(level - 1)
+                    ?: error("Row $rowIdx outline level $level has no ancestor at level ${level - 1}")
+                node.parent = parent
+                node.position = parent.children.size
+                parent.children.add(node)
+            }
+
+            while (lastAtLevel.size <= level) lastAtLevel.add(node)
+            lastAtLevel[level] = node
+            // truncate deeper levels — they no longer apply once we move up
+            while (lastAtLevel.size > level + 1) lastAtLevel.removeAt(lastAtLevel.size - 1)
         }
     }
 
