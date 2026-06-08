@@ -59,8 +59,9 @@ Typical flow: run `next`, run `show` to read the task, do the work, run `done`. 
 | 6 | 1 | Containerization and Kubernetes | 022–025 |
 | 7 | 1 | Observability, CI/CD, hardening | 026–029 |
 | 8 | 1 | Polish and production readiness | 030–032 |
+| 9 | 1 | Tree-shaped Estimation Hierarchy | 049–055 |
 
-Total: roughly 9 weeks of focused work for one developer, less with parallel tracks.
+Total: roughly 10 weeks of focused work for one developer, less with parallel tracks.
 
 ## Anatomy of a task file
 

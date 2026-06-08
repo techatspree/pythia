@@ -139,7 +139,10 @@ class TestDataSeeder(
             )),
             group(draft1, "U03: Backend & Datenbank", listOf(
                 fixedLeaf(draft1, "REST API Endpoints (CRUD)", 4.0, 6.0, 9.0, phaseUM),
-                fixedLeaf(draft1, "Authentifizierung & Autorisierung", 2.0, 4.0, 6.0, phaseUM),
+                group(draft1, "Authentifizierung", listOf(
+                    fixedLeaf(draft1, "Login & Session-Verwaltung", 2.0, 3.0, 5.0, phaseUM),
+                    fixedLeaf(draft1, "OAuth2-Anbindung (Google, GitHub)", 2.0, 3.0, 5.0, phaseUM)
+                )),
                 fixedLeaf(draft1, "Datenbankmigrationen & Seeding", 1.0, 2.0, 3.0, phaseUM),
                 fixedLeaf(draft1, "Payment-Integration (Stripe)", 3.0, 5.0, 8.0, phaseUM)
             )),
