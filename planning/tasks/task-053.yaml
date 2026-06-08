@@ -9,9 +9,8 @@ description: |
   three services to round-trip the nesting.
 
   Output format for Excel (.xlsx):
-    - Use POI's row outline level (XSSF setRowGroupCollapsed /
-      Row.setOutlineLevel) to encode depth. Root nodes are level 0,
-      their children level 1, etc.
+    - Use POI's row outline level (Row.setOutlineLevel) to encode depth.
+      Root nodes are level 0, their children level 1, etc.
     - GROUP rows display the title in column A indented with a
       depth-prefix (e.g., "  Backend > Auth") for readability AND set
       the outline level — the visual indent is for users who collapse
@@ -19,6 +18,13 @@ description: |
     - Calculated columns on GROUP rows show the accumulated values from
       the SubmittedEstimationNode (which already stores them after
       task-051) — no recomputation inside the exporter.
+    - APPEND a new "Node type" column at the end (column 16; existing
+      columns 0–15 keep their indexes — see ExcelImporter's per-column
+      reads). Values: GROUP / FIXED / TIME_RELATIVE. This is the
+      authoritative row-type discriminator the importer reads back.
+      The old behaviour of writing all leaves of all FIXED groups then
+      a separator row "Aufwände relativ zur Zeit" then all TIME_RELATIVE
+      groups is REMOVED — nodes are written in tree order, type per row.
 
   Output format for CSV:
     - Add a leading "Path" column whose value is the slash-joined
@@ -26,16 +32,40 @@ description: |
       "Backend/Auth/Token endpoint" for a leaf and "Backend/Auth" for a
       group. This is the simplest format that preserves nesting
       losslessly in a flat CSV.
+    - Append a "Node type" column at the end (GROUP / FIXED /
+      TIME_RELATIVE).
+    - KEEP the existing "Group" column (immediate parent title) for one
+      task — task-055 removes it. Adding `Path` is a forward-compatible
+      addition; removing `Group` would break any existing CSV consumer
+      in the same task and shouldn't happen here.
     - GROUP rows still appear (with empty effort columns and filled
       accumulated columns) so a CSV reader can reconstruct depth from
-      either the path column OR the presence of GROUP rows above.
+      the Path column.
+    - The totals row currently reads `Total,,,,,,${totalEffort}`. With
+      the new leading Path column it MUST gain a leading empty cell so
+      the totals string still ends with the total in the last cell —
+      i.e. `,Total,,,,,,${totalEffort},`. Existing IT
+      `csv export total matches the version total effort` reads the
+      LAST cell of the LAST line, so the new format must keep the total
+      in that position. Update the IT alongside.
 
   Import (ExcelImporter):
-    - Read outline level from each row. A row at level N becomes a child
-      of the most recent row at level N-1; level-0 rows are roots.
-    - GROUP rows are detected by node_type column (added next to the
-      existing columns); leaf rows produce FIXED or TIME_RELATIVE
-      DraftEstimationNode entities based on the type column.
+    - Drop the existing group-row heuristic (today: "row where min,
+      expected, max are all null is a group header"). After this task,
+      group rows carry accumulated values in the effort columns, so the
+      heuristic mis-classifies them as leaves. Use the appended
+      "Node type" column directly: GROUP rows produce DraftGroupNode,
+      FIXED produces DraftFixedItemNode, TIME_RELATIVE produces
+      DraftTimeRelativeItemNode.
+    - Drop the `isTimeRelativeSection` toggle and the
+      "Aufwände relativ zur Zeit" separator-row check. After this task
+      type is per-row, not per-section.
+    - Use POI outline level to determine parent linkage: a row at
+      level N attaches as a child of the most recent row at level N-1;
+      level-0 rows are roots. Compute position from row order within
+      each parent's children.
+    - The importer is XLSX-only — no Path-column parsing. If a future
+      task adds a CsvImporter it can split the Path column then.
     - The importer builds the entity tree (parent_id linkage + position
       derived from row order within siblings) and replaces the draft's
       roots.
@@ -52,15 +82,25 @@ description: |
   Tests:
     - ExcelExporterTreeTest (new): build a 3-level
       SubmittedEstimationVersion, export to a ByteArrayOutputStream,
-      reopen with POI, assert outline levels and the indented title
-      strings.
+      reopen with POI, assert outline levels per row, the indented
+      title strings, and that the "Node type" column header appears at
+      the end and carries the right value per row.
     - CsvExporterTreeTest (new): same fixture, export to a string,
-      parse with kotlin-csv or split lines, assert the Path column.
+      parse with kotlin-csv or split lines, assert the leading Path
+      column, the trailing Node type column, and that the totals row
+      still has the total in its LAST cell.
     - ExcelImporterTreeTest (new): export then re-import a 3-level
       tree and assert the resulting DraftEstimationVersion.roots are
-      structurally equal to the original (logicalIds, titles,
-      descriptions, depths, sibling order). This is the round-trip
-      property test that catches most mistakes in either side.
+      structurally equal to the original — including SAME logicalIds
+      (not just shape). LogicalId preservation is what the version-diff
+      flow built in task-052 relies on; without it, every re-imported
+      tree looks 100% new to the diff.
+    - Update EstimationVersionResourceIT::csv export total matches the
+      version total effort if needed — current assertion reads the last
+      cell of the last line, which survives the new format only if the
+      totals row keeps the total as its LAST cell. Adapt or replace the
+      assertion to be column-aware so future changes don't break it
+      silently.
 
 steps:
   - |
@@ -70,30 +110,67 @@ steps:
     the exact column choices.
 
   - |
-    Update ExcelExporter to walk version.roots recursively (helper:
-    `fun writeNode(node: SubmittedEstimationNode, depth: Int, sheet: Sheet,
-    rowIdx: Int): Int` returning the next row index). Set
-    Row.setOutlineLevel(depth) per row. Add a "Node type" column
-    (GROUP / FIXED / TIME_RELATIVE).
+    Update ExcelExporter:
+      - Replace the "fixed groups then TR groups" two-pass layout with
+        a single recursive tree walk over `version.roots`. Helper:
+        `fun writeNode(node, depth, sheet, rowIdx): Int` returns the
+        next row index.
+      - Per row: `row.outlineLevel = depth` (POI auto-rolls the
+        collapsibles); column-A title gets a depth-prefix indent.
+      - APPEND column 16 "Node type" with the row's discriminator
+        (GROUP / FIXED / TIME_RELATIVE). Existing columns 0–15 keep
+        their indexes — do NOT insert in the middle (the importer reads
+        phase at col 14 and assumptions at col 15).
+      - Delete the legacy `task-051 compile shim` comment at the top of
+        the file.
 
   - |
-    Update CsvExporter similarly. Add the leading "Path" column.
+    Update CsvExporter:
+      - Walk `version.roots` recursively, emitting one row per node
+        (groups included, with their accumulated values).
+      - Insert "Path" as the FIRST column. Path = slash-joined ancestor
+        titles plus the node's own title/description.
+      - Keep "Group" (immediate-parent title) for one task; task-055
+        removes it.
+      - Append "Node type" as the LAST column (GROUP / FIXED /
+        TIME_RELATIVE).
+      - Adjust the totals row to keep the total in the LAST cell (leading
+        empty cell for Path, trailing empty cell for Node type, so the
+        format is `,Total,,,,,,${totalEffort},`).
+      - Delete the legacy `task-051 compile shim` comment at the top of
+        the file.
 
   - |
-    Update ExcelImporter to read outline level OR path column (prefer
-    outline level if present, fall back to splitting the Path column).
-    Reconstruct the tree and build DraftEstimationNode entities,
-    setting parent and position. Replace draft.roots in the same
-    transaction.
+    Update ExcelImporter:
+      - Drop the null-effort group-row heuristic AND the
+        `isTimeRelativeSection` / "Aufwände relativ zur Zeit" toggle.
+      - Read the new column-16 "Node type" value to decide between
+        DraftGroupNode / DraftFixedItemNode / DraftTimeRelativeItemNode.
+      - Read POI outline level to attach the row to its parent: a row
+        at level N becomes a child of the most-recent row at level N-1;
+        level-0 rows are roots. Position is the index within the
+        parent's children list.
+      - Preserve logicalId if the source row carries one (column ?, see
+        ExcelExporterTreeTest fixture) — round-trip is the property the
+        importer tests assert.
+      - Replace draft.roots in the same transaction.
+
+  - |
+    Update EstimationVersionResourceIT::csv export total matches the
+    version total effort: replace the "last cell of last line" assertion
+    with a column-aware one that locates the "Total" row by its first
+    non-Path cell and reads the total-effort column directly. Future
+    column changes won't silently break the test.
 
   - |
     Write ExcelExporterTreeTest, CsvExporterTreeTest, ExcelImporterTreeTest
     under src/backend/implementation/src/test/kotlin/io/github/theestimator/service/
-    using the 3-level fixture described in the task description.
+    using the 3-level fixture described in the task description. The
+    importer test must assert SAME logicalIds, not just same shape.
 
   - |
     Run the backend tests:
-      ./mvnw -pl src/backend/implementation -am test
+      mvn -pl src/backend/implementation -am test
 
   - |
     Manual sanity check (the round-trip test catches programmatic
@@ -107,24 +184,44 @@ steps:
 
 validation:
   - |
-    All three services walk roots, not itemGroups:
+    All three services walk roots, not itemGroups, and the legacy
+    "task-051 compile shim" comments are gone:
       ! grep -q "itemGroups" \
             src/backend/implementation/src/main/kotlin/io/github/theestimator/service/ExcelExporter.kt
       ! grep -q "itemGroups" \
             src/backend/implementation/src/main/kotlin/io/github/theestimator/service/CsvExporter.kt
       ! grep -q "itemGroups" \
             src/backend/implementation/src/main/kotlin/io/github/theestimator/service/ExcelImporter.kt
+      ! grep -q "task-051 compile shim" \
+            src/backend/implementation/src/main/kotlin/io/github/theestimator/service/ExcelExporter.kt
+      ! grep -q "task-051 compile shim" \
+            src/backend/implementation/src/main/kotlin/io/github/theestimator/service/CsvExporter.kt
+  - |
+    Both exporters emit a "Node type" column (literal header check —
+    catches a tree-walking-but-forgetting-type-emit regression):
+      grep -q "Node type" \
+            src/backend/implementation/src/main/kotlin/io/github/theestimator/service/ExcelExporter.kt
+      grep -q "Node type" \
+            src/backend/implementation/src/main/kotlin/io/github/theestimator/service/CsvExporter.kt
+  - |
+    The importer no longer uses the null-effort group-row heuristic or
+    the section-marker toggle:
+      ! grep -q "isTimeRelativeSection" \
+            src/backend/implementation/src/main/kotlin/io/github/theestimator/service/ExcelImporter.kt
+      ! grep -q "Aufwände relativ zur Zeit" \
+            src/backend/implementation/src/main/kotlin/io/github/theestimator/service/ExcelImporter.kt
   - |
     The three new test files exist and pass:
       test -f src/backend/implementation/src/test/kotlin/io/github/theestimator/service/ExcelExporterTreeTest.kt
       test -f src/backend/implementation/src/test/kotlin/io/github/theestimator/service/CsvExporterTreeTest.kt
       test -f src/backend/implementation/src/test/kotlin/io/github/theestimator/service/ExcelImporterTreeTest.kt
-      ./mvnw -pl src/backend/implementation -am test
+      mvn -pl src/backend/implementation -am test
 
 outputs:
   - modified: src/backend/implementation/src/main/kotlin/io/github/theestimator/service/ExcelExporter.kt
   - modified: src/backend/implementation/src/main/kotlin/io/github/theestimator/service/CsvExporter.kt
   - modified: src/backend/implementation/src/main/kotlin/io/github/theestimator/service/ExcelImporter.kt
+  - modified: src/backend/implementation/src/test/kotlin/io/github/theestimator/rest/EstimationVersionResourceIT.kt
   - created: src/backend/implementation/src/test/kotlin/io/github/theestimator/service/ExcelExporterTreeTest.kt
   - created: src/backend/implementation/src/test/kotlin/io/github/theestimator/service/CsvExporterTreeTest.kt
   - created: src/backend/implementation/src/test/kotlin/io/github/theestimator/service/ExcelImporterTreeTest.kt
