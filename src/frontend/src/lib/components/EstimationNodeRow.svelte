@@ -168,6 +168,16 @@
 	}
 </script>
 
+{#snippet indent(d: number)}
+	{#each Array(d) as _}
+		<span
+			class="inline-block border-l-2 border-gray-300 align-middle"
+			style="width: 1.5rem; height: 1.5rem;"
+			aria-hidden="true"
+		></span>
+	{/each}
+{/snippet}
+
 {#if node.type === 'GROUP'}
 	{@const calc = calcMap.get(node.logicalId)}
 	<!-- Single wrapper per group: svelte-dnd-action's parent zone treats
@@ -194,12 +204,12 @@
 				onclick={() => onToggle(node.logicalId)}
 				aria-label={collapsed.has(node.logicalId) ? 'Expand group' : 'Collapse group'}
 			>
-				<span style="display:inline-block;width:{depth * 1.25}rem"></span>
+				{@render indent(depth)}
 				{collapsed.has(node.logicalId) ? '▶' : '▼'}
 			</button>
 		</div>
 		<div class="py-2 px-3 font-semibold text-gray-700">
-			<span style="display:inline-block;width:{depth * 1.25}rem"></span>
+			{@render indent(depth)}
 			{#if editable}
 				<input
 					type="text"
@@ -295,7 +305,7 @@
 		data-testid="row-{pathKey(path)}"
 	>
 		<div class="py-1 px-1">
-			<span style="display:inline-block;width:{depth * 1.25}rem"></span>
+			{@render indent(depth)}
 			{#if editable}
 				<span
 					data-dnd-handle
@@ -306,12 +316,12 @@
 			{/if}
 		</div>
 		<div class="py-1 px-2">
-			<span style="display:inline-block;width:{depth * 1.25}rem"></span>
+			{@render indent(depth)}
 			{#if editable}
 				<input
 					type="text"
 					class="bg-transparent focus:outline-none focus:bg-brand-green/5 focus:ring-1 focus:ring-brand-green/40 rounded px-1 py-0.5"
-					style="width: calc(100% - {depth * 1.25}rem)"
+					style="width: calc(100% - {depth * 1.5}rem)"
 					value={leaf.description}
 					data-cell="{pathKey(path)}-0"
 					oninput={(e) => updateLeafField('description', e.currentTarget.value)}
