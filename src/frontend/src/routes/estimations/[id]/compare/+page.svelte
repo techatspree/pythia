@@ -22,20 +22,26 @@
 		return versionB.totalEffort - versionA.totalEffort;
 	});
 
-	const itemCountA = $derived.by(() =>
-		versionA ? versionA.itemGroups.reduce((s, g) => s + g.items.length, 0) : 0
-	);
-	const itemCountB = $derived.by(() =>
-		versionB ? versionB.itemGroups.reduce((s, g) => s + g.items.length, 0) : 0
-	);
+	function countLeaves(nodes: any[]): number {
+		let n = 0;
+		for (const node of nodes) {
+			if (node.type === 'GROUP') {
+				n += countLeaves(node.children ?? []);
+			} else {
+				n += 1;
+			}
+		}
+		return n;
+	}
+
+	const itemCountA = $derived.by(() => (versionA ? countLeaves((versionA as any).roots ?? []) : 0));
+	const itemCountB = $derived.by(() => (versionB ? countLeaves((versionB as any).roots ?? []) : 0));
 
 	const isEmpty = $derived.by(() =>
 		comparison
-			? comparison.addedItems.length === 0 &&
-			  comparison.removedItems.length === 0 &&
-			  comparison.modifiedItems.length === 0 &&
-			  comparison.addedGroups.length === 0 &&
-			  comparison.removedGroups.length === 0 &&
+			? comparison.addedNodes.length === 0 &&
+			  comparison.removedNodes.length === 0 &&
+			  comparison.modifiedNodes.length === 0 &&
 			  comparison.parameterChanges.length === 0
 			: false
 	);
@@ -78,6 +84,14 @@
 		if (delta < 0) return 'text-green-600';
 		if (delta > 0) return 'text-red-600';
 		return 'text-gray-500';
+	}
+
+	function pathLabel(path: string[]): string {
+		return path.length === 0 ? '—' : path.join(' > ');
+	}
+
+	function nodeLabel(node: { type: string; title: string | null; description: string | null }): string {
+		return node.type === 'GROUP' ? (node.title ?? '') : (node.description ?? '');
 	}
 </script>
 
@@ -136,12 +150,13 @@
 				</table>
 			{/if}
 
-			<h2 class="text-lg font-semibold mb-2">Items</h2>
+			<h2 class="text-lg font-semibold mb-2">Nodes</h2>
 			<table class="w-full text-sm border rounded-lg overflow-hidden">
 				<thead class="bg-gray-100 text-left">
 					<tr>
-						<th class="px-3 py-2">Group</th>
-						<th class="px-3 py-2">Item</th>
+						<th class="px-3 py-2">Path</th>
+						<th class="px-3 py-2">Type</th>
+						<th class="px-3 py-2">Name</th>
 						<th class="px-3 py-2 text-right">Min</th>
 						<th class="px-3 py-2 text-right">Exp</th>
 						<th class="px-3 py-2 text-right">Max</th>
@@ -149,49 +164,46 @@
 					</tr>
 				</thead>
 				<tbody>
-					{#each comparison.addedGroups as g}
-						<tr class="border-t bg-green-100">
-							<td colspan="6" class="px-3 py-2 font-medium text-green-800">+ Group added: {g.title}</td>
-						</tr>
-					{/each}
-
-					{#each comparison.removedGroups as g}
-						<tr class="border-t bg-red-100">
-							<td colspan="6" class="px-3 py-2 font-medium text-red-800">− Group removed: {g.title}</td>
-						</tr>
-					{/each}
-
-					{#each comparison.addedItems as item}
+					{#each comparison.addedNodes as node}
 						<tr class="border-t bg-green-50 text-green-800">
-							<td class="px-3 py-2">{item.groupTitle ?? '—'}</td>
-							<td class="px-3 py-2">{item.description}</td>
-							<td class="px-3 py-2 text-right">{fmt(item.minEffort)}</td>
-							<td class="px-3 py-2 text-right">{fmt(item.expectedEffort)}</td>
-							<td class="px-3 py-2 text-right">{fmt(item.maxEffort)}</td>
-							<td class="px-3 py-2 text-right">{fmt(item.offerPT)}</td>
+							<td class="px-3 py-2">{pathLabel(node.path)}</td>
+							<td class="px-3 py-2">{node.type}</td>
+							<td class="px-3 py-2">+ {nodeLabel(node)}</td>
+							<td class="px-3 py-2 text-right">{fmt(node.minEffort)}</td>
+							<td class="px-3 py-2 text-right">{fmt(node.expectedEffort)}</td>
+							<td class="px-3 py-2 text-right">{fmt(node.maxEffort)}</td>
+							<td class="px-3 py-2 text-right">{fmt(node.offerPT)}</td>
 						</tr>
 					{/each}
 
-					{#each comparison.removedItems as item}
+					{#each comparison.removedNodes as node}
 						<tr class="border-t bg-red-50 text-red-800">
-							<td class="px-3 py-2">{item.groupTitle ?? '—'}</td>
-							<td class="px-3 py-2">{item.description}</td>
-							<td class="px-3 py-2 text-right">{fmt(item.minEffort)}</td>
-							<td class="px-3 py-2 text-right">{fmt(item.expectedEffort)}</td>
-							<td class="px-3 py-2 text-right">{fmt(item.maxEffort)}</td>
-							<td class="px-3 py-2 text-right">{fmt(item.offerPT)}</td>
+							<td class="px-3 py-2">{pathLabel(node.path)}</td>
+							<td class="px-3 py-2">{node.type}</td>
+							<td class="px-3 py-2">− {nodeLabel(node)}</td>
+							<td class="px-3 py-2 text-right">{fmt(node.minEffort)}</td>
+							<td class="px-3 py-2 text-right">{fmt(node.expectedEffort)}</td>
+							<td class="px-3 py-2 text-right">{fmt(node.maxEffort)}</td>
+							<td class="px-3 py-2 text-right">{fmt(node.offerPT)}</td>
 						</tr>
 					{/each}
 
-					{#each comparison.modifiedItems as mod}
+					{#each comparison.modifiedNodes as mod}
 						{@const cf = new Set(mod.changedFields)}
 						<tr class="border-t bg-yellow-50">
-							<td class="px-3 py-2">{mod.after.groupTitle ?? '—'}</td>
-							<td class="px-3 py-2 {cf.has('description') ? 'font-semibold bg-yellow-200' : ''}">
-								{#if cf.has('description')}
-									{mod.before.description} → {mod.after.description}
+							<td class="px-3 py-2 {cf.has('parent') ? 'font-semibold bg-yellow-200' : ''}">
+								{#if cf.has('parent')}
+									{pathLabel(mod.before.path)} → {pathLabel(mod.after.path)}
 								{:else}
-									{mod.after.description}
+									{pathLabel(mod.after.path)}
+								{/if}
+							</td>
+							<td class="px-3 py-2">{mod.type}</td>
+							<td class="px-3 py-2 {cf.has('title') || cf.has('description') ? 'font-semibold bg-yellow-200' : ''}">
+								{#if cf.has('title') || cf.has('description')}
+									{nodeLabel(mod.before)} → {nodeLabel(mod.after)}
+								{:else}
+									{nodeLabel(mod.after)}
 								{/if}
 							</td>
 							<td class="px-3 py-2 text-right {cf.has('minEffort') ? 'font-semibold bg-yellow-200' : ''}">
@@ -215,12 +227,8 @@
 									{fmt(mod.after.maxEffort)}
 								{/if}
 							</td>
-							<td class="px-3 py-2 text-right {cf.has('offerPT') ? 'font-semibold bg-yellow-200' : ''}">
-								{#if cf.has('offerPT')}
-									{fmt(mod.before.offerPT)} → {fmt(mod.after.offerPT)}
-								{:else}
-									{fmt(mod.after.offerPT)}
-								{/if}
+							<td class="px-3 py-2 text-right">
+								{fmt(mod.after.offerPT)}
 							</td>
 						</tr>
 					{/each}

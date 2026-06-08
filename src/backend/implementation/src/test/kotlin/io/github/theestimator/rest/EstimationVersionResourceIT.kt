@@ -552,9 +552,9 @@ class EstimationVersionResourceIT {
             .statusCode(200)
             .body("versionA", equalTo(1))
             .body("versionB", equalTo(2))
-            .body("addedItems.size()", equalTo(0))
-            .body("removedItems.size()", equalTo(0))
-            .body("modifiedItems.size()", equalTo(0))
+            .body("addedNodes.size()", equalTo(0))
+            .body("removedNodes.size()", equalTo(0))
+            .body("modifiedNodes.size()", equalTo(0))
             .body("parameterChanges.size()", equalTo(0))
     }
 
@@ -574,18 +574,21 @@ class EstimationVersionResourceIT {
             .put("/api/estimations/$estimationId/versions/draft")
         given().post("/api/estimations/$estimationId/versions/draft/submit")
 
+        // v1 has Development(Feature A, Feature B); v2 PUT replaces the roots
+        // with fresh logicalIds, so the old group + its two leaves all show as
+        // removed (3) and the new group + its one leaf as added (2).
         given()
             .`when`().get("/api/estimations/$estimationId/versions/1/compare/2")
             .then()
             .statusCode(200)
-            .body("removedItems.size()", equalTo(2))
-            .body("addedItems.size()", equalTo(1))
-            .body("addedItems[0].description", equalTo("New Feature X"))
-            .body("modifiedItems.size()", equalTo(0))
+            .body("removedNodes.size()", equalTo(3))
+            .body("addedNodes.size()", equalTo(2))
+            .body("addedNodes.find { it.type == 'FIXED' }.description", equalTo("New Feature X"))
+            .body("modifiedNodes.size()", equalTo(0))
     }
 
     @Test
-    fun `changed effort values appear in modifiedItems with correct changedFields`() {
+    fun `changed effort values appear in modifiedNodes with correct changedFields`() {
         buildRealisticDraft(estimationId)
         given().post("/api/estimations/$estimationId/versions/draft/submit")
         given().post("/api/estimations/$estimationId/versions")
@@ -613,14 +616,14 @@ class EstimationVersionResourceIT {
             .`when`().get("/api/estimations/$estimationId/versions/1/compare/2")
             .then()
             .statusCode(200)
-            .body("modifiedItems.size()", equalTo(1))
-            .body("modifiedItems[0].description", equalTo("Feature A"))
-            .body("modifiedItems[0].changedFields",
+            .body("modifiedNodes.size()", equalTo(1))
+            .body("modifiedNodes[0].after.description", equalTo("Feature A"))
+            .body("modifiedNodes[0].changedFields",
                   containsInAnyOrder("minEffort", "expectedEffort", "maxEffort"))
-            .body("modifiedItems[0].before.minEffort", equalTo(2.0f))
-            .body("modifiedItems[0].after.minEffort",  equalTo(3.0f))
-            .body("addedItems.size()",   equalTo(0))
-            .body("removedItems.size()", equalTo(0))
+            .body("modifiedNodes[0].before.minEffort", equalTo(2.0f))
+            .body("modifiedNodes[0].after.minEffort",  equalTo(3.0f))
+            .body("addedNodes.size()",   equalTo(0))
+            .body("removedNodes.size()", equalTo(0))
     }
 
     @Test
@@ -651,8 +654,8 @@ class EstimationVersionResourceIT {
             .`when`().get("/api/estimations/$estimationId/versions/1/compare/draft")
             .then()
             .statusCode(200)
-            .body("modifiedItems.size()", equalTo(1))
-            .body("modifiedItems[0].description", equalTo("Feature A"))
+            .body("modifiedNodes.size()", equalTo(1))
+            .body("modifiedNodes[0].after.description", equalTo("Feature A"))
 
         // selecting the draft for comparison must not have submitted it
         given()

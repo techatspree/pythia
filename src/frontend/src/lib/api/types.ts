@@ -107,21 +107,23 @@ export interface ApiProjectSummary {
 	createdAt: string | null;
 }
 
-export interface ApiComparisonItem {
+export interface ApiComparisonNode {
 	logicalId: string;
+	type: string;
+	title: string | null;
 	description: string | null;
+	path: string[];
 	minEffort: number | null;
 	expectedEffort: number | null;
 	maxEffort: number | null;
 	offerPT: number | null;
-	groupTitle: string | null;
 }
 
-export interface ApiItemModification {
+export interface ApiNodeModification {
 	logicalId: string;
-	description: string | null;
-	before: ApiComparisonItem;
-	after: ApiComparisonItem;
+	type: string;
+	before: ApiComparisonNode;
+	after: ApiComparisonNode;
 	changedFields: string[];
 }
 
@@ -132,19 +134,12 @@ export interface ApiParameterChange {
 	changeType: string;
 }
 
-export interface ApiComparisonGroup {
-	logicalId: string;
-	title: string | null;
-}
-
 export interface ApiVersionComparison {
 	versionA: number;
 	versionB: number;
-	addedItems: ApiComparisonItem[];
-	removedItems: ApiComparisonItem[];
-	modifiedItems: ApiItemModification[];
-	addedGroups: ApiComparisonGroup[];
-	removedGroups: ApiComparisonGroup[];
+	addedNodes: ApiComparisonNode[];
+	removedNodes: ApiComparisonNode[];
+	modifiedNodes: ApiNodeModification[];
 	parameterChanges: ApiParameterChange[];
 }
 

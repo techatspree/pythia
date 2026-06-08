@@ -5,34 +5,29 @@ import java.util.UUID
 data class VersionComparisonDto(
     val versionA: Int,
     val versionB: Int,
-    val addedItems: List<ComparisonItemDto>,
-    val removedItems: List<ComparisonItemDto>,
-    val modifiedItems: List<ItemModificationDto>,
-    val addedGroups: List<ComparisonGroupDto>,
-    val removedGroups: List<ComparisonGroupDto>,
+    val addedNodes: List<ComparisonNodeDto>,
+    val removedNodes: List<ComparisonNodeDto>,
+    val modifiedNodes: List<NodeModificationDto>,
     val parameterChanges: List<ParameterChangeDto>
 )
 
-data class ComparisonItemDto(
+data class ComparisonNodeDto(
     val logicalId: UUID,
+    val type: String,
+    val title: String?,
     val description: String?,
+    val path: List<String>,
     val minEffort: Double?,
     val expectedEffort: Double?,
     val maxEffort: Double?,
-    val offerPT: Double?,
-    val groupTitle: String?
+    val offerPT: Double?
 )
 
-data class ComparisonGroupDto(
+data class NodeModificationDto(
     val logicalId: UUID,
-    val title: String?
-)
-
-data class ItemModificationDto(
-    val logicalId: UUID,
-    val description: String?,
-    val before: ComparisonItemDto,
-    val after: ComparisonItemDto,
+    val type: String,
+    val before: ComparisonNodeDto,
+    val after: ComparisonNodeDto,
     val changedFields: List<String>
 )
 
