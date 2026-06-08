@@ -1,21 +1,24 @@
 <script lang="ts">
-	type Item = {
+	type Leaf = {
 		logicalId: string;
+		type: 'FIXED' | 'TIME_RELATIVE';
 		description: string;
 		minEffort: number | null;
 		expectedEffort: number | null;
 		maxEffort: number | null;
 		assumptions: string | null;
 		phaseAbbreviation: string | null;
-		type: string;
 		unit: string | null;
 	};
 
 	type Group = {
 		logicalId: string;
+		type: 'GROUP';
 		title: string;
-		items: Item[];
+		children: Node[];
 	};
+
+	type Node = Leaf | Group;
 
 	type CalcEntry = { offerPT: number; cost: number; offerPrice: number };
 
@@ -28,7 +31,7 @@
 	}: {
 		version: any;
 		editable: boolean;
-		onchange: (groups: Group[]) => void;
+		onchange: (roots: Node[]) => void;
 		calcMap?: Map<string, CalcEntry>;
 		phases?: any[];
 	} = $props();
@@ -41,33 +44,51 @@
 		return crypto.randomUUID();
 	}
 
-	function initGroups(v: any): Group[] {
-		return (v?.itemGroups ?? []).map((g: any) => ({
-			logicalId: g.logicalId ?? newId(),
-			title: g.title ?? '',
-			items: (g.items ?? []).map((i: any) => ({
-				logicalId: i.logicalId ?? newId(),
-				description: i.description ?? '',
-				minEffort: i.minEffort ?? null,
-				expectedEffort: i.expectedEffort ?? null,
-				maxEffort: i.maxEffort ?? null,
-				assumptions: i.assumptions ?? null,
-				phaseAbbreviation: i.phaseAbbreviation ?? null,
-				type: i.type ?? 'FIXED',
-				unit: i.unit ?? null
-			}))
-		}));
+	function initRoots(v: any): Node[] {
+		return (v?.roots ?? []).map(initNode);
 	}
 
-	let groups = $state<Group[]>(initGroups(version));
+	function initNode(n: any): Node {
+		if (n.type === 'GROUP') {
+			return {
+				logicalId: n.logicalId ?? newId(),
+				type: 'GROUP',
+				title: n.title ?? '',
+				children: (n.children ?? []).map(initNode)
+			};
+		}
+		return {
+			logicalId: n.logicalId ?? newId(),
+			type: n.type === 'TIME_RELATIVE' ? 'TIME_RELATIVE' : 'FIXED',
+			description: n.description ?? '',
+			minEffort: n.minEffort ?? null,
+			expectedEffort: n.expectedEffort ?? null,
+			maxEffort: n.maxEffort ?? null,
+			assumptions: n.assumptions ?? null,
+			phaseAbbreviation: n.phaseAbbreviation ?? null,
+			unit: n.unit ?? null
+		};
+	}
+
+	let roots = $state<Node[]>(initRoots(version));
 	let collapsed = $state(new Set<string>());
 
-	const allItems = $derived(groups.flatMap((g) => g.items));
-	const totalOpt = $derived(allItems.reduce((s, i) => s + (i.minEffort ?? 0), 0));
-	const totalLik = $derived(allItems.reduce((s, i) => s + (i.expectedEffort ?? 0), 0));
-	const totalPes = $derived(allItems.reduce((s, i) => s + (i.maxEffort ?? 0), 0));
+	// All leaves anywhere in the tree, for footer totals.
+	function allLeaves(nodes: Node[]): Leaf[] {
+		const out: Leaf[] = [];
+		for (const n of nodes) {
+			if (n.type === 'GROUP') out.push(...allLeaves(n.children));
+			else out.push(n);
+		}
+		return out;
+	}
+
+	const leaves = $derived(allLeaves(roots));
+	const totalOpt = $derived(leaves.reduce((s, i) => s + (i.minEffort ?? 0), 0));
+	const totalLik = $derived(leaves.reduce((s, i) => s + (i.expectedEffort ?? 0), 0));
+	const totalPes = $derived(leaves.reduce((s, i) => s + (i.maxEffort ?? 0), 0));
 	const totalExp = $derived(
-		allItems.reduce((s, i) => s + pert(i.minEffort, i.expectedEffort, i.maxEffort), 0)
+		leaves.reduce((s, i) => s + pert(i.minEffort, i.expectedEffort, i.maxEffort), 0)
 	);
 
 	const calcEntries = $derived(Array.from(calcMap.values()));
@@ -76,33 +97,134 @@
 	const totalOfferPrice = $derived(calcEntries.reduce((s, v) => s + v.offerPrice, 0));
 
 	function notify() {
-		onchange(
-			groups.map((g) => ({
-				logicalId: g.logicalId,
-				title: g.title,
-				items: g.items.map((i) => ({
-					logicalId: i.logicalId,
-					description: i.description,
-					minEffort: i.minEffort,
-					expectedEffort: i.expectedEffort,
-					maxEffort: i.maxEffort,
-					assumptions: i.assumptions,
-					phaseAbbreviation: i.phaseAbbreviation,
-					type: i.type,
-					unit: i.unit
-				}))
-			}))
-		);
+		onchange(serialize(roots));
 	}
 
-	function updateItemPhase(gi: number, ii: number, val: string) {
-		groups[gi].items[ii].phaseAbbreviation = val === '' ? null : val;
+	function serialize(nodes: Node[]): any[] {
+		return nodes.map((n) => {
+			if (n.type === 'GROUP') {
+				return {
+					logicalId: n.logicalId,
+					type: 'GROUP',
+					title: n.title,
+					children: serialize(n.children)
+				};
+			}
+			return {
+				logicalId: n.logicalId,
+				type: n.type,
+				description: n.description,
+				minEffort: n.minEffort,
+				expectedEffort: n.expectedEffort,
+				maxEffort: n.maxEffort,
+				assumptions: n.assumptions,
+				phaseAbbreviation: n.phaseAbbreviation,
+				unit: n.unit
+			};
+		});
+	}
+
+	type PathSeg = number; // index into the children list at that level
+	type NodePath = PathSeg[];
+
+	/** Depth-first flattened view of the tree for rendering and keyboard nav. */
+	type Row = {
+		node: Node;
+		depth: number;
+		path: NodePath;
+		visible: boolean; // false if any ancestor is collapsed
+	};
+
+	function flatten(nodes: Node[]): Row[] {
+		const out: Row[] = [];
+		function walk(list: Node[], depth: number, prefix: NodePath, hiddenByAncestor: boolean) {
+			list.forEach((node, idx) => {
+				const path = [...prefix, idx];
+				const visible = !hiddenByAncestor;
+				out.push({ node, depth, path, visible });
+				if (node.type === 'GROUP') {
+					const childHidden = hiddenByAncestor || collapsed.has(node.logicalId);
+					walk(node.children, depth + 1, path, childHidden);
+				}
+			});
+		}
+		walk(nodes, 0, [], false);
+		return out;
+	}
+
+	const rows = $derived(flatten(roots));
+
+	function nodeAt(path: NodePath): Node {
+		let current: Node[] = roots;
+		let node: Node | undefined;
+		for (const idx of path) {
+			node = current[idx];
+			if (node && node.type === 'GROUP') current = node.children;
+		}
+		return node!;
+	}
+
+	function deleteAt(path: NodePath) {
+		if (path.length === 0) return;
+		const parentPath = path.slice(0, -1);
+		const idx = path[path.length - 1];
+		const siblings = parentPath.length === 0 ? roots : (nodeAt(parentPath) as Group).children;
+		siblings.splice(idx, 1);
 		notify();
 	}
 
-	function updateItemType(gi: number, ii: number, val: string) {
-		groups[gi].items[ii].type = val;
-		groups[gi].items[ii].unit = val === 'TIME_RELATIVE' ? 'h/Woche' : null;
+	function addChildLeafTo(groupPath: NodePath) {
+		const group = nodeAt(groupPath) as Group;
+		group.children.push({
+			logicalId: newId(),
+			type: 'FIXED',
+			description: '',
+			minEffort: null,
+			expectedEffort: null,
+			maxEffort: null,
+			assumptions: null,
+			phaseAbbreviation: null,
+			unit: null
+		});
+		const next = new Set(collapsed);
+		next.delete(group.logicalId);
+		collapsed = next;
+		notify();
+	}
+
+	function addChildGroupTo(groupPath: NodePath) {
+		const group = nodeAt(groupPath) as Group;
+		group.children.push({
+			logicalId: newId(),
+			type: 'GROUP',
+			title: 'New group',
+			children: []
+		});
+		const next = new Set(collapsed);
+		next.delete(group.logicalId);
+		collapsed = next;
+		notify();
+	}
+
+	function addRootGroup() {
+		roots.push({
+			logicalId: newId(),
+			type: 'GROUP',
+			title: 'New group',
+			children: [
+				{
+					logicalId: newId(),
+					type: 'FIXED',
+					description: '',
+					minEffort: null,
+					expectedEffort: null,
+					maxEffort: null,
+					assumptions: null,
+					phaseAbbreviation: null,
+					unit: null
+				}
+			]
+		});
 		notify();
 	}
 
@@ -112,87 +234,60 @@
 		collapsed = next;
 	}
 
-	function addItem(gi: number) {
-		groups[gi].items.push({
-			logicalId: newId(),
-			description: '',
-			minEffort: null,
-			expectedEffort: null,
-			maxEffort: null,
-			assumptions: null,
-			phaseAbbreviation: null,
-			type: 'FIXED',
-			unit: null
-		});
-		// ensure expanded
-		const next = new Set(collapsed);
-		next.delete(groups[gi].logicalId);
-		collapsed = next;
-		notify();
-	}
-
-	function deleteItem(gi: number, ii: number) {
-		groups[gi].items.splice(ii, 1);
-		notify();
-	}
-
-	function addGroup() {
-		groups.push({
-			logicalId: newId(),
-			title: 'New group',
-			items: [
-				{
-					logicalId: newId(),
-					description: '',
-					minEffort: null,
-					expectedEffort: null,
-					maxEffort: null,
-					assumptions: null,
-					phaseAbbreviation: null,
-					type: 'FIXED',
-					unit: null
-				}
-			]
-		});
-		notify();
-	}
-
-	function updateField(gi: number, ii: number, field: keyof Item, raw: string) {
-		const numeric: (keyof Item)[] = ['minEffort', 'expectedEffort', 'maxEffort'];
-		const nullable: (keyof Item)[] = ['assumptions'];
-		(groups[gi].items[ii] as any)[field] = numeric.includes(field)
+	function updateLeafField(path: NodePath, field: keyof Leaf, raw: string) {
+		const leaf = nodeAt(path) as Leaf;
+		const numericFields: (keyof Leaf)[] = ['minEffort', 'expectedEffort', 'maxEffort'];
+		const nullableStringFields: (keyof Leaf)[] = ['assumptions'];
+		(leaf as any)[field] = numericFields.includes(field)
 			? raw === ''
 				? null
 				: parseFloat(raw)
-			: nullable.includes(field)
+			: nullableStringFields.includes(field)
 				? raw || null
 				: raw;
 		notify();
 	}
 
-	// Flat list of [groupIdx, itemIdx] for all visible (non-collapsed) items
-	function visibleItems(): [number, number][] {
-		const result: [number, number][] = [];
-		for (let gi = 0; gi < groups.length; gi++) {
-			if (!collapsed.has(groups[gi].logicalId)) {
-				for (let ii = 0; ii < groups[gi].items.length; ii++) {
-					result.push([gi, ii]);
-				}
-			}
-		}
-		return result;
+	function updateLeafPhase(path: NodePath, val: string) {
+		const leaf = nodeAt(path) as Leaf;
+		leaf.phaseAbbreviation = val === '' ? null : val;
+		notify();
 	}
 
-	// Editable column indices (col 4 = PERT, cols 6/7/8 = calculated, all read-only)
+	function updateLeafType(path: NodePath, val: string) {
+		const leaf = nodeAt(path) as Leaf;
+		leaf.type = val === 'TIME_RELATIVE' ? 'TIME_RELATIVE' : 'FIXED';
+		leaf.unit = val === 'TIME_RELATIVE' ? 'h/Woche' : null;
+		notify();
+	}
+
+	function updateGroupTitle(path: NodePath, val: string) {
+		const group = nodeAt(path) as Group;
+		group.title = val;
+		notify();
+	}
+
+	function pathKey(path: NodePath): string {
+		return path.join('-');
+	}
+
+	// Keyboard nav: index over visible leaves in depth-first order. Editable
+	// columns: description (0), optimistic (1), likely (2), pessimistic (3),
+	// assumptions (5). Type (col 2 visually) and phase (col 3 visually) are
+	// <select> elements outside the Tab cycle.
 	const editCols = [0, 1, 2, 3, 5];
 
-	function focusCell(gi: number, ii: number, col: number) {
-		(document.querySelector(`[data-cell="${gi}-${ii}-${col}"]`) as HTMLElement)?.focus();
+	function visibleLeafPaths(): NodePath[] {
+		return rows.filter((r) => r.visible && r.node.type !== 'GROUP').map((r) => r.path);
 	}
 
-	function onKeyDown(e: KeyboardEvent, gi: number, ii: number, col: number) {
-		const flat = visibleItems();
-		const fi = flat.findIndex(([g, i]) => g === gi && i === ii);
+	function focusCell(path: NodePath, col: number) {
+		(document.querySelector(`[data-cell="${pathKey(path)}-${col}"]`) as HTMLElement)?.focus();
+	}
+
+	function onKeyDown(e: KeyboardEvent, path: NodePath, col: number) {
+		const flat = visibleLeafPaths();
+		const fi = flat.findIndex((p) => pathKey(p) === pathKey(path));
 		const ci = editCols.indexOf(col);
 		const isNumeric = col === 1 || col === 2 || col === 3;
 
@@ -200,50 +295,36 @@
 			e.preventDefault();
 			if (!e.shiftKey) {
 				if (ci < editCols.length - 1) {
-					focusCell(gi, ii, editCols[ci + 1]);
+					focusCell(path, editCols[ci + 1]);
 				} else if (fi < flat.length - 1) {
-					const [ngi, nii] = flat[fi + 1];
-					focusCell(ngi, nii, editCols[0]);
+					focusCell(flat[fi + 1], editCols[0]);
 				}
 			} else {
 				if (ci > 0) {
-					focusCell(gi, ii, editCols[ci - 1]);
+					focusCell(path, editCols[ci - 1]);
 				} else if (fi > 0) {
-					const [pgi, pii] = flat[fi - 1];
-					focusCell(pgi, pii, editCols[editCols.length - 1]);
+					focusCell(flat[fi - 1], editCols[editCols.length - 1]);
 				}
 			}
-		} else if (e.key === 'Enter') {
+		} else if (e.key === 'Enter' || e.key === 'ArrowDown') {
 			e.preventDefault();
-			if (fi < flat.length - 1) {
-				const [ngi, nii] = flat[fi + 1];
-				focusCell(ngi, nii, col);
-			}
-		} else if (e.key === 'ArrowDown') {
-			e.preventDefault();
-			if (fi < flat.length - 1) {
-				const [ngi, nii] = flat[fi + 1];
-				focusCell(ngi, nii, col);
-			}
+			if (fi < flat.length - 1) focusCell(flat[fi + 1], col);
 		} else if (e.key === 'ArrowUp') {
 			e.preventDefault();
-			if (fi > 0) {
-				const [pgi, pii] = flat[fi - 1];
-				focusCell(pgi, pii, col);
-			}
+			if (fi > 0) focusCell(flat[fi - 1], col);
 		} else if (e.key === 'ArrowRight') {
 			const input = e.currentTarget as HTMLInputElement;
 			const atEnd = isNumeric || input.selectionEnd === input.value.length;
 			if (atEnd && ci < editCols.length - 1) {
 				e.preventDefault();
-				focusCell(gi, ii, editCols[ci + 1]);
+				focusCell(path, editCols[ci + 1]);
 			}
 		} else if (e.key === 'ArrowLeft') {
 			const input = e.currentTarget as HTMLInputElement;
 			const atStart = isNumeric || input.selectionStart === 0;
 			if (atStart && ci > 0) {
 				e.preventDefault();
-				focusCell(gi, ii, editCols[ci - 1]);
+				focusCell(path, editCols[ci - 1]);
 			}
 		}
 	}
@@ -252,12 +333,12 @@
 </script>
 
 <div class="border rounded-lg overflow-hidden">
-	{#if groups.length === 0}
+	{#if roots.length === 0}
 		<div class="p-10 text-center text-gray-400">
 			<p class="mb-4 text-sm">No items yet.</p>
 			{#if editable}
 				<button
-					onclick={addGroup}
+					onclick={addRootGroup}
 					class="px-4 py-2 text-sm bg-brand-green text-white rounded hover:bg-[#007a45]"
 					>Add group</button
 				>
@@ -283,42 +364,93 @@
 				</tr>
 			</thead>
 			<tbody>
-				{#each groups as group, gi}
-					<!-- Group header -->
-					<tr
-						class="bg-gray-100 border-b cursor-pointer select-none hover:bg-gray-200"
-						onclick={() => toggle(group.logicalId)}
-					>
-						<td class="py-2 px-3 text-gray-400 text-xs"
-							>{collapsed.has(group.logicalId) ? '▶' : '▼'}</td
-						>
-						<td class="py-2 px-3 font-semibold text-gray-700" colspan={colCount - 1}>
-							{group.title}
-							<span class="ml-2 text-xs font-normal text-gray-400"
-								>{group.items.length} item{group.items.length !== 1 ? 's' : ''}</span
-							>
-						</td>
-					</tr>
-
-					{#if !collapsed.has(group.logicalId)}
-						{#each group.items as item, ii}
-							{@const calc = calcMap.get(item.logicalId)}
-							<tr class="border-b hover:bg-gray-50">
-								<td class="py-1 px-3"></td>
-
-								<!-- Description -->
-								<td class="py-1 px-2">
+				{#each rows as row (pathKey(row.path))}
+					{#if row.visible}
+						{@const indent = row.depth * 1.25}
+						{#if row.node.type === 'GROUP'}
+							{@const group = row.node}
+							{@const calc = calcMap.get(group.logicalId)}
+							<tr class="bg-gray-100 border-b">
+								<td class="py-2 px-3 text-gray-400 text-xs cursor-pointer select-none hover:bg-gray-200"
+									onclick={() => toggle(group.logicalId)}>
+									<span style="display:inline-block;width:{indent}rem"></span>
+									{collapsed.has(group.logicalId) ? '▶' : '▼'}
+								</td>
+								<td class="py-2 px-3 font-semibold text-gray-700">
+									<span style="display:inline-block;width:{indent}rem"></span>
 									{#if editable}
 										<input
 											type="text"
-											class="w-full bg-transparent focus:outline-none focus:bg-brand-green/5 focus:ring-1 focus:ring-brand-green/40 rounded px-1 py-0.5"
-											value={item.description}
-											data-cell="{gi}-{ii}-0"
-											oninput={(e) => updateField(gi, ii, 'description', e.currentTarget.value)}
-											onkeydown={(e) => onKeyDown(e, gi, ii, 0)}
+											class="bg-transparent font-semibold focus:outline-none focus:bg-brand-green/5 focus:ring-1 focus:ring-brand-green/40 rounded px-1 py-0.5"
+											value={group.title}
+											oninput={(e) => updateGroupTitle(row.path, e.currentTarget.value)}
 										/>
 									{:else}
-										<span class="px-1">{item.description}</span>
+										{group.title}
+									{/if}
+									<span class="ml-2 text-xs font-normal text-gray-400"
+										>{group.children.length} child{group.children.length !== 1 ? 'ren' : ''}</span
+									>
+								</td>
+								<td class="py-2 px-2"></td>
+								<td class="py-2 px-2"></td>
+								<td class="py-2 px-2"></td>
+								<td class="py-2 px-2"></td>
+								<td class="py-2 px-2"></td>
+								<td class="py-2 px-2"></td>
+								<td class="py-2 px-3">
+									{#if editable}
+										<button
+											onclick={() => addChildGroupTo(row.path)}
+											class="text-xs text-brand-green hover:text-[#007a45] mr-3">+ group</button>
+										<button
+											onclick={() => addChildLeafTo(row.path)}
+											class="text-xs text-brand-green hover:text-[#007a45]">+ item</button>
+									{/if}
+								</td>
+								<td class="py-2 px-2 text-right text-gray-600 tabular-nums">
+									{calc != null ? calc.offerPT.toFixed(2) : '—'}
+								</td>
+								<td class="py-2 px-2 text-right text-gray-600 tabular-nums">
+									{calc != null ? calc.cost.toFixed(0) : '—'}
+								</td>
+								<td class="py-2 px-2 text-right text-gray-600 tabular-nums">
+									{calc != null ? calc.offerPrice.toFixed(0) : '—'}
+								</td>
+								{#if editable}
+									<td class="py-2 px-3">
+										<button
+											onclick={() => deleteAt(row.path)}
+											class="text-gray-300 hover:text-red-500 transition-colors leading-none"
+											title="Delete group">
+											✕
+										</button>
+									</td>
+								{/if}
+							</tr>
+						{:else}
+							{@const leaf = row.node}
+							{@const calc = calcMap.get(leaf.logicalId)}
+							<tr class="border-b hover:bg-gray-50">
+								<td class="py-1 px-3">
+									<span style="display:inline-block;width:{indent}rem"></span>
+								</td>
+
+								<!-- Description -->
+								<td class="py-1 px-2">
+									<span style="display:inline-block;width:{indent}rem"></span>
+									{#if editable}
+										<input
+											type="text"
+											class="bg-transparent focus:outline-none focus:bg-brand-green/5 focus:ring-1 focus:ring-brand-green/40 rounded px-1 py-0.5"
+											style="width: calc(100% - {indent}rem)"
+											value={leaf.description}
+											data-cell="{pathKey(row.path)}-0"
+											oninput={(e) => updateLeafField(row.path, 'description', e.currentTarget.value)}
+											onkeydown={(e) => onKeyDown(e, row.path, 0)}
+										/>
+									{:else}
+										<span class="px-1">{leaf.description}</span>
 									{/if}
 								</td>
 
@@ -327,14 +459,14 @@
 									{#if editable}
 										<select
 											class="w-full bg-transparent text-xs focus:outline-none focus:ring-1 focus:ring-brand-green/40 rounded px-1 py-0.5"
-											value={item.type}
-											onchange={(e) => updateItemType(gi, ii, e.currentTarget.value)}
+											value={leaf.type}
+											onchange={(e) => updateLeafType(row.path, e.currentTarget.value)}
 										>
 											<option value="FIXED">Fixed</option>
 											<option value="TIME_RELATIVE">h/Woche</option>
 										</select>
-									{:else if item.type === 'TIME_RELATIVE'}
-										<span class="px-1.5 py-0.5 text-xs bg-blue-50 text-blue-600 rounded">{item.unit ?? 'h/Woche'}</span>
+									{:else if leaf.type === 'TIME_RELATIVE'}
+										<span class="px-1.5 py-0.5 text-xs bg-blue-50 text-blue-600 rounded">{leaf.unit ?? 'h/Woche'}</span>
 									{/if}
 								</td>
 
@@ -343,8 +475,8 @@
 									{#if editable && phases.length > 0}
 										<select
 											class="w-full bg-transparent text-sm focus:outline-none focus:ring-1 focus:ring-brand-green/40 rounded px-1 py-0.5"
-											value={item.phaseAbbreviation ?? ''}
-											onchange={(e) => updateItemPhase(gi, ii, e.currentTarget.value)}
+											value={leaf.phaseAbbreviation ?? ''}
+											onchange={(e) => updateLeafPhase(row.path, e.currentTarget.value)}
 										>
 											<option value="">— none —</option>
 											{#each phases as p}
@@ -352,7 +484,7 @@
 											{/each}
 										</select>
 									{:else}
-										<span class="px-1 text-xs text-gray-500">{item.phaseAbbreviation ?? ''}</span>
+										<span class="px-1 text-xs text-gray-500">{leaf.phaseAbbreviation ?? ''}</span>
 									{/if}
 								</td>
 
@@ -364,13 +496,13 @@
 											step="0.1"
 											min="0"
 											class="w-full text-right bg-transparent focus:outline-none focus:bg-brand-green/5 focus:ring-1 focus:ring-brand-green/40 rounded px-1 py-0.5"
-											value={item.minEffort ?? ''}
-											data-cell="{gi}-{ii}-1"
-											oninput={(e) => updateField(gi, ii, 'minEffort', e.currentTarget.value)}
-											onkeydown={(e) => onKeyDown(e, gi, ii, 1)}
+											value={leaf.minEffort ?? ''}
+											data-cell="{pathKey(row.path)}-1"
+											oninput={(e) => updateLeafField(row.path, 'minEffort', e.currentTarget.value)}
+											onkeydown={(e) => onKeyDown(e, row.path, 1)}
 										/>
 									{:else}
-										<span class="tabular-nums">{item.minEffort ?? ''}</span>
+										<span class="tabular-nums">{leaf.minEffort ?? ''}</span>
 									{/if}
 								</td>
 
@@ -382,13 +514,13 @@
 											step="0.1"
 											min="0"
 											class="w-full text-right bg-transparent focus:outline-none focus:bg-brand-green/5 focus:ring-1 focus:ring-brand-green/40 rounded px-1 py-0.5"
-											value={item.expectedEffort ?? ''}
-											data-cell="{gi}-{ii}-2"
-											oninput={(e) => updateField(gi, ii, 'expectedEffort', e.currentTarget.value)}
-											onkeydown={(e) => onKeyDown(e, gi, ii, 2)}
+											value={leaf.expectedEffort ?? ''}
+											data-cell="{pathKey(row.path)}-2"
+											oninput={(e) => updateLeafField(row.path, 'expectedEffort', e.currentTarget.value)}
+											onkeydown={(e) => onKeyDown(e, row.path, 2)}
 										/>
 									{:else}
-										<span class="tabular-nums">{item.expectedEffort ?? ''}</span>
+										<span class="tabular-nums">{leaf.expectedEffort ?? ''}</span>
 									{/if}
 								</td>
 
@@ -400,19 +532,19 @@
 											step="0.1"
 											min="0"
 											class="w-full text-right bg-transparent focus:outline-none focus:bg-brand-green/5 focus:ring-1 focus:ring-brand-green/40 rounded px-1 py-0.5"
-											value={item.maxEffort ?? ''}
-											data-cell="{gi}-{ii}-3"
-											oninput={(e) => updateField(gi, ii, 'maxEffort', e.currentTarget.value)}
-											onkeydown={(e) => onKeyDown(e, gi, ii, 3)}
+											value={leaf.maxEffort ?? ''}
+											data-cell="{pathKey(row.path)}-3"
+											oninput={(e) => updateLeafField(row.path, 'maxEffort', e.currentTarget.value)}
+											onkeydown={(e) => onKeyDown(e, row.path, 3)}
 										/>
 									{:else}
-										<span class="tabular-nums">{item.maxEffort ?? ''}</span>
+										<span class="tabular-nums">{leaf.maxEffort ?? ''}</span>
 									{/if}
 								</td>
 
 								<!-- PERT (always read-only) -->
 								<td class="py-1 px-3 text-right text-brand-green tabular-nums">
-									{pert(item.minEffort, item.expectedEffort, item.maxEffort).toFixed(2)}
+									{pert(leaf.minEffort, leaf.expectedEffort, leaf.maxEffort).toFixed(2)}
 								</td>
 
 								<!-- Assumptions -->
@@ -421,21 +553,20 @@
 										<input
 											type="text"
 											class="w-full bg-transparent focus:outline-none focus:bg-brand-green/5 focus:ring-1 focus:ring-brand-green/40 rounded px-1 py-0.5"
-											value={item.assumptions ?? ''}
+											value={leaf.assumptions ?? ''}
 											placeholder="…"
-											data-cell="{gi}-{ii}-5"
-											oninput={(e) =>
-												updateField(gi, ii, 'assumptions', e.currentTarget.value)}
-											onkeydown={(e) => onKeyDown(e, gi, ii, 5)}
+											data-cell="{pathKey(row.path)}-5"
+											oninput={(e) => updateLeafField(row.path, 'assumptions', e.currentTarget.value)}
+											onkeydown={(e) => onKeyDown(e, row.path, 5)}
 										/>
 									{:else}
-										<span class="px-1 text-gray-500">{item.assumptions ?? ''}</span>
+										<span class="px-1 text-gray-500">{leaf.assumptions ?? ''}</span>
 									{/if}
 								</td>
 
 								<!-- offerPT (server-calculated, read-only) -->
 								<td class="py-1 px-2 text-right text-gray-600 tabular-nums">
-									{#if item.type === 'TIME_RELATIVE' && !item.phaseAbbreviation}
+									{#if leaf.type === 'TIME_RELATIVE' && !leaf.phaseAbbreviation}
 										<span class="text-amber-500 text-xs">⚠ needs phase</span>
 									{:else}
 										{calc != null ? calc.offerPT.toFixed(2) : '—'}
@@ -455,7 +586,7 @@
 								{#if editable}
 									<td class="py-1 px-3">
 										<button
-											onclick={() => deleteItem(gi, ii)}
+											onclick={() => deleteAt(row.path)}
 											class="text-gray-300 hover:text-red-500 transition-colors leading-none"
 											title="Delete item"
 										>
@@ -463,19 +594,6 @@
 										</button>
 									</td>
 								{/if}
-							</tr>
-						{/each}
-
-						{#if editable}
-							<tr class="border-b bg-gray-50/40">
-								<td colspan={colCount} class="py-1 px-11">
-									<button
-										onclick={() => addItem(gi)}
-										class="text-xs text-brand-green hover:text-[#007a45]"
-									>
-										+ Add item
-									</button>
-								</td>
 							</tr>
 						{/if}
 					{/if}
@@ -504,7 +622,7 @@
 
 		{#if editable}
 			<div class="p-3 border-t bg-gray-50/40">
-				<button onclick={addGroup} class="text-sm text-brand-green hover:text-[#007a45]">
+				<button onclick={addRootGroup} class="text-sm text-brand-green hover:text-[#007a45]">
 					+ Add group
 				</button>
 			</div>

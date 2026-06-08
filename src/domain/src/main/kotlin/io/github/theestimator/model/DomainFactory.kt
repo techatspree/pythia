@@ -47,11 +47,11 @@ fun createTimeRelativeItem(
 fun createGroup(
     title: String,
     logicalId: String = newId(),
-    items: Array<EstimationItem> = emptyArray()
-): EstimationItemGroup = EstimationItemGroup(
+    children: Array<EstimationNode> = emptyArray()
+): EstimationGroup = EstimationGroup(
     title = title,
-    logicalId = logicalId,
-    items = items.toList()
+    children = children.toList(),
+    _logicalId = logicalId
 )
 
 @JsExport
@@ -62,7 +62,7 @@ fun createVersion(
     parameters: Array<EstimationParameter> = emptyArray(),
     effortDrivers: Array<EffortDriver> = emptyArray(),
     phases: Array<ProjectPhase> = emptyArray(),
-    itemGroups: Array<EstimationItemGroup> = emptyArray()
+    roots: Array<EstimationNode> = emptyArray()
 ): EstimationVersion = EstimationVersion(
     versionNumber = versionNumber,
     status = if (isDraft) EstimationVersionStatus.DRAFT else EstimationVersionStatus.SUBMITTED,
@@ -70,7 +70,5 @@ fun createVersion(
     parameters = parameters.toList(),
     effortDrivers = effortDrivers.toList(),
     phases = phases.toList(),
-    roots = itemGroups.map { g ->
-        EstimationGroup(title = g.title, children = g.items, _logicalId = g.logicalId)
-    }
+    roots = roots.toList()
 )

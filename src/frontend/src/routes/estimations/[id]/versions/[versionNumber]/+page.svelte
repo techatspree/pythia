@@ -18,7 +18,7 @@
 	let saveTimer: ReturnType<typeof setTimeout> | null = null;
 
 	let currentNotes = $state('');
-	let currentGroups = $state<any[]>([]);
+	let currentRoots = $state<any[]>([]);
 	let currentParameters = $state<any[]>([]);
 	let currentDrivers = $state<any[]>([]);
 	let currentPhases = $state<any[]>([]);
@@ -26,7 +26,7 @@
 
 	const calcMap = $derived.by(() => {
 		try {
-			return computeCalcMap(currentGroups, currentParameters, currentDrivers, currentPhases);
+			return computeCalcMap(currentRoots, currentParameters, currentDrivers, currentPhases);
 		} catch (e: any) {
 			console.error('calcMap computation failed:', e);
 			bannerMessage = `Calculation failed: ${e?.message ?? e}`;
@@ -48,7 +48,7 @@
 			if (!res.ok) throw new Error(`Failed to load version (${res.status})`);
 			versionData = await res.json();
 			currentNotes = versionData!.notes ?? '';
-			currentGroups = versionData!.itemGroups ?? [];
+			currentRoots = versionData!.roots ?? [];
 			currentParameters = versionData!.parameters ?? [];
 			currentDrivers = versionData!.effortDrivers ?? [];
 			currentPhases = versionData!.phases ?? [];
@@ -75,7 +75,7 @@
 					body: JSON.stringify({
 						notes: currentNotes,
 						phases: currentPhases,
-						itemGroups: currentGroups,
+						roots: currentRoots,
 						parameters: currentParameters,
 						effortDrivers: currentDrivers,
 						additionalCosts: currentAdditionalCosts
@@ -186,7 +186,7 @@
 
 		<PhasesPanel
 			phases={currentPhases}
-			itemGroups={currentGroups}
+			roots={currentRoots}
 			{calcMap}
 			editable={versionData.isDraft}
 			onchange={(phases) => {
@@ -210,8 +210,8 @@
 			editable={versionData.isDraft}
 			{calcMap}
 			phases={currentPhases}
-			onchange={(groups) => {
-				currentGroups = groups;
+			onchange={(roots) => {
+				currentRoots = roots;
 				scheduleSave();
 			}}
 		/>

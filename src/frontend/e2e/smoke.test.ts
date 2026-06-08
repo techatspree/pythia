@@ -36,16 +36,44 @@ async function populateDraft(page: Page, estimationId: string) {
 				{ name: 'Vertriebszuschlag', value: 0.1 }
 			],
 			effortDrivers: [{ description: 'QA', factor: 0.15, comment: null }],
-			itemGroups: [{
+			roots: [{
+				type: 'GROUP',
 				title: 'Development',
-				items: [
-					{ description: 'Feature A', minEffort: 2, expectedEffort: 4, maxEffort: 6 },
-					{ description: 'Feature B', minEffort: 1, expectedEffort: 3, maxEffort: 5 }
+				children: [
+					{ type: 'FIXED', description: 'Feature A', minEffort: 2, expectedEffort: 4, maxEffort: 6 },
+					{ type: 'FIXED', description: 'Feature B', minEffort: 1, expectedEffort: 3, maxEffort: 5 }
 				]
 			}]
 		}
 	});
 	expect(res.status(), `PUT draft failed: ${await res.text()}`).toBe(200);
+}
+
+async function populateDraftWithTree(page: Page, estimationId: string) {
+	// Backend > Auth > {Token, Session} — three levels deep.
+	const res = await page.request.put(`${API}/api/estimations/${estimationId}/versions/draft`, {
+		data: {
+			parameters: [
+				{ name: 'Tagessatz', value: 900 },
+				{ name: 'Standardabweichungsfaktor', value: 0 }
+			],
+			roots: [{
+				type: 'GROUP',
+				title: 'Backend',
+				children: [
+					{
+						type: 'GROUP',
+						title: 'Auth',
+						children: [
+							{ type: 'FIXED', description: 'Token endpoint', minEffort: 1, expectedEffort: 2, maxEffort: 3 },
+							{ type: 'FIXED', description: 'Session storage', minEffort: 2, expectedEffort: 4, maxEffort: 6 }
+						]
+					}
+				]
+			}]
+		}
+	});
+	expect(res.status(), `PUT tree-draft failed: ${await res.text()}`).toBe(200);
 }
 
 async function submitDraft(page: Page, estimationId: string): Promise<number> {
@@ -164,4 +192,58 @@ test('draft version: editing items triggers save without 500', async ({ page }) 
 
 	expect(apiErrors, `500 errors during editing: ${JSON.stringify(apiErrors)}`).toHaveLength(0);
 	await expectNoUiError(page, 'draft version after edit');
+});
+
+test('draft autosave payload uses canonical roots (not legacy itemGroups)', async ({ page }) => {
+	const projectId = await createProject(page);
+	const estimationId = await createEstimation(page, projectId);
+	const versionNumber = await createDraft(page, estimationId);
+	await populateDraft(page, estimationId);
+
+	const putBodies: any[] = [];
+	page.on('request', (req) => {
+		if (req.method() === 'PUT' && req.url().includes('/api/estimations/') && req.url().endsWith('/draft')) {
+			const body = req.postData();
+			if (body) putBodies.push(JSON.parse(body));
+		}
+	});
+
+	await page.goto(`/estimations/${estimationId}/versions/${versionNumber}?draft=true`);
+	await page.waitForLoadState('networkidle');
+
+	// Trigger an autosave by editing notes.
+	await page.locator('textarea').first().fill('autosave-payload-check');
+	await page.waitForTimeout(1200);
+	await page.waitForLoadState('networkidle');
+
+	expect(putBodies.length, 'expected at least one autosave PUT').toBeGreaterThan(0);
+	for (const body of putBodies) {
+		expect(body, 'autosave body must carry the canonical roots field').toHaveProperty('roots');
+		expect(body, 'autosave body must NOT carry the legacy itemGroups field').not.toHaveProperty('itemGroups');
+	}
+});
+
+test('three-level tree round-trips through the draft REST API', async ({ page }) => {
+	const projectId = await createProject(page);
+	const estimationId = await createEstimation(page, projectId);
+	const versionNumber = await createDraft(page, estimationId);
+	await populateDraftWithTree(page, estimationId);
+
+	const errors = collectErrors(page);
+	await page.goto(`/estimations/${estimationId}/versions/${versionNumber}?draft=true`);
+	await page.waitForLoadState('networkidle');
+	expect(errors, `console errors on three-level draft`).toHaveLength(0);
+	await expectNoUiError(page, `three-level draft ${versionNumber}`);
+
+	// Re-fetch the draft and verify the depth-3 shape survives.
+	const fetched = await page.request.get(`${API}/api/estimations/${estimationId}/versions/draft`).then((r) => r.json());
+	expect(fetched.roots).toHaveLength(1);
+	expect(fetched.roots[0].type).toBe('GROUP');
+	expect(fetched.roots[0].title).toBe('Backend');
+	expect(fetched.roots[0].children).toHaveLength(1);
+	expect(fetched.roots[0].children[0].type).toBe('GROUP');
+	expect(fetched.roots[0].children[0].title).toBe('Auth');
+	expect(fetched.roots[0].children[0].children).toHaveLength(2);
+	expect(fetched.roots[0].children[0].children[0].description).toBe('Token endpoint');
+	expect(fetched.roots[0].children[0].children[1].description).toBe('Session storage');
 });

@@ -23,40 +23,7 @@ data class EstimationVersionDto(
     val effortDrivers: List<EffortDriverDto>,
     val phases: List<ProjectPhaseDto>,
     val roots: List<EstimationNodeDto>,
-    val additionalCosts: List<AdditionalCostDto>,
-    // task-054 compat shim: a flattened depth-1 view of `roots` for the
-    // unmodified frontend that still reads `itemGroups`. Removed when
-    // task-054 rewires src/frontend/src/lib/api/types.ts and the version
-    // detail page to read `roots` directly.
-    val itemGroups: List<LegacyItemGroupDto>
-)
-
-@Deprecated("Compat shim for the unmodified frontend; removed in task-054")
-data class LegacyItemGroupDto(
-    val logicalId: UUID?,
-    val title: String,
-    val items: List<LegacyItemDto>
-)
-
-@Deprecated("Compat shim for the unmodified frontend; removed in task-054")
-data class LegacyItemDto(
-    val logicalId: UUID?,
-    val type: String,
-    val description: String,
-    val code: String?,
-    val minEffort: Double,
-    val expectedEffort: Double,
-    val maxEffort: Double,
-    val assumptions: String?,
-    val mean: Double,
-    val variance: Double,
-    val riskSurcharge: Double,
-    val driverSurcharge: Double,
-    val offerPT: Double,
-    val cost: Double,
-    val offerPrice: Double,
-    val unit: String?,
-    val phaseAbbreviation: String?
+    val additionalCosts: List<AdditionalCostDto>
 )
 
 data class EstimationParameterDto(
@@ -132,32 +99,7 @@ data class DraftUpdateDto(
     val effortDrivers: List<EffortDriverDto>? = null,
     val phases: List<PhaseUpdateDto>? = null,
     val roots: List<EstimationNodeUpdateDto>? = null,
-    val additionalCosts: List<AdditionalCostUpdateDto>? = null,
-    // task-054 compat shim: the unmodified frontend still sends `itemGroups`
-    // in the autosave payload. When provided (and `roots` is null), the
-    // server translates it into the canonical `roots` shape. Removed in
-    // task-054.
-    val itemGroups: List<LegacyItemGroupUpdateDto>? = null
-)
-
-@Deprecated("Compat shim for the unmodified frontend; removed in task-054")
-data class LegacyItemGroupUpdateDto(
-    val logicalId: UUID? = null,
-    val title: String,
-    val items: List<LegacyItemUpdateDto> = emptyList()
-)
-
-@Deprecated("Compat shim for the unmodified frontend; removed in task-054")
-data class LegacyItemUpdateDto(
-    val logicalId: UUID? = null,
-    val description: String,
-    val minEffort: Double? = null,
-    val expectedEffort: Double? = null,
-    val maxEffort: Double? = null,
-    val assumptions: String? = null,
-    val phaseAbbreviation: String? = null,
-    val type: String = "FIXED",
-    val unit: String? = null
+    val additionalCosts: List<AdditionalCostUpdateDto>? = null
 )
 
 data class EstimationNodeUpdateDto(

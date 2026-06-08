@@ -4,13 +4,13 @@
 
 	let {
 		phases,
-		itemGroups,
+		roots,
 		calcMap,
 		editable,
 		onchange
 	}: {
 		phases: any[];
-		itemGroups: any[];
+		roots: any[];
 		calcMap: Map<string, CalcEntry>;
 		editable: boolean;
 		onchange: (phases: any[]) => void;
@@ -44,18 +44,25 @@
 		notify();
 	}
 
+	function collectLeaves(nodes: any[]): any[] {
+		const out: any[] = [];
+		for (const n of nodes) {
+			if (n?.type === 'GROUP') out.push(...collectLeaves(n.children ?? []));
+			else out.push(n);
+		}
+		return out;
+	}
+
 	function phaseOfferPT(abbr: string): { total: number; hasMissing: boolean } {
 		let total = 0;
 		let hasMissing = false;
-		for (const group of itemGroups) {
-			for (const item of group.items ?? []) {
-				if (item.phaseAbbreviation === abbr) {
-					const entry = calcMap.get(item.logicalId);
-					if (entry == null) {
-						hasMissing = true;
-					} else {
-						total += entry.offerPT;
-					}
+		for (const leaf of collectLeaves(roots)) {
+			if (leaf.phaseAbbreviation === abbr) {
+				const entry = calcMap.get(leaf.logicalId);
+				if (entry == null) {
+					hasMissing = true;
+				} else {
+					total += entry.offerPT;
 				}
 			}
 		}

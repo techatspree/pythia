@@ -64,7 +64,7 @@ Use `@SQLRestriction`, not the deprecated `@Where`, for filtered collections.
 
 ### Frontend ↔ domain bridge (`adapter.ts`)
 
-`src/frontend/src/lib/adapter.ts` computes the local calc map by calling into the Kotlin/JS-compiled domain (`createVersion(...).calculate()`) and then walking the result. The frontend still talks to the JS-exported **legacy `EstimationVersion.itemGroups`** view (a `@Deprecated` shim on the domain `EstimationVersion`) until task-054 rewrites adapter.ts to walk `roots`. Domain factories in `DomainFactory.kt` keep accepting `itemGroups: Array<EstimationItemGroup>` for the same reason. Do not remove the shim before task-054.
+`src/frontend/src/lib/adapter.ts` computes the local calc map by calling into the Kotlin/JS-compiled domain (`createVersion(...).calculate()`) and then walking the result tree recursively. Both the wire DTOs (`EstimationVersionDto.roots`, `DraftUpdateDto.roots`) and the Kotlin/JS factories (`createVersion(roots: Array<EstimationNode>)`, `createGroup(children: Array<EstimationNode>) → EstimationGroup`) speak the canonical tree shape — no legacy `itemGroups` field anywhere. If you see a stale `.d.mts` (TypeScript picks `.d.mts` for `.mjs` imports), force a full rebuild: `rm src/domain/build/typescript-prep/domain.d.mts && mvn -pl src/frontend -am clean package`.
 
 ### Kotlin/JS gotcha — super-property recursion
 

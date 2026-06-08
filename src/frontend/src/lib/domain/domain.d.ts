@@ -56,8 +56,8 @@ export declare class CalculationParameters {
 }
 export declare function createFixedItem(description: string, minEffort?: number, expectedEffort?: number, maxEffort?: number, assumptions?: string, logicalId?: string): FixedEstimationItem;
 export declare function createTimeRelativeItem(description: string, unit?: string, minEffort?: number, expectedEffort?: number, maxEffort?: number, assumptions?: string, logicalId?: string, phase?: Nullable<ProjectPhase>): TimeRelativeEstimationItem;
-export declare function createGroup(title: string, logicalId?: string, items?: Array<EstimationItem>): EstimationItemGroup;
-export declare function createVersion(versionNumber: number, isDraft: boolean, notes?: string, parameters?: Array<EstimationParameter>, effortDrivers?: Array<EffortDriver>, phases?: Array<ProjectPhase>, itemGroups?: Array<EstimationItemGroup>): EstimationVersion;
+export declare function createGroup(title: string, logicalId?: string, children?: Array<EstimationNode>): EstimationGroup;
+export declare function createVersion(versionNumber: number, isDraft: boolean, notes?: string, parameters?: Array<EstimationParameter>, effortDrivers?: Array<EffortDriver>, phases?: Array<ProjectPhase>, roots?: Array<EstimationNode>): EstimationVersion;
 export declare class EffortDriver extends BaseDomain {
     constructor(description: string, factor?: number, comment?: string, _id?: Nullable<string>, _createdAt?: Nullable<string>, _updatedAt?: Nullable<string>);
     get description(): string;
@@ -115,16 +115,6 @@ export declare abstract class EstimationItem extends EstimationNode {
     get offerPrice(): number;
     abstract withCalculationParameters(params: CalculationParameters): EstimationItem;
 }
-export declare class EstimationItemGroup extends BaseDomain {
-    constructor(title: string, logicalId?: string, items?: KtList<EstimationItem>, _id?: Nullable<string>, _createdAt?: Nullable<string>, _updatedAt?: Nullable<string>);
-    get title(): string;
-    get logicalId(): string;
-    get items(): KtList<EstimationItem>;
-    copy(title?: string, logicalId?: string, items?: KtList<EstimationItem>, _id?: Nullable<string>, _createdAt?: Nullable<string>, _updatedAt?: Nullable<string>): EstimationItemGroup;
-    toString(): string;
-    hashCode(): number;
-    equals(other: Nullable<any>): boolean;
-}
 export declare abstract class EstimationNode extends BaseDomain {
     protected constructor(logicalId: string, id?: Nullable<string>, createdAt?: Nullable<string>, updatedAt?: Nullable<string>);
     get logicalId(): string;
@@ -159,10 +149,6 @@ export declare class EstimationVersion extends BaseDomain {
     get phases(): KtList<ProjectPhase>;
     get additionalCosts(): KtList<AdditionalCost>;
     get roots(): KtList<EstimationNode>;
-    /** @deprecated Use roots; removed when adapter.ts moves to roots in task-054 */
-    static createFromItemGroups(versionNumber: number, status: EstimationVersionStatus | undefined, createdBy: Nullable<User> | undefined, totalEffort: number | undefined, notes: string | undefined, parameters: KtList<EstimationParameter> | undefined, effortDrivers: KtList<EffortDriver> | undefined, phases: KtList<ProjectPhase> | undefined, additionalCosts: KtList<AdditionalCost> | undefined, itemGroups: KtList<EstimationItemGroup>): EstimationVersion;
-    /** @deprecated Use roots; removed when adapter.ts moves to roots in task-054 */
-    get itemGroups(): KtList<EstimationItemGroup>;
     parameterValue(name: string): Nullable<number>;
     calculate(): EstimationVersion;
     copy(versionNumber?: number, status?: EstimationVersionStatus, createdBy?: Nullable<User>, totalEffort?: number, notes?: string, parameters?: KtList<EstimationParameter>, effortDrivers?: KtList<EffortDriver>, phases?: KtList<ProjectPhase>, additionalCosts?: KtList<AdditionalCost>, roots?: KtList<EstimationNode>, _id?: Nullable<string>, _createdAt?: Nullable<string>, _updatedAt?: Nullable<string>): EstimationVersion;

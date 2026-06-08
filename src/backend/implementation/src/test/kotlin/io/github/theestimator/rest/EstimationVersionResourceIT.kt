@@ -295,47 +295,6 @@ class EstimationVersionResourceIT {
     }
 
     @Test
-    fun `legacy itemGroups PUT payload still persists items until task-054 updates the frontend`() {
-        // The current frontend (task-054 hasn't landed yet) sends `itemGroups`
-        // in the PUT body and reads `itemGroups` in the GET response. After
-        // task-050 the backend's canonical wire shape became `roots`, so
-        // Jackson silently drops the unknown `itemGroups` field — user edits
-        // disappear after refresh and the seed data looks empty in the GUI.
-        // Until task-054 rewires the frontend, the backend MUST accept the
-        // legacy shape on PUT and emit it (flattened from roots) on GET.
-        given().post("/api/estimations/$estimationId/versions").then().statusCode(201)
-
-        given()
-            .contentType(ContentType.JSON)
-            .body("""
-                {
-                    "itemGroups": [{
-                        "title": "Backend",
-                        "items": [
-                            {"description": "Endpoint", "minEffort": 1.0, "expectedEffort": 2.0, "maxEffort": 3.0}
-                        ]
-                    }]
-                }
-            """.trimIndent())
-            .`when`().put("/api/estimations/$estimationId/versions/draft")
-            .then().statusCode(200)
-
-        // Re-fetch — the items must survive. The canonical `roots` view shows them…
-        given().`when`().get("/api/estimations/$estimationId/versions/draft")
-            .then().statusCode(200)
-            .body("roots.size()", equalTo(1))
-            .body("roots[0].title", equalTo("Backend"))
-            .body("roots[0].children.size()", equalTo(1))
-            .body("roots[0].children[0].description", equalTo("Endpoint"))
-            // …and the legacy flat itemGroups view must also be present so
-            // the unmodified frontend can read it.
-            .body("itemGroups.size()", equalTo(1))
-            .body("itemGroups[0].title", equalTo("Backend"))
-            .body("itemGroups[0].items.size()", equalTo(1))
-            .body("itemGroups[0].items[0].description", equalTo("Endpoint"))
-    }
-
-    @Test
     fun `PUT replacing only phases while persistent nodes reference them does not break the flush`() {
         // Reproduces the dev-local autosave error
         //   "Persistent instance of DraftFixedItemNode references an unsaved

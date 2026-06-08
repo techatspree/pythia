@@ -19,14 +19,16 @@ export interface ApiPhase {
 	durationWeeks: number | null;
 }
 
-export interface ApiItem {
+/** Recursive tree node returned by the backend (groups + leaves). */
+export interface ApiEstimationNode {
 	logicalId: string | null;
-	type: string;
-	description: string;
+	type: 'GROUP' | 'FIXED' | 'TIME_RELATIVE';
+	title: string | null;
+	description: string | null;
 	code: string | null;
-	minEffort: number;
-	expectedEffort: number;
-	maxEffort: number;
+	minEffort: number | null;
+	expectedEffort: number | null;
+	maxEffort: number | null;
 	assumptions: string | null;
 	mean: number;
 	variance: number;
@@ -36,13 +38,24 @@ export interface ApiItem {
 	cost: number;
 	offerPrice: number;
 	unit: string | null;
+	phaseAbbreviation: string | null;
+	children: ApiEstimationNode[];
 }
 
-export interface ApiItemGroup {
+/** Tree node sent back on PUT (user-editable fields only). */
+export interface ApiEstimationNodeUpdate {
 	logicalId: string | null;
-	title: string;
-	phaseAbbreviation: string | null;
-	items: ApiItem[];
+	type: 'GROUP' | 'FIXED' | 'TIME_RELATIVE';
+	title?: string | null;
+	description?: string | null;
+	code?: string | null;
+	minEffort?: number | null;
+	expectedEffort?: number | null;
+	maxEffort?: number | null;
+	assumptions?: string | null;
+	unit?: string | null;
+	phaseAbbreviation?: string | null;
+	children?: ApiEstimationNodeUpdate[];
 }
 
 export interface ApiAdditionalCost {
@@ -64,7 +77,7 @@ export interface ApiVersionResponse {
 	parameters: ApiParameter[];
 	effortDrivers: ApiEffortDriver[];
 	phases: ApiPhase[];
-	itemGroups: ApiItemGroup[];
+	roots: ApiEstimationNode[];
 	additionalCosts: ApiAdditionalCost[];
 }
 

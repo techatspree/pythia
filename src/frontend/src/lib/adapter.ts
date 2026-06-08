@@ -5,7 +5,9 @@ import {
 	createTimeRelativeItem,
 	ProjectPhase,
 	EstimationParameter,
-	EffortDriver
+	EffortDriver,
+	type EstimationNode,
+	EstimationGroup
 } from './domain/domain.mjs';
 
 export interface CalcEntry {
@@ -20,23 +22,26 @@ export interface EditingPhase {
 	durationWeeks: number | null;
 }
 
-interface EditingItem {
+interface EditingLeaf {
 	logicalId: string;
+	type: 'FIXED' | 'TIME_RELATIVE';
 	description: string;
 	minEffort: number | null;
 	expectedEffort: number | null;
 	maxEffort: number | null;
 	assumptions: string | null;
-	type: string;
 	unit: string | null;
 	phaseAbbreviation: string | null;
 }
 
 interface EditingGroup {
 	logicalId: string;
+	type: 'GROUP';
 	title: string;
-	items: EditingItem[];
+	children: EditingNode[];
 }
+
+type EditingNode = EditingLeaf | EditingGroup;
 
 interface EditingParam {
 	name: string;
@@ -51,7 +56,7 @@ interface EditingDriver {
 }
 
 export function computeCalcMap(
-	groups: EditingGroup[],
+	roots: EditingNode[],
 	parameters: EditingParam[],
 	drivers: EditingDriver[],
 	phases: EditingPhase[]
@@ -65,48 +70,54 @@ export function computeCalcMap(
 
 	const params = parameters.map((p) => new EstimationParameter(p.name, p.value, p.comment ?? ''));
 	const effortDrivers = drivers.map((d) => new EffortDriver(d.description, d.factor, d.comment ?? ''));
-	const itemGroups = groups.map((g) =>
-		createGroup(
-			g.title,
-			g.logicalId,
-			g.items.map((i) =>
-				i.type === 'TIME_RELATIVE'
-					? createTimeRelativeItem(
-							i.description,
-							i.unit ?? 'h/Woche',
-							i.minEffort ?? 0,
-							i.expectedEffort ?? 0,
-							i.maxEffort ?? 0,
-							i.assumptions ?? '',
-							i.logicalId,
-							phaseByAbbr.get(i.phaseAbbreviation ?? '') ?? null
-						)
-					: createFixedItem(
-							i.description,
-							i.minEffort ?? 0,
-							i.expectedEffort ?? 0,
-							i.maxEffort ?? 0,
-							i.assumptions ?? '',
-							i.logicalId
-						)
-			)
-		)
-	);
 
-	const version = createVersion(1, true, '', params, effortDrivers, [], itemGroups);
+	function buildNode(node: EditingNode): EstimationNode {
+		if (node.type === 'GROUP') {
+			return createGroup(
+				node.title,
+				node.logicalId,
+				node.children.map(buildNode)
+			);
+		}
+		if (node.type === 'TIME_RELATIVE') {
+			return createTimeRelativeItem(
+				node.description,
+				node.unit ?? 'h/Woche',
+				node.minEffort ?? 0,
+				node.expectedEffort ?? 0,
+				node.maxEffort ?? 0,
+				node.assumptions ?? '',
+				node.logicalId,
+				phaseByAbbr.get(node.phaseAbbreviation ?? '') ?? null
+			);
+		}
+		return createFixedItem(
+			node.description,
+			node.minEffort ?? 0,
+			node.expectedEffort ?? 0,
+			node.maxEffort ?? 0,
+			node.assumptions ?? '',
+			node.logicalId
+		);
+	}
+
+	const domainRoots = roots.map(buildNode);
+	const version = createVersion(1, true, '', params, effortDrivers, [], domainRoots);
 	const calculated = version.calculate();
 
 	const m = new Map<string, CalcEntry>();
-	const calcGroups = calculated.itemGroups.asJsReadonlyArrayView();
-	for (const group of calcGroups) {
-		const items = group.items.asJsReadonlyArrayView();
-		for (const item of items) {
-			m.set(item.logicalId, {
-				offerPT: item.offerPT,
-				cost: item.cost,
-				offerPrice: item.offerPrice
-			});
+	function walk(node: EstimationNode): void {
+		m.set(node.logicalId, {
+			offerPT: node.offerPT,
+			cost: node.cost,
+			offerPrice: node.offerPrice
+		});
+		if (node instanceof EstimationGroup) {
+			const children = node.children.asJsReadonlyArrayView();
+			for (const child of children) walk(child);
 		}
 	}
+	const calcRoots = calculated.roots.asJsReadonlyArrayView();
+	for (const root of calcRoots) walk(root);
 	return m;
 }

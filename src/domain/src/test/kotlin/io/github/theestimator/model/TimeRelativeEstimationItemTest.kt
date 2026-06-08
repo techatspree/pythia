@@ -85,11 +85,11 @@ class TimeRelativeEstimationItemTest {
                 EstimationParameter("Tagessatz", 800.0),
                 EstimationParameter("Vertriebszuschlag", 0.1)
             ),
-            itemGroups = listOf(EstimationItemGroup(title = "G", items = listOf(tr, fixed)))
+            roots = listOf(EstimationGroup(title = "G", children = listOf(tr, fixed)))
         )
 
         val calculated = version.calculate()
-        val items = calculated.itemGroups.flatMap { it.items }
+        val items = calculated.roots.flatMap { it.leaves().toList() }
         val calcTr = items.first { it.description == "TR" }
         val calcFixed = items.first { it.description == "Fixed" }
 
