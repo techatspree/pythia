@@ -134,7 +134,33 @@ class EstimationVersionResource(
             }
         }
 
-        update.roots?.let { rootDtos ->
+        // task-054 compat shim: the unmodified frontend still sends `itemGroups`
+        // (the legacy flat shape) on autosave. Translate to the canonical roots
+        // shape before the regular update path runs. Removed in task-054.
+        @Suppress("DEPRECATION")
+        val effectiveRoots: List<EstimationNodeUpdateDto>? = update.roots
+            ?: update.itemGroups?.map { g ->
+                EstimationNodeUpdateDto(
+                    logicalId = g.logicalId,
+                    type = "GROUP",
+                    title = g.title,
+                    children = g.items.map { i ->
+                        EstimationNodeUpdateDto(
+                            logicalId = i.logicalId,
+                            type = i.type,
+                            description = i.description,
+                            minEffort = i.minEffort,
+                            expectedEffort = i.expectedEffort,
+                            maxEffort = i.maxEffort,
+                            assumptions = i.assumptions,
+                            unit = i.unit,
+                            phaseAbbreviation = i.phaseAbbreviation
+                        )
+                    }
+                )
+            }
+
+        effectiveRoots?.let { rootDtos ->
             fun buildNode(
                 dto: EstimationNodeUpdateDto,
                 parentNode: DraftEstimationNode?,

@@ -23,22 +23,29 @@ fun DraftEstimationVersion.toSummaryDto(totalEffort: Double?) = EstimationVersio
     createdAt = createdAt
 )
 
-fun SubmittedEstimationVersion.toDto() = EstimationVersionDto(
-    versionNumber = versionNumber,
-    isDraft = false,
-    totalEffort = totalEffort,
-    notes = notes,
-    createdAt = createdAt,
-    submittedAt = submittedAt,
-    parameters = parameters.map { it.toDto() },
-    effortDrivers = effortDrivers.map { it.toDto() },
-    phases = phases.map { it.toDto() },
-    roots = roots.map { it.toDto() },
-    additionalCosts = additionalCosts.map { it.toDto() }
-)
+@Suppress("DEPRECATION")
+fun SubmittedEstimationVersion.toDto(): EstimationVersionDto {
+    val rootDtos = roots.map { it.toDto() }
+    return EstimationVersionDto(
+        versionNumber = versionNumber,
+        isDraft = false,
+        totalEffort = totalEffort,
+        notes = notes,
+        createdAt = createdAt,
+        submittedAt = submittedAt,
+        parameters = parameters.map { it.toDto() },
+        effortDrivers = effortDrivers.map { it.toDto() },
+        phases = phases.map { it.toDto() },
+        roots = rootDtos,
+        additionalCosts = additionalCosts.map { it.toDto() },
+        itemGroups = legacyItemGroups(rootDtos)
+    )
+}
 
+@Suppress("DEPRECATION")
 fun DraftEstimationVersion.toDto(calculated: EstimationVersion): EstimationVersionDto {
     val calcMap: Map<String, EstimationNode> = collectNodes(calculated.roots).associateBy { it.logicalId }
+    val rootDtos = roots.map { it.toDtoWithCalc(calcMap) }
     return EstimationVersionDto(
         versionNumber = versionNumber,
         isDraft = true,
@@ -49,10 +56,50 @@ fun DraftEstimationVersion.toDto(calculated: EstimationVersion): EstimationVersi
         parameters = parameters.map { it.toDto() },
         effortDrivers = effortDrivers.map { it.toDto() },
         phases = phases.map { it.toDto() },
-        roots = roots.map { it.toDtoWithCalc(calcMap) },
-        additionalCosts = additionalCosts.map { it.toDto() }
+        roots = rootDtos,
+        additionalCosts = additionalCosts.map { it.toDto() },
+        itemGroups = legacyItemGroups(rootDtos)
     )
 }
+
+// task-054 compat shim: flatten the recursive tree into the legacy
+// depth-1 [{title, items}] shape so the unmodified frontend renders.
+// Only GROUP roots become groups; their LEAF descendants (at any depth)
+// collapse into the group's items list. Removed in task-054.
+@Suppress("DEPRECATION")
+private fun legacyItemGroups(roots: List<EstimationNodeDto>): List<LegacyItemGroupDto> =
+    roots.filter { it.type == "GROUP" }.map { group ->
+        LegacyItemGroupDto(
+            logicalId = group.logicalId,
+            title = group.title ?: "",
+            items = collectLegacyItems(group.children)
+        )
+    }
+
+@Suppress("DEPRECATION")
+private fun collectLegacyItems(nodes: List<EstimationNodeDto>): List<LegacyItemDto> =
+    nodes.flatMap { node ->
+        if (node.type == "GROUP") collectLegacyItems(node.children)
+        else listOf(LegacyItemDto(
+            logicalId = node.logicalId,
+            type = node.type,
+            description = node.description ?: "",
+            code = node.code,
+            minEffort = node.minEffort ?: 0.0,
+            expectedEffort = node.expectedEffort ?: 0.0,
+            maxEffort = node.maxEffort ?: 0.0,
+            assumptions = node.assumptions,
+            mean = node.mean,
+            variance = node.variance,
+            riskSurcharge = node.riskSurcharge,
+            driverSurcharge = node.driverSurcharge,
+            offerPT = node.offerPT,
+            cost = node.cost,
+            offerPrice = node.offerPrice,
+            unit = node.unit,
+            phaseAbbreviation = node.phaseAbbreviation
+        ))
+    }
 
 private fun collectNodes(nodes: List<EstimationNode>): List<EstimationNode> =
     nodes.flatMap { node ->
