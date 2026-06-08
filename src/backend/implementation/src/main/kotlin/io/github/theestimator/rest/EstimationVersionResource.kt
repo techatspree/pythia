@@ -109,14 +109,28 @@ class EstimationVersionResource(
         }
 
         update.phases?.let { phaseDtos ->
-            draft.phases.clear()
+            // Upsert by abbreviation rather than clear-and-rebuild: persistent
+            // DraftEstimationNode rows hold Java references to phase entities
+            // by object identity, so orphan-removing them would leave dangling
+            // references that fail Hibernate's pre-flush transient-reference
+            // check (see EstimationVersionResourceIT "PUT replacing only phases
+            // while persistent nodes reference them …").
+            val keptAbbreviations = phaseDtos.map { it.abbreviation }.toSet()
+            draft.phases.removeAll { it.abbreviation !in keptAbbreviations }
+            val byAbbr = draft.phases.associateBy { it.abbreviation }
             phaseDtos.forEach { dto ->
-                draft.phases.add(DraftProjectPhase().apply {
-                    name = dto.name
-                    abbreviation = dto.abbreviation
-                    durationWeeks = dto.durationWeeks
-                    version = draft
-                })
+                val existing = byAbbr[dto.abbreviation]
+                if (existing != null) {
+                    existing.name = dto.name
+                    existing.durationWeeks = dto.durationWeeks
+                } else {
+                    draft.phases.add(DraftProjectPhase().apply {
+                        name = dto.name
+                        abbreviation = dto.abbreviation
+                        durationWeeks = dto.durationWeeks
+                        version = draft
+                    })
+                }
             }
         }
 

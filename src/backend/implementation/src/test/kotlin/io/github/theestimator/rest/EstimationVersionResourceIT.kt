@@ -295,6 +295,47 @@ class EstimationVersionResourceIT {
     }
 
     @Test
+    fun `PUT replacing only phases while persistent nodes reference them does not break the flush`() {
+        // Reproduces the dev-local autosave error
+        //   "Persistent instance of DraftFixedItemNode references an unsaved
+        //    transient instance of DraftProjectPhase"
+        // The current frontend sends `itemGroups` (not `roots`) in the autosave
+        // payload, so Jackson drops the items and `update.roots` is null — the
+        // existing persistent nodes stay put. But the PUT also sends `phases`,
+        // which clear()s the persistent phases (orphan-marking them) and adds
+        // fresh transient ones with the same abbreviation. The persistent nodes
+        // still hold references to the now-orphaned phases, and the flush blows
+        // up before commit.
+        given().post("/api/estimations/$estimationId/versions").then().statusCode(201)
+
+        // Seed: phases + nodes referencing them. After this PUT both phases
+        // and nodes are persistent in the DB.
+        given().contentType(ContentType.JSON).body("""
+            {
+                "phases": [{"name": "Analysis", "abbreviation": "AN", "durationWeeks": 2.0}],
+                "roots": [{"type": "GROUP", "title": "G", "children": [
+                    {"type": "FIXED", "description": "T", "minEffort": 1.0, "expectedEffort": 2.0, "maxEffort": 3.0, "phaseAbbreviation": "AN"}
+                ]}]
+            }
+        """.trimIndent()).put("/api/estimations/$estimationId/versions/draft").then().statusCode(200)
+
+        // Autosave-style PUT with only phases (no roots). The persistent nodes
+        // already reference phase AN; this PUT clears and re-adds AN with a
+        // new durationWeeks.
+        given().contentType(ContentType.JSON).body("""
+            {
+                "phases": [{"name": "Analysis", "abbreviation": "AN", "durationWeeks": 3.0}]
+            }
+        """.trimIndent()).put("/api/estimations/$estimationId/versions/draft").then().statusCode(200)
+
+        // Verify the existing node still resolves its phase correctly.
+        given().`when`().get("/api/estimations/$estimationId/versions/draft")
+            .then().statusCode(200)
+            .body("roots[0].children[0].phaseAbbreviation", equalTo("AN"))
+            .body("phases[0].durationWeeks", equalTo(3.0f))
+    }
+
+    @Test
     fun `submit preserves a three-level tree end-to-end`() {
         given().post("/api/estimations/$estimationId/versions").then().statusCode(201)
 
