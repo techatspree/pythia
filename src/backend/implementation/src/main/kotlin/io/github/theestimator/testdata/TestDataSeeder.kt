@@ -208,7 +208,10 @@ class TestDataSeeder(
                 fixedLeaf(draft2, "REST API Endpoints (CRUD)", 4.0, 6.0, 9.0, phase2UM),
                 fixedLeaf(draft2, "Authentifizierung & Autorisierung", 2.0, 3.0, 5.0, phase2UM),
                 fixedLeaf(draft2, "Datenbankmigrationen & Seeding", 1.0, 2.0, 3.0, phase2UM),
-                fixedLeaf(draft2, "Payment-Integration (Stripe)", 3.0, 5.0, 8.0, phase2UM),
+                group(draft2, "Bezahlung", listOf(
+                    fixedLeaf(draft2, "Stripe-Integration", 2.0, 4.0, 6.0, phase2UM),
+                    fixedLeaf(draft2, "Sepa-Lastschrift", 1.0, 2.0, 4.0, phase2UM)
+                )),
                 fixedLeaf(draft2, "E-Mail-Benachrichtigungen (Bestellung/Versand)", 1.0, 2.0, 4.0, phase2UM)
             )),
             group(draft2, "U04: Abnahme & Go-live", listOf(
@@ -274,7 +277,10 @@ class TestDataSeeder(
                 fixedLeaf(draft, "Push-Benachrichtigungen", 2.0, 3.0, 5.0, phaseS1),
                 fixedLeaf(draft, "Transaktionshistorie & Filter", 3.0, 5.0, 7.0, phaseS2),
                 fixedLeaf(draft, "Profil & Einstellungen", 2.0, 3.0, 4.0, phaseS2),
-                fixedLeaf(draft, "Offline-Modus & Datensynchronisation", 4.0, 7.0, 10.0, phaseS2)
+                group(draft, "Offline-Modus", listOf(
+                    fixedLeaf(draft, "Datensynchronisation", 3.0, 5.0, 8.0, phaseS2),
+                    fixedLeaf(draft, "Konfliktauflösung", 2.0, 3.0, 5.0, phaseS2)
+                ))
             )),
             group(draft, "M03: Backend & API", listOf(
                 fixedLeaf(draft, "REST API Design & Dokumentation", 2.0, 3.0, 4.0, phaseS1),

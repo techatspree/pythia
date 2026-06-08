@@ -247,3 +247,179 @@ test('three-level tree round-trips through the draft REST API', async ({ page })
 	expect(fetched.roots[0].children[0].children[0].description).toBe('Token endpoint');
 	expect(fetched.roots[0].children[0].children[1].description).toBe('Session storage');
 });
+
+// ── DnD / UI tree-building (task-057) ──────────────────────────────────────
+
+/** PUT a custom roots tree to the draft. */
+async function putRoots(page: Page, estimationId: string, roots: any[]) {
+	const res = await page.request.put(`${API}/api/estimations/${estimationId}/versions/draft`, {
+		data: { roots }
+	});
+	expect(res.status(), `PUT roots failed: ${await res.text()}`).toBe(200);
+}
+
+/** Keyboard DnD helpers. svelte-dnd-action supports mouse + keyboard DnD;
+    Playwright's mouse synthesis doesn't reliably trigger the library's
+    pointer handlers (the lib refuses mousedown on inputs, and Playwright's
+    dragTo lands the cursor unpredictably). Keyboard DnD is rock-solid and
+    is also the accessibility-recommended interaction. Flow:
+      1. focus a draggable row → press Space to pick up
+      2. focus a different zone or use ArrowUp/Down within the same zone
+      3. press Space to drop
+    This is the same flow exposed to keyboard users in production. */
+async function keyboardReorder(page: Page, sourceRow: any, direction: 'up' | 'down') {
+	await sourceRow.focus();
+	await page.waitForTimeout(100);
+	await page.keyboard.press('Space');
+	await page.waitForTimeout(200);
+	await page.keyboard.press(direction === 'down' ? 'ArrowDown' : 'ArrowUp');
+	await page.waitForTimeout(200);
+	await page.keyboard.press('Space');
+	await page.waitForTimeout(1500); // autosave debounce
+}
+
+async function keyboardReparent(page: Page, sourceRow: any, targetZone: any) {
+	await sourceRow.focus();
+	await page.waitForTimeout(100);
+	await page.keyboard.press('Space');
+	await page.waitForTimeout(200);
+	await targetZone.focus();
+	await page.waitForTimeout(200);
+	await page.keyboard.press('Space');
+	await page.waitForTimeout(1500); // autosave debounce
+}
+
+test('build a three-level tree via UI buttons', async ({ page }) => {
+	const projectId = await createProject(page);
+	const estimationId = await createEstimation(page, projectId);
+	const versionNumber = await createDraft(page, estimationId);
+
+	await page.goto(`/estimations/${estimationId}/versions/${versionNumber}?draft=true`);
+	await page.waitForLoadState('networkidle');
+
+	// Empty-state "Add group" button creates the first root group with a default leaf.
+	await page.locator('button', { hasText: 'Add group' }).first().click();
+	await page.waitForTimeout(200);
+
+	// "+ group" button on the root group adds a nested sub-group.
+	await page.locator('[data-testid="row-0"] button', { hasText: '+ group' }).click();
+	await page.waitForTimeout(200);
+
+	// "+ item" button on the nested sub-group adds a leaf inside it.
+	await page.locator('[data-testid="row-0-1"] button', { hasText: '+ item' }).click();
+	await page.waitForTimeout(1500); // autosave debounce + flush
+
+	// Reload and verify via the REST API that the structure survived.
+	await page.reload();
+	await page.waitForLoadState('networkidle');
+	const fetched = await page.request.get(`${API}/api/estimations/${estimationId}/versions/draft`).then((r) => r.json());
+	expect(fetched.roots).toHaveLength(1);
+	expect(fetched.roots[0].type).toBe('GROUP');
+	// Default root group contains a default leaf (from addRootGroup) + the new sub-group with its leaf.
+	const subGroup = fetched.roots[0].children.find((c: any) => c.type === 'GROUP');
+	expect(subGroup, 'expected a nested GROUP under the root').toBeTruthy();
+	expect(subGroup.children.length).toBeGreaterThanOrEqual(1);
+});
+
+test('drag a leaf into a different group reparents it', async ({ page }) => {
+	const projectId = await createProject(page);
+	const estimationId = await createEstimation(page, projectId);
+	const versionNumber = await createDraft(page, estimationId);
+
+	// Two top-level groups, one leaf each.
+	await putRoots(page, estimationId, [
+		{
+			type: 'GROUP', title: 'G1',
+			children: [{ type: 'FIXED', description: 'L1', minEffort: 1, expectedEffort: 2, maxEffort: 3 }]
+		},
+		{
+			type: 'GROUP', title: 'G2',
+			children: [{ type: 'FIXED', description: 'L2', minEffort: 1, expectedEffort: 2, maxEffort: 3 }]
+		}
+	]);
+
+	await page.goto(`/estimations/${estimationId}/versions/${versionNumber}?draft=true`);
+	await page.waitForLoadState('networkidle');
+
+	// L1 sits at path 0-0 (root index 0 = G1, child index 0 = L1).
+	// G2's children-zone is the dndzone div with aria-label="Children of G2".
+	const sourceRow = page.locator('[data-testid="row-0-0"]');
+	const targetZone = page.locator('[aria-label="Children of G2"]');
+	await keyboardReparent(page, sourceRow, targetZone);
+
+	const fetched = await page.request.get(`${API}/api/estimations/${estimationId}/versions/draft`).then((r) => r.json());
+	const g1 = fetched.roots.find((r: any) => r.title === 'G1');
+	const g2 = fetched.roots.find((r: any) => r.title === 'G2');
+	expect(g1.children).toHaveLength(0);
+	expect(g2.children.length).toBe(2);
+	const movedDescriptions = g2.children.map((c: any) => c.description);
+	expect(movedDescriptions).toContain('L1');
+	expect(movedDescriptions).toContain('L2');
+});
+
+test('drag a leaf onto another leaf reorders siblings', async ({ page }) => {
+	const projectId = await createProject(page);
+	const estimationId = await createEstimation(page, projectId);
+	const versionNumber = await createDraft(page, estimationId);
+
+	await putRoots(page, estimationId, [
+		{
+			type: 'GROUP', title: 'G1',
+			children: [
+				{ type: 'FIXED', description: 'A', minEffort: 1, expectedEffort: 2, maxEffort: 3 },
+				{ type: 'FIXED', description: 'B', minEffort: 1, expectedEffort: 2, maxEffort: 3 }
+			]
+		}
+	]);
+
+	await page.goto(`/estimations/${estimationId}/versions/${versionNumber}?draft=true`);
+	await page.waitForLoadState('networkidle');
+
+	const a = page.locator('[data-testid="row-0-0"]'); // A at path 0-0
+
+	// Reorder A down past B via keyboard.
+	await keyboardReorder(page, a, 'down');
+
+	const fetched = await page.request.get(`${API}/api/estimations/${estimationId}/versions/draft`).then((r) => r.json());
+	const g1 = fetched.roots[0];
+	expect(g1.children).toHaveLength(2);
+	const descriptions = g1.children.map((c: any) => c.description);
+	expect(descriptions).toEqual(['B', 'A']);
+});
+
+test('dragging a group onto its own descendant is a no-op (cycle protection)', async ({ page }) => {
+	const projectId = await createProject(page);
+	const estimationId = await createEstimation(page, projectId);
+	const versionNumber = await createDraft(page, estimationId);
+
+	// G1 > InnerG > Leaf — dragging G1 INTO Leaf would create a cycle.
+	await putRoots(page, estimationId, [
+		{
+			type: 'GROUP', title: 'G1',
+			children: [
+				{
+					type: 'GROUP', title: 'InnerG',
+					children: [{ type: 'FIXED', description: 'Leaf', minEffort: 1, expectedEffort: 2, maxEffort: 3 }]
+				}
+			]
+		}
+	]);
+
+	await page.goto(`/estimations/${estimationId}/versions/${versionNumber}?draft=true`);
+	await page.waitForLoadState('networkidle');
+
+	const g1Row = page.locator('[data-testid="row-0"]');
+	// InnerG's children-zone has aria-label="Children of InnerG"; dropping G1
+	// inside it would create a cycle (G1 contains InnerG, can't contain itself).
+	const innerGZone = page.locator('[aria-label="Children of InnerG"]');
+	await keyboardReparent(page, g1Row, innerGZone);
+
+	// Tree must be unchanged — cycle protection restored the snapshot.
+	const fetched = await page.request.get(`${API}/api/estimations/${estimationId}/versions/draft`).then((r) => r.json());
+	expect(fetched.roots).toHaveLength(1);
+	expect(fetched.roots[0].title).toBe('G1');
+	expect(fetched.roots[0].children).toHaveLength(1);
+	expect(fetched.roots[0].children[0].title).toBe('InnerG');
+	expect(fetched.roots[0].children[0].children).toHaveLength(1);
+	expect(fetched.roots[0].children[0].children[0].description).toBe('Leaf');
+});

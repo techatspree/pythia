@@ -5,6 +5,7 @@ Project effort estimation tool for software development tasks.
 ## Features
 
 - **Three-point estimation** — capture optimistic, likely, and pessimistic effort values per task
+- **Tree-structured estimations** — group items into arbitrarily deep subtrees; drag rows with mouse or keyboard (Tab to a row, Space to pick up, arrow keys to move, Space to drop) to restructure
 - **Versioned snapshots** — create and compare estimation versions across the lifetime of a project
 - **Audit trail** — track who changed what and when
 - **Phase grouping** — organize tasks into project phases for structured planning
