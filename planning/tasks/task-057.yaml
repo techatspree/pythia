@@ -1,0 +1,448 @@
+id: task-057
+phase: phase-9
+title: Drag-and-drop tree editing + richer seed data
+depends_on: [task-055]
+description: |
+  After task-049 → task-055 the estimation hierarchy is a tree
+  end-to-end, but the EstimationGrid still feels like a flat table that
+  happens to render rows indented by depth. The only ways to build a
+  tree today are the "+ child group" and "+ item" link buttons on every
+  group row — no way to MOVE an existing node into a different group,
+  no way to REORDER siblings. Building or restructuring a complex tree
+  is a click-heavy slog. This task adds drag-and-drop via the
+  svelte-dnd-action library so the user can rearrange the tree by
+  direct manipulation, expands the TestDataSeeder beyond its single
+  depth-3 subtree so dev-local exercises non-trivial tree state, and
+  pins the UI tree-building flow with Playwright e2e tests.
+
+  Current state (verified):
+    - src/frontend/src/lib/components/EstimationGrid.svelte: renders
+      the tree as a SINGLE `<table>` whose `<tbody>` contains a
+      depth-first flattened row list (`flatten()` returns
+      `Array<{node, depth, path, visible}>`), with indentation in
+      column A. The mutation helpers `addChildLeafTo(path)` /
+      `addChildGroupTo(path)` / `deleteAt(path)` / `addRootGroup()`
+      cover insertion and deletion via `nodeAt(path)` lookup, then
+      call `notify()` → `onchange` → page-level `scheduleSave()`.
+      There is NO drag-and-drop. There is NO move/reparent operation.
+    - src/backend/.../testdata/TestDataSeeder.kt: depth-1 trees across
+      all three drafts, plus ONE depth-3 subtree introduced in task-055
+      (draft1.U03 > "Authentifizierung" > {Login, OAuth2}). The Mobile
+      draft and draft2 have no nesting.
+    - src/frontend/e2e/smoke.test.ts: covers basic page-loads, autosave
+      payload shape, and a 3-level round-trip via the REST API.
+      Nothing covers the UI tree-building flow (click "+ child group",
+      click "+ item", verify the new structure persists).
+
+  Target state:
+    - The grid supports drag-and-drop between groups via the
+      svelte-dnd-action library. The user can:
+        1. Move any node (group or leaf) into a different group by
+           dropping it inside that group's children list.
+        2. Reorder siblings within the same group.
+        3. Move nodes between depths.
+      Group ↔ leaf type conversion is OUT OF SCOPE; drag preserves the
+      source node's `type` and all field values.
+    - Cycle protection: a group cannot be dropped onto itself or any
+      of its own descendants. Enforced at finalize time — if the drop
+      would create a cycle the change is rejected and state is restored.
+    - Visual feedback during drag: FLIP animations (free with
+      svelte-dnd-action) — siblings slide aside as the dragged item
+      moves, the drop target gets the library's built-in placeholder.
+      Keyboard DnD (Tab → focus → Space to pick up → arrow keys →
+      Space to drop) and screen-reader announcements come along for
+      free; no extra code needed.
+    - Every drag-drop move triggers the existing `notify()` /
+      `scheduleSave()` path — no new persistence code, no new REST
+      endpoint. The autosave wire shape stays `roots: [...]`.
+    - TestDataSeeder seeds at least three distinct nested subtrees
+      across the three existing drafts (one extra in draft2, one in the
+      Mobile draft) so dev-local exercises a realistic tree, not a
+      single token nesting point. Keep the existing seed counts/style
+      and German titles.
+    - New Playwright e2e cases cover:
+        a) UI tree-building via the "+ child group" + "+ item" buttons.
+        b) DnD reparenting (leaf into a different group).
+        c) DnD sibling-reorder (within the same group).
+        d) DnD cycle-protection (group onto its own descendant is a
+           no-op).
+
+  Key design decisions (leave no ambiguity):
+    - DnD library: svelte-dnd-action
+      (https://github.com/isaacHagoel/svelte-dnd-action). Add to
+      src/frontend/package.json. Pin `svelte-dnd-action@^0.9.61`
+      (Svelte 5 compatible, the 0.9 line is what supports Svelte 5
+      since 0.9.45). If npm complains about peer-dep mismatch, the
+      `--legacy-peer-deps` flag is the project's existing convention
+      (see src/frontend/pom.xml — every `npm install` already runs
+      with it).
+    - Layout rewrite: svelte-dnd-action requires each `dndzone` to be
+      the direct DOM parent of its draggable items. That is
+      incompatible with a single `<tbody>` holding a flat list of all
+      rows. The grid MUST switch from `<table>` to a CSS-grid layout:
+        * The root element is a `<div class="grid">` with explicit
+          column widths via `grid-template-columns`. Header and footer
+          totals span the full grid.
+        * Each tree row is rendered by a recursive sub-component
+          `EstimationNodeRow.svelte` (new file). The row's own cells
+          use `display: contents` so they participate in the parent
+          grid's column alignment. Indentation comes from a left
+          padding/margin on the first cell, computed from a `depth`
+          prop.
+        * Each GROUP node's row is followed by a `<div use:dndzone>`
+          whose direct children are the recursive `<EstimationNodeRow>`s
+          for that group's children. The root `EstimationGrid` itself
+          owns the top-level dndzone for the roots list.
+      This is a larger rewrite than a pure DnD add-on, but it is the
+      minimum DOM shape svelte-dnd-action needs and CSS grid keeps the
+      column-aligned table look.
+    - dndzone configuration:
+        * `items={children}` — bind to the group's children list (each
+          node already has a stable `logicalId` for use as the key).
+        * `type: 'estimation-node'` — same type across all zones so
+          cross-zone drag works.
+        * `flipDurationMs: 200` — gentle animation.
+        * `dropTargetStyle: {}` — let Tailwind own the styling; the
+          library still draws a placeholder rectangle.
+    - State updates: handle BOTH `consider` and `finalize` events.
+      `consider` fires while dragging (the dragged item gets a
+      placeholder in the new zone); update the in-memory tree so the
+      placeholder renders in the right spot. `finalize` fires on drop;
+      run the cycle check (if invalid, restore from a snapshot taken
+      on dragstart) and call `notify()`.
+    - Cycle protection at finalize:
+        * Take a deep-copy snapshot of `roots` on `consider` when a new
+          drag begins (track `dragInProgress` state).
+        * On `finalize`, walk the resulting tree: if the dragged
+          source node now sits inside its own original subtree, restore
+          from snapshot and skip `notify()`. Otherwise commit.
+        * The dragged source is identified by its `logicalId` (carried
+          by the library through `e.detail.info.id`).
+    - Keyboard DnD: comes for free with the library. No extra code,
+      but mention it in a one-line `aria-label` on the dndzone so
+      screen readers introduce the region by name (e.g.
+      `aria-label="Children of {group.title}"`).
+
+  Out of scope (explicit):
+    - GROUP ↔ leaf type conversion via the UI.
+    - Drag-drop between two different EstimationGrid instances (we only
+      have one).
+    - Touch-device DnD; svelte-dnd-action supports pointer events but
+      the project targets desktop browsers, no separate verification.
+    - Backend changes — the wire format already supports arbitrary
+      tree restructure via the existing `roots` PUT.
+
+steps:
+  - |
+    Add the library:
+      cd src/frontend
+      npm install --legacy-peer-deps svelte-dnd-action@^0.9.61
+    (Save it as a normal dependency, not devDependency — the production
+    SvelteKit bundle imports it.) Confirm package.json now has the
+    "svelte-dnd-action" entry and package-lock.json was rewritten.
+
+  - |
+    Create src/frontend/src/lib/components/EstimationNodeRow.svelte —
+    a recursive sub-component that renders ONE node row (group or
+    leaf) plus, for groups, a nested children container.
+    Props:
+      node: Node
+      depth: number
+      path: NodePath
+      collapsed: Set<string>     (passed through, controls visibility)
+      editable: boolean
+      calcMap: Map<string, CalcEntry>
+      phases: any[]
+      onMutate: (newNode: Node) => void         (leaf field edits)
+      onChildrenChange: (newChildren: Node[]) => void
+                                                (children list rewrite — fired
+                                                 by the inner dndzone on
+                                                 consider/finalize for groups,
+                                                 ignored for leaves)
+      onAddChildGroup: () => void
+      onAddChildLeaf: () => void
+      onDelete: () => void
+      onToggle: () => void
+    Body:
+      - Render the row's cells using `display: contents` so they flow
+        into the parent grid.
+      - For GROUP nodes, after the row, render:
+          <div
+              class="contents"
+              use:dndzone={{items: node.children, type: 'estimation-node',
+                            flipDurationMs: 200, dropTargetStyle: {},
+                            dragDisabled: !editable}}
+              onconsider={(e) => onChildrenChange(e.detail.items)}
+              onfinalize={(e) => onChildrenChange(e.detail.items)}
+              aria-label="Children of {node.title}"
+          >
+              {#each node.children as child, idx (child.logicalId)}
+                  <EstimationNodeRow node={child} depth={depth + 1}
+                                     path={[...path, idx]}
+                                     {collapsed} {editable} {calcMap}
+                                     {phases}
+                                     onMutate={...} onChildrenChange={...}
+                                     onAddChildGroup={...}
+                                     onAddChildLeaf={...}
+                                     onDelete={...} onToggle={...} />
+              {/each}
+          </div>
+        Note: `class="contents"` on the dndzone wrapper makes it
+        transparent in the grid layout — its children become the
+        direct grid items.
+      - For LEAF nodes, just the row cells (no nested zone).
+      - Move the existing leaf-cell rendering (inputs for description,
+        type, phase, optimistic/likely/pessimistic, PERT, assumptions,
+        calc columns, delete button) into this file unchanged in
+        behaviour, just rehomed.
+      - Indentation: column 0 gets a left margin of `depth * 1.25rem`
+        on its leading span.
+      - data-testid: every row carries `data-testid="row-{pathKey
+        (path)}"` (where `pathKey([0,1,2])` returns `"0-1-2"`) so the
+        e2e tests can locate rows deterministically.
+
+  - |
+    Rewrite src/frontend/src/lib/components/EstimationGrid.svelte to
+    own the top-level dndzone + delegate row rendering to
+    EstimationNodeRow. Concretely:
+      - Replace the existing `<table>` markup with:
+          <div class="border rounded-lg overflow-hidden">
+              <div class="grid"
+                   style="grid-template-columns: 2rem 1fr 5rem 6rem 6rem 6rem 6rem 6rem 1fr 7rem 7rem 8rem {editable ? '2rem' : ''};">
+                  <!-- header cells, one per column, full-width via
+                       grid-column: 1 / -1 on the header row container -->
+                  <div class="contents header-row"> ... 13 header cells ... </div>
+
+                  <!-- top-level dndzone for roots -->
+                  <div class="contents"
+                       use:dndzone={{items: roots, type: 'estimation-node',
+                                     flipDurationMs: 200, dropTargetStyle: {},
+                                     dragDisabled: !editable}}
+                       onconsider={(e) => handleRootsChange(e.detail.items, e.type)}
+                       onfinalize={(e) => handleRootsChange(e.detail.items, e.type)}
+                       aria-label="Estimation root nodes">
+                      {#each roots as root, idx (root.logicalId)}
+                          <EstimationNodeRow node={root} depth={0} path={[idx]} ... />
+                      {/each}
+                  </div>
+
+                  <!-- totals row spanning all columns -->
+                  <div class="contents totals-row"> ... totals cells ... </div>
+              </div>
+              {#if editable}
+                  <div class="p-3 border-t bg-gray-50/40">
+                      <button onclick={addRootGroup}
+                              class="text-sm text-brand-green hover:text-[#007a45]">
+                          + Add group
+                      </button>
+                  </div>
+              {/if}
+          </div>
+      - State:
+          let roots = $state<Node[]>(initRoots(version));
+          let collapsed = $state(new Set<string>());
+          let preDragSnapshot: Node[] | null = null;
+          let dragSourceId: string | null = null;
+      - handleRootsChange(items, eventType) updates `roots` directly
+        (the library mutates the items array in place but you should
+        reassign for Svelte reactivity:
+          roots = items;
+        On 'consider', also capture preDragSnapshot if not already
+        captured AND record dragSourceId from `e.detail.info.id`.
+        On 'finalize':
+          - run cycle check (see below)
+          - if invalid: `roots = preDragSnapshot!`, then clear snapshot
+          - if valid: `notify()`, then clear snapshot.
+      - Cycle check helper:
+          function isCycle(rootsAfter: Node[], srcId: string): boolean {
+              // Find srcId in rootsAfter; walk its subtree; if its own
+              // logicalId appears as an ancestor in its NEW path, that's
+              // a cycle. Easier formulation: find srcId; verify it does
+              // not contain itself transitively. Since the library moves
+              // (not copies) and IDs are unique, the cycle case is:
+              // a GROUP was dropped INSIDE its own former subtree, which
+              // makes the new tree non-strict (the same node would have
+              // two parents). Detect by counting occurrences of srcId
+              // across rootsAfter — must be exactly 1.
+              let count = 0;
+              const walk = (n: Node) => {
+                  if (n.logicalId === srcId) count++;
+                  if (n.type === 'GROUP') n.children.forEach(walk);
+              };
+              rootsAfter.forEach(walk);
+              return count !== 1;
+          }
+      - The same consider/finalize pattern is used by each group's
+        children-zone (delegated through EstimationNodeRow's
+        `onChildrenChange` callback which bubbles up to a per-path
+        rewire helper).
+      - Keep all existing helpers (`addRootGroup`, `addChildLeafTo`,
+        `addChildGroupTo`, `deleteAt`, `nodeAt`, `serialize`, `notify`,
+        `pathKey`) — they're still needed for the +/- buttons.
+      - Keyboard cell-nav (Tab/Arrow/Enter through editable cells) MUST
+        still work. Since the rows are now grid items not `<tr>`s, the
+        existing `data-cell="…"` selectors keep working unchanged.
+
+  - |
+    Extend src/backend/.../testdata/TestDataSeeder.kt to seed at least
+    two additional nested subtrees beyond the one task-055 added:
+      - Add a nested subtree in draft2 (e.g., under "U03: Backend &
+        Datenbank" introduce a "Bezahlung" inner group with two leaves
+        like "Stripe-Integration" and "Sepa-Lastschrift").
+      - Add a nested subtree in the Mobile draft (seedMobileApp, e.g.,
+        under "M02: App Features" introduce a "Offline-Modus" inner
+        group with two leaves like "Datensynchronisation" and
+        "Konfliktauflösung").
+    Match the German style and effort values consistent with the
+    surrounding seed. Keep parameters / drivers / phases / additional
+    costs and overall draft count unchanged. The `group(...)` helper
+    already accepts a children list of DraftEstimationNode, so nesting
+    is composition — no new helpers.
+
+  - |
+    Extend src/frontend/e2e/smoke.test.ts with four UI-driven tree-
+    editing cases (place AFTER the existing autosave / round-trip tests):
+
+    1) "build a three-level tree via UI buttons":
+       - POST a fresh draft (no items yet).
+       - Open the version page.
+       - Click "Add group" (empty-state button).
+       - In the new root group's row, click "+ child group" → inner group
+         appears.
+       - In the inner group's row, click "+ item" twice → two leaves.
+       - Wait for the autosave debounce (~1.2s).
+       - Reload the page.
+       - Assert the rendered grid still shows a root > inner-group >
+         {leaf, leaf} structure via row data-testid attributes.
+
+    2) "drag a leaf into a different group reparents it":
+       - Build (via API) two groups each with one leaf: G1[L1], G2[L2].
+       - Open the version page.
+       - Drag L1's row onto G2's children-zone using Playwright's
+         page.locator(...).dragTo(targetLocator). svelte-dnd-action
+         responds to pointer events that Playwright's dragTo synthesises.
+       - Wait for autosave + reload.
+       - Assert G1 is empty and G2 now contains [L2, L1] (svelte-dnd-
+         action appends at the position the user dropped — document the
+         expected order in the assertion).
+
+    3) "drag a leaf onto another leaf reorders siblings":
+       - Build (via API) G1 with two leaves [A, B].
+       - Drag A's row onto B's row position.
+       - Reload.
+       - Assert the order is now [B, A].
+
+    4) "dragging a group onto its own descendant is a no-op":
+       - Build (via API) G1 > InnerG > Leaf.
+       - Drag G1's row INTO InnerG's children-zone (InnerG is a
+         descendant of G1).
+       - Wait briefly.
+       - Reload.
+       - Assert the structure is unchanged (cycle protection rejected
+         the move).
+
+    Notes for the implementer:
+      - First try `source.dragTo(target)`. svelte-dnd-action listens
+        for pointer/mouse events, NOT HTML5 native DnD; if dragTo()
+        synthesises only HTML5 DnD events on your Playwright version
+        the drop won't fire. Fallback that ALWAYS works because it
+        uses real mouse events:
+          await source.hover();
+          await page.mouse.down();
+          await target.hover();
+          await page.mouse.up();
+        For "drop AFTER another sibling" you may need to hover slightly
+        below the target row first — svelte-dnd-action uses pointer
+        position to decide insertion index.
+      - Identify rows by the data-testid="row-{pathKey}" attribute
+        added in step 2.
+
+  - |
+    Run the backend test suite (the seeder change is build-only — no
+    tests cover the seed shape directly, but the build must compile):
+      mvn -pl src/backend/implementation -am test
+
+  - |
+    Run the frontend type-check:
+      cd src/frontend && npm run check
+
+  - |
+    Run the Playwright e2e suite. Backend + frontend must be running on
+    :8080 and :5173 (use ./scripts/dev-local.sh in another shell):
+      cd src/frontend && npx playwright test
+
+    Once the DnD flow works, add a one-line user-facing note to
+    README.md (project root, under whichever section covers the version
+    editor) mentioning the keyboard DnD shortcut that svelte-dnd-action
+    provides for free: "Tab to a row, Space to pick up, arrow keys to
+    move, Space to drop."
+
+  - |
+    Update planning/plan.yaml: add task-057 to phase-9's task list so
+    the plan reflects the actual scope:
+      tasks: [task-049, task-050, task-051, task-052, task-053,
+              task-054, task-055, task-057]
+
+  - |
+    Update planning/README.md: the phase table currently shows row
+    `| 9 | 1 | Tree-shaped Estimation Hierarchy | 049–055 |` (added in
+    task-055). Update the task range to `049–055, 057` so the README
+    matches plan.yaml.
+
+validation:
+  - |
+    svelte-dnd-action is wired into the grid:
+      grep -q "svelte-dnd-action" src/frontend/package.json
+      grep -q "use:dndzone" src/frontend/src/lib/components/EstimationGrid.svelte
+      grep -q "svelte-dnd-action" src/frontend/src/lib/components/EstimationNodeRow.svelte
+      grep -q "use:dndzone" src/frontend/src/lib/components/EstimationNodeRow.svelte
+  - |
+    Recursive row component exists AND is imported/used by the grid:
+      test -f src/frontend/src/lib/components/EstimationNodeRow.svelte
+      grep -q "EstimationNodeRow" src/frontend/src/lib/components/EstimationGrid.svelte
+  - |
+    Every grid row carries a data-testid for e2e locators:
+      grep -q "data-testid=\"row-" src/frontend/src/lib/components/EstimationNodeRow.svelte
+  - |
+    Each dndzone carries an aria-label for screen readers (enforces the
+    accessibility intent stated in the design):
+      grep -q "aria-label" src/frontend/src/lib/components/EstimationNodeRow.svelte
+      grep -q "aria-label" src/frontend/src/lib/components/EstimationGrid.svelte
+  - |
+    Seeder has at least THREE nested groups across drafts (depth ≥ 3
+    from root). Reuses the indent-based heuristic from task-055 — top-
+    level groups sit at 12-space indent, nested groups at ≥ 16:
+      python3 -c "
+      import sys
+      src = open('src/backend/implementation/src/main/kotlin/io/github/theestimator/testdata/TestDataSeeder.kt').read()
+      nested = sum(1 for line in src.split('\n')
+                   if line.lstrip().startswith('group(')
+                   and (len(line) - len(line.lstrip())) >= 16)
+      sys.exit(0 if nested >= 3 else 1)
+      "
+  - |
+    Frontend type-check passes:
+      cd src/frontend && npm run check
+  - |
+    Backend test suite still passes:
+      mvn -pl src/backend/implementation -am test
+  - |
+    Playwright e2e (incl. the four new DnD/tree-building cases) passes:
+      cd src/frontend && npx playwright test
+  - |
+    plan.yaml AND README.md both list task-057 under phase-9. Use
+    `-A4` so the grep window reaches the `tasks: […]` line (the
+    phase-9 block is 4 lines after the id):
+      grep -A4 "id: phase-9" planning/plan.yaml | grep -q "task-057"
+      grep -q "057" planning/README.md
+
+outputs:
+  - created: src/frontend/src/lib/components/EstimationNodeRow.svelte
+  - modified: src/frontend/src/lib/components/EstimationGrid.svelte
+  - modified: src/frontend/package.json
+  - modified: src/frontend/package-lock.json
+  - modified: src/backend/implementation/src/main/kotlin/io/github/theestimator/testdata/TestDataSeeder.kt
+  - modified: src/frontend/e2e/smoke.test.ts
+  - modified: README.md
+  - modified: planning/plan.yaml
+  - modified: planning/README.md
