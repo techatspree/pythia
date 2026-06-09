@@ -98,6 +98,10 @@ Every `try`/`catch` MUST surface failure to the user via the shared `ErrorBanner
 
 Sibling panels (`PhasesPanel`, `ParametersPanel`, `EffortDriversPanel`, `AdditionalCostsPanel`) all snapshot the prop into local `$state` once and never re-sync. Do NOT use `$derived` or two-way bindings to keep `items` in sync with the prop — match the existing pattern verbatim.
 
+### Frontend — generic `TreeTable` component
+
+`src/frontend/src/lib/components/treetable/TreeTable.svelte` is a domain-agnostic, OmniOutliner-style tree-table component generic over a node type `T`. Callers supply `getId` / `getChildren` + a column array whose `cell` snippets render per-row content (branching on `ctx.isGroup` to draw editors on leaves and aggregates on group rows). The component owns indent guide lines, expand/collapse, nested per-group `svelte-dnd-action` dndzones, cycle protection (deep-clone snapshot + microtask-deferred duplicate-id check), and the header / optional footer / optional per-row actions slot. Types live in `treetable/types.ts`; a usage example is `src/frontend/src/routes/dev/tree-table-demo/+page.svelte` (a product-catalog fixture with sum aggregation, accessible at `/dev/tree-table-demo` in dev-local). `EstimationGrid` is the next planned consumer.
+
 ## Planning system
 
 This project uses a YAML-based task plan under `planning/`:
