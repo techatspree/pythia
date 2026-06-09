@@ -216,13 +216,13 @@
       "status": "done",
       "started_at": "2026-05-10T00:00:00+00:00",
       "completed_at": "2026-05-11T09:00:00+00:00",
-      "notes": "Domain module converted to Kotlin Multiplatform. Gradle builds JVM JAR + TypeScript zip (domain.js + domain.d.ts). domain/pom.xml is now a thin wrapper invoking ./gradlew jvmJar packageTypescript publishToMavenLocal. Frontend unpacks KMP output to src/lib/domain/. adapter.ts imports domain.js directly and provides computeCalcMap() using EstimationVersion.calculate(). +page.svelte uses $derived(computeCalcMap(...)) — calc is local, not from PUT response. API types extracted to src/lib/api/types.ts. All components typed. 0 TypeScript errors."
+      "notes": "Domain module converted to Kotlin Multiplatform. Gradle builds JVM JAR + TypeScript zip (domain.js + domain.d.ts). domain/pom.xml is now a thin wrapper invoking ./gradlew jvmJar packageTypescript publishToMavenLocal. Frontend unpacks KMP output to src/lib/domain/. adapter.ts imports domain.js directly and provides computeCalcMap() using EstimationVersion.calculate(). +page.svelte uses $derived(computeCalcMap(...)) \u2014 calc is local, not from PUT response. API types extracted to src/lib/api/types.ts. All components typed. 0 TypeScript errors."
     },
     "task-038": {
       "status": "done",
       "started_at": "2026-05-08T08:38:53+00:00",
       "completed_at": "2026-05-08T16:00:00+00:00",
-      "notes": "ParametersPanel and EffortDriversPanel added. calcMap pattern for offerPT/cost/offerPrice in EstimationGrid. PERT column renamed. colCount 8/7→11/10. buildRealisticDraft helper and 2 new integration tests added."
+      "notes": "ParametersPanel and EffortDriversPanel added. calcMap pattern for offerPT/cost/offerPrice in EstimationGrid. PERT column renamed. colCount 8/7\u219211/10. buildRealisticDraft helper and 2 new integration tests added."
     },
     "task-035": {
       "status": "done",
@@ -342,6 +342,18 @@
       "status": "done",
       "started_at": "2026-06-08T14:27:30+00:00",
       "completed_at": "2026-06-08T15:07:13+00:00",
+      "notes": ""
+    },
+    "task-058": {
+      "status": "pending",
+      "started_at": null,
+      "completed_at": null,
+      "notes": ""
+    },
+    "task-059": {
+      "status": "pending",
+      "started_at": null,
+      "completed_at": null,
       "notes": ""
     }
   }

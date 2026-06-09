@@ -1,0 +1,426 @@
+id: task-059
+phase: phase-9
+title: Port EstimationGrid to the generic TreeTable component
+depends_on: [task-058]
+description: |
+  task-058 delivers a generic, OmniOutliner-style `TreeTable` Svelte
+  component (with header, indent guide lines, expand/collapse,
+  per-group nested dndzones, cycle protection, keyboard cell
+  navigation, footer, row-actions). This task replaces the
+  estimation-specific tree-table code
+  (src/frontend/src/lib/components/EstimationGrid.svelte +
+  src/frontend/src/lib/components/EstimationNodeRow.svelte) with
+  usage of that component. The estimation editor becomes a thin
+  caller: it declares the column shape, supplies per-cell snippets
+  (which render the right editor on leaf rows and the right
+  aggregate on group rows), and wires `onChildrenChange` into the
+  existing autosave path. All current functionality — autosave shape,
+  cycle protection, keyboard nav, DnD reparenting, group/leaf add
+  buttons, delete buttons, totals row — must be preserved end-to-end
+  and the existing 13 Playwright cases must keep passing without
+  modification.
+
+  Current state (assumes task-058 is done):
+    - src/frontend/src/lib/components/EstimationGrid.svelte:
+      owns the roots dndzone, the grid template (12 columns + 2rem
+      drag handle + 2rem actions), header row, totals row, the
+      `add-root group` empty-state button, autosave via
+      onChildrenChange callback prop, cycle protection (preDragSnapshot
+      + queueMicrotask + hasDuplicateIds), addRootGroup helper.
+    - src/frontend/src/lib/components/EstimationNodeRow.svelte:
+      recursive row rendering, per-group children dndzone, indent
+      guide-lines snippet, chevron, all per-leaf editors (description
+      input, type select, phase select, optimistic/likely/pessimistic
+      number inputs, derived PERT display, assumptions input,
+      derived offerPT/cost/offerPrice display), per-group title input,
+      per-row "+ child group" / "+ item" / delete buttons,
+      data-testid="row-{pathKey}" on every row.
+    - The page passes `version`, `onchange`, and other props into
+      EstimationGrid; nothing else in the page knows about row layout.
+    - All 13 existing e2e cases in src/frontend/e2e/smoke.test.ts pass.
+      Five new cases land in src/frontend/e2e/tree-table.test.ts
+      (task-058) — both files keep passing after this task.
+
+  Target state:
+    - EstimationGrid.svelte SHRINKS to ~150 lines: it owns the column
+      definitions, snippets for each estimation cell, wiring between
+      TreeTable's onChildrenChange and the existing notify() /
+      scheduleSave() path, the addRootGroup + per-row add/delete
+      handlers (passed via the `rowActions` snippet for delete + add
+      child), and the totals footer snippet. It composes `<TreeTable>`
+      from task-058 instead of hand-rolling rows.
+    - EstimationNodeRow.svelte is DELETED. Its concerns split into:
+        * tree decorations (indent guide lines, chevron) — owned by
+          the generic TreeTable.
+        * per-cell editors — moved into snippets inside
+          EstimationGrid.svelte.
+        * per-row buttons — moved into a single `rowActions` snippet
+          inside EstimationGrid.svelte that branches on `ctx.isGroup`.
+    - Column key mapping (matches the existing 12 columns + drag-
+      handle + actions):
+        description (tree column, "1fr"),
+        type ("5rem"),
+        phase ("6rem"),
+        optimistic ("6rem", right-aligned),
+        likely ("6rem", right-aligned),
+        pessimistic ("6rem", right-aligned),
+        pert ("6rem", right-aligned),
+        assumptions ("1fr"),
+        offerPT ("6rem", right-aligned),
+        cost ("7rem", right-aligned),
+        offerPrice ("7rem", right-aligned).
+      Drag-handle is added automatically by TreeTable when editable.
+      Delete button + "+ child group" + "+ item" go into rowActions.
+    - Cell-snippet semantics:
+        * description: group → bold editable text input bound to the
+          group's title; leaf → editable text input bound to the
+          leaf's description. Carries `data-cell="description"`.
+        * type: group → blank; leaf → select bound to leaf.type
+          (FIXED / TIME_RELATIVE).
+        * phase: group → blank; leaf → select bound to leaf.phaseId.
+        * optimistic/likely/pessimistic: group → blank; leaf → number
+          input bound to leaf.{optimistic,likely,pessimistic}.
+        * pert: group → blank; leaf → derived display
+          (`(o + 4l + p) / 6`).
+        * assumptions: group → blank; leaf → text input bound to
+          leaf.assumptions.
+        * offerPT / cost / offerPrice: group → read-only display of
+          the accumulated value from `calcMap.get(group.logicalId)`;
+          leaf → read-only display of the per-leaf computed value
+          from `calcMap.get(leaf.logicalId)`.
+    - rowActions snippet (right-most cell):
+        * group → "+ group" button, "+ item" button, delete button.
+        * leaf → delete button.
+    - Footer snippet renders the totals row exactly as it appears
+      today: total offerPT, total cost, total offerPrice, computed
+      from the calcMap.
+    - Autosave: TreeTable's `onChildrenChange` callback fires twice
+      per drop ('consider' + 'finalize'). EstimationGrid calls
+      `applyChildrenAt(parentPath, newChildren)` on every event, and
+      only calls `notify()` (which triggers parent autosave) on
+      'finalize'. This preserves the current behaviour where the in-
+      memory tree updates eagerly during drag for visual smoothness
+      and the autosave fires once on drop.
+    - DnD cycle protection is now OWNED by TreeTable (it never fires
+      `phase: 'finalize'` for a cyclic move). EstimationGrid no
+      longer needs preDragSnapshot, dragSourceId, cycleCheckPending,
+      hasDuplicateIds, or deepClone — DELETE all of them from the
+      file.
+    - Backwards compatibility: every `data-testid` value that the
+      e2e suite locates today must still be present on the rendered
+      DOM. Specifically:
+        * `data-testid="row-{pathKey(path)}"` (used by smoke.test.ts
+          tree-building and DnD tests). TreeTable emits
+          `data-testid="tt-row-{getId(node)}"`. To preserve the
+          existing tests without rewriting them, EstimationGrid
+          ALSO emits the legacy `data-testid="row-{pathKey}"` from
+          inside one of its cell snippets (the description snippet
+          is the natural carrier — its wrapping element gets both
+          `data-cell="description"` and the legacy data-testid).
+      The five Tree-table e2e cases from task-058 keep using
+      `tt-row-…` against the demo route; the thirteen smoke-test
+      cases keep using `row-…` against the estimation editor.
+    - Keyboard cell-nav: the `data-cell="…"` attributes still go on
+      each editor (per the existing convention). TreeTable does not
+      own this — it just renders whatever the cell snippet renders.
+      No changes needed to the existing keyboard-nav logic in the
+      page component.
+
+  Key design decisions (leave no ambiguity):
+    - Identity for TreeTable.getId: return `node.logicalId`. The
+      domain guarantees logicalId is globally unique within a
+      version's tree.
+    - getChildren: `node.type === 'GROUP' ? node.children : null`.
+    - treeColumnKey: `'description'`.
+    - Snippets are defined in EstimationGrid.svelte using Svelte 5
+      `{#snippet name(node, ctx)} … {/snippet}` syntax and passed in
+      the column descriptor (`cell: descriptionCell` etc.). Keep them
+      adjacent to the column array for readability.
+    - Aggregation source: `$derived` map from `version.calculated`
+      via the same `calcMap` lookup the current EstimationGrid uses.
+      Group rows read `calcMap.get(node.logicalId)` directly in the
+      snippet — no recursive summation in the snippet itself, no new
+      computation outside the KMP domain (preserves the single-source-
+      of-truth invariant).
+    - DELETE EstimationNodeRow.svelte. Verify no other file imports
+      it; if any does, fix that file as part of this task.
+
+  Out of scope (explicit):
+    - Modifications to the KMP domain (no behavioural change is
+      required at the domain layer for this port).
+    - Modifications to the backend or REST API.
+    - Modifications to the TreeTable component itself — if its API
+      is insufficient, the implementer must report blockers rather
+      than silently extending the API. (The API was designed to
+      cover this exact case.)
+    - Test rewrites in smoke.test.ts (must keep passing with their
+      current selectors).
+    - Demo route + tree-table.test.ts from task-058 — those stay as
+      independent regression coverage for the generic component.
+
+steps:
+  - |
+    Read the current files end-to-end before editing:
+      src/frontend/src/lib/components/EstimationGrid.svelte
+      src/frontend/src/lib/components/EstimationNodeRow.svelte
+      src/frontend/src/lib/components/treetable/TreeTable.svelte
+      src/frontend/src/lib/components/treetable/types.ts
+      src/frontend/src/routes/dev/tree-table-demo/+page.svelte
+        (use as the worked example)
+      src/frontend/e2e/smoke.test.ts (only the DnD and tree-building
+        cases — to understand what selectors must keep working)
+
+  - |
+    Confirm nothing else imports EstimationNodeRow:
+      grep -r "EstimationNodeRow" src/frontend/src --include="*.svelte" --include="*.ts"
+    The only hit must be EstimationGrid.svelte. If anything else
+    imports it, address that as part of this task (typically by
+    refactoring the consumer to use TreeTable directly or to consume
+    the new EstimationGrid).
+
+  - |
+    Rewrite src/frontend/src/lib/components/EstimationGrid.svelte
+    around the TreeTable composition. Concrete shape:
+
+      <script lang="ts">
+          import TreeTable from './treetable/TreeTable.svelte';
+          import type {TreeColumn, ChildrenChangeEvent}
+              from './treetable/types';
+          // existing imports (Node, calcMap helpers, etc.)
+
+          let {version, phases, editable = true, onchange}: Props = $props();
+
+          let roots = $state<Node[]>(/* same init logic as before */);
+          let calcMap = $derived(/* same as before */);
+
+          function pathKey(path: number[]): string { return path.join('-'); }
+          function getId(n: Node): string { return n.logicalId; }
+          function getChildren(n: Node) { return n.type === 'GROUP' ? n.children : null; }
+
+          function applyChildrenAt(parentPath: number[], newChildren: Node[]) {
+              // splice into roots; same helper as the existing
+              // applyZoneItems but exposed at this level.
+          }
+          function notify() { onchange?.({...}); }
+
+          function handleChildrenChange(e: ChildrenChangeEvent<Node>) {
+              applyChildrenAt(e.parentPath, e.newChildren);
+              if (e.phase === 'finalize') notify();
+          }
+
+          function addRootGroup() { /* same as today */ }
+          function addChildGroupAt(path: number[]) { /* same */ }
+          function addChildLeafAt(path: number[]) { /* same */ }
+          function deleteAt(path: number[]) { /* same */ }
+
+          // Path tracker: TreeTable's ctx.path lets us find the node
+          // again when add/delete callbacks fire.
+
+          const columns: TreeColumn<Node>[] = [
+              {key: 'description', header: 'Beschreibung', width: '1fr',
+               cell: descriptionCell},
+              {key: 'type', header: 'Typ', width: '5rem', cell: typeCell},
+              {key: 'phase', header: 'Phase', width: '6rem', cell: phaseCell},
+              {key: 'optimistic', header: 'Opt.', width: '6rem',
+               align: 'right', cell: optimisticCell},
+              {key: 'likely', header: 'Wahrsch.', width: '6rem',
+               align: 'right', cell: likelyCell},
+              {key: 'pessimistic', header: 'Pess.', width: '6rem',
+               align: 'right', cell: pessimisticCell},
+              {key: 'pert', header: 'PERT', width: '6rem',
+               align: 'right', cell: pertCell},
+              {key: 'assumptions', header: 'Annahmen', width: '1fr',
+               cell: assumptionsCell},
+              {key: 'offerPT', header: 'Angebots-PT', width: '6rem',
+               align: 'right', cell: offerPTCell},
+              {key: 'cost', header: 'Kosten', width: '7rem',
+               align: 'right', cell: costCell},
+              {key: 'offerPrice', header: 'Angebotspreis', width: '7rem',
+               align: 'right', cell: offerPriceCell},
+          ];
+      </script>
+
+      <TreeTable
+          roots={roots}
+          columns={columns}
+          getId={getId}
+          getChildren={getChildren}
+          treeColumnKey="description"
+          editable={editable}
+          onChildrenChange={handleChildrenChange}
+          rowActions={rowActionsSnippet}
+          footer={totalsFooter}
+      />
+      {#if editable}
+          <div class="p-3 border-t bg-gray-50/40">
+              <button onclick={addRootGroup}
+                      class="text-sm text-brand-green hover:text-[#007a45]">
+                  + Add group
+              </button>
+          </div>
+      {/if}
+
+      {#snippet descriptionCell(node, ctx)}
+          <div data-testid="row-{pathKey(ctx.path)}"
+               data-cell="description">
+              {#if ctx.isGroup}
+                  <input bind:value={node.title}
+                         class="font-semibold ..."
+                         oninput={notify} />
+              {:else}
+                  <input bind:value={node.description}
+                         class="..."
+                         oninput={notify} />
+              {/if}
+          </div>
+      {/snippet}
+
+      {#snippet typeCell(node, ctx)}
+          {#if !ctx.isGroup}
+              <select bind:value={node.type} data-cell="type"
+                      onchange={notify}>
+                  <option value="FIXED">Fix</option>
+                  <option value="TIME_RELATIVE">Zeit</option>
+              </select>
+          {/if}
+      {/snippet}
+
+      {#snippet phaseCell(node, ctx)}
+          {#if !ctx.isGroup}
+              <select bind:value={node.phaseId} data-cell="phase"
+                      onchange={notify}>
+                  {#each phases as p}
+                      <option value={p.id}>{p.abbreviation}</option>
+                  {/each}
+              </select>
+          {/if}
+      {/snippet}
+
+      {#snippet optimisticCell(node, ctx)}
+          {#if !ctx.isGroup}
+              <input type="number" step="0.5" bind:value={node.optimistic}
+                     data-cell="optimistic" oninput={notify} />
+          {/if}
+      {/snippet}
+      <!-- likelyCell, pessimisticCell symmetrically -->
+
+      {#snippet pertCell(node, ctx)}
+          {#if !ctx.isGroup}
+              <span class="text-right text-gray-700">
+                  {((node.optimistic + 4*node.likely + node.pessimistic)/6).toFixed(1)}
+              </span>
+          {/if}
+      {/snippet}
+
+      {#snippet assumptionsCell(node, ctx)}
+          {#if !ctx.isGroup}
+              <input bind:value={node.assumptions}
+                     data-cell="assumptions" oninput={notify} />
+          {/if}
+      {/snippet}
+
+      {#snippet offerPTCell(node, ctx)}
+          <span class="text-right tabular-nums">
+              {calcMap.get(node.logicalId)?.offerPT?.toFixed(1) ?? ''}
+          </span>
+      {/snippet}
+      <!-- costCell, offerPriceCell symmetrically -->
+
+      {#snippet rowActionsSnippet(node, ctx)}
+          {#if ctx.isGroup}
+              <button onclick={() => addChildGroupAt(ctx.path)}
+                      title="+ child group">+G</button>
+              <button onclick={() => addChildLeafAt(ctx.path)}
+                      title="+ item">+I</button>
+          {/if}
+          <button onclick={() => deleteAt(ctx.path)}
+                  title="Löschen" aria-label="Delete row">×</button>
+      {/snippet}
+
+      {#snippet totalsFooter(allRoots)}
+          <!-- Same totals layout as the existing footer: sum offerPT,
+               sum cost, sum offerPrice across roots via calcMap. -->
+      {/snippet}
+
+    Remove every reference to: preDragSnapshot, dragSourceId,
+    cycleCheckPending, hasDuplicateIds, deepClone, the old
+    handleZoneEvent, the old applyZoneItems, the old dndzone
+    config import (`overrideItemIdKeyName…`), the old per-cell
+    `data-cell="row"` shim. TreeTable owns all of that now.
+
+  - |
+    Delete src/frontend/src/lib/components/EstimationNodeRow.svelte:
+      git rm src/frontend/src/lib/components/EstimationNodeRow.svelte
+
+  - |
+    Frontend type-check:
+      cd src/frontend && npm run check
+
+  - |
+    Run the Playwright e2e suite. Backend + frontend must be running
+    on :8080 and :5173 (use ./scripts/dev-local.sh). All 13 cases in
+    smoke.test.ts AND all 5 cases in tree-table.test.ts must pass:
+      cd src/frontend && npx playwright test
+
+  - |
+    Update CLAUDE.md (project root) frontend section: replace the
+    paragraph describing `EstimationGrid.svelte +
+    EstimationNodeRow.svelte` with one describing that the editor is
+    now a thin caller of the generic TreeTable component (with a
+    pointer to src/frontend/src/lib/components/treetable/ for the
+    component itself and to EstimationGrid.svelte for the column +
+    snippet wiring).
+
+  - |
+    Update planning/plan.yaml: add task-059 to phase-9's task list:
+      tasks: [task-049, task-050, task-051, task-052, task-053,
+              task-054, task-055, task-057, task-058, task-059]
+
+  - |
+    Update planning/README.md: change the phase-9 row's task range
+    from `049–055, 057–058` to `049–055, 057–059`.
+
+validation:
+  - |
+    EstimationNodeRow.svelte is gone:
+      test ! -f src/frontend/src/lib/components/EstimationNodeRow.svelte
+  - |
+    No file in src/frontend imports EstimationNodeRow:
+      ! grep -r "EstimationNodeRow" src/frontend/src --include="*.svelte" --include="*.ts"
+  - |
+    EstimationGrid composes TreeTable and no longer owns DnD plumbing:
+      grep -q "import TreeTable" src/frontend/src/lib/components/EstimationGrid.svelte
+      grep -q "<TreeTable" src/frontend/src/lib/components/EstimationGrid.svelte
+      ! grep -q "use:dndzone" src/frontend/src/lib/components/EstimationGrid.svelte
+      ! grep -q "hasDuplicateIds" src/frontend/src/lib/components/EstimationGrid.svelte
+      ! grep -q "preDragSnapshot" src/frontend/src/lib/components/EstimationGrid.svelte
+  - |
+    Cell snippets are defined for each documented column key:
+      for k in description type phase optimistic likely pessimistic pert assumptions offerPT cost offerPrice; do
+          grep -q "key: '$k'" src/frontend/src/lib/components/EstimationGrid.svelte || exit 1
+      done
+  - |
+    Legacy data-testid is still emitted (so existing smoke e2e
+    selectors keep working):
+      grep -q "data-testid=\"row-" src/frontend/src/lib/components/EstimationGrid.svelte
+  - |
+    Frontend type-check passes:
+      cd src/frontend && npm run check
+  - |
+    Full Playwright e2e suite (smoke 13 + tree-table 5) passes:
+      cd src/frontend && npx playwright test
+  - |
+    plan.yaml AND README.md list task-059 under phase-9:
+      grep -A4 "id: phase-9" planning/plan.yaml | grep -q "task-059"
+      grep -q "059" planning/README.md
+  - |
+    CLAUDE.md describes the editor as a TreeTable caller (not the
+    old node-row architecture):
+      grep -q "TreeTable" CLAUDE.md
+
+outputs:
+  - modified: src/frontend/src/lib/components/EstimationGrid.svelte
+  - deleted: src/frontend/src/lib/components/EstimationNodeRow.svelte
+  - modified: CLAUDE.md
+  - modified: planning/plan.yaml
+  - modified: planning/README.md

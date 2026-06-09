@@ -1,0 +1,536 @@
+id: task-058
+phase: phase-9
+title: Generic OmniOutliner-style TreeTable Svelte component
+depends_on: [task-057]
+description: |
+  After task-057 the estimation editor is a tree with DnD, but the
+  whole tree-table machinery (recursive row rendering, indent + guide
+  lines, expand/collapse, nested dndzones, cycle protection, keyboard
+  cell navigation, totals row) is hard-wired into two estimation-
+  specific files. The pattern itself — a hierarchical outline whose
+  inner nodes aggregate values from their descendants, displayed as a
+  tree in the leftmost column with one editable column per data field,
+  inspired by OmniOutliner (https://www.omnigroup.com/omnioutliner) —
+  is reusable. The current grid is also still hard to scan and hard to
+  edit because cell editors, indentation, and DnD affordances are
+  tangled together in ad-hoc markup. This task extracts a generic,
+  domain-agnostic `TreeTable` component so a caller can describe its
+  tree shape + columns and get a polished, OmniOutliner-style outline
+  for free.
+
+  task-059 will then port the estimation editor onto this component.
+  THIS task only delivers the component itself, exercised via a small
+  demo route used to verify the API and visual polish.
+
+  Current state (verified):
+    - src/frontend/src/lib/components/EstimationGrid.svelte (top-level
+      grid + roots dndzone + totals row + add-root button) and
+      src/frontend/src/lib/components/EstimationNodeRow.svelte
+      (recursive row + per-group children dndzone + inline editors)
+      jointly own ~600+ lines of estimation-specific tree-table code.
+    - svelte-dnd-action@^0.9.69 is already a dependency
+      (src/frontend/package.json). The cycle-protection pattern
+      (preDragSnapshot + queueMicrotask deferred check +
+      hasDuplicateIds) lives in EstimationGrid.svelte.
+    - There is NO generic tree-table component anywhere in src/frontend.
+
+  Target state:
+    - A new file
+      src/frontend/src/lib/components/treetable/TreeTable.svelte
+      generic over a node type `T` (Svelte 5 `<script lang="ts"
+      generics="T">`). The component owns: header rendering, depth-
+      first row rendering, indent guide lines (the IDE file-tree
+      style introduced at the end of task-057), expand/collapse,
+      nested per-group dndzones, cycle protection, keyboard cell
+      navigation, optional footer/totals row, optional per-row
+      action snippet. The caller provides: tree data shape, column
+      definitions, snippets for cell content.
+    - A new file
+      src/frontend/src/lib/components/treetable/types.ts
+      with the public type contracts: `TreeColumn<T>`,
+      `TreeNodeContext<T>`, `TreeTableProps<T>`,
+      `ChildrenChangeEvent<T>`.
+    - A demo route src/frontend/src/routes/dev/tree-table-demo/+page.svelte
+      that mounts the component against a static fixture (a small
+      product-catalog tree with name / quantity / unit-price /
+      line-total columns and sum aggregation) so the component can be
+      visually verified in dev-local without depending on the
+      estimation domain. The demo also serves as a worked usage
+      example for the developer porting estimation in task-059.
+    - A Playwright e2e file
+      src/frontend/e2e/tree-table.test.ts
+      that exercises the demo route's core flows: header renders, all
+      rows render, expand/collapse hides/shows children, keyboard DnD
+      reorders siblings, keyboard DnD reparents into a different group,
+      cycle protection rejects an invalid drop.
+    - EstimationGrid and EstimationNodeRow are NOT touched in this task.
+      They keep working as-is. The porting happens in task-059.
+
+  Key design decisions (leave no ambiguity):
+    - Naming convention: "TreeTable" not "Outliner" — describes the
+      shape (tree + columns) not the inspiration. Folder is
+      `components/treetable/` so future sibling files (helpers, demo,
+      tests) live together.
+
+    - API surface (in types.ts):
+
+        export type TreeColumn<T> = {
+            /** Stable key — used for grid-template-columns ordering and
+             *  keyboard nav cell addressing. */
+            key: string;
+            /** Header label rendered in the column header cell. */
+            header: string;
+            /** CSS grid track size, e.g. "6rem", "1fr", "minmax(8rem, 1fr)". */
+            width: string;
+            /** Horizontal alignment hint for the default header cell. */
+            align?: 'left' | 'right' | 'center';
+            /** Snippet rendering ONE cell.
+             *  The snippet receives the node and a TreeNodeContext<T>.
+             *  The same snippet is invoked for both leaf and group rows;
+             *  the snippet may branch on ctx.isGroup to render
+             *  aggregates (e.g. sum) on group rows and editors on
+             *  leaves. */
+            cell: Snippet<[T, TreeNodeContext<T>]>;
+        };
+
+        export type TreeNodeContext<T> = {
+            depth: number;             // 0 = root level
+            path: number[];            // index path from roots
+            isGroup: boolean;          // true iff getChildren(node) != null
+            expanded: boolean;
+            toggle: () => void;        // collapse/expand this node
+        };
+
+        export type ChildrenChangeEvent<T> = {
+            /** Path to the parent whose children list was rewritten.
+             *  Empty array means the roots list itself was rewritten. */
+            parentPath: number[];
+            newChildren: T[];
+            /** 'consider' fires while dragging (placeholder phase);
+             *  'finalize' fires on drop. Callers usually only persist
+             *  on 'finalize'. */
+            phase: 'consider' | 'finalize';
+        };
+
+        export type TreeTableProps<T> = {
+            roots: T[];
+            columns: TreeColumn<T>[];
+
+            /** Returns a stable, globally-unique id for a node. Used as
+             *  the dndzone item key. The id MUST be unique across the
+             *  whole tree (not just among siblings) for cycle protection
+             *  to work. */
+            getId: (node: T) => string;
+
+            /** Returns the node's children, or null if the node is a
+             *  leaf. A non-null empty array still counts as a group
+             *  (renders a chevron + an empty children dndzone). */
+            getChildren: (node: T) => T[] | null;
+
+            /** The key of the column whose cell snippet receives the
+             *  tree decorations (indent guide lines + chevron). The
+             *  caller's snippet is rendered AFTER the decorations
+             *  inside the same cell. Defaults to columns[0].key. */
+            treeColumnKey?: string;
+
+            /** When false: hides the drag handle, disables dndzones,
+             *  hides any per-row action snippet. Defaults to true. */
+            editable?: boolean;
+
+            /** Called on every dndzone consider/finalize event. The
+             *  parent application owns the tree state; this callback
+             *  receives the new children list for ONE specific parent
+             *  (or the roots) and is responsible for splicing it back
+             *  into the overall state and triggering autosave on
+             *  'finalize'. Cycle protection (see below) runs INSIDE
+             *  the component before this callback fires, so the caller
+             *  never sees a cyclic tree. */
+            onChildrenChange?: (e: ChildrenChangeEvent<T>) => void;
+
+            /** Optional snippet rendered at the very end of each row,
+             *  in a dedicated trailing column. Use for delete / "add
+             *  child" buttons. Disabled when editable is false. */
+            rowActions?: Snippet<[T, TreeNodeContext<T>]>;
+
+            /** Optional snippet rendered as a footer row that spans
+             *  the full grid width. Receives the full roots list.
+             *  Use for totals. */
+            footer?: Snippet<[T[]]>;
+
+            /** Initial collapsed-node ids. Defaults to empty set (all
+             *  expanded). The component owns the collapse state after
+             *  mount; this is a one-shot init. */
+            initialCollapsed?: Set<string>;
+        };
+
+    - Layout: CSS grid (NOT <table>), same pattern as the current
+      EstimationGrid. `display: contents` on row wrappers so every
+      cell is a direct grid item. Column tracks come from
+      `columns.map(c => c.width).join(' ')` joined with `2rem` (drag
+      handle) prepended when editable, and `4rem` (row actions)
+      appended when rowActions is provided AND editable.
+
+    - Tree decorations: the cell snippet for the configured
+      `treeColumnKey` is wrapped by the component with the existing
+      indent-guide-lines pattern from EstimationNodeRow.svelte
+      (one 1.5rem-wide `<span class="border-l-2 border-gray-300">`
+      per depth level, aria-hidden), followed by the chevron
+      (expanded ▾ / collapsed ▸ / invisible spacer for leaves), then
+      the caller's snippet content. The caller's snippet does NOT
+      need to render indentation or chevron.
+
+    - DnD: one dndzone per parent (one for roots + one for each
+      group's children). Same library and same configuration as
+      task-057 — `type: 'tree-table-node'`, `flipDurationMs: 200`,
+      `dropTargetStyle: {}`, `dragDisabled: !editable`. Each dndzone
+      has `aria-label="Children of {label}"` (root zone uses
+      "Root nodes"); the label of a non-root node comes from
+      `String(node[Object.keys(node)[0]])` is too fragile — instead,
+      derive the label by invoking the tree-column's `cell` snippet
+      semantics is not possible from script. Compromise: the
+      aria-label is just "Children" (or "Root nodes" for roots).
+      Document this limitation in a one-line comment.
+      `overrideItemIdKeyNameBeforeInitialisingDndZones` is called
+      once at module load with the value `'__treeTableId'`, and
+      the component synthesises that key on a SHALLOW wrapper around
+      each node (`{__treeTableId: getId(n), node: n}`) so the
+      caller's node type does not have to expose `'logicalId'`.
+      After consider/finalize, the wrapper layer is stripped before
+      handing the new children list to `onChildrenChange`.
+
+    - Cycle protection: same pattern as task-057's
+      EstimationGrid.svelte, lifted into the generic component.
+      Capture a deep clone of the entire roots tree on the first
+      `consider` of a drag. On `finalize`, queueMicrotask a check
+      using `hasDuplicateIds(roots, getId)`. If a duplicate is
+      found (= the dragged subtree is now reachable via two paths,
+      which is the signature of dropping a group into its own
+      descendant), restore roots to the snapshot and SKIP firing
+      `onChildrenChange` for `phase: 'finalize'`. Always clear
+      snapshot afterwards.
+
+    - Keyboard cell navigation: lift the existing `data-cell="…"`
+      Tab-trap pattern from EstimationGrid. The caller's snippets
+      are responsible for placing `data-cell="{col.key}"` attributes
+      on their own focusable elements — the component does not own
+      or render the inputs. The component DOES render the chevron
+      with `tabindex="0"` and handles Space/Enter to toggle.
+
+    - Expand/collapse: a top-level `Set<string>` of collapsed node
+      ids. Toggle by adding/removing the id; rendering walks the
+      tree and skips children of collapsed nodes.
+
+    - Demo route (the test fixture):
+      A static catalog: 2 root categories, each with 2 inner groups,
+      each with 2 leaf products. Columns: name (tree column),
+      quantity (number, leaf-only — group rows show sum),
+      unitPrice (currency, leaf-only — group rows blank),
+      lineTotal (currency = quantity * unitPrice on leaves;
+      sum on groups). The demo's onChildrenChange handler updates a
+      `$state` variable to mirror dnd reorderings (no persistence,
+      just in-memory).
+
+    - The demo route lives under `/dev/tree-table-demo` and is NOT
+      linked from the main navigation. This is a developer aid only;
+      do not add it to the user-facing menus.
+
+  Out of scope (explicit):
+    - Porting EstimationGrid / EstimationNodeRow to TreeTable
+      (task-059).
+    - Native column-sort, column-resize, virtual scrolling, column
+      hiding — not OmniOutliner features we need yet.
+    - Touch-device DnD — same scope as task-057.
+    - Inline group ↔ leaf conversion. The component fixes a node's
+      kind for the lifetime of the row; conversion happens at the
+      caller's tree-data layer.
+    - Built-in aggregation operators. Aggregation is the CALLER's
+      responsibility — the cell snippet branches on `ctx.isGroup`
+      and renders whatever it wants. (OmniOutliner ships built-in
+      sum/avg/count operators per column; we don't, because each
+      caller's domain has its own derived-value semantics.)
+
+steps:
+  - |
+    Create the directory structure:
+      mkdir -p src/frontend/src/lib/components/treetable
+    Then create src/frontend/src/lib/components/treetable/types.ts with
+    the four type exports listed in the design above
+    (`TreeColumn<T>`, `TreeNodeContext<T>`, `ChildrenChangeEvent<T>`,
+    `TreeTableProps<T>`). Import `Snippet` from 'svelte'. No runtime
+    code in this file.
+
+  - |
+    Create src/frontend/src/lib/components/treetable/TreeTable.svelte.
+    Top of the script block:
+      <script lang="ts" generics="T">
+          import {dndzone, overrideItemIdKeyNameBeforeInitialisingDndZones}
+              from 'svelte-dnd-action';
+          import type {TreeColumn, TreeNodeContext, TreeTableProps,
+                       ChildrenChangeEvent} from './types';
+
+          overrideItemIdKeyNameBeforeInitialisingDndZones('__treeTableId');
+
+          let {
+              roots: initialRoots,
+              columns,
+              getId,
+              getChildren,
+              treeColumnKey = columns[0].key,
+              editable = true,
+              onChildrenChange,
+              rowActions,
+              footer,
+              initialCollapsed = new Set<string>(),
+          }: TreeTableProps<T> = $props();
+
+          let roots = $state<T[]>(initialRoots);
+          let collapsed = $state(new Set(initialCollapsed));
+          let preDragSnapshot: T[] | null = null;
+          let cycleCheckPending = false;
+      </script>
+
+    Implement the helpers as ordinary script functions (NOT $derived):
+      - `wrap(node)` -> {__treeTableId: getId(node), node}
+      - `unwrap(items)` -> items.map(i => i.node)
+      - `deepClone(nodes)` — JSON round-trip is fine (the caller's
+        node type is plain data); document this as the constraint.
+      - `hasDuplicateIds(nodes)` — walks the tree collecting getId()
+        results into a Set and returns true on the first collision.
+      - `applyChildren(parentPath, newChildren)` — splices the new
+        children list into the `roots` tree at parentPath. parentPath
+        empty array → replaces `roots` itself.
+      - `findNodeAtPath(path)` — used only for splicing in
+        applyChildren.
+
+    Render:
+      - Outer wrapper: `<div class="border rounded-lg overflow-hidden">`
+      - Grid container: `<div class="grid" style="grid-template-columns:
+        {gridTemplateColumns}">` where gridTemplateColumns =
+          (editable ? '2rem ' : '') + columns.map(c => c.width).join(' ')
+          + (rowActions && editable ? ' 4rem' : '')
+      - Header row: `<div class="contents">` then one
+        `<div class="px-2 py-2 text-xs font-semibold ...">` per column.
+        Prepend an empty cell for the drag-handle column if editable;
+        append an empty cell for the row-actions column if needed.
+      - Roots dndzone: `<div class="contents"
+              use:dndzone={{items: wrappedRoots,
+                            type: 'tree-table-node',
+                            flipDurationMs: 200,
+                            dropTargetStyle: {},
+                            dragDisabled: !editable}}
+              onconsider={(e) => handleZoneEvent([], e)}
+              onfinalize={(e) => handleZoneEvent([], e)}
+              aria-label="Root nodes">
+              {#each wrappedRoots as wrapper (wrapper.__treeTableId)}
+                  {@render renderRow(wrapper.node, [idx], 0)}
+              {/each}
+          </div>`
+        (Use a derived `wrappedRoots = $derived(roots.map(wrap))` so
+        identities reset when roots reassigns.)
+      - `{#snippet renderRow(node, path, depth)}`: yields nothing if
+        any ancestor id is in `collapsed` (track via a recursion
+        parameter). Otherwise, render one row:
+          - drag-handle cell (editable only): `<span data-dnd-handle>⋮⋮</span>`
+          - one cell per column. The tree-column cell wraps:
+              - indent guide lines (one 1.5rem-wide span per depth)
+              - chevron: `<button tabindex="0" onclick={() => toggle(node)}
+                            onkeydown={(e) => (e.key === ' ' || e.key === 'Enter')
+                                              && (e.preventDefault(), toggle(node))}>
+                            {isGroup ? (expanded ? '▾' : '▸') : ''}
+                         </button>`
+                  (leaves render an invisible spacer of the same width
+                   to keep columns aligned)
+              - then `{@render col.cell(node, ctx)}`
+            Non-tree columns just `{@render col.cell(node, ctx)}`.
+          - row-actions cell (editable + rowActions): `{@render rowActions(node, ctx)}`
+        Add `data-testid="tt-row-{getId(node)}"` to a wrapper around
+        the row's cells so e2e tests can locate rows.
+        If isGroup AND expanded:
+          render a nested dndzone:
+            `<div class="contents"
+                  use:dndzone={{items: node.getChildren().map(wrap), ...}}
+                  onconsider={(e) => handleZoneEvent(path, e)}
+                  onfinalize={(e) => handleZoneEvent(path, e)}
+                  aria-label="Children">
+                  {#each ... as childWrapper (childWrapper.__treeTableId)}
+                      {@render renderRow(childWrapper.node, [...path, idx], depth + 1)}
+                  {/each}
+            </div>`
+
+      - Footer: `{#if footer}<div class="contents"><div style="grid-column: 1 / -1">
+                  {@render footer(roots)}</div></div>{/if}`
+
+    handleZoneEvent(parentPath, e):
+      - Compute newChildren = unwrap(e.detail.items).
+      - On 'consider': capture preDragSnapshot = deepClone(roots) if
+        null; applyChildren(parentPath, newChildren); fire
+        onChildrenChange?.({parentPath, newChildren, phase: 'consider'}).
+      - On 'finalize': applyChildren(parentPath, newChildren); if
+        cycleCheckPending return; cycleCheckPending = true;
+        queueMicrotask(() => {
+            if (hasDuplicateIds(roots) && preDragSnapshot !== null) {
+                roots = preDragSnapshot;
+            } else {
+                onChildrenChange?.({parentPath, newChildren, phase: 'finalize'});
+            }
+            preDragSnapshot = null;
+            cycleCheckPending = false;
+        });
+
+    toggle(node):
+      - id = getId(node); if collapsed.has(id) collapsed.delete(id)
+        else collapsed.add(id); collapsed = new Set(collapsed) (reassign
+        to trigger reactivity).
+
+  - |
+    Create the demo route src/frontend/src/routes/dev/tree-table-demo/+page.svelte:
+      - Defines a CatalogNode discriminated union:
+          type CatalogLeaf = {kind: 'leaf', id: string, name: string,
+                              quantity: number, unitPrice: number};
+          type CatalogGroup = {kind: 'group', id: string, name: string,
+                               children: CatalogNode[]};
+          type CatalogNode = CatalogLeaf | CatalogGroup;
+      - Seeds a 2-root × 2-inner × 2-leaf fixture with German names
+        (matches the project's tone).
+      - Declares four columns: name (tree column), quantity,
+        unitPrice, lineTotal.
+      - The name column's snippet:
+          {#snippet nameCell(node, ctx)}
+              {#if ctx.isGroup}
+                  <span class="font-semibold">{node.name}</span>
+              {:else}
+                  <input bind:value={node.name} data-cell="name"
+                         class="..." />
+              {/if}
+          {/snippet}
+      - The quantity column's snippet:
+          {#snippet quantityCell(node, ctx)}
+              {#if ctx.isGroup}
+                  <span class="text-right text-gray-500">
+                      {sumQuantity(node)}
+                  </span>
+              {:else}
+                  <input type="number" bind:value={node.quantity}
+                         data-cell="quantity" />
+              {/if}
+          {/snippet}
+        (helpers `sumQuantity`, `sumLineTotal` walk the descendants.)
+      - The footer snippet renders "Total: €{sumLineTotal across roots}".
+      - The onChildrenChange handler updates the local $state roots
+        on 'finalize' by splicing newChildren into the path. (Demo
+        only — no persistence.)
+
+  - |
+    Create src/frontend/e2e/tree-table.test.ts. Reuse the keyboard-DnD
+    helpers from smoke.test.ts (copy-paste is fine for now; do not
+    refactor existing tests in this task):
+      - keyboardReorder(page, source, direction) — Tab to source,
+        Space, ArrowUp/Down, Space.
+      - keyboardReparent(page, source, target) — focus source, Space,
+        focus target zone, Space.
+    Cases (all against /dev/tree-table-demo):
+      1) "tree-table demo renders header, all rows, and footer total":
+         visit, expect each column header text, expect every fixture
+         node's `tt-row-{id}` selector present, expect a footer line
+         containing "Total:".
+      2) "collapsing a group hides its descendants":
+         click the chevron of group `g1`, expect rows for its
+         descendants to no longer be in the DOM.
+      3) "keyboard reorder within a group":
+         keyboardReorder a leaf down one position, expect new sibling
+         ordering via row positions.
+      4) "keyboard reparent across groups":
+         keyboardReparent a leaf from g1's children-zone into g2's
+         children-zone, expect the leaf now appears under g2.
+      5) "cycle protection rejects dropping a group into its
+         descendant":
+         keyboardReparent root group g1 into its own inner group's
+         children-zone; assert no duplicate row id appears and the
+         tree is unchanged from the initial fixture.
+
+  - |
+    Frontend type-check:
+      cd src/frontend && npm run check
+
+  - |
+    Run the Playwright e2e suite. Backend + frontend must be running
+    on :8080 and :5173 (use ./scripts/dev-local.sh):
+      cd src/frontend && npx playwright test
+
+  - |
+    Update planning/plan.yaml: add task-058 to phase-9's task list:
+      tasks: [task-049, task-050, task-051, task-052, task-053,
+              task-054, task-055, task-057, task-058]
+
+  - |
+    Update planning/README.md: change the phase-9 row's task range
+    from `049–055, 057` to `049–055, 057–058`.
+
+  - |
+    Add a one-paragraph note to CLAUDE.md (project root) under the
+    frontend section, describing the new generic TreeTable component
+    and pointing at /dev/tree-table-demo as the usage reference. Do
+    NOT touch EstimationGrid documentation in this task — that
+    happens in task-059 when the porting actually lands.
+
+validation:
+  - |
+    The generic component files exist:
+      test -f src/frontend/src/lib/components/treetable/TreeTable.svelte
+      test -f src/frontend/src/lib/components/treetable/types.ts
+  - |
+    types.ts exports the four documented contracts:
+      grep -q "export type TreeColumn" src/frontend/src/lib/components/treetable/types.ts
+      grep -q "export type TreeNodeContext" src/frontend/src/lib/components/treetable/types.ts
+      grep -q "export type ChildrenChangeEvent" src/frontend/src/lib/components/treetable/types.ts
+      grep -q "export type TreeTableProps" src/frontend/src/lib/components/treetable/types.ts
+  - |
+    TreeTable.svelte wires svelte-dnd-action, owns cycle protection,
+    and is generic:
+      grep -q "use:dndzone" src/frontend/src/lib/components/treetable/TreeTable.svelte
+      grep -q "overrideItemIdKeyNameBeforeInitialisingDndZones" src/frontend/src/lib/components/treetable/TreeTable.svelte
+      grep -q "hasDuplicateIds" src/frontend/src/lib/components/treetable/TreeTable.svelte
+      grep -q "generics=\"T\"" src/frontend/src/lib/components/treetable/TreeTable.svelte
+  - |
+    Tree decorations (indent guide lines + chevron) and row testids
+    are rendered by the component, not the caller:
+      grep -q "border-l-2" src/frontend/src/lib/components/treetable/TreeTable.svelte
+      grep -q "data-testid=\"tt-row-" src/frontend/src/lib/components/treetable/TreeTable.svelte
+  - |
+    Demo route exists and uses the component:
+      test -f src/frontend/src/routes/dev/tree-table-demo/+page.svelte
+      grep -q "TreeTable" src/frontend/src/routes/dev/tree-table-demo/+page.svelte
+  - |
+    e2e file exists and covers the five documented cases:
+      test -f src/frontend/e2e/tree-table.test.ts
+      grep -q "renders header" src/frontend/e2e/tree-table.test.ts
+      grep -q "collapsing" src/frontend/e2e/tree-table.test.ts
+      grep -q "keyboard reorder" src/frontend/e2e/tree-table.test.ts
+      grep -q "keyboard reparent" src/frontend/e2e/tree-table.test.ts
+      grep -q "cycle protection" src/frontend/e2e/tree-table.test.ts
+  - |
+    EstimationGrid and EstimationNodeRow are NOT touched in this task:
+      git diff --name-only HEAD -- src/frontend/src/lib/components/EstimationGrid.svelte | wc -l | grep -q "^0$" || true
+      git diff --name-only HEAD -- src/frontend/src/lib/components/EstimationNodeRow.svelte | wc -l | grep -q "^0$" || true
+    (Soft check: the task should not modify the estimation files.
+    Implementer: if your diff lists either file, revert it — porting
+    is task-059.)
+  - |
+    Frontend type-check passes:
+      cd src/frontend && npm run check
+  - |
+    Playwright e2e suite (existing 13 cases + the 5 new cases) passes:
+      cd src/frontend && npx playwright test
+  - |
+    plan.yaml AND README.md list task-058 under phase-9:
+      grep -A4 "id: phase-9" planning/plan.yaml | grep -q "task-058"
+      grep -q "058" planning/README.md
+
+outputs:
+  - created: src/frontend/src/lib/components/treetable/TreeTable.svelte
+  - created: src/frontend/src/lib/components/treetable/types.ts
+  - created: src/frontend/src/routes/dev/tree-table-demo/+page.svelte
+  - created: src/frontend/e2e/tree-table.test.ts
+  - modified: CLAUDE.md
+  - modified: planning/plan.yaml
+  - modified: planning/README.md
