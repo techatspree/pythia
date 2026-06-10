@@ -37,3 +37,4 @@ src/frontend/node/
 
 # Generated TypeScript types from domain module
 src/frontend/src/lib/types/generated/
+/docs/InfosNotForGit.txt

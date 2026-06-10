@@ -166,7 +166,7 @@
 		Drag rows with mouse or keyboard (Tab → Space → Arrow → Space) to reorganise.
 	</p>
 	<TreeTable
-		roots={roots}
+		bind:roots={roots}
 		columns={columns}
 		getId={getId}
 		getChildren={getChildren}

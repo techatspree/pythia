@@ -13,7 +13,7 @@
 	} from './types';
 
 	let {
-		roots: initialRoots,
+		roots = $bindable<T[]>([]),
 		columns,
 		getId,
 		getChildren,
@@ -21,11 +21,12 @@
 		editable = true,
 		onChildrenChange,
 		rowActions,
+		rowAttrs,
+		childrenZoneAttrs,
 		footer,
 		initialCollapsed = new Set<string>()
-	}: TreeTableProps<T> = $props();
+	}: TreeTableProps<T> & { roots?: T[] } = $props();
 
-	let roots = $state<T[]>(initialRoots);
 	let collapsed = $state(new Set(initialCollapsed));
 	let preDragSnapshot: T[] | null = null;
 	let cycleCheckPending = false;
@@ -44,22 +45,31 @@
 		return JSON.parse(JSON.stringify(nodes));
 	}
 
-	function hasDuplicateIds(nodes: T[]): boolean {
-		const seen = new Set<string>();
+	function collectIds(nodes: T[]): { ids: Set<string>; duplicate: boolean } {
+		const ids = new Set<string>();
 		let duplicate = false;
 		const walk = (n: T) => {
 			if (duplicate) return;
 			const id = getId(n);
-			if (seen.has(id)) {
+			if (ids.has(id)) {
 				duplicate = true;
 				return;
 			}
-			seen.add(id);
+			ids.add(id);
 			const kids = getChildren(n);
 			if (kids != null) kids.forEach(walk);
 		};
 		nodes.forEach(walk);
-		return duplicate;
+		return { ids, duplicate };
+	}
+
+	function isStructuralAnomaly(after: T[], before: T[]): boolean {
+		const a = collectIds(after);
+		if (a.duplicate) return true;
+		const b = collectIds(before);
+		if (a.ids.size !== b.ids.size) return true;
+		for (const id of b.ids) if (!a.ids.has(id)) return true;
+		return false;
 	}
 
 	function nodeAtPath(path: number[]): T | null {
@@ -105,7 +115,7 @@
 			if (cycleCheckPending) return;
 			cycleCheckPending = true;
 			queueMicrotask(() => {
-				if (hasDuplicateIds(roots) && preDragSnapshot !== null) {
+				if (preDragSnapshot !== null && isStructuralAnomaly(roots, preDragSnapshot)) {
 					roots = preDragSnapshot;
 				} else {
 					onChildrenChange?.({ parentPath, newChildren, phase: 'finalize' });
@@ -140,6 +150,10 @@
 		(editable ? '2rem ' : '') +
 			columns.map((c) => c.width).join(' ') +
 			(rowActions && editable ? ' 4rem' : '')
+	);
+
+	const rootZoneAttrs = $derived(
+		childrenZoneAttrs ? childrenZoneAttrs(null) : { 'aria-label': 'Root nodes' }
 	);
 
 	function alignClass(a: 'left' | 'right' | 'center' | undefined): string {
@@ -185,7 +199,8 @@
 	{@const kids = getChildren(node)}
 	{@const isGroup = kids != null}
 	{@const ctx = makeCtx(node, depth, path, isGroup)}
-	<div data-testid="tt-row-{getId(node)}">
+	{@const extraAttrs = rowAttrs ? rowAttrs(node, ctx) : {}}
+	<div data-testid="tt-row-{getId(node)}" {...extraAttrs}>
 		<div
 			class="grid items-center border-b hover:bg-gray-50"
 			style="grid-template-columns: {gridTemplateColumns}"
@@ -220,6 +235,9 @@
 
 		{#if isGroup && ctx.expanded}
 			{@const wrappedChildren = (kids as T[]).map(wrap)}
+			{@const childZoneAttrs = childrenZoneAttrs
+				? childrenZoneAttrs(node)
+				: { 'aria-label': 'Children' }}
 			<div
 				use:dndzone={{
 					items: wrappedChildren,
@@ -230,7 +248,7 @@
 				}}
 				onconsider={(e) => handleZoneEvent(path, e)}
 				onfinalize={(e) => handleZoneEvent(path, e)}
-				aria-label="Children"
+				{...childZoneAttrs}
 			>
 				{#each wrappedChildren as w, idx (w.__treeTableId)}
 					{@render renderRow(w.node, [...path, idx], depth + 1)}
@@ -266,7 +284,7 @@
 		}}
 		onconsider={(e) => handleZoneEvent([], e)}
 		onfinalize={(e) => handleZoneEvent([], e)}
-		aria-label="Root nodes"
+		{...rootZoneAttrs}
 	>
 		{#each wrappedRoots as w, idx (w.__treeTableId)}
 			{@render renderRow(w.node, [idx], 0)}

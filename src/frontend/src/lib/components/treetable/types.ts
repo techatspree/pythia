@@ -31,6 +31,8 @@ export type TreeTableProps<T> = {
 	editable?: boolean;
 	onChildrenChange?: (e: ChildrenChangeEvent<T>) => void;
 	rowActions?: Snippet<[T, TreeNodeContext<T>]>;
+	rowAttrs?: (node: T, ctx: TreeNodeContext<T>) => Record<string, string>;
+	childrenZoneAttrs?: (parent: T | null) => Record<string, string>;
 	footer?: Snippet<[T[]]>;
 	initialCollapsed?: Set<string>;
 };
