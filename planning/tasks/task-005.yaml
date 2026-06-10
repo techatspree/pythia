@@ -1,23 +1,311 @@
 id: task-005
 phase: phase-2
-title: Register applications in Microsoft Entra ID
+title: Modular authentication and authorization foundation
 depends_on: [task-002, task-003]
 description: |
-  Create two Entra ID app registrations - one for the backend API and one
-  for the SPA frontend. Configure scopes, redirect URIs, and app roles.
-manual_steps_required: true
+  Establish a modular, pluggable authentication and authorization layer
+  so the application is NOT hard-bound to a single identity provider.
+  Two concrete modules will follow in task-006 (a development-only
+  module backed by hard-wired users) and task-007 (the Entra ID
+  module). A future task-060 covers Keycloak support. This task
+  delivers ONLY the infrastructure — interfaces, profile-driven
+  selection, role taxonomy, the request-time `SecurityIdentity` /
+  current-user accessor used by all REST resources and Svelte pages.
+  No concrete provider is wired up here.
+
+  Why modular: requiring an Entra tenant for every clone of the repo
+  blocks local development, e2e testing, and outside contributions.
+  The current code runs under dev-local with no auth at all — that is
+  effectively a fragile "everyone is admin" mode. Modularising auth
+  lets the dev module deliver predictable hard-wired users locally
+  while Entra (or Keycloak) takes over in production deployments,
+  without code changes in resources, panels, or routes.
+
+  Current state (verified):
+    - The backend has NO security configuration today; REST resources
+      are unguarded. `application.properties` has no
+      `quarkus.oidc.*` keys.
+    - The frontend has NO login flow; pages mount directly. No MSAL
+      package, no token interceptor, no AuthProvider abstraction.
+    - The data model already names a `User` entity
+      (planning/plan.yaml line 41) with `entra_subject_id` — that
+      column is provider-specific. This task generalises identity
+      capture to provider-agnostic terms.
+
+  Target state:
+    - Backend
+        * New Maven property `app.auth.provider` (string, one of
+          `dev`, `entra`, `keycloak`) selected per Quarkus profile:
+            %dev      → dev
+            %test     → dev
+            %prod     → entra
+            %dev-minikube → entra
+          Drives which authentication beans get installed.
+        * SPI interface
+          `io.github.theestimator.auth.AuthModule` (Kotlin, in
+          `src/backend/implementation/.../auth/`):
+            interface AuthModule {
+                fun name(): String          // "dev" / "entra" / "keycloak"
+                fun isActive(): Boolean     // checked against app.auth.provider
+            }
+          Concrete modules in task-006 and task-007 implement this
+          and produce CDI beans that contribute Quarkus security
+          configuration (filters, augmentors, role mappers).
+        * Provider-agnostic principal accessor
+          `io.github.theestimator.auth.CurrentUser` exposing:
+            data class CurrentUser(
+                val subjectId: String,        // provider-issued globally-unique id
+                val email: String?,
+                val displayName: String?,
+                val roles: Set<Role>,
+                val providerName: String       // "dev" / "entra" / "keycloak"
+            )
+          And a `@RequestScoped` CDI bean `CurrentUserProvider` with a
+          `get(): CurrentUser` method. Concrete auth modules populate
+          this; REST resources call it instead of touching
+          `SecurityIdentity` directly.
+        * Role taxonomy as a Kotlin enum
+          `io.github.theestimator.auth.Role` with values `VIEWER`,
+          `ESTIMATOR`, `ADMIN`. Mappers in each concrete module
+          translate provider-specific role claims/groups into this
+          enum.
+        * A `/api/auth/me` endpoint (replaces the old `/api/me` from
+          the pre-rewrite plan) returning the `CurrentUser`. This is
+          the only auth-related endpoint defined here; resource-level
+          guards (@RolesAllowed) come later as features land.
+        * Generalise the planned `User` domain entity (see
+          planning/plan.yaml `domain_entities`): rename
+          `entra_subject_id` to `subject_id` and add `provider: String`
+          (the AuthModule.name() value), so the schema doesn't bake
+          in Entra. (No Flyway migration is created yet — the User
+          table itself hasn't been added; this task just amends the
+          plan.yaml schema description.)
+    - Frontend
+        * TypeScript interface
+          `src/frontend/src/lib/auth/AuthProvider.ts`:
+            export type AuthAccount = {
+                subjectId: string;
+                email?: string;
+                displayName?: string;
+                roles: ('VIEWER' | 'ESTIMATOR' | 'ADMIN')[];
+                providerName: 'dev' | 'entra' | 'keycloak';
+            };
+            export interface AuthProvider {
+                readonly name: 'dev' | 'entra' | 'keycloak';
+                init(): Promise<void>;
+                login(): Promise<void>;
+                logout(): Promise<void>;
+                getAccount(): AuthAccount | null;
+                /** Returns a value the API client puts in the
+                 *  Authorization header verbatim, or null for no
+                 *  header. May be a Bearer token, "Dev <username>",
+                 *  etc.; the API client must not interpret it. */
+                getAuthorizationHeader(): Promise<string | null>;
+            }
+        * `src/frontend/src/lib/auth/index.ts` exports a single
+          `getAuthProvider(): AuthProvider` factory that reads
+          `import.meta.env.VITE_AUTH_PROVIDER` (`'dev'` | `'entra'`
+          | `'keycloak'`, default `'dev'`) and returns the matching
+          concrete provider. The concrete providers are stubs in
+          this task — task-006 and task-007 implement them.
+        * Update the existing API client at
+          `src/frontend/src/lib/api/client.ts` to call
+          `getAuthProvider().getAuthorizationHeader()` for each
+          request and attach the result as the `Authorization`
+          header when non-null. Existing fetch sites do not need
+          changes.
+        * Update `vite.config.ts` to expose `VITE_AUTH_PROVIDER`
+          via `.env`; add a `.env.example` listing it (do NOT add
+          a `.env` — secrets stay out of git).
+
+  Key design decisions (leave no ambiguity):
+    - The selector is a string config var, NOT a Java/Kotlin
+      enum, so adding Keycloak (task-060) is purely additive.
+    - Per-profile defaults live in `application.properties` for
+      backend and `.env.example` for frontend, not in code.
+    - The `Authorization` header is opaque to the API client.
+      Concrete modules choose its format (Bearer JWT for Entra,
+      `Dev <username>` for dev). The backend AuthModule parses it.
+    - Two-way wiring: the SAME `app.auth.provider` value must be
+      configured on the backend AND `VITE_AUTH_PROVIDER` on the
+      frontend for any deployment. dev-local.sh sets both to `dev`;
+      minikube-deploy.sh sets both to `entra` (task-007).
+
+  Out of scope (explicit):
+    - Concrete dev provider (task-006).
+    - Concrete Entra provider + app registrations (task-007).
+    - Keycloak provider (task-060).
+    - Frontend route guarding / protected-route component (lands
+      with the dev provider in task-006 so it can be tested).
+    - Database `users` table + Flyway migration (lands when the
+      User entity is first persisted, well after phase-2).
+
 steps:
-  - register backend app "estimation-api"
-      - expose API with scope "access" (full identifier api://<client-id>/access)
-      - define app roles: viewer, estimator, admin
-  - register frontend app "estimation-spa"
-      - platform type "Single-page application"
-      - redirect URIs: http://localhost:5173, https://estimation.local
-      - grant API permission to estimation-api scope "access"
-      - grant admin consent if required by tenant policy
-  - record tenant_id, api_client_id, spa_client_id in a secure place (NOT git)
+  - |
+    Add a config switch to the backend:
+      - In src/backend/implementation/src/main/resources/application.properties,
+        add per-profile defaults:
+          app.auth.provider=dev
+          %dev.app.auth.provider=dev
+          %test.app.auth.provider=dev
+          %prod.app.auth.provider=entra
+          %dev-minikube.app.auth.provider=entra
+      - Add a Kotlin enum-like config holder
+        `io.github.theestimator.auth.AuthConfig` exposing
+        `@ConfigProperty(name="app.auth.provider") activeProvider: String`.
+
+  - |
+    Create the SPI interface and request-scoped accessor in
+    src/backend/implementation/src/main/kotlin/io/github/theestimator/auth/:
+      - AuthModule.kt — `interface AuthModule { fun name(): String;
+        fun isActive(): Boolean }`.
+      - Role.kt — `enum class Role { VIEWER, ESTIMATOR, ADMIN }`.
+      - CurrentUser.kt — `data class CurrentUser(...)` as in the
+        description.
+      - CurrentUserProvider.kt — `@RequestScoped` CDI bean with
+        `lateinit var current: CurrentUser` plus a `get()` method.
+        Concrete modules in task-006/task-007 populate `current`
+        via a `ContainerRequestFilter` or `SecurityIdentityAugmentor`.
+      - In this task, register a no-op default that throws
+        `IllegalStateException("No AuthModule active")` from `get()`
+        if no module has registered. Concrete modules replace this
+        bean via `@Alternative` + `@Priority`.
+
+  - |
+    Add a /api/auth/me endpoint:
+      - New file MeResource.kt under
+        `src/backend/implementation/.../rest/`.
+      - `@GET @Path("/auth/me")` returning `CurrentUserDto(...)`.
+        Body just delegates to `currentUserProvider.get()`. Wire
+        the JSON shape (subjectId, email, displayName, roles list,
+        providerName).
+      - No @RolesAllowed in this task — that lands when features
+        need it.
+
+  - |
+    Update the planned User entity in planning/plan.yaml:
+      - Replace `entra_subject_id` with `subject_id` in the User
+        entity's `fields` list.
+      - Append `provider` to the `fields` list.
+      - Update the `domain_entities` block to reflect this.
+
+  - |
+    Frontend interfaces + factory:
+      - Create src/frontend/src/lib/auth/AuthProvider.ts with the
+        `AuthAccount` type and `AuthProvider` interface from the
+        description.
+      - Create src/frontend/src/lib/auth/index.ts exporting
+        `getAuthProvider(): AuthProvider`. Read
+        `import.meta.env.VITE_AUTH_PROVIDER` (TypeScript: add a
+        declaration in `src/frontend/src/vite-env.d.ts` so the env
+        var is typed). Switch on the value; throw a clear error if
+        the requested provider's concrete module isn't bundled.
+        In this task, all three concrete branches throw
+        `new Error('Provider <name> not yet wired up — see task-NNN')`.
+      - Add `.env.example` at src/frontend/.env.example with:
+          # 'dev' | 'entra' | 'keycloak' — picks the auth module
+          VITE_AUTH_PROVIDER=dev
+
+  - |
+    Wire the API client to the auth provider:
+      - Open src/frontend/src/lib/api/client.ts. Identify the
+        single fetch entry point (or replace each fetch wrapper).
+      - Before each request, await
+        `getAuthProvider().getAuthorizationHeader()`. If non-null,
+        attach it as the `Authorization` request header.
+      - In this task the call WILL throw (concrete providers are
+        stubs). Guard the call with a try/catch that surfaces the
+        error via the existing `ErrorBanner` pattern (per the
+        documented frontend error-surfacing rule in CLAUDE.md) and
+        returns `null` for the header so the rest of the app still
+        loads against dev-local (which has no backend auth yet).
+        The guard becomes a no-op once task-006 lands the dev
+        provider.
+
+  - |
+    Update planning/plan.yaml's phase-2 name from
+    `Authentication with Entra ID` to
+    `Modular Authentication and Authorization`. Add task-060 to the
+    phase-2 task list at the end:
+      tasks: [task-005, task-006, task-007, task-008, task-060]
+    (Or, if a new phase-11 is preferred for forward-looking
+    optional work, add `phase-11` with a single task-060 — but the
+    task-060 sketch in this rewrite keeps it in phase-2 alongside
+    the other auth modules. Choose phase-2 to keep all auth tasks
+    together.)
+
+  - |
+    Update planning/README.md phase table: rename the phase-2 row
+    from "Authentication with Entra ID" to "Modular Authentication
+    and Authorization", and update the task range from "005–008"
+    to "005–008, 060".
+
+  - |
+    Backend build:
+      mvn -pl src/backend/implementation -am test
+
+  - |
+    Frontend type-check:
+      cd src/frontend && npm run check
+
 validation:
-  - both app registrations visible in Entra ID portal
-  - SPA can request a token from the tenant (test via MSAL playground or curl)
+  - |
+    Backend SPI files exist and compile:
+      test -f src/backend/implementation/src/main/kotlin/io/github/theestimator/auth/AuthModule.kt
+      test -f src/backend/implementation/src/main/kotlin/io/github/theestimator/auth/Role.kt
+      test -f src/backend/implementation/src/main/kotlin/io/github/theestimator/auth/CurrentUser.kt
+      test -f src/backend/implementation/src/main/kotlin/io/github/theestimator/auth/CurrentUserProvider.kt
+      test -f src/backend/implementation/src/main/kotlin/io/github/theestimator/auth/AuthConfig.kt
+  - |
+    The /api/auth/me endpoint is wired:
+      grep -q "/auth/me" src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/MeResource.kt
+  - |
+    The role enum has the three documented values:
+      grep -q "VIEWER" src/backend/implementation/src/main/kotlin/io/github/theestimator/auth/Role.kt
+      grep -q "ESTIMATOR" src/backend/implementation/src/main/kotlin/io/github/theestimator/auth/Role.kt
+      grep -q "ADMIN" src/backend/implementation/src/main/kotlin/io/github/theestimator/auth/Role.kt
+  - |
+    application.properties exposes the provider switch with the
+    documented per-profile defaults:
+      grep -q "app.auth.provider=dev" src/backend/implementation/src/main/resources/application.properties
+      grep -q "%prod.app.auth.provider=entra" src/backend/implementation/src/main/resources/application.properties
+  - |
+    Frontend interface + factory exist and are referenced from the
+    API client:
+      test -f src/frontend/src/lib/auth/AuthProvider.ts
+      test -f src/frontend/src/lib/auth/index.ts
+      grep -q "getAuthProvider" src/frontend/src/lib/api/client.ts
+      grep -q "VITE_AUTH_PROVIDER" src/frontend/.env.example
+  - |
+    planning/plan.yaml's User entity field list no longer mentions
+    `entra_subject_id`:
+      ! grep -q "entra_subject_id" planning/plan.yaml
+      grep -q "subject_id" planning/plan.yaml
+      grep -q "provider" planning/plan.yaml
+  - |
+    Phase-2 has been renamed and task-060 is listed:
+      grep -q "Modular Authentication" planning/plan.yaml
+      grep -A4 "id: phase-2" planning/plan.yaml | grep -q "task-060"
+      grep -q "060" planning/README.md
+  - |
+    Backend builds:
+      mvn -pl src/backend/implementation -am test
+  - |
+    Frontend type-check passes:
+      cd src/frontend && npm run check
+
 outputs:
-  - docs/entra-setup.md (without secrets, only setup procedure)
+  - created: src/backend/implementation/src/main/kotlin/io/github/theestimator/auth/AuthModule.kt
+  - created: src/backend/implementation/src/main/kotlin/io/github/theestimator/auth/Role.kt
+  - created: src/backend/implementation/src/main/kotlin/io/github/theestimator/auth/CurrentUser.kt
+  - created: src/backend/implementation/src/main/kotlin/io/github/theestimator/auth/CurrentUserProvider.kt
+  - created: src/backend/implementation/src/main/kotlin/io/github/theestimator/auth/AuthConfig.kt
+  - created: src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/MeResource.kt
+  - modified: src/backend/implementation/src/main/resources/application.properties
+  - created: src/frontend/src/lib/auth/AuthProvider.ts
+  - created: src/frontend/src/lib/auth/index.ts
+  - created: src/frontend/.env.example
+  - modified: src/frontend/src/lib/api/client.ts
+  - modified: src/frontend/src/vite-env.d.ts
+  - modified: planning/plan.yaml
+  - modified: planning/README.md

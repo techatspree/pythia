@@ -38,7 +38,7 @@ domain_entities:
   - name: EstimationItem
     fields: [id, version_id, description, category, optimistic, likely, pessimistic, assumptions]
   - name: User
-    fields: [id, entra_subject_id, email, display_name, roles]
+    fields: [id, subject_id, provider, email, display_name, roles]
   - name: AuditLog
     fields: [id, user_id, entity_type, entity_id, action, payload, created_at]
 
@@ -48,9 +48,9 @@ phases:
     duration_weeks: 1
     tasks: [task-001, task-002, task-003, task-004]
   - id: phase-2
-    name: Authentication with Entra ID
+    name: Modular Authentication and Authorization
     duration_weeks: 1
-    tasks: [task-005, task-006, task-007, task-008]
+    tasks: [task-005, task-006, task-007, task-008, task-060]
   - id: phase-3
     name: Core Domain and Persistence
     duration_weeks: 1

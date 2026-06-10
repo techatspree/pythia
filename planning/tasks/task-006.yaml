@@ -1,22 +1,286 @@
 id: task-006
 phase: phase-2
-title: Configure Quarkus OIDC for Entra ID
+title: Dev auth module — hard-wired users for local dev and e2e
 depends_on: [task-005]
 description: |
-  Wire up quarkus-oidc to validate access tokens issued by Entra ID. Map
-  Entra ID app roles to Quarkus security roles for use with @RolesAllowed.
+  Implement the `dev` auth module declared by task-005. This module
+  provides three hard-wired users (`dev-viewer`, `dev-estimator`,
+  `dev-admin`) — one per role — selectable at runtime without any
+  external identity provider, network call, or token issuance. It is
+  the only module needed to run the application locally
+  (`./scripts/dev-local.sh`), to execute Playwright e2e tests, and
+  for outside contributors who do not have an Entra tenant.
+
+  Why this is a distinct module: dev-local must work for anyone
+  cloning the repo, but Entra ID requires per-tenant app registration
+  + admin consent that is not feasible for casual development. The
+  modular contract from task-005 lets dev and prod swap providers
+  without changing any REST resource, page, or component.
+
+  Current state (verified):
+    - task-005 has landed the `AuthModule` SPI,
+      `CurrentUserProvider`, `Role` enum, and the
+      `app.auth.provider` config switch (default `dev`) on the
+      backend; on the frontend the `AuthProvider` interface +
+      `getAuthProvider()` factory exist but throw for every value
+      of `VITE_AUTH_PROVIDER`.
+    - The application still has no working login: the API client's
+      try/catch (from task-005) swallows the factory error and sends
+      no Authorization header. dev-local works only because no REST
+      resource is guarded yet.
+
+  Target state:
+    - Backend (`dev` profile only — guard the bean registration with
+      `@IfBuildProfile("dev")` or check `app.auth.provider == "dev"`
+      via `AuthConfig`):
+        * `DevAuthModule.kt` implementing `AuthModule` with
+          `name() = "dev"`, `isActive()` reading `AuthConfig`.
+        * Three hard-wired user records in code:
+            DEV_USERS = listOf(
+                DevUser("dev-viewer",    "viewer@dev.local",    "Dev Viewer",    setOf(Role.VIEWER)),
+                DevUser("dev-estimator", "estimator@dev.local", "Dev Estimator", setOf(Role.VIEWER, Role.ESTIMATOR)),
+                DevUser("dev-admin",     "admin@dev.local",     "Dev Admin",     setOf(Role.VIEWER, Role.ESTIMATOR, Role.ADMIN))
+            )
+        * A JAX-RS `ContainerRequestFilter` named
+          `DevAuthFilter.kt` (`@Provider @PreMatching` or with a
+          higher priority than the resource invocation filter)
+          that:
+            - Reads the `Authorization` header. Accepted format:
+              `Dev <subjectId>` where subjectId is one of the
+              three hard-wired ids. Reject any other format with
+              401.
+            - Falls back to `dev-admin` when no header is present
+              AND `app.auth.dev.default-user` is set (default:
+              `dev-admin`). This lets API smoke calls without a
+              UI session still work.
+            - Populates the request-scoped `CurrentUserProvider`
+              with a `CurrentUser` derived from the matched
+              `DevUser`. providerName = "dev".
+        * The filter is the ONLY way roles get populated for the
+          `dev` profile — there is no JWT / no quarkus-oidc.
+          Quarkus security still works because resources eventually
+          use the `CurrentUser`/`@RolesAllowed` machinery; the
+          provider-agnostic bean is what they read.
+        * To make `@RolesAllowed` (a Quarkus SecurityIdentity
+          mechanism) work uniformly between dev and entra, install
+          a `SecurityIdentityAugmentor` in the dev module that
+          synthesises a `QuarkusSecurityIdentity` from the
+          `CurrentUser` populated by the filter. Roles map 1:1 to
+          the Quarkus role strings `"VIEWER"`, `"ESTIMATOR"`,
+          `"ADMIN"`.
+        * Add a backend config property
+          `app.auth.dev.default-user=dev-admin` and document the
+          override in `docs/auth-dev.md`.
+    - Frontend:
+        * `src/frontend/src/lib/auth/DevAuthProvider.ts`
+          implementing `AuthProvider`. State stored in
+          `sessionStorage` so it survives page reloads but not
+          process restarts.
+            - `login()`: opens a small picker dialog that lets the
+              tester pick one of the three preset users (the names
+              come from a `DEV_USERS` constant identical in
+              membership to the backend's list). Selection is saved
+              under `sessionStorage.devAuthSubject`. The dialog
+              is implemented inline (no new UI lib) using a basic
+              Svelte component `DevLoginDialog.svelte` mounted
+              once at app root.
+            - `logout()`: clears `sessionStorage.devAuthSubject`.
+            - `getAccount()`: derives the AuthAccount from the
+              stored subjectId; returns null if nothing stored.
+            - `getAuthorizationHeader()`: returns
+              `"Dev " + subjectId` if logged in; null otherwise.
+            - `init()`: no-op (sessionStorage read is sync).
+        * Update `src/frontend/src/lib/auth/index.ts` so
+          `getAuthProvider()` for `VITE_AUTH_PROVIDER === 'dev'`
+          returns a singleton `DevAuthProvider`. Throw stays in
+          place for `'entra'` and `'keycloak'` branches (those
+          land later).
+        * Add a protected-route guard:
+          `src/frontend/src/lib/auth/RequireAuth.svelte` — a
+          Svelte 5 component that checks `getAccount()` and either
+          renders its children snippet or routes/redirects to a
+          login screen. Mount it inside the root `+layout.svelte`
+          so every route is gated.
+        * Default mount: at app load, if `getAccount()` is null,
+          show `DevLoginDialog`. Picker reuses the standard
+          Tailwind button styling.
+    - Documentation:
+        * `docs/auth-dev.md` — one page describing the three
+          users, how the picker works, how to override the
+          default user for headless API smoke calls
+          (`Authorization: Dev dev-admin`), and what NOT to do
+          (no production deployment, no CI deploy).
+        * Update `./scripts/dev-local.sh` to export
+          `VITE_AUTH_PROVIDER=dev` so dev-local is unambiguous.
+    - Playwright e2e:
+        * Add a single helper `loginAsDev(page, subjectId)` to a
+          new file `src/frontend/e2e/helpers.ts` (importable from
+          the existing test files) that sets
+          `sessionStorage.devAuthSubject` before navigating.
+        * Existing tests already pass because the backend's
+          `app.auth.dev.default-user=dev-admin` fallback gives
+          unauthenticated requests admin-level access. After this
+          task lands, the smoke + tree-table tests continue
+          passing unmodified. (Targeted role-enforcement tests
+          come with task-008.)
+
+  Key design decisions (leave no ambiguity):
+    - The `Authorization: Dev <subjectId>` header format is
+      deliberately distinct from `Bearer <jwt>` so the filter can
+      cheaply reject mistakes. NEVER ship a real-token-shaped
+      header from the dev provider.
+    - The dev module is selected by config, NOT by build profile
+      ONLY — `app.auth.provider=dev` works under any Quarkus
+      profile. But the per-profile defaults from task-005 mean
+      `%prod` defaults to `entra`, making a prod misconfiguration
+      explicit.
+    - The dev picker is a runtime aid, not a polished login UI.
+      Three buttons stacked vertically with the user's name +
+      role list is enough.
+
+  Out of scope (explicit):
+    - Entra ID integration (task-007).
+    - Persistence of the `User` entity (deferred — the dev
+      module synthesises everything from the hard-wired list).
+    - Per-resource `@RolesAllowed` annotations (these come with
+      each feature; this task only proves the augmentor populates
+      roles correctly).
+    - Multi-tab dev session sync (sessionStorage is per-tab; the
+      picker shows on each new tab).
+
 steps:
-  - in application.properties set:
-      quarkus.oidc.auth-server-url=https://login.microsoftonline.com/<tenant-id>/v2.0
-      quarkus.oidc.client-id=<api-client-id>
-      quarkus.oidc.application-type=service
-      quarkus.oidc.token.audience=api://<api-client-id>
-      quarkus.oidc.roles.role-claim-path=roles
-  - create a /api/me endpoint returning the SecurityIdentity principal name and roles
-  - test with a token acquired from MSAL or az cli
+  - |
+    Create the dev backend module under
+    src/backend/implementation/src/main/kotlin/io/github/theestimator/auth/dev/:
+      - DevUser.kt — `data class DevUser(...)` + `val DEV_USERS = ...`.
+      - DevAuthModule.kt — `@ApplicationScoped` implementing
+        AuthModule, gated by `AuthConfig.activeProvider == "dev"`.
+      - DevAuthFilter.kt — `@Provider @PreMatching` JAX-RS
+        ContainerRequestFilter that parses the `Authorization`
+        header and populates `CurrentUserProvider`. Conditional
+        registration via `@IfBuildProperty(name="app.auth.provider",
+        stringValue="dev")` so it disappears in prod builds.
+      - DevSecurityIdentityAugmentor.kt — `@ApplicationScoped`
+        Quarkus `SecurityIdentityAugmentor` that translates the
+        request-scoped CurrentUser into a `QuarkusSecurityIdentity`
+        with role strings. Same `@IfBuildProperty` gate.
+
+  - |
+    Add config:
+      - In application.properties, add:
+          app.auth.dev.default-user=dev-admin
+        (Leave the existing `app.auth.provider` switch from
+        task-005 untouched.)
+
+  - |
+    Add docs/auth-dev.md describing the three users, the picker,
+    the default-user override, and the production-deployment ban.
+
+  - |
+    Create the frontend dev provider:
+      - src/frontend/src/lib/auth/DevAuthProvider.ts implementing
+        AuthProvider as described.
+      - src/frontend/src/lib/components/DevLoginDialog.svelte — a
+        modal picker showing the three preset users; clicking one
+        calls back into DevAuthProvider's selection. Visible only
+        when `getAccount()` is null.
+      - src/frontend/src/lib/auth/RequireAuth.svelte — a small
+        wrapper component using `getAccount()`.
+      - Wire src/frontend/src/lib/auth/index.ts so
+        `VITE_AUTH_PROVIDER='dev'` returns the singleton; remove
+        the `Provider 'dev' not yet wired up` throw from task-005.
+      - Mount DevLoginDialog + RequireAuth inside
+        src/frontend/src/routes/+layout.svelte so every route is
+        gated (the dialog covers the layout when unauthenticated).
+
+  - |
+    Update ./scripts/dev-local.sh to `export VITE_AUTH_PROVIDER=dev`
+    before launching Vite. Also set `APP_AUTH_PROVIDER=dev` for
+    Quarkus (the Quarkus convention: ALL_CAPS env var maps to the
+    property).
+
+  - |
+    Add Playwright helper:
+      src/frontend/e2e/helpers.ts exporting
+        export async function loginAsDev(page, subjectId) {
+            await page.addInitScript(([k, v]) => {
+                sessionStorage.setItem(k, v);
+            }, ['devAuthSubject', subjectId]);
+        }
+      Existing tests don't need to call it (the backend default-user
+      fallback covers them). Tests that want to act as a specific
+      role can opt in.
+
+  - |
+    Backend build:
+      mvn -pl src/backend/implementation -am test
+
+  - |
+    Frontend type-check:
+      cd src/frontend && npm run check
+
+  - |
+    Run the full Playwright suite — all 18 cases must still pass
+    unmodified (the default-user fallback keeps unauthenticated
+    smoke calls working):
+      cd src/frontend && npx playwright test
+
 validation:
-  - request to /api/me without token returns 401
-  - request with a valid token returns user info and assigned roles
+  - |
+    Backend dev-module files exist:
+      test -f src/backend/implementation/src/main/kotlin/io/github/theestimator/auth/dev/DevUser.kt
+      test -f src/backend/implementation/src/main/kotlin/io/github/theestimator/auth/dev/DevAuthModule.kt
+      test -f src/backend/implementation/src/main/kotlin/io/github/theestimator/auth/dev/DevAuthFilter.kt
+      test -f src/backend/implementation/src/main/kotlin/io/github/theestimator/auth/dev/DevSecurityIdentityAugmentor.kt
+  - |
+    The three hard-wired users are present with the documented
+    role assignments:
+      grep -q "dev-viewer" src/backend/implementation/src/main/kotlin/io/github/theestimator/auth/dev/DevUser.kt
+      grep -q "dev-estimator" src/backend/implementation/src/main/kotlin/io/github/theestimator/auth/dev/DevUser.kt
+      grep -q "dev-admin" src/backend/implementation/src/main/kotlin/io/github/theestimator/auth/dev/DevUser.kt
+  - |
+    The dev filter only registers when the dev provider is active:
+      grep -q "@IfBuildProperty" src/backend/implementation/src/main/kotlin/io/github/theestimator/auth/dev/DevAuthFilter.kt
+      grep -q "app.auth.provider" src/backend/implementation/src/main/kotlin/io/github/theestimator/auth/dev/DevAuthFilter.kt
+  - |
+    Frontend dev provider + UI exist:
+      test -f src/frontend/src/lib/auth/DevAuthProvider.ts
+      test -f src/frontend/src/lib/components/DevLoginDialog.svelte
+      test -f src/frontend/src/lib/auth/RequireAuth.svelte
+      grep -q "DevAuthProvider" src/frontend/src/lib/auth/index.ts
+      ! grep -q "Provider 'dev' not yet wired up" src/frontend/src/lib/auth/index.ts
+  - |
+    Dev-local script sets both auth-provider env vars:
+      grep -q "VITE_AUTH_PROVIDER=dev" scripts/dev-local.sh
+      grep -q "APP_AUTH_PROVIDER=dev" scripts/dev-local.sh
+  - |
+    Documentation page exists:
+      test -f docs/auth-dev.md
+  - |
+    Playwright helper exists and is reusable from other tests:
+      test -f src/frontend/e2e/helpers.ts
+      grep -q "loginAsDev" src/frontend/e2e/helpers.ts
+  - |
+    Backend builds:
+      mvn -pl src/backend/implementation -am test
+  - |
+    Frontend type-check passes:
+      cd src/frontend && npm run check
+  - |
+    Full Playwright suite passes unmodified:
+      cd src/frontend && npx playwright test
+
 outputs:
-  - backend application.properties OIDC section
-  - backend MeResource.java
+  - created: src/backend/implementation/src/main/kotlin/io/github/theestimator/auth/dev/DevUser.kt
+  - created: src/backend/implementation/src/main/kotlin/io/github/theestimator/auth/dev/DevAuthModule.kt
+  - created: src/backend/implementation/src/main/kotlin/io/github/theestimator/auth/dev/DevAuthFilter.kt
+  - created: src/backend/implementation/src/main/kotlin/io/github/theestimator/auth/dev/DevSecurityIdentityAugmentor.kt
+  - modified: src/backend/implementation/src/main/resources/application.properties
+  - created: src/frontend/src/lib/auth/DevAuthProvider.ts
+  - created: src/frontend/src/lib/components/DevLoginDialog.svelte
+  - created: src/frontend/src/lib/auth/RequireAuth.svelte
+  - modified: src/frontend/src/lib/auth/index.ts
+  - modified: src/frontend/src/routes/+layout.svelte
+  - created: src/frontend/e2e/helpers.ts
+  - modified: scripts/dev-local.sh
+  - created: docs/auth-dev.md

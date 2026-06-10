@@ -52,7 +52,7 @@ Typical flow: run `next`, run `show` to read the task, do the work, run `done`. 
 | Phase | Weeks | Theme | Tasks |
 |-------|-------|-------|-------|
 | 1 | 1 | Foundation and local environment | 001–004 |
-| 2 | 1 | Authentication with Entra ID | 005–008 |
+| 2 | 1 | Modular Authentication and Authorization | 005–008, 060 |
 | 3 | 1 | Core domain and persistence | 009–012 |
 | 4 | 1 | REST API and business logic | 013–016 |
 | 5 | 2 | Frontend application | 017–021 |

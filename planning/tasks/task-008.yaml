@@ -1,19 +1,202 @@
 id: task-008
 phase: phase-2
-title: Verify end-to-end authentication flow
+title: End-to-end authentication verification across both modules
 depends_on: [task-006, task-007]
 description: |
-  Confirm a real user can log in via Entra ID, receive a token, call the
-  backend, and see role-based access enforced. This is the auth gate -
-  do not proceed to feature work until it is solid.
+  Prove the modular auth system works end-to-end for BOTH active
+  modules — `dev` (used by local development and Playwright) and
+  `entra` (used by production / dev-minikube). This is the gate
+  before phase-2 closes: feature work should not proceed until
+  role-based access control is provably wired up under both
+  providers.
+
+  Why both: the modular SPI exists precisely so swapping providers
+  doesn't change behaviour. Verifying only one would leave the
+  other quietly broken until a deploy day surprise. The dev module
+  verification is automated (Playwright); the Entra verification is
+  necessarily manual (requires a real tenant + assigned test users)
+  and is documented in docs/auth-verification.md.
+
+  Current state (assumes task-006 + task-007 are done):
+    - Backend has `dev` and `entra` modules registered; the
+      `CurrentUserProvider` is populated correctly under each;
+      the `Role` enum exists with `VIEWER`, `ESTIMATOR`, `ADMIN`.
+    - Frontend has `DevAuthProvider` and `EntraAuthProvider`,
+      both reachable via `getAuthProvider()`.
+    - No REST endpoint is currently guarded by `@RolesAllowed`.
+      The augmentors populate roles but no resource consumes
+      them. That changes here, narrowly: ONE guarded endpoint
+      lands so we have a concrete role check to verify.
+
+  Target state:
+    - Backend
+        * A `/api/admin/ping` endpoint that returns a small JSON
+          payload (`{message: "pong", user: <subjectId>}`) and is
+          gated by `@RolesAllowed("ADMIN")`. This is the canary
+          for role enforcement; it stays in place after this task
+          as a permanent smoke check.
+        * The endpoint lives in
+          `src/backend/implementation/.../rest/AdminPingResource.kt`.
+          Its only dependency on auth machinery is the standard
+          `@RolesAllowed` annotation — proves the augmentors plug
+          into Quarkus's standard security stack.
+        * The existing `/api/auth/me` endpoint stays unguarded
+          (so callers can always learn who they are).
+    - Frontend
+        * Add an `RequiredRole` guard component
+          `src/frontend/src/lib/auth/RequiredRole.svelte` that
+          takes a `role: 'VIEWER' | 'ESTIMATOR' | 'ADMIN'` prop
+          and a children snippet; renders the snippet only when
+          the current account's roles include the required role.
+          Otherwise renders a "Insufficient role" placeholder.
+          This is plumbing — no feature uses it yet, but it
+          completes the abstraction so future features can.
+    - Playwright e2e
+        * Add a new file
+          `src/frontend/e2e/auth.test.ts` with five cases
+          targeting the dev module (Playwright cannot exercise
+          Entra without a tenant):
+            1. "unauthenticated GET /api/auth/me without
+                Authorization header is honoured under
+                default-user fallback (dev-admin)" — call the API
+                directly; expect `subjectId: dev-admin`.
+            2. "Authorization: Dev dev-viewer routes to the
+                viewer user on /api/auth/me" — expect
+                `subjectId: dev-viewer`, `roles: ["VIEWER"]`.
+            3. "Authorization: Dev nope-not-a-user is rejected
+                with 401" — expect 401.
+            4. "GET /api/admin/ping with dev-viewer returns 403"
+                — expect 403.
+            5. "GET /api/admin/ping with dev-admin returns 200"
+                — body `{message: "pong", user: "dev-admin"}`.
+          Use `request` fixture (the Playwright APIRequestContext)
+          so these are pure REST tests — no page navigation needed.
+        * Reuse the `loginAsDev` helper from
+          `src/frontend/e2e/helpers.ts`.
+    - Documentation
+        * `docs/auth-verification.md` capturing:
+          - Automated coverage: the five `e2e/auth.test.ts`
+            cases (linked).
+          - Manual Entra verification checklist (for someone with
+            tenant admin access):
+              [ ] Log in as VIEWER → /api/auth/me returns roles
+                  ['VIEWER'] and providerName 'entra'.
+              [ ] Same user → /api/admin/ping returns 403.
+              [ ] Log in as ADMIN → /api/admin/ping returns 200.
+              [ ] Token expiry: after 1 hour, silent acquire
+                  refreshes without interactive login.
+              [ ] Logout → /api/auth/me returns 401.
+            With a place to date-stamp + initial each verification
+            run.
+
+  Key design decisions (leave no ambiguity):
+    - The five Playwright cases use the request fixture, not the
+      browser — they're API-level smoke checks, faster and
+      isolated from UI state. UI-level auth checks come naturally
+      as features land.
+    - The manual Entra checklist is a living document. Each
+      production tenant run-through ticks the boxes with a date.
+    - `/api/admin/ping` is intentionally trivial. Its only job is
+      to be a stable canary that survives feature churn.
+
+  Out of scope (explicit):
+    - Per-feature `@RolesAllowed` rollout (lands with each
+      feature; this task only proves the mechanism works).
+    - UI tests of the dev login picker (those land naturally as
+      the picker is iterated on).
+    - Token revocation / refresh edge cases for Entra (deferred
+      to a future hardening task).
+
 steps:
-  - assign different roles (viewer, estimator, admin) to test users in Entra ID
-  - add a /api/admin/ping endpoint guarded by @RolesAllowed("admin")
-  - log in as each test user and verify access matches role
-  - document the test results in docs/auth-verification.md
+  - |
+    Add the canary admin endpoint:
+      - Create src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/AdminPingResource.kt:
+          @Path("/api/admin")
+          class AdminPingResource(private val cup: CurrentUserProvider) {
+              @GET @Path("/ping")
+              @RolesAllowed("ADMIN")
+              fun ping(): PingDto = PingDto("pong", cup.get().subjectId)
+          }
+        with a small `data class PingDto(val message: String, val user: String)`.
+
+  - |
+    Add the frontend guard:
+      - Create src/frontend/src/lib/auth/RequiredRole.svelte:
+          <script lang="ts">
+              import { getAuthProvider } from './index';
+              let { role, children }:
+                  { role: 'VIEWER' | 'ESTIMATOR' | 'ADMIN';
+                    children: import('svelte').Snippet } = $props();
+              const acc = getAuthProvider().getAccount();
+          </script>
+          {#if acc && acc.roles.includes(role)}
+              {@render children()}
+          {:else}
+              <div class="text-sm text-gray-400 italic">
+                  Insufficient role ({role})
+              </div>
+          {/if}
+
+  - |
+    Write src/frontend/e2e/auth.test.ts with the five cases
+    listed in the description. Each test uses
+    `request.get('/api/auth/me', {headers: {Authorization: ...}})`
+    or similar, depending on the case. Imports
+    `loginAsDev` only where useful (the API-level cases set the
+    header directly).
+
+  - |
+    Write docs/auth-verification.md as described — five automated
+    case descriptions referencing e2e/auth.test.ts, then a
+    checklist for manual Entra runs with date/initial slots.
+
+  - |
+    Backend build:
+      mvn -pl src/backend/implementation -am test
+
+  - |
+    Frontend type-check:
+      cd src/frontend && npm run check
+
+  - |
+    Run the Playwright suite. Expected new count: 18 + 5 = 23
+    cases, all passing:
+      cd src/frontend && npx playwright test
+
 validation:
-  - viewer cannot reach admin endpoint (403)
-  - admin can reach admin endpoint (200)
-  - all users can reach /api/me
+  - |
+    The canary endpoint exists and is role-gated:
+      test -f src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/AdminPingResource.kt
+      grep -q "@RolesAllowed" src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/AdminPingResource.kt
+      grep -q "ADMIN" src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/AdminPingResource.kt
+  - |
+    Frontend role-guard component exists:
+      test -f src/frontend/src/lib/auth/RequiredRole.svelte
+  - |
+    Auth e2e file exists with the five documented cases:
+      test -f src/frontend/e2e/auth.test.ts
+      grep -q "default-user fallback" src/frontend/e2e/auth.test.ts
+      grep -q "dev-viewer" src/frontend/e2e/auth.test.ts
+      grep -q "nope-not-a-user" src/frontend/e2e/auth.test.ts
+      grep -q "admin/ping" src/frontend/e2e/auth.test.ts
+  - |
+    Documentation exists with both automated and manual sections:
+      test -f docs/auth-verification.md
+      grep -q "auth.test.ts" docs/auth-verification.md
+      grep -q "manual" docs/auth-verification.md
+  - |
+    Backend builds:
+      mvn -pl src/backend/implementation -am test
+  - |
+    Frontend type-check passes:
+      cd src/frontend && npm run check
+  - |
+    Full Playwright suite (smoke 13 + tree-table 5 + auth 5 = 23)
+    passes:
+      cd src/frontend && npx playwright test
+
 outputs:
-  - docs/auth-verification.md
+  - created: src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/AdminPingResource.kt
+  - created: src/frontend/src/lib/auth/RequiredRole.svelte
+  - created: src/frontend/e2e/auth.test.ts
+  - created: docs/auth-verification.md
