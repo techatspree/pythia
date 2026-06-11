@@ -1,7 +1,7 @@
 id: task-007
 phase: phase-2
 title: Entra ID auth module — production identity provider
-depends_on: [task-005]
+depends_on: [task-005, task-006]
 manual_steps_required: true
 description: |
   Implement the `entra` auth module declared by task-005. This module
@@ -17,15 +17,44 @@ description: |
   knowledge in one place; activation is purely a config-flag flip
   (`app.auth.provider=entra` + `VITE_AUTH_PROVIDER=entra`).
 
-  Current state (assumes task-005 + task-006 are done):
+  Current state (verified, assumes task-005 + task-006 are done):
     - The `AuthModule`, `CurrentUserProvider`, `Role` enum, and
       `app.auth.provider` config switch all exist and have a
       working `dev` implementation. `getAuthProvider()` on the
       frontend returns the dev provider when
       `VITE_AUTH_PROVIDER=dev` and still throws for
       `VITE_AUTH_PROVIDER=entra`.
-    - No quarkus-oidc dependency is on the backend classpath. No
-      MSAL package on the frontend. No `docs/entra-setup.md`.
+    - `quarkus-oidc` IS already a backend dependency (verified —
+      task-006's SecurityIdentityAugmentor imports rely on it).
+      Do NOT add a duplicate `<dependency>` block.
+    - `application.properties` already contains some `%prod` OIDC
+      placeholder values pointing at Keycloak
+      (`%prod.quarkus.oidc.auth-server-url=http://localhost:8180/realms/estimation`
+      + `%prod.quarkus.oidc.client-id=backend`) — these MUST be
+      replaced with Entra-shaped values in this task.
+    - `application.properties` already contains
+      `%dev-minikube.quarkus.oidc.enabled=false`. This task flips
+      it to `true` and wires the Entra URL there so minikube
+      deployments use Entra.
+    - `application.properties` already contains
+      `%dev-local.quarkus.oidc.enabled=false`,
+      `%dev.quarkus.oidc.enabled=false`, and
+      `%test.quarkus.oidc.enabled=false`. Those stay as-is.
+    - The "Modular authentication and authorization" paragraph in
+      CLAUDE.md (added by task-005, amended by task-006 with a
+      `docs/auth-dev.md` cross-link) already mentions Entra. This
+      task only APPENDS a `docs/entra-setup.md` cross-link to the
+      same paragraph — no new section.
+    - `task-006` ended with `DevSecurityIdentityAugmentor` as a
+      no-op stub because `SecurityIdentityAugmentor` runs on the
+      Vert.x event loop OUTSIDE request scope and cannot write to
+      the request-scoped `CurrentUserProvider`. THIS TASK MUST
+      OBEY THE SAME RULE: the augmentor enriches the
+      `SecurityIdentity` (role-string mapping — read-only on
+      claims, returns enriched identity, no request-scope access)
+      while a separate post-matching `ContainerRequestFilter`
+      populates `CurrentUserProvider` with the per-request user.
+    - No MSAL package on the frontend. No `docs/entra-setup.md`.
 
   Target state:
     - External (manual, performed by the tenant admin):
@@ -46,39 +75,78 @@ description: |
         * Assign at least one test user to each of the three app
           roles so task-008 can verify role enforcement against
           real Entra tokens.
-    - Backend (`entra` profile):
-        * Add `io.quarkus:quarkus-oidc` dependency in
-          src/backend/implementation/pom.xml.
-        * application.properties OIDC config gated by build profile:
+    - Backend (`entra` provider):
+        * quarkus-oidc dependency: VERIFY presence only (it's
+          already in pom.xml — task-006 pulled it in transitively).
+          Do NOT add a duplicate.
+        * application.properties — REPLACE the existing Keycloak
+          placeholder under `%prod` and FLIP `%dev-minikube` from
+          oidc.enabled=false to wired-for-Entra. Final state of
+          these two blocks (preserve other %prod lines like
+          datasource):
             %prod.quarkus.oidc.auth-server-url=https://login.microsoftonline.com/${ENTRA_TENANT_ID}/v2.0
             %prod.quarkus.oidc.client-id=${ENTRA_API_CLIENT_ID}
             %prod.quarkus.oidc.application-type=service
             %prod.quarkus.oidc.token.audience=api://${ENTRA_API_CLIENT_ID}
             %prod.quarkus.oidc.roles.role-claim-path=roles
-          Same block under `%dev-minikube` since minikube also uses
-          Entra. Mirror under `%dev.entra` for the developer-Entra
-          local mode (active only when `app.auth.provider=entra`
-          under `%dev`).
-        * Disable quarkus-oidc entirely under the dev / test
-          profiles to keep dev-local working without an Entra
-          tenant:
-            %dev.quarkus.oidc.enabled=false
-            %test.quarkus.oidc.enabled=false
-          Re-enabled per the rules above when the property
-          `app.auth.provider=entra` is set explicitly.
-        * `EntraAuthModule.kt` under
-          src/backend/implementation/.../auth/entra/ implementing
-          AuthModule with `name() = "entra"`.
-        * `EntraSecurityIdentityAugmentor.kt` — translates the
-          quarkus-oidc `SecurityIdentity` into the modular
-          `CurrentUser` via `CurrentUserProvider`. Pulls
-          `subjectId` from the `sub` claim, `email` from `email`
-          or `preferred_username`, `displayName` from `name`, and
-          maps Entra app-role claim values to `Role` enum values
-          via `entraRolesToDomain(claims): Set<Role>`. Same
-          @IfBuildProperty gate as the dev module but with
-          stringValue="entra".
-        * Wire the augmentor so that, under the Entra profile, the
+
+            %dev-minikube.quarkus.oidc.enabled=true
+            %dev-minikube.quarkus.oidc.auth-server-url=https://login.microsoftonline.com/${ENTRA_TENANT_ID}/v2.0
+            %dev-minikube.quarkus.oidc.client-id=${ENTRA_API_CLIENT_ID}
+            %dev-minikube.quarkus.oidc.application-type=service
+            %dev-minikube.quarkus.oidc.token.audience=api://${ENTRA_API_CLIENT_ID}
+            %dev-minikube.quarkus.oidc.roles.role-claim-path=roles
+          The `%dev-local`, `%dev`, and `%test` profiles keep their
+          existing `quarkus.oidc.enabled=false` lines untouched — the
+          dev module covers all three.
+        * NO `%dev.entra` composite profile (Quarkus doesn't
+          support composite tags). Running Entra locally is done by
+          stopping dev-local.sh and exporting:
+            export APP_AUTH_PROVIDER=entra
+            export VITE_AUTH_PROVIDER=entra
+            export ENTRA_TENANT_ID=…
+            export ENTRA_API_CLIENT_ID=…
+            export ENTRA_SPA_CLIENT_ID=…
+            export VITE_ENTRA_TENANT_ID=…  …etc.
+            mvn quarkus:dev -Pdev-local
+          plus the equivalent frontend env. Document this in
+          docs/entra-setup.md.
+        * Three new Kotlin files under
+          src/backend/implementation/src/main/kotlin/io/github/theestimator/auth/entra/:
+            EntraAuthModule.kt — `@ApplicationScoped` implementing
+            `AuthModule` with `name() = "entra"`, gated by
+            `@IfBuildProperty(name="app.auth.provider",
+            stringValue="entra")`.
+
+            EntraAuthFilter.kt — `@Provider @Priority(Priorities.
+            AUTHENTICATION + 100)` `ContainerRequestFilter` (POST-
+            matching; NO `@PreMatching`) that injects the request-
+            scoped Quarkus-provided `SecurityIdentity`, reads OIDC
+            claims (`sub`, `email`/`preferred_username`, `name`,
+            `roles`), maps them via `entraRolesToDomain(...)` into
+            `Set<Role>`, and writes the resulting `CurrentUser`
+            into `currentUserProvider.current`. providerName =
+            "entra". Same `@IfBuildProperty` gate as the module.
+            This MIRRORS `DevAuthFilter` from task-006 and is the
+            reason the augmentor stays request-scope-free.
+
+            EntraSecurityIdentityAugmentor.kt — same gate.
+            Implements Quarkus `SecurityIdentityAugmentor`; reads
+            claims from the input `SecurityIdentity` (NOT from
+            CurrentUserProvider) and returns a
+            `QuarkusSecurityIdentity` enriched with the matching
+            Quarkus role strings (`"VIEWER"` / `"ESTIMATOR"` /
+            `"ADMIN"`). The augmentor does NOT touch
+            CurrentUserProvider — that's the filter's job. Pure
+            claim → role-string mapping, no request-scope access,
+            no ContextNotActiveException risk.
+
+            `entraRolesToDomain(...)` is a single private helper,
+            either at file scope inside
+            `EntraSecurityIdentityAugmentor.kt` or extracted into
+            an `EntraRoleMapper.kt` shared with the filter (the
+            implementer picks; either is fine).
+        * Wire the filter so that, under the Entra profile, the
           existing `/api/auth/me` endpoint from task-005 returns
           the same provider-agnostic `CurrentUser` DTO — only the
           `providerName` field differs.
@@ -121,20 +189,34 @@ description: |
     - Documentation:
         * `docs/entra-setup.md` — without secrets — walking through
           both app registrations, role definitions, admin consent,
-          and the env-var mapping. Reference the production
-          `kustomization` (added in phase-6) for how the values
-          flow into K8s secrets / configmaps.
-        * Update CLAUDE.md frontend section: one paragraph noting
-          that auth is provider-modular (dev / entra / future
-          keycloak) and pointing at the SPI + the docs.
+          and the env-var mapping. Includes a section on running
+          Entra locally via env-var override (see backend section
+          above) and a section on how the env vars flow into the
+          minikube backend Deployment.
+        * AMEND CLAUDE.md: in the existing "Modular authentication
+          and authorization" paragraph (added by task-005, amended
+          by task-006 with the `docs/auth-dev.md` cross-link),
+          APPEND a parallel `docs/entra-setup.md` cross-link. Do
+          NOT add a new section. Do NOT duplicate the SPI
+          description.
     - Deployment:
-        * Update scripts/minikube-deploy.sh to set
-          `APP_AUTH_PROVIDER=entra` and `VITE_AUTH_PROVIDER=entra`
-          before deploy.
-        * Add the Entra env vars to the K8s manifests' configmap
-          and secret templates (the secret carries client IDs —
-          they are not credentials, but tenant IDs are typically
-          treated as configuration anyway).
+        * Update scripts/minikube-deploy.sh to `export
+          APP_AUTH_PROVIDER=entra` and `export
+          VITE_AUTH_PROVIDER=entra` before invoking
+          `mvn package -Pdev-minikube` / `kubectl apply -k`. Add a
+          one-liner check that `ENTRA_TENANT_ID`,
+          `ENTRA_API_CLIENT_ID`, and `ENTRA_SPA_CLIENT_ID` are
+          present in the environment; bail out with a clear
+          message otherwise (so the deploy doesn't silently ship
+          unresolved ${VAR} placeholders).
+        * K8s ConfigMap / Secret edits are OUT OF SCOPE for this
+          task. The minikube backend Pod reads the three env vars
+          directly from the shell environment via Quarkus's
+          property-substitution mechanism (`${ENTRA_TENANT_ID}`
+          etc. in application.properties resolve at runtime from
+          process env). Document this approach in
+          `docs/entra-setup.md`; do not edit
+          `k8s/overlays/minikube/*.yaml` here.
 
   Key design decisions (leave no ambiguity):
     - Use `@azure/msal-browser` (not msal-react / msal-node). The
@@ -163,33 +245,68 @@ steps:
     vars but MUST NOT be committed.
 
   - |
-    Add quarkus-oidc dependency:
-      In src/backend/implementation/pom.xml add:
-          <dependency>
-              <groupId>io.quarkus</groupId>
-              <artifactId>quarkus-oidc</artifactId>
-          </dependency>
-      (Version managed by the Quarkus BOM already in the file.)
+    Verify (do NOT add) the quarkus-oidc dependency:
+      grep -q "<artifactId>quarkus-oidc</artifactId>" src/backend/implementation/pom.xml
+    The dependency is already on the classpath (task-006 uses
+    Quarkus security identity types from it).
 
   - |
-    Configure quarkus-oidc per-profile in
+    Edit
     src/backend/implementation/src/main/resources/application.properties:
-      - %dev.quarkus.oidc.enabled=false
-      - %test.quarkus.oidc.enabled=false
-      - The %prod and %dev-minikube blocks documented above.
-    Defer placeholder substitution to runtime env vars (Quarkus
-    auto-resolves ${ENV_VAR} from the environment).
+      - REPLACE the existing
+            %prod.quarkus.oidc.auth-server-url=http://localhost:8180/realms/estimation
+            %prod.quarkus.oidc.client-id=backend
+        lines with the Entra-shaped %prod block from the
+        description (auth-server-url, client-id, application-type,
+        token.audience, roles.role-claim-path — all five lines).
+      - REPLACE
+            %dev-minikube.quarkus.oidc.enabled=false
+        with the Entra-shaped %dev-minikube block from the
+        description (six lines: enabled=true + the same five OIDC
+        keys as %prod).
+      - LEAVE the `%dev-local`, `%dev`, and `%test`
+        `quarkus.oidc.enabled=false` lines untouched.
+    All `${ENV_VAR}` placeholders are resolved by Quarkus at
+    runtime from process env — no Maven-side substitution.
 
   - |
     Create backend Entra module files under
     src/backend/implementation/src/main/kotlin/io/github/theestimator/auth/entra/:
       - EntraAuthModule.kt — `@ApplicationScoped`, gated by
         `@IfBuildProperty(name="app.auth.provider",
-        stringValue="entra")`.
-      - EntraSecurityIdentityAugmentor.kt — same gate. Implements
-        Quarkus `SecurityIdentityAugmentor`; reads claims and
-        populates `CurrentUserProvider`. Implements
-        `entraRolesToDomain(claims: JsonObject): Set<Role>`.
+        stringValue="entra")`. Tiny stub that delegates `isActive`
+        to `AuthConfig` (same shape as `DevAuthModule`).
+      - EntraAuthFilter.kt — `@Provider` (NO `@PreMatching`)
+        `@Priority(Priorities.AUTHENTICATION + 100)`
+        `ContainerRequestFilter` gated by the same
+        `@IfBuildProperty`. Inject the request-scoped Quarkus
+        `SecurityIdentity` (`@Inject Instance<SecurityIdentity>`
+        or constructor-injected `SecurityIdentity` — Quarkus
+        proxies the request-scoped instance). When the identity
+        is non-anonymous, pull claims via
+        `identity.principal.name` / `identity.attributes` /
+        `identity.getAttribute("OidcIdToken")` (or via
+        `JsonWebToken` if injected), call
+        `entraRolesToDomain(claims)` to produce `Set<Role>`, and
+        write `currentUserProvider.current = CurrentUser(...)`
+        with providerName="entra". If anonymous, leave
+        `currentUserProvider.current` null — the resource will
+        404/401 as appropriate (no automatic abort here; OIDC has
+        already rejected invalid tokens at the auth-mechanism
+        layer).
+      - EntraSecurityIdentityAugmentor.kt — same gate.
+        `SecurityIdentityAugmentor` implementation that takes the
+        OIDC-validated identity, reads the `roles` claim, maps
+        Entra app-role values to Quarkus role strings (`VIEWER`,
+        `ESTIMATOR`, `ADMIN`) via the SAME mapper, and returns a
+        `QuarkusSecurityIdentity.builder()` enriched identity. NO
+        injection of `CurrentUserProvider`; NO writes to request-
+        scoped state. Pure read-on-claims + return-new-identity.
+      - The role mapper `entraRolesToDomain(claims): Set<Role>`
+        lives either as a private top-level function in
+        EntraSecurityIdentityAugmentor.kt OR in a small shared
+        EntraRoleMapper.kt — implementer picks; the filter and
+        augmentor both call it.
 
   - |
     Add @azure/msal-browser:
@@ -221,19 +338,34 @@ steps:
     between the two.
 
   - |
-    Update CLAUDE.md (project root): under the frontend section,
-    add a short paragraph naming the modular auth design (dev +
-    entra modules now, keycloak planned), pointing at
-    src/backend/implementation/.../auth/ and
-    src/frontend/src/lib/auth/.
+    Update CLAUDE.md (project root): AMEND the existing "Modular
+    authentication and authorization" paragraph by APPENDING a
+    parallel `docs/entra-setup.md` cross-link after the existing
+    `docs/auth-dev.md` cross-link (the paragraph already names
+    Entra in its task-007 reference; do NOT add a new paragraph,
+    do NOT duplicate the SPI description). Example final
+    sentence:
+        "Concrete providers land in task-006 (dev / hard-wired
+         users — see `docs/auth-dev.md`), task-007 (Entra ID via
+         MSAL + quarkus-oidc — see `docs/entra-setup.md`), and
+         task-060 (Keycloak); …"
 
   - |
-    Update scripts/minikube-deploy.sh to set
-    `APP_AUTH_PROVIDER=entra` and `VITE_AUTH_PROVIDER=entra`
-    before invoking `kubectl apply` / `skaffold` / whatever the
-    deploy script does today. Add a comment noting that
-    `ENTRA_TENANT_ID`, `ENTRA_API_CLIENT_ID`, and
-    `ENTRA_SPA_CLIENT_ID` must be present in the environment.
+    Update scripts/minikube-deploy.sh: at the TOP of the script
+    (before the existing `mvn package -Pdev-minikube` invocation)
+    add:
+      export APP_AUTH_PROVIDER=entra
+      export VITE_AUTH_PROVIDER=entra
+      for v in ENTRA_TENANT_ID ENTRA_API_CLIENT_ID ENTRA_SPA_CLIENT_ID; do
+          if [ -z "${!v}" ]; then
+              echo "Error: $v must be set" >&2; exit 1
+          fi
+      done
+    This makes a misconfigured deploy fail loudly rather than
+    silently ship unresolved ${VAR} placeholders into the running
+    Pod. NO K8s YAML edits — the env vars travel into the backend
+    Pod via the same shell environment and Quarkus's
+    property-substitution layer.
 
   - |
     Backend build:
@@ -253,18 +385,39 @@ steps:
 
 validation:
   - |
-    Backend Entra module files exist:
+    Backend Entra module files exist (THREE files including the
+    new filter — without it CurrentUserProvider stays null and
+    /api/auth/me 500s under the entra provider, repeating the
+    task-006 bug):
       test -f src/backend/implementation/src/main/kotlin/io/github/theestimator/auth/entra/EntraAuthModule.kt
+      test -f src/backend/implementation/src/main/kotlin/io/github/theestimator/auth/entra/EntraAuthFilter.kt
       test -f src/backend/implementation/src/main/kotlin/io/github/theestimator/auth/entra/EntraSecurityIdentityAugmentor.kt
   - |
-    quarkus-oidc is on the classpath:
+    The Entra filter is @IfBuildProperty-gated to the entra
+    provider AND is post-matching (no @PreMatching, which would
+    fire on the Vert.x event loop outside request scope):
+      grep -q "@IfBuildProperty" src/backend/implementation/src/main/kotlin/io/github/theestimator/auth/entra/EntraAuthFilter.kt
+      grep -q "stringValue = \"entra\"" src/backend/implementation/src/main/kotlin/io/github/theestimator/auth/entra/EntraAuthFilter.kt
+      ! grep -q "@PreMatching" src/backend/implementation/src/main/kotlin/io/github/theestimator/auth/entra/EntraAuthFilter.kt
+  - |
+    The augmentor does NOT inject CurrentUserProvider (task-006
+    lesson — that's a request-scope hazard from the Vert.x event
+    loop):
+      ! grep -q "CurrentUserProvider" src/backend/implementation/src/main/kotlin/io/github/theestimator/auth/entra/EntraSecurityIdentityAugmentor.kt
+  - |
+    quarkus-oidc is on the classpath (verified, not added):
       grep -q "<artifactId>quarkus-oidc</artifactId>" src/backend/implementation/pom.xml
   - |
-    OIDC is enabled in prod-style profiles and disabled in
-    dev/test:
+    OIDC is now wired for Entra specifically under %prod and
+    %dev-minikube; %dev-local/%dev/%test still disable it:
+      grep -q "%prod.quarkus.oidc.auth-server-url=https://login.microsoftonline.com" src/backend/implementation/src/main/resources/application.properties
+      grep -q "ENTRA_TENANT_ID\\|ENTRA_API_CLIENT_ID" src/backend/implementation/src/main/resources/application.properties
+      grep -q "%dev-minikube.quarkus.oidc.enabled=true" src/backend/implementation/src/main/resources/application.properties
+      grep -q "%dev-minikube.quarkus.oidc.auth-server-url=https://login.microsoftonline.com" src/backend/implementation/src/main/resources/application.properties
+      grep -q "%dev-local.quarkus.oidc.enabled=false" src/backend/implementation/src/main/resources/application.properties
       grep -q "%dev.quarkus.oidc.enabled=false" src/backend/implementation/src/main/resources/application.properties
       grep -q "%test.quarkus.oidc.enabled=false" src/backend/implementation/src/main/resources/application.properties
-      grep -q "%prod.quarkus.oidc.auth-server-url" src/backend/implementation/src/main/resources/application.properties
+      ! grep -q "http://localhost:8180/realms/estimation" src/backend/implementation/src/main/resources/application.properties
   - |
     Frontend Entra provider exists and is wired into the factory:
       test -f src/frontend/src/lib/auth/EntraAuthProvider.ts
@@ -279,13 +432,15 @@ validation:
       grep -q "VITE_ENTRA_SPA_CLIENT_ID" src/frontend/.env.example
       grep -q "VITE_ENTRA_API_CLIENT_ID" src/frontend/.env.example
   - |
-    Documentation exists:
+    Documentation exists and CLAUDE.md cross-links the new file:
       test -f docs/entra-setup.md
-      grep -q "Entra" CLAUDE.md
+      grep -q "docs/entra-setup.md" CLAUDE.md
   - |
-    Minikube deploy script switches to the entra provider:
+    Minikube deploy script switches to the entra provider and
+    fails loudly on missing env vars:
       grep -q "APP_AUTH_PROVIDER=entra" scripts/minikube-deploy.sh
       grep -q "VITE_AUTH_PROVIDER=entra" scripts/minikube-deploy.sh
+      grep -q "ENTRA_TENANT_ID" scripts/minikube-deploy.sh
   - |
     Backend builds:
       mvn -pl src/backend/implementation -am test
@@ -298,8 +453,8 @@ validation:
 
 outputs:
   - created: src/backend/implementation/src/main/kotlin/io/github/theestimator/auth/entra/EntraAuthModule.kt
+  - created: src/backend/implementation/src/main/kotlin/io/github/theestimator/auth/entra/EntraAuthFilter.kt
   - created: src/backend/implementation/src/main/kotlin/io/github/theestimator/auth/entra/EntraSecurityIdentityAugmentor.kt
-  - modified: src/backend/implementation/pom.xml
   - modified: src/backend/implementation/src/main/resources/application.properties
   - created: src/frontend/src/lib/auth/EntraAuthProvider.ts
   - modified: src/frontend/src/lib/auth/index.ts
