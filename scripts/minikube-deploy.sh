@@ -5,6 +5,20 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 K8S_OVERLAY="$PROJECT_ROOT/k8s/overlays/minikube"
 
+# Modular auth selector — minikube uses Entra in production-like mode.
+export APP_AUTH_PROVIDER=entra
+export VITE_AUTH_PROVIDER=entra
+
+# Fail fast on missing tenant config so we never silently ship the
+# unresolved ${VAR} placeholders into the running backend Pod.
+for v in ENTRA_TENANT_ID ENTRA_API_CLIENT_ID ENTRA_SPA_CLIENT_ID; do
+    if [ -z "${!v}" ]; then
+        echo "Error: $v must be set in the environment before deploying." >&2
+        echo "See docs/entra-setup.md for how to obtain these values." >&2
+        exit 1
+    fi
+done
+
 echo "Building backend and frontend container images..."
 cd "$PROJECT_ROOT"
 mvn package -Pdev-minikube -DskipTests

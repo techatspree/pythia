@@ -1,5 +1,6 @@
 import type { AuthProvider } from './AuthProvider';
 import { getDevAuthProvider } from './DevAuthProvider';
+import { getEntraAuthProvider } from './EntraAuthProvider';
 
 export type { AuthAccount, AuthProvider } from './AuthProvider';
 
@@ -12,7 +13,7 @@ export function getAuthProvider(): AuthProvider {
 		case 'dev':
 			return getDevAuthProvider();
 		case 'entra':
-			throw new Error("Provider 'entra' not yet wired up — see task-007");
+			return getEntraAuthProvider();
 		case 'keycloak':
 			throw new Error("Provider 'keycloak' not yet wired up — see task-060");
 		default:

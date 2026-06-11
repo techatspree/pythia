@@ -1,0 +1,209 @@
+id: task-061
+phase: phase-9
+title: Fix TreeTable column/header misalignment at depth
+depends_on: [task-059]
+description: |
+  In the estimation editor the column HEADERS no longer line up with
+  the column VALUES once the tree has nested nodes. The deeper a node
+  sits, the further its data cells drift to the right of the matching
+  header cell. The headers are produced by the generic TreeTable
+  component (src/frontend/src/lib/components/treetable/TreeTable.svelte),
+  which EstimationGrid composes (task-059), so the fix belongs in
+  TreeTable itself and benefits every consumer (EstimationGrid and the
+  /dev/tree-table-demo route alike).
+
+  Root cause (verified in the current TreeTable.svelte):
+    - The header is one CSS grid (the `<div class="grid …">` at the top
+      of the outer container, ~line 262) and EVERY body row is its OWN
+      separate CSS grid (the per-row `<div class="grid …">` inside the
+      `renderRow` snippet, ~line 204). They all share the SAME
+      `grid-template-columns` STRING (the `gridTemplateColumns`
+      `$derived`, ~line 149), but each grid resolves that template
+      INDEPENDENTLY against its own content.
+    - The indentation for nesting is rendered INSIDE the tree column's
+      cell: the `indent(depth)` snippet emits `depth` inline-block spans
+      of 1.5rem each, before the chevron and the cell content
+      (`renderRow`, ~line 221). This indentation is intra-cell — it does
+      not offset the row container — so in principle the columns should
+      stay put.
+    - BUT the two flexible columns (Description and Assumptions, declared
+      `width: '1fr'` in EstimationGrid) are effectively `minmax(auto,
+      1fr)`. The `auto` minimum means a grid item is allowed to grow its
+      track to fit its intrinsic content. In a deeply-indented row the
+      tree cell's content (indent spans + chevron + the description
+      input's intrinsic min-width) is wider than the header's, so that
+      row's Description track expands beyond its fair share. Because each
+      row is an independent grid, the track grows for THAT row only; the
+      header and shallow rows keep the base width. The result: the
+      Description/Type boundary (and every column after it) shifts right
+      by a depth-dependent delta. Fixed `rem` columns do not drift
+      (their track size is fixed regardless of content), which is why the
+      misalignment looks like "everything after Description creeps right
+      the deeper you go."
+
+  Target state:
+    - Header and all rows — at every depth, and immediately after a
+      collapsed subtree is expanded — share pixel-identical column track
+      widths. Opening/closing subtrees or editing values must not shift
+      any column.
+    - The tree column still shows the indentation + chevron; at extreme
+      depth the editable input inside the tree column shrinks (and may
+      ellipsize) rather than widening its track. Losing a little
+      description input width at depth is the accepted trade-off;
+      alignment is the hard requirement.
+    - No change to the public TreeTableProps API, to drag-and-drop
+      behaviour, to keyboard cell-nav, or to any data-testid. All 5
+      existing cases in src/frontend/e2e/tree-table.test.ts and all
+      smoke.test.ts cases keep passing unmodified.
+
+  Key design decisions (leave no ambiguity for the implementer):
+    - Fix #1 — neutralise the content-driven minimum on flexible tracks.
+      In the `gridTemplateColumns` `$derived`, transform each column
+      width so that any FLEXIBLE track (one whose width contains `fr`)
+      is emitted as `minmax(0, <width>)` instead of the bare `<width>`.
+      Non-fr widths (e.g. `6rem`, `2rem`, `4rem`, the editable handle,
+      the rowActions column) pass through UNCHANGED so fixed columns
+      stay exactly their declared size. With `minmax(0, 1fr)` the track
+      minimum is 0, so content can no longer expand it, and `1fr`
+      resolves to the identical fair-share in the header grid and in
+      every row grid. `gridTemplateColumns` is consumed by BOTH the
+      header and the rows (same variable), so this one change keeps them
+      in lockstep.
+    - Fix #2 — let cells shrink instead of forcing min-content width.
+      Add the Tailwind class `min-w-0` to EVERY grid cell `<div>` in
+      TreeTable.svelte: the body cells in the `{#each columns}` loop
+      (~line 219), the editable drag-handle cell (~line 209), the
+      rowActions cell (~line 230), AND the matching header cells (the
+      `{#each columns}` loop at ~line 270, plus the editable/rowActions
+      spacer cells). Without `min-w-0` a grid item defaults to
+      `min-width: auto`, which would re-introduce the content-driven
+      growth that Fix #1 removes. The tree column cell additionally
+      needs `overflow-hidden` so deep indentation + a long description
+      cannot visually spill into the next column.
+    - Fix #3 — make the tree-column editors shrink gracefully. In
+      EstimationGrid.svelte the Description and Assumptions text inputs
+      (the snippets `descriptionCell` and `assumptionsCell`) must carry
+      `w-full min-w-0` so they fill and then shrink within the now-fixed
+      track rather than asserting an intrinsic min-width. (The number
+      inputs and selects already sit in fixed `rem` tracks and are
+      unaffected, but adding `min-w-0` to them is harmless and
+      consistent — apply at the implementer's discretion.)
+    - Do NOT attempt to re-architect the table into a single shared grid
+      via `display: contents` / `subgrid`. svelte-dnd-action measures
+      real container elements and relies on each children-zone being a
+      genuine box; collapsing the row boxes would break drag-and-drop
+      and the cycle-protection logic. The minmax(0,…) + min-w-0 fix is
+      deliberately the low-risk, behaviour-preserving option.
+
+  Out of scope (explicit):
+    - Any change to drag-and-drop, cycle protection, collapse/expand
+      state, keyboard navigation, or the TreeTableProps type.
+    - KMP domain, backend, or REST changes.
+    - Restyling beyond what alignment requires (no palette/spacing
+      redesign, no German translation of headers).
+    - Editing src/frontend/e2e/tree-table.test.ts or smoke.test.ts
+      (they must pass as-is; new assertions go in a NEW test file).
+
+steps:
+  - |
+    Read the current component end-to-end before editing:
+      src/frontend/src/lib/components/treetable/TreeTable.svelte
+      src/frontend/src/lib/components/treetable/types.ts
+      src/frontend/src/lib/components/EstimationGrid.svelte (the
+        descriptionCell / assumptionsCell snippets and the columns array)
+      src/frontend/src/routes/dev/tree-table-demo/+page.svelte (the
+        demo tree — note it nests g1 > g1a > leaves, i.e. depth ≥ 2,
+        which the alignment test will exercise)
+
+  - |
+    Fix #1 in TreeTable.svelte: change the `gridTemplateColumns`
+    `$derived` so flexible tracks become `minmax(0, <width>)`. Concretely
+    replace the column-mapping segment
+        columns.map((c) => c.width).join(' ')
+    with something equivalent to
+        columns.map((c) => (/fr\b/.test(c.width) ? `minmax(0, ${c.width})` : c.width)).join(' ')
+    Leave the `editable ? '2rem '` prefix and the `' 4rem'` rowActions
+    suffix untouched (they are fixed tracks).
+
+  - |
+    Fix #2 in TreeTable.svelte: add `min-w-0` to every grid cell div in
+    BOTH the header grid and the row grid:
+      - body: the drag-handle cell, each `{#each columns}` cell, the
+        rowActions cell.
+      - header: each `{#each columns}` header cell, plus the editable
+        and rowActions spacer cells.
+    Additionally add `overflow-hidden` to the tree-column cell branch
+    (the cell where `col.key === treeColumnKey`) so deep indent + long
+    text is clipped to its track instead of overflowing into the next
+    column. Keep the existing `alignClass(col.align)` and padding
+    classes.
+
+  - |
+    Fix #3 in EstimationGrid.svelte: add `w-full min-w-0` to the text
+    inputs inside the `descriptionCell` (both the GROUP title input and
+    the LEAF description input) and `assumptionsCell` snippets, so they
+    shrink within the fixed track. Do not change their binding or
+    onkeydown/oninput handlers.
+
+  - |
+    Add a Playwright regression test that proves alignment holds at
+    depth. Create src/frontend/e2e/tree-table-alignment.test.ts that
+    drives the existing /dev/tree-table-demo route (no backend needed)
+    and asserts the RESOLVED grid tracks of a nested row match the
+    header. Implementation sketch:
+      - goto('/dev/tree-table-demo')
+      - In page.evaluate(), read the header grid element (the first
+        `.grid` inside the table container) and a deep row's inner
+        `.grid` element (e.g. inside `[data-testid="tt-row-g1a"]`, the
+        depth-1 group, and a leaf under it). Return
+        getComputedStyle(el).gridTemplateColumns for each.
+      - assert the header's resolved gridTemplateColumns equals the
+        nested row's (string equality of the resolved px tracks; if
+        sub-pixel rounding causes flakiness, parse the track px values
+        and assert each pair is within 0.5px).
+      - Then expand any initially-collapsed group (click its chevron via
+        the existing toggle) and re-assert, to cover the "alignment
+        updates when a new subtree is opened" requirement.
+
+  - |
+    Frontend type-check:
+      cd src/frontend && npm run check
+    Expected: 0 errors.
+
+  - |
+    Run the Playwright e2e suite. The 5 existing tree-table cases, the
+    new alignment case, and all smoke cases must pass:
+      cd src/frontend && npx playwright test
+    (Start backend + frontend first via ./scripts/dev-local.sh if the
+    smoke cases require the API; the new alignment test and the
+    tree-table cases only need the dev server / demo route.)
+
+validation:
+  - |
+    Flexible tracks are wrapped in minmax(0, …) so content cannot grow
+    them; the transform lives in the gridTemplateColumns derivation:
+      grep -q "minmax(0" src/frontend/src/lib/components/treetable/TreeTable.svelte
+  - |
+    Grid cells carry min-w-0 in TreeTable (header + body):
+      grep -q "min-w-0" src/frontend/src/lib/components/treetable/TreeTable.svelte
+  - |
+    The tree column editors shrink within their track in EstimationGrid:
+      grep -q "min-w-0" src/frontend/src/lib/components/EstimationGrid.svelte
+  - |
+    The alignment regression test exists and references the demo route
+    and resolved grid tracks:
+      test -f src/frontend/e2e/tree-table-alignment.test.ts
+      grep -q "tree-table-demo" src/frontend/e2e/tree-table-alignment.test.ts
+      grep -q "gridTemplateColumns" src/frontend/e2e/tree-table-alignment.test.ts
+  - |
+    Frontend type-check passes:
+      cd src/frontend && npm run check
+  - |
+    The full Playwright suite (existing tree-table + smoke + the new
+    alignment case) passes without modifying the existing test files:
+      cd src/frontend && npx playwright test
+
+outputs:
+  - modified: src/frontend/src/lib/components/treetable/TreeTable.svelte
+  - modified: src/frontend/src/lib/components/EstimationGrid.svelte
+  - created: src/frontend/e2e/tree-table-alignment.test.ts

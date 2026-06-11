@@ -39,9 +39,9 @@
       "notes": ""
     },
     "task-007": {
-      "status": "pending",
-      "started_at": null,
-      "completed_at": null,
+      "status": "done",
+      "started_at": "2026-06-11T11:11:45+00:00",
+      "completed_at": "2026-06-11T12:21:10+00:00",
       "notes": ""
     },
     "task-008": {
@@ -361,6 +361,12 @@
       "started_at": null,
       "completed_at": null,
       "notes": "Future / optional module — implement when a non-Entra deployment is needed."
+    },
+    "task-061": {
+      "status": "pending",
+      "started_at": null,
+      "completed_at": null,
+      "notes": ""
     }
   }
 }
