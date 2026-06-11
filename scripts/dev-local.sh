@@ -7,6 +7,11 @@ PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 BACKEND_DIR="$PROJECT_ROOT/src/backend/implementation"
 FRONTEND_DIR="$PROJECT_ROOT/src/frontend"
 
+# Modular auth selector — same value must be set on backend and
+# frontend for the auth modules to agree.
+export APP_AUTH_PROVIDER=dev
+export VITE_AUTH_PROVIDER=dev
+
 cleanup() {
     echo "Stopping services..."
     kill $BACKEND_PID $FRONTEND_PID 2>/dev/null

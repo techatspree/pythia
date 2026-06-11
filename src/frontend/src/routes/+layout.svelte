@@ -1,6 +1,7 @@
 <script lang="ts">
 	import '../app.css';
 	import favicon from '$lib/assets/favicon.svg';
+	import RequireAuth from '$lib/auth/RequireAuth.svelte';
 
 	let { children } = $props();
 </script>
@@ -30,5 +31,5 @@
 </header>
 
 <main>
-	{@render children()}
+	<RequireAuth {children} />
 </main>

@@ -33,9 +33,9 @@
       "notes": ""
     },
     "task-006": {
-      "status": "pending",
-      "started_at": null,
-      "completed_at": null,
+      "status": "done",
+      "started_at": "2026-06-10T15:14:47+00:00",
+      "completed_at": "2026-06-10T16:08:57+00:00",
       "notes": ""
     },
     "task-007": {

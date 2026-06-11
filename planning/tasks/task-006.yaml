@@ -388,11 +388,16 @@ validation:
       grep -q "APP_AUTH_DEV_DEFAULT_USER=" scripts/dev-local-strict.sh
       grep -q "QUARKUS_HTTP_PORT=8081" scripts/dev-local-strict.sh
   - |
-    Per-profile default-user fallback is configured strictly
-    everywhere EXCEPT dev-local/%dev (developer convenience):
+    Per-profile default-user fallback: strict by default
+    (file-level empty), permissive on dev-local/%dev developer
+    convenience AND on %test so existing @QuarkusTest IT suites
+    keep passing without auth-header retrofitting. %prod stays
+    strict. Strict-mode is exercised at runtime by the dedicated
+    strict backend on port 8081 via APP_AUTH_DEV_DEFAULT_USER=
+    env override (see scripts/dev-local-strict.sh):
       grep -q "^app.auth.dev.default-user=$" src/backend/implementation/src/main/resources/application.properties
       grep -q "%dev-local.app.auth.dev.default-user=dev-admin" src/backend/implementation/src/main/resources/application.properties
-      grep -q "%test.app.auth.dev.default-user=$" src/backend/implementation/src/main/resources/application.properties
+      grep -q "%test.app.auth.dev.default-user=dev-admin" src/backend/implementation/src/main/resources/application.properties
       grep -q "%prod.app.auth.dev.default-user=$" src/backend/implementation/src/main/resources/application.properties
   - |
     Documentation page exists and mentions the strict mode:
