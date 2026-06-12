@@ -1,0 +1,194 @@
+id: task-070
+phase: phase-9
+title: Move TreeTable row actions into the name column
+depends_on: [task-061, task-069]
+description: |
+  Relocate the per-row action buttons in the estimation grid and bold
+  the group aggregate values, for a more usable group row.
+
+  Current state (verified in code):
+    - The generic TreeTable
+      (src/frontend/src/lib/components/treetable/TreeTable.svelte)
+      renders the optional `rowActions` snippet in a DEDICATED TRAILING
+      column on the far right: the body cell at ~lines 248–252, the
+      header spacer at ~lines 295–297, and `gridTemplateColumns`
+      (~line 168) appends `' 4rem'` whenever `rowActions && editable`.
+      The tree column (treeColumnKey) renders `indent → chevron →
+      col.cell` (~lines 240–244).
+    - EstimationGrid
+      (src/frontend/src/lib/components/EstimationGrid.svelte) supplies
+      `rowActionsSnippet` = `+ group` / `+ item` (groups only) + `✕`
+      (~lines 540–564). Its `descriptionCell` group branch already
+      renders the bold title followed by a faint "{n} children" badge
+      (~lines 336–353). Its `totalsFooter` (~lines 566–585) mirrors the
+      grid template INCLUDING the trailing `4rem` and a trailing spacer
+      cell. The group aggregate cells `offerPTCell` / `costCell` /
+      `offerPriceCell` (~lines 515–538) render the calc-map values in
+      the SAME weight for groups and leaves (not bold).
+    - So today the visual order on a group row is:
+        [drag] [name | child-count] [value columns…] [+group +item ✕]
+      i.e. the actions sit AFTER all the value columns, on the right.
+
+  Target state:
+    - On a group row the order becomes:
+        [drag] [name | child-count | +group +item ✕] [value columns…]
+      The three actions move INTO the tree/name column, right after the
+      name and the child-count badge. On a leaf row the single `✕`
+      likewise renders inside the name column after the description.
+    - The dedicated trailing action column is REMOVED entirely — there
+      must be NO action button (and no reserved `4rem` track) after the
+      value columns. The value columns are the last thing on every row.
+    - Group aggregate values (offerPT, cost, offerPrice) render in
+      BOLD (font-semibold) on group rows, matching the already-bold
+      group title. Leaf rows keep their normal weight.
+
+  Key design decisions (leave no ambiguity for the implementer):
+    - Make the action placement a TreeTable option rather than a hard
+      behavioural change, so the demo and any other consumer are
+      unaffected. Add an optional prop
+        actionsPlacement?: 'trailing' | 'treeColumn'   (default 'trailing')
+      to TreeTableProps (treetable/types.ts). EstimationGrid passes
+      `actionsPlacement="treeColumn"`; the /dev/tree-table-demo route
+      keeps the default 'trailing' so its layout, its
+      e2e/tree-table.test.ts cases, and the task-061 alignment test are
+      untouched.
+    - When `actionsPlacement === 'treeColumn'`:
+        * In TreeTable's tree-column cell, after `{@render col.cell(...)}`,
+          render `{@render rowActions(node, ctx)}` (guarded by
+          `rowActions && editable`).
+        * Do NOT render the trailing body action cell, do NOT render the
+          trailing header spacer, and do NOT append `' 4rem'` in
+          `gridTemplateColumns`.
+      When 'trailing' (default) everything stays exactly as today.
+    - Clipping guard (this interacts with the task-061 alignment fix):
+      the tree column is the flexible `1fr` track with `min-w-0` +
+      `overflow-hidden`. To keep the inline actions visible at any
+      depth, lay the tree-column cell out as a flex row
+      (`flex items-center gap-1 min-w-0`): indent, chevron, the
+      `col.cell` content (the name input/label, allowed to shrink via
+      the `min-w-0` it already carries after task-061), then the
+      `rowActions` group marked `shrink-0` so the buttons are never
+      clipped while the name input absorbs the squeeze. (The existing
+      `rowActionsSnippet` wrapper is already a `flex items-center gap-1`
+      div — add `shrink-0` to it.)
+    - EstimationGrid's `totalsFooter` and its local `gridTemplateColumns`
+      (~line 331) must drop the trailing `' 4rem'` and the trailing
+      spacer `<div>` so the footer keeps aligning with the
+      now-action-less table. (Leave the collapsed-column handling, which
+      belongs to task-069, alone — only remove the trailing action
+      track.)
+    - Bold group aggregates: in `offerPTCell`, `costCell`,
+      `offerPriceCell`, add `font-semibold` to the value span only when
+      `node.type === 'GROUP'` (a leaf-vs-group conditional class). Do
+      not bold leaf values.
+    - The action button TEXT ("+ group", "+ item") and the row
+      `data-testid="row-{path}"` wrappers do NOT change, so the existing
+      e2e/smoke.test.ts selectors (`hasText: '+ group'` /
+      `hasText: '+ item'`, `[data-testid="row-0"] button`) keep working
+      with the buttons in their new location.
+
+  Out of scope:
+    - No change to drag-and-drop, collapse/expand, keyboard cell-nav,
+      the calc-map computation, or the column set.
+    - No change to the demo route or to e2e/tree-table.test.ts.
+    - Backend / domain untouched.
+
+steps:
+  - |
+    Add the optional `actionsPlacement?: 'trailing' | 'treeColumn'`
+    field to TreeTableProps in
+    src/frontend/src/lib/components/treetable/types.ts (default behaviour
+    documented as 'trailing').
+
+  - |
+    Update src/frontend/src/lib/components/treetable/TreeTable.svelte:
+      - Destructure `actionsPlacement = 'trailing'` from $props().
+      - In `gridTemplateColumns`, only append `' 4rem'` when
+        `rowActions && editable && actionsPlacement === 'trailing'`.
+      - In the tree-column branch of the row `{#each columns}` loop,
+        when `actionsPlacement === 'treeColumn'`, lay the cell out as
+        `flex items-center gap-1 min-w-0` and render
+        `{@render rowActions?.(node, ctx)}` (only if `rowActions &&
+        editable`) AFTER `{@render col.cell(node, ctx)}`.
+      - Render the trailing body action cell and the trailing header
+        spacer ONLY when `actionsPlacement === 'trailing'`.
+
+  - |
+    Update src/frontend/src/lib/components/EstimationGrid.svelte:
+      - Pass `actionsPlacement="treeColumn"` to <TreeTable>.
+      - Add `shrink-0` to the `rowActionsSnippet` wrapper div.
+      - Remove the trailing `' 4rem'` from the local `gridTemplateColumns`
+        ($derived, ~line 331) and remove the trailing spacer
+        `{#if editable}<div …></div>{/if}` at the end of `totalsFooter`
+        so the footer template matches the table.
+      - In `offerPTCell`, `costCell`, `offerPriceCell`, make the value
+        span bold when `node.type === 'GROUP'` (leaf rows keep normal
+        weight). Apply the bold with a Svelte class directive
+        `class:group-aggregate-bold={node.type === 'GROUP'}` and add a
+        single style rule `.group-aggregate-bold { font-weight: 600; }`
+        in the component's <style> block. Using this distinctive class
+        (rather than reusing the generic `font-semibold`, which already
+        styles the group TITLE) keeps the change greppable and lets the
+        e2e assert it precisely.
+
+  - |
+    Update CLAUDE.md: in the "Frontend — generic `TreeTable` component"
+    paragraph (which documents the component's API and the per-row
+    actions slot), note the new optional `actionsPlacement: 'trailing' |
+    'treeColumn'` prop (default 'trailing'; EstimationGrid uses
+    'treeColumn' to render the row actions inline in the name column
+    instead of a trailing column).
+
+  - |
+    Frontend type-check:
+      cd src/frontend && npm run check
+    Expected: 0 errors.
+
+  - |
+    Run the Playwright e2e suite (backend + frontend up via
+    ./scripts/dev-local.sh). The existing smoke cases (which locate the
+    `+ group` / `+ item` / delete buttons) and the tree-table +
+    alignment cases must all still pass with the buttons relocated:
+      cd src/frontend && npm run test:e2e
+
+  - |
+    Visual check (layout/contrast that type-check can't prove): open a
+    draft with a nested group, confirm on a group row the order is
+    name → child-count → +group/+item/✕ → value columns, that nothing
+    sits to the right of the value columns, that the buttons are not
+    clipped at depth, and that the group's offerPT/cost/offerPrice are
+    bold like the title.
+
+validation:
+  - |
+    TreeTable exposes the placement option and renders actions in the
+    tree column path:
+      grep -q "actionsPlacement" src/frontend/src/lib/components/treetable/types.ts
+      grep -q "actionsPlacement" src/frontend/src/lib/components/treetable/TreeTable.svelte
+  - |
+    EstimationGrid opts into tree-column placement and bolds group
+    aggregates via the distinctive class (NOT the generic font-semibold
+    that already styles the title — so this assertion can't pass
+    trivially):
+      grep -q "actionsPlacement=\"treeColumn\"" src/frontend/src/lib/components/EstimationGrid.svelte
+      grep -q "group-aggregate-bold" src/frontend/src/lib/components/EstimationGrid.svelte
+  - |
+    CLAUDE.md documents the new actionsPlacement prop:
+      grep -q "actionsPlacement" CLAUDE.md
+  - |
+    The trailing 4rem action track is no longer unconditional in
+    EstimationGrid's footer template (no bare "+ ' 4rem'" tail):
+      ! grep -q "' 4rem'" src/frontend/src/lib/components/EstimationGrid.svelte
+  - |
+    Frontend type-check passes:
+      cd src/frontend && npm run check
+  - |
+    The full Playwright e2e suite passes with the relocated buttons
+    (smoke + tree-table + alignment), unmodified:
+      cd src/frontend && npm run test:e2e
+
+outputs:
+  - modified: src/frontend/src/lib/components/treetable/types.ts
+  - modified: src/frontend/src/lib/components/treetable/TreeTable.svelte
+  - modified: src/frontend/src/lib/components/EstimationGrid.svelte
+  - modified: CLAUDE.md

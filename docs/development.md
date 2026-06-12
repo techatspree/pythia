@@ -3,11 +3,18 @@
 ## Prerequisites
 
 - Java 21 (managed via jenv)
-- Maven 3.9+
 - Node.js (managed automatically by Maven for builds)
 - Docker
 - Minikube
 - kubectl
+
+Maven itself is **not** a prerequisite — the repo ships a Maven wrapper
+(`./mvnw` and `./mvnw.cmd` at the repo root, with the version pinned by
+`.mvn/wrapper/`). On first run `./mvnw` downloads the right Maven version
+into your local Maven cache; subsequent runs reuse it. If you already
+have a matching `mvn` on `PATH` it works too — but examples below use
+`./mvnw` so contributors get a consistent version regardless of their
+local setup.
 
 ## Building
 
@@ -15,22 +22,22 @@ The project uses a top-level Maven reactor build that covers both frontend and b
 
 ```bash
 # Full build (frontend + backend, all tests)
-mvn clean install
+./mvnw clean install
 
 # Build with dev-local profile (H2, no container image)
-mvn clean install -Pdev-local
+./mvnw clean install -Pdev-local
 
 # Build with dev-minikube profile (PostgreSQL, builds container image)
-mvn clean install -Pdev-minikube
+./mvnw clean install -Pdev-minikube
 
 # Run all tests (backend unit tests + frontend type-check)
-mvn test
+./mvnw test
 
 # Skip frontend build (backend only)
-mvn clean install -Dskip.frontend=true
+./mvnw clean install -Dskip.frontend=true
 
 # Run end-to-end tests (requires running backend)
-mvn verify -pl src/backend/end2end -DskipITs=false
+./mvnw verify -pl src/backend/end2end -DskipITs=false
 ```
 
 ## Development Profiles
@@ -49,7 +56,7 @@ Or start them individually:
 Start the backend:
 ```bash
 cd src/backend/implementation
-mvn quarkus:dev -Pdev-local
+../../../mvnw quarkus:dev -Pdev-local
 ```
 
 Start the frontend (in a second terminal):

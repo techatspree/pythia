@@ -8,22 +8,23 @@ TheEstimator is a project-effort estimation tool: PERT three-point estimates (op
 
 ## Build & run
 
-Top-level Maven reactor drives every module — there is **no `mvnw` wrapper**, use system `mvn`.
+Top-level Maven reactor drives every module. **Use `./mvnw`** (Maven wrapper at the repo root — pins the Maven version, downloads it on first run so contributors don't need a system `mvn`). System `mvn` works too if the version matches, but `./mvnw` is the canonical entry point.
 
 ```
-mvn clean install                       # full build, all tests (frontend + backend)
-mvn -DskipTests package                 # build everything, skip tests
-mvn -pl src/domain -am test             # domain (KMP) tests only
-mvn -pl src/backend/implementation -am test   # backend unit + IT (Testcontainers)
-cd src/frontend && npm run check        # TS/Svelte type-check
-cd src/frontend && npm run test:e2e     # Playwright
+./mvnw clean install                       # full build, all tests (frontend + backend)
+./mvnw -DskipTests package                 # build everything, skip tests
+./mvnw verify                              # full build + static-analysis reports (informational)
+./mvnw -pl src/domain -am test             # domain (KMP) tests only
+./mvnw -pl src/backend/implementation -am test   # backend unit + IT (Testcontainers)
+cd src/frontend && npm run check           # TS/Svelte type-check
+cd src/frontend && npm run test:e2e        # Playwright
 
-./scripts/dev-local.sh                  # H2 backend + Vite frontend, one command
-./scripts/minikube-deploy.sh            # full PostgreSQL + Quarkus stack on minikube
+./scripts/dev-local.sh                     # H2 backend + Vite frontend, one command
+./scripts/minikube-deploy.sh               # full PostgreSQL + Quarkus stack on minikube
 ```
 
 Run one backend test class:
-`mvn -pl src/backend/implementation test -Dtest=EstimationVersionResourceIT`
+`./mvnw -pl src/backend/implementation test -Dtest=EstimationVersionResourceIT`
 
 The dev-local profile uses H2 in-memory; dev-minikube and prod use PostgreSQL 16 via Flyway migrations (`src/backend/implementation/src/main/resources/db/migration/V*.sql`). `%test` uses PostgreSQL Testcontainers automatically — integration tests need Docker running locally.
 
@@ -64,7 +65,7 @@ Use `@SQLRestriction`, not the deprecated `@Where`, for filtered collections.
 
 ### Frontend ↔ domain bridge (`adapter.ts`)
 
-`src/frontend/src/lib/adapter.ts` computes the local calc map by calling into the Kotlin/JS-compiled domain (`createVersion(...).calculate()`) and then walking the result tree recursively. Both the wire DTOs (`EstimationVersionDto.roots`, `DraftUpdateDto.roots`) and the Kotlin/JS factories (`createVersion(roots: Array<EstimationNode>)`, `createGroup(children: Array<EstimationNode>) → EstimationGroup`) speak the canonical tree shape — no legacy `itemGroups` field anywhere. If you see a stale `.d.mts` (TypeScript picks `.d.mts` for `.mjs` imports), force a full rebuild: `rm src/domain/build/typescript-prep/domain.d.mts && mvn -pl src/frontend -am clean package`.
+`src/frontend/src/lib/adapter.ts` computes the local calc map by calling into the Kotlin/JS-compiled domain (`createVersion(...).calculate()`) and then walking the result tree recursively. Both the wire DTOs (`EstimationVersionDto.roots`, `DraftUpdateDto.roots`) and the Kotlin/JS factories (`createVersion(roots: Array<EstimationNode>)`, `createGroup(children: Array<EstimationNode>) → EstimationGroup`) speak the canonical tree shape — no legacy `itemGroups` field anywhere. If you see a stale `.d.mts` (TypeScript picks `.d.mts` for `.mjs` imports), force a full rebuild: `rm src/domain/build/typescript-prep/domain.d.mts && ./mvnw -pl src/frontend -am clean package`.
 
 ### Kotlin/JS gotcha — super-property recursion
 
@@ -115,7 +116,7 @@ This project uses a YAML-based task plan under `planning/`:
 - `planning/status.json` — mutable progress; updated via `./scripts/task.sh start|done|pending <task-id>` (requires `jq`).
 - `.claude/commands/` — slash commands `add-task`, `implement-task`, `improve-task` automate the lifecycle.
 
-When implementing a task, read its YAML in full, run `./scripts/task.sh start`, follow the steps, run **every** validation command, and only call `./scripts/task.sh done` after `mvn package` and `cd src/frontend && npm run check` are green. Never amend the existing build wrapper to `./mvnw` — it doesn't exist.
+When implementing a task, read its YAML in full, run `./scripts/task.sh start`, follow the steps, run **every** validation command, and only call `./scripts/task.sh done` after `./mvnw package` and `cd src/frontend && npm run check` are green. Older task YAMLs may reference bare `mvn …`; the wrapper `./mvnw` is now the canonical entry point — either form works at the same Maven version, but new task specs should prefer `./mvnw`.
 
 ## REST API surface
 

@@ -23,7 +23,7 @@ cleanup() {
     kill $BACKEND_PID $FRONTEND_PID 2>/dev/null
     wait $BACKEND_PID $FRONTEND_PID 2>/dev/null
     # Sweep only Kotlin daemons that appeared after this script started.
-    # `mvn quarkus:dev` detaches its daemon with -Dkotlin.environment.keepalive,
+    # `./mvnw quarkus:dev` detaches its daemon with -Dkotlin.environment.keepalive,
     # so it would otherwise outlive the kill above and accumulate across
     # sessions (symptom: subsequent builds fail with "Failed connecting
     # to the daemon in 4 retries").
@@ -40,7 +40,7 @@ trap cleanup EXIT INT TERM
 
 echo "Starting backend (dev-local)..."
 cd "$BACKEND_DIR"
-mvn quarkus:dev -Pdev-local &
+"$PROJECT_ROOT/mvnw" quarkus:dev -Pdev-local &
 BACKEND_PID=$!
 
 echo "Waiting for backend to be ready..."

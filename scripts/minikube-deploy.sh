@@ -21,7 +21,7 @@ done
 
 echo "Building backend and frontend container images..."
 cd "$PROJECT_ROOT"
-mvn package -Pdev-minikube -DskipTests
+"$PROJECT_ROOT/mvnw" package -Pdev-minikube -DskipTests
 
 echo "Loading images into Minikube..."
 minikube image load theestimator/estimation-backend:1.0.0-SNAPSHOT

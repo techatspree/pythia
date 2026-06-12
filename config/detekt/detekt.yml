@@ -1,0 +1,28 @@
+# Shared detekt config used by both src/domain (Gradle) and
+# src/backend/implementation (Maven). Defaults inherited from the
+# bundled rule set via `buildUponDefaultConfig: true` configured in
+# the plugin wiring.
+#
+# Header: buildUponDefaultConfig: true
+
+build:
+  maxIssues: -1  # reports are informational — never fail the build on
+                 # findings. A follow-up task can flip this to 0 once
+                 # the backlog is triaged.
+  weights:
+    complexity: 1
+    style: 1
+
+complexity:
+  LongMethod:
+    threshold: 100
+  LargeClass:
+    threshold: 800
+
+style:
+  MagicNumber:
+    ignoreNumbers: ['-1', '0', '1', '2', '6', '10', '100']
+  ReturnCount:
+    max: 6
+  # buildUponDefaultConfig: true is set in the plugin wiring, not
+  # this file — kept here as documentation of the intent.

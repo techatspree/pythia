@@ -39,3 +39,8 @@ src/frontend/node/
 src/frontend/src/lib/types/generated/
 /docs/InfosNotForGit.txt
 /src/frontend/test-results/
+
+# Static-analysis reports (detekt for backend/domain land under
+# target/ and build/ which are already ignored; ESLint reports
+# need an explicit entry)
+src/frontend/reports/

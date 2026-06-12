@@ -14,6 +14,7 @@
         <quarkus.platform.artifact-id>quarkus-bom</quarkus.platform.artifact-id>
         <quarkus.platform.group-id>io.quarkus.platform</quarkus.platform.group-id>
         <quarkus.platform.version>3.35.1</quarkus.platform.version>
+        <detekt.version>1.23.8</detekt.version>
         <skipITs>true</skipITs>
         <surefire-plugin.version>3.5.4</surefire-plugin.version>
         <quarkus.container-image.build>false</quarkus.container-image.build>
@@ -235,6 +236,35 @@
                         <maven.home>${maven.home}</maven.home>
                     </systemPropertyVariables>
                 </configuration>
+            </plugin>
+
+            <!-- Static analysis: detekt over Kotlin sources. Reports are
+                 informational; build stays GREEN regardless of findings.
+                 Configuration is plugin-level so `mvn detekt:check`
+                 invocations also honour failBuildOnMaxIssuesReached. -->
+            <plugin>
+                <groupId>com.github.ozsie</groupId>
+                <artifactId>detekt-maven-plugin</artifactId>
+                <version>${detekt.version}</version>
+                <configuration>
+                    <config>${project.basedir}/../../../config/detekt/detekt.yml</config>
+                    <input>${project.basedir}/src/main/kotlin</input>
+                    <buildUponDefaultConfig>true</buildUponDefaultConfig>
+                    <failBuildOnMaxIssuesReached>false</failBuildOnMaxIssuesReached>
+                    <report>
+                        <report>xml:${project.build.directory}/detekt/detekt.xml</report>
+                        <report>html:${project.build.directory}/detekt/detekt.html</report>
+                    </report>
+                </configuration>
+                <executions>
+                    <execution>
+                        <id>detekt-check</id>
+                        <phase>verify</phase>
+                        <goals>
+                            <goal>check</goal>
+                        </goals>
+                    </execution>
+                </executions>
             </plugin>
         </plugins>
     </build>

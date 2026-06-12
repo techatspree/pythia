@@ -87,23 +87,96 @@ description: |
       and build/ ignores where they apply — only src/frontend/reports/
       needs an explicit entry; verify and add what is missing).
     - This is build-tooling/hardening work, orthogonal to the phase-9
-      tree refactor. It is assigned to a NEW phase-10 ("Code Quality &
-      Static Analysis") which is not yet in plan.yaml — see the report;
-      do not edit plan.yaml as part of this task. It depends on task-055
-      only so it lints the final tree-shaped code, not code that
-      task-049…055 were still rewriting.
+      tree refactor. Phase-10 ("Code Quality and Static Analysis") is
+      already declared in `planning/plan.yaml` (added during the
+      modular-auth rewrite of task-005) with `tasks: [task-056]`, so
+      this task only needs to land the implementation — no plan.yaml
+      edit. It depends on task-055 only so it lints the final
+      tree-shaped code, not code that task-049…055 were still
+      rewriting.
+    - **detekt + recent Kotlin compatibility**: detekt 1.23.x
+      embeds its own Kotlin-1.9/early-2.0 compiler frontend
+      INDEPENDENTLY of the project's Kotlin version (2.1.21 in
+      `src/domain`, 2.3.21 in `src/backend/implementation`). It
+      will parse modern source files in most cases, but if it
+      throws "Unable to parse …" on a Kotlin-2.3 K2 feature, the
+      fallbacks (in order of preference) are:
+        1. Bump to a detekt 2.x preview / release (`-cli` jar
+           invoked via exec-maven-plugin if no Maven plugin yet).
+        2. Pin detekt's `compilerExtensions` / language-version
+           to 1.9 for the lint pass only.
+        3. Exclude the offending file via `detekt.yml`.
+      Pick (1) for forward compatibility; document the chosen
+      fallback in `README.md`'s new section.
+    - **detekt-maven-plugin (com.github.ozsie) maintenance**: the
+      community plugin's release cadence has slowed. If 1.23.8 is
+      unavailable or broken at implementation time, the equivalent
+      fallback is `exec-maven-plugin` running the `detekt-cli`
+      jar with the same `-c config/detekt/detekt.yml -i
+      src/main/kotlin -r xml:target/detekt/detekt.xml -r
+      html:target/detekt/detekt.html` arguments. The end-state
+      (the four files generated, the build still green) is
+      identical.
+    - **"GREEN" in this task means exit code 0**, NOT "zero
+      findings". Reports are informational; both detekt (Maven +
+      Gradle) and ESLint (via the `; exit 0` guard) end with a
+      zero exit regardless of how many issues they report.
+    - **Heavy validation behind a flag**: the validation block's
+      shell-runnable checks split into TWO groups — cheap
+      structural checks (file-exists, grep) that always run, and
+      heavy build invocations (`mvn verify`, `mvn detekt:check`,
+      `./gradlew detekt`, `npm run lint:report`) that ONLY run
+      when the environment variable `staticCodeAnalysis=1` is
+      exported. Reason: running `mvn verify` against the full
+      reactor takes several minutes (Quarkus dev tests under
+      Testcontainers, the frontend Playwright batch, etc.). Daily
+      review-time `/improve-task` runs shouldn't pay that cost;
+      a developer ready to gate the merge runs:
+          export staticCodeAnalysis=1
+          ./scripts/task.sh start task-056   # or the implement-task pass
+      Validation lines that DO consult the flag must NOT use
+      `[ "$staticCodeAnalysis" = "1" ] || exit 1` — that breaks
+      the cheap checks for users who didn't set it. Use
+      `[ "$staticCodeAnalysis" = "1" ] && { … }` (always exits 0
+      when the flag is unset).
+    - **Testcontainers / Docker requirement**: the full `mvn
+      verify` reactor invocation includes the backend's `%test`
+      profile, which uses PostgreSQL Testcontainers (Docker must
+      be running locally). The `staticCodeAnalysis=1` heavy-run
+      block documents this; expect the implementer to have Docker
+      Desktop or colima up before running the full validation.
 
 steps:
-  - |
-    Create the shared detekt config config/detekt/detekt.yml at the repo
-    root with `buildUponDefaultConfig: true` and a minimal top section
-    (build.maxIssues: 0 is the default; rely on the per-tool
-    fail-suppression below rather than maxIssues). Keep the file small —
-    it only needs the build/config header plus any rule the default set
-    would otherwise make too noisy on this codebase (e.g. raise
-    complexity.LongMethod / style.MagicNumber thresholds if the first
-    run is unusable). Start from `detekt --generate-config` output,
-    trimmed.
+    Create the shared detekt config config/detekt/detekt.yml at the
+    repo root. The implementer does NOT need to install the detekt
+    CLI to bootstrap — start with this minimal config and let
+    `buildUponDefaultConfig: true` pull the rest from the bundled
+    defaults:
+
+        # Minimal detekt config; rule defaults inherited from the
+        # bundled default set.
+        build:
+          maxIssues: 0   # reports are informational; per-tool flags
+                         # suppress failures separately.
+          weights:
+            complexity: 1
+            style: 1
+
+        complexity:
+          LongMethod:
+            threshold: 100  # raise if the first run is unusable
+          LargeClass:
+            threshold: 800
+
+        style:
+          MagicNumber:
+            ignoreNumbers: ['-1', '0', '1', '2', '6', '10', '100']
+          ReturnCount:
+            max: 6
+
+    Keep the file small. After the first detekt run, tune raised
+    thresholds based on actual findings; do NOT silence rules
+    wholesale.
 
   - |
     Backend (Maven): in src/backend/implementation/pom.xml add the
@@ -185,55 +258,107 @@ steps:
     `/reports/` only if you introduce one). Confirm target/ and build/
     are already ignored so the detekt outputs are not committed.
 
-  - |
-    Update README.md (project root): add a short "Code quality / static
-    analysis" section listing the three tools, the four report files
-    (backend target/detekt/detekt.{xml,html}, domain
-    build/reports/detekt/detekt.{xml,html}, frontend
-    reports/eslint.{json,html}), how to run each in isolation, and the
-    note that the reports are currently informational (build stays green)
-    with a pointer that a future task can make them enforcing.
+    Update README.md (project root): add a short "Code quality /
+    static analysis" section listing the three tools, the six
+    report files (backend `target/detekt/detekt.{xml,html}`,
+    domain `build/reports/detekt/detekt.{xml,html}`, frontend
+    `reports/eslint.{json,html}`), how to run each in isolation,
+    and the note that the reports are currently informational
+    (build stays green — exit code 0 regardless of findings; a
+    future task can flip them to enforcing).
 
   - |
-    Run each tool in isolation first to confirm it produces reports:
-      mvn -pl src/backend/implementation detekt:check
-      (cd src/domain && ./gradlew detekt)
-      (cd src/frontend && npm install --legacy-peer-deps && npm run lint:report)
-    Then run the wired full build end-to-end:
-      mvn verify
-    Confirm the reactor stays GREEN and all six report files exist.
+    Update CLAUDE.md (project root): in the existing "Build & run"
+    block (the fenced code listing `mvn clean install`, `mvn
+    -DskipTests package`, `mvn -pl src/domain -am test`, etc.),
+    add ONE line documenting the new full-build entry point:
+        mvn verify                              # full build + static-analysis reports (informational)
+    No new section, no duplicate description; the README handles
+    the long-form explanation.
+
+  - |
+    Run each tool in isolation first to confirm it produces
+    reports (only if `staticCodeAnalysis=1` is exported — this
+    block is the slow path):
+      [ "$staticCodeAnalysis" = "1" ] && {
+        mvn -pl src/backend/implementation detekt:check
+        (cd src/domain && ./gradlew detekt)
+        (cd src/frontend && npm install --legacy-peer-deps && npm run lint:report)
+        mvn verify
+      }
+    "GREEN" means **exit code 0** — findings are written to the
+    reports without failing the build. Confirm all six report
+    files exist after the runs above. The `mvn verify` step
+    requires Docker running locally (the backend's `%test`
+    profile uses PostgreSQL Testcontainers).
 
 validation:
+  # --- Cheap structural checks (ALWAYS run) ---
   - |
     Shared detekt config exists:
       test -f config/detekt/detekt.yml
+      grep -q "buildUponDefaultConfig: true" config/detekt/detekt.yml
   - |
-    Backend wires detekt and produces reports:
+    Backend wires detekt-maven-plugin:
       grep -q "detekt-maven-plugin" src/backend/implementation/pom.xml
-      mvn -pl src/backend/implementation detekt:check
-      test -f src/backend/implementation/target/detekt/detekt.xml
-      test -f src/backend/implementation/target/detekt/detekt.html
   - |
-    Domain wires detekt (Gradle plugin + Maven exec) and produces reports:
+    Domain wires the detekt Gradle plugin + a Maven exec
+    invocation:
       grep -q "io.gitlab.arturbosch.detekt" src/domain/build.gradle.kts
       grep -q "gradle-detekt" src/domain/pom.xml
-      (cd src/domain && ./gradlew detekt)
-      test -f src/domain/build/reports/detekt/detekt.xml
-      test -f src/domain/build/reports/detekt/detekt.html
   - |
-    Frontend has ESLint flat config covering ts/svelte/html and produces
-    JSON + HTML reports:
+    Frontend has ESLint flat config covering ts/svelte/html + the
+    lint:report npm script:
       test -f src/frontend/eslint.config.js
       grep -q "svelte" src/frontend/eslint.config.js
       grep -q "html-eslint" src/frontend/eslint.config.js
       grep -q "\"lint:report\"" src/frontend/package.json
-      (cd src/frontend && npm install --legacy-peer-deps && npm run lint:report)
-      test -f src/frontend/reports/eslint.json
-      test -f src/frontend/reports/eslint.html
   - |
-    The full wired build runs all three tools in the verify phase and
-    stays green:
-      mvn verify
+    Frontend pom adds the npm-lint execution + .gitignore
+    excludes the report dir:
+      grep -q "npm-lint" src/frontend/pom.xml
+      grep -q "src/frontend/reports" .gitignore
+  - |
+    Documentation is updated:
+      grep -q "Code quality\|static analysis\|Static analysis" README.md
+      grep -q "mvn verify" CLAUDE.md
+  # --- Heavy build invocations (only with `staticCodeAnalysis=1`) ---
+  - |
+    Detekt actually runs and produces reports (BACKEND).
+    Skipped silently when staticCodeAnalysis is unset; exits 0
+    so the cheap checks aren't broken for casual reviewers:
+      [ "$staticCodeAnalysis" = "1" ] && {
+        set -e
+        mvn -pl src/backend/implementation detekt:check
+        test -f src/backend/implementation/target/detekt/detekt.xml
+        test -f src/backend/implementation/target/detekt/detekt.html
+      } || true
+  - |
+    Detekt runs and produces reports (DOMAIN). Same gate.
+    Requires `./gradlew` in src/domain:
+      [ "$staticCodeAnalysis" = "1" ] && {
+        set -e
+        (cd src/domain && ./gradlew detekt)
+        test -f src/domain/build/reports/detekt/detekt.xml
+        test -f src/domain/build/reports/detekt/detekt.html
+      } || true
+  - |
+    ESLint runs and produces JSON + HTML reports (FRONTEND). Same
+    gate. Installs dev-deps as a side effect on a fresh checkout:
+      [ "$staticCodeAnalysis" = "1" ] && {
+        set -e
+        (cd src/frontend && npm install --legacy-peer-deps && npm run lint:report)
+        test -f src/frontend/reports/eslint.json
+        test -f src/frontend/reports/eslint.html
+      } || true
+  - |
+    Full wired reactor build stays GREEN (exit code 0; findings
+    written to reports without failing the build). Same gate.
+    REQUIRES Docker running locally — Quarkus's `%test` profile
+    uses PostgreSQL Testcontainers; expect ~5–10 min:
+      [ "$staticCodeAnalysis" = "1" ] && {
+        mvn verify
+      } || true
 
 outputs:
   - created: config/detekt/detekt.yml
@@ -246,3 +371,4 @@ outputs:
   - modified: src/frontend/package-lock.json
   - modified: .gitignore
   - modified: README.md
+  - modified: CLAUDE.md

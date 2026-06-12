@@ -131,6 +131,20 @@
                             <arguments>run check</arguments>
                         </configuration>
                     </execution>
+                    <!-- Static analysis: ESLint over ts/svelte/html. The
+                         lint:report script writes reports/eslint.{json,html}
+                         and always exits 0, so the reactor stays green
+                         regardless of findings. -->
+                    <execution>
+                        <id>npm-lint</id>
+                        <phase>verify</phase>
+                        <goals>
+                            <goal>npm</goal>
+                        </goals>
+                        <configuration>
+                            <arguments>run lint:report</arguments>
+                        </configuration>
+                    </execution>
                 </executions>
             </plugin>
         </plugins>

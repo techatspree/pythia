@@ -2,6 +2,7 @@ plugins {
     kotlin("multiplatform") version "2.1.21"
     kotlin("plugin.allopen") version "2.1.21"
     id("maven-publish")
+    id("io.gitlab.arturbosch.detekt") version "1.23.8"
 }
 
 group = "io.github.theestimator"
@@ -82,4 +83,27 @@ val packageTypescript by tasks.registering(Zip::class) {
 
 tasks.named("build") {
     dependsOn(packageTypescript)
+}
+
+// --- Static analysis: detekt over the KMP common/jvm source set. ---
+// Reports are informational; `ignoreFailures = true` keeps the Gradle
+// build green so the Maven reactor stays green too.
+detekt {
+    config.setFrom(files("$rootDir/../../config/detekt/detekt.yml"))
+    buildUponDefaultConfig = true
+    ignoreFailures = true
+    // KMP layout: point at the common source dir; `source.from(...)`
+    // can't be set on a Configurable property here, so override the
+    // source on the task instead (below).
+}
+
+tasks.named<io.gitlab.arturbosch.detekt.Detekt>("detekt") {
+    setSource(files("$projectDir/src/main/kotlin"))
+    include("**/*.kt", "**/*.kts")
+    reports {
+        xml.required.set(true)
+        xml.outputLocation.set(layout.buildDirectory.file("reports/detekt/detekt.xml"))
+        html.required.set(true)
+        html.outputLocation.set(layout.buildDirectory.file("reports/detekt/detekt.html"))
+    }
 }

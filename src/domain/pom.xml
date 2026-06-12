@@ -75,6 +75,21 @@
                             </arguments>
                         </configuration>
                     </execution>
+                    <!-- Step 3: Static analysis (detekt) via Gradle in the verify phase. -->
+                    <execution>
+                        <id>gradle-detekt</id>
+                        <phase>verify</phase>
+                        <goals>
+                            <goal>exec</goal>
+                        </goals>
+                        <configuration>
+                            <executable>${project.basedir}/gradlew</executable>
+                            <workingDirectory>${project.basedir}</workingDirectory>
+                            <arguments>
+                                <argument>detekt</argument>
+                            </arguments>
+                        </configuration>
+                    </execution>
                 </executions>
             </plugin>
 
