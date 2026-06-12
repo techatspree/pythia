@@ -1,0 +1,322 @@
+id: task-068
+phase: phase-2
+title: Display logged-in user + logout button in header
+depends_on: [task-006]
+description: |
+  Surface the authenticated user in the top header bar and provide a
+  logout affordance. Today an authenticated user has NO visible
+  feedback that they are in fact logged in — `RequireAuth` only
+  gates the routes; the header (`+layout.svelte`) shows the logo
+  and the "Estimator" tagline and that's it. There is no UI control
+  to log out. With the dev module a developer can clear
+  `localStorage.devAuthSubject` from the console; with Entra a user
+  has no way at all. This task closes that gap.
+
+  Current state (verified):
+    - `src/frontend/src/routes/+layout.svelte` (~35 lines) renders
+      a static header (`<header class="bg-white">`) above
+      `<main><RequireAuth {children}/></main>`. The header sits
+      OUTSIDE `<RequireAuth>` so it is always visible — including
+      while the dev login dialog is shown over the page content.
+    - `src/frontend/src/lib/auth/RequireAuth.svelte` (~20 lines)
+      reads `getAuthProvider().getAccount()` into a local `$state`
+      named `account`, falls back to mounting
+      `DevLoginDialog.svelte` when null, and re-reads via a
+      `refresh()` callback when the picker fires `onlogin`. There
+      is no shared notion of "the current account" anywhere else
+      in the SPA — each component that needs it polls the provider.
+    - `AuthProvider.logout()` is already implemented for both
+      modules: `DevAuthProvider.logout()` clears
+      `localStorage.devAuthSubject` (sync); `EntraAuthProvider.logout()`
+      calls `msal.logoutRedirect()` (navigates away then back).
+      `getAccount()` returns the `AuthAccount` shape
+      `{subjectId, email?, displayName?, roles[], providerName}`
+      from `$lib/auth/AuthProvider.ts`.
+    - The brand colour in use is `text-brand-green` /
+      `bg-brand-green` etc. (see existing components).
+
+  Target state:
+    - The header shows, in the **upper-right corner** (right side
+      of the same flex row that holds the logo), a compact user
+      block:
+        * The user's `displayName` (or `subjectId` as a fallback
+          when `displayName` is null) in normal text weight.
+        * A row of small pill badges, one per role, rendered in
+          stable order `VIEWER` → `ESTIMATOR` → `ADMIN`. Style:
+          `text-xs uppercase tracking-wide px-1.5 py-0.5 rounded
+          bg-brand-green/10 text-brand-green`.
+        * A "Logout" button to the right of the badges:
+          `text-sm text-brand-green hover:text-[#007a45]
+          underline-offset-2 hover:underline`. data-testid
+          `logout-button`.
+      The block is only rendered when an account is present; when
+      no user is signed in (dev login dialog or Entra
+      pre-redirect) the right side of the header is empty.
+    - Clicking "Logout":
+        * Calls `await getAuthProvider().logout()`.
+        * Re-reads the account into the shared state (will be null
+          for dev after `localStorage` is cleared; for Entra the
+          page is already navigating to Microsoft's logout
+          endpoint, so the post-await code may not execute — that
+          is fine).
+        * The dev `DevLoginDialog` then takes over the viewport
+          (because `RequireAuth` re-renders against the now-null
+          account). This is the "forward the user to the login
+          page" requirement — the dev module's login page IS the
+          dialog mounted by RequireAuth; the Entra module's
+          login page is the Microsoft redirect that
+          `msal.logoutRedirect()` initiates.
+    - The current-account state is hoisted out of RequireAuth into
+      `+layout.svelte` so that BOTH the new `UserMenu` and the
+      existing `RequireAuth` observe the same value and a single
+      `refresh()` call after logout updates both at once.
+      RequireAuth becomes a thin gate component that takes
+      `account` and `refresh` as props and otherwise unchanged.
+    - Playwright e2e (one new file `src/frontend/e2e/user-menu.test.ts`):
+        a) "header shows the dev-admin user and the three role
+            badges when authenticated" — visit `/projects` (the
+            global `storageState` from `playwright.config.ts`
+            pre-seeds `devAuthSubject=dev-admin`); assert the
+            header text contains "Dev Admin"; assert three badge
+            elements with text "VIEWER", "ESTIMATOR", "ADMIN".
+        b) "clicking Logout clears the account and shows the dev
+            login dialog" — visit `/projects`, click
+            `[data-testid="logout-button"]`, assert
+            `localStorage.devAuthSubject` is gone and the
+            `DevLoginDialog` is now visible.
+
+  Key design decisions (leave no ambiguity):
+    - UserMenu and RequireAuth share state via the `+layout.svelte`
+      hoist + props pattern (NOT a `.svelte.ts` rune module —
+      keeps the change small and matches the existing RequireAuth
+      shape, which already takes a callback).
+    - "Role pill order" is stable enum order — not insertion
+      order from the AuthAccount, which depends on the provider's
+      claim parsing. UserMenu sorts by the fixed
+      `['VIEWER', 'ESTIMATOR', 'ADMIN']` sequence.
+    - The button is a plain `<button>` element (not a link). The
+      Entra logout redirect happens via MSAL inside
+      `await getAuthProvider().logout()`; routing back to the SPA
+      is MSAL's job, not this component's.
+    - No backend changes. `/api/auth/me` already exists but the
+      frontend has the account locally via `getAccount()` —
+      hitting the network just to render the header is
+      unnecessary churn.
+
+  Out of scope (explicit):
+    - Showing user avatar / profile picture.
+    - A dropdown menu of additional actions ("settings", "switch
+      role", etc.) — just the logout button for now.
+    - Sharing the account state via `.svelte.ts` runes module or
+      Svelte context — the layout-prop pattern is sufficient.
+    - Replacing the dev login dialog with a routed login page
+      (`/login`). The dialog model from task-006 is unchanged.
+    - Multi-tab logout broadcast (BroadcastChannel etc.).
+
+steps:
+  - |
+    Create the UserMenu component
+    `src/frontend/src/lib/components/UserMenu.svelte`. Props:
+      - `account: AuthAccount` (non-null — the layout only mounts
+        UserMenu when account is present, so no internal null
+        check).
+      - `onlogout: () => void` — invoked AFTER the provider's
+        logout() resolves so the layout can refresh its account
+        state.
+    Body: renders displayName-or-subjectId, then a fixed-order
+    role badge sequence using the styling listed in the
+    description, then a "Logout" button (`data-testid=
+    "logout-button"`). The button uses Svelte 5 attribute syntax
+    (NOT a bare JS assignment) — e.g.:
+        <button
+            type="button"
+            data-testid="logout-button"
+            class="text-sm text-brand-green hover:text-[#007a45] underline-offset-2 hover:underline"
+            onclick={async () => {
+                await getAuthProvider().logout();
+                onlogout();
+            }}
+        >Logout</button>
+    Define the fixed-order role list as a module-level constant.
+    Format with one role per line so single-line grep validations
+    can survive prettier reformatting:
+        const ROLE_ORDER = [
+            'VIEWER',
+            'ESTIMATOR',
+            'ADMIN'
+        ] as const;
+    Render:
+        {#each ROLE_ORDER as r}
+            {#if account.roles.includes(r)}
+                <span class="text-xs uppercase tracking-wide px-1.5 py-0.5 rounded bg-brand-green/10 text-brand-green">{r}</span>
+            {/if}
+        {/each}
+
+  - |
+    Refactor `src/frontend/src/lib/auth/RequireAuth.svelte` to
+    accept `account` and `refresh` as props instead of owning
+    them locally. New shape:
+
+        <script lang="ts">
+            import type { Snippet } from 'svelte';
+            import type { AuthAccount } from '$lib/auth/AuthProvider';
+            import DevLoginDialog from '$lib/components/DevLoginDialog.svelte';
+
+            let {
+                account,
+                refresh,
+                children
+            }: {
+                account: AuthAccount | null;
+                refresh: () => void;
+                children: Snippet;
+            } = $props();
+        </script>
+
+        {#if account == null}
+            <DevLoginDialog onlogin={refresh} />
+        {:else}
+            {@render children()}
+        {/if}
+
+  - |
+    Refactor `src/frontend/src/routes/+layout.svelte` to own the
+    account state and mount UserMenu in the header:
+
+        <script lang="ts">
+            import '../app.css';
+            import favicon from '$lib/assets/favicon.svg';
+            import RequireAuth from '$lib/auth/RequireAuth.svelte';
+            import UserMenu from '$lib/components/UserMenu.svelte';
+            import { getAuthProvider } from '$lib/auth';
+
+            let { children } = $props();
+
+            let account = $state(getAuthProvider().getAccount());
+
+            function refresh() {
+                account = getAuthProvider().getAccount();
+            }
+        </script>
+
+        <svelte:head>
+            <link rel="icon" href={favicon} />
+        </svelte:head>
+
+        <header class="bg-white">
+            <div class="px-6 py-3 flex items-center gap-3">
+                <a href="/projects">
+                    …existing logo markup unchanged…
+                </a>
+                <span class="text-brand-green text-xs font-semibold tracking-widest uppercase">Estimator</span>
+                {#if account}
+                    <div class="ml-auto flex items-center gap-3">
+                        <UserMenu {account} onlogout={refresh} />
+                    </div>
+                {/if}
+            </div>
+            <div class="h-[3px]" style="background: var(--gradient-brand)"></div>
+        </header>
+
+        <main>
+            <RequireAuth {account} {refresh} {children} />
+        </main>
+
+    The `ml-auto` on the trailing flex item pushes the user
+    block to the right.
+
+  - |
+    Add the Playwright e2e file
+    `src/frontend/e2e/user-menu.test.ts` with the two cases
+    described in the task description. Use the global
+    storageState from `playwright.config.ts` for case (a). Each
+    test does `await page.goto('/projects')` followed by
+    `await page.waitForLoadState('networkidle')` so the API
+    client's startup fetches don't race the assertions. For
+    case (b), assert on the page evaluator
+    `await page.evaluate(() => localStorage.getItem('devAuthSubject'))`
+    being null after the click, AND on
+    `page.locator('[role="dialog"][aria-label="Dev login picker"]')`
+    being visible.
+
+  - |
+    Update the planning index so phase-2 lists task-068:
+      - In `planning/plan.yaml`, change the phase-2 `tasks:`
+        line from
+            tasks: [task-005, task-006, task-007, task-008, task-060]
+        to
+            tasks: [task-005, task-006, task-007, task-008, task-060, task-068]
+      - In `planning/README.md`, change the phase-2 row from
+            | 2 | 1 | Modular Authentication and Authorization | 005–008, 060 |
+        to
+            | 2 | 1 | Modular Authentication and Authorization | 005–008, 060, 068 |
+
+  - |
+    Frontend type-check:
+      cd src/frontend && npm run check
+
+  - |
+    Restart dev-local (so the rebuilt frontend is served), then
+    run the Playwright suite. Expected: 24 existing + 2 new = 26
+    passing + 3 skipped (strict-backend cases self-skip without
+    STRICT_BACKEND_URL):
+      cd src/frontend && npx playwright test
+
+validation:
+  - |
+    UserMenu component exists with the documented data-testid
+    and the fixed-order role list. Greps split across lines so
+    prettier reformatting can't fail them:
+      test -f src/frontend/src/lib/components/UserMenu.svelte
+      grep -q "logout-button" src/frontend/src/lib/components/UserMenu.svelte
+      grep -q "ROLE_ORDER" src/frontend/src/lib/components/UserMenu.svelte
+      grep -q "'VIEWER'" src/frontend/src/lib/components/UserMenu.svelte
+      grep -q "'ESTIMATOR'" src/frontend/src/lib/components/UserMenu.svelte
+      grep -q "'ADMIN'" src/frontend/src/lib/components/UserMenu.svelte
+  - |
+    UserMenu calls the provider's logout AND then notifies the
+    parent via onlogout:
+      grep -q "getAuthProvider().logout()" src/frontend/src/lib/components/UserMenu.svelte
+      grep -q "onlogout" src/frontend/src/lib/components/UserMenu.svelte
+  - |
+    RequireAuth no longer owns local account state — it accepts
+    `account` and `refresh` as props:
+      grep -q "account" src/frontend/src/lib/auth/RequireAuth.svelte
+      grep -q "refresh" src/frontend/src/lib/auth/RequireAuth.svelte
+      ! grep -q "let account = \\\$state" src/frontend/src/lib/auth/RequireAuth.svelte
+  - |
+    +layout.svelte owns the account state, mounts UserMenu in
+    the header when authenticated, and passes account+refresh
+    down to RequireAuth. RequireAuth attribute greps are split
+    so prettier can reflow them onto separate lines:
+      grep -q "UserMenu" src/frontend/src/routes/+layout.svelte
+      grep -q "let account = \\\$state" src/frontend/src/routes/+layout.svelte
+      grep -q "ml-auto" src/frontend/src/routes/+layout.svelte
+      grep -q "RequireAuth" src/frontend/src/routes/+layout.svelte
+      grep -q "{account}" src/frontend/src/routes/+layout.svelte
+      grep -q "{refresh}" src/frontend/src/routes/+layout.svelte
+  - |
+    Playwright e2e exists with both cases:
+      test -f src/frontend/e2e/user-menu.test.ts
+      grep -q "Dev Admin" src/frontend/e2e/user-menu.test.ts
+      grep -q "logout-button" src/frontend/e2e/user-menu.test.ts
+      grep -q "devAuthSubject" src/frontend/e2e/user-menu.test.ts
+  - |
+    plan.yaml + README list task-068 under phase-2:
+      grep -A4 "id: phase-2" planning/plan.yaml | grep -q "task-068"
+      grep -q "068" planning/README.md
+  - |
+    Frontend type-check passes:
+      cd src/frontend && npm run check
+  - |
+    Full Playwright suite (24 + 2 = 26 passing + 3 skipped
+    strict-backend cases):
+      cd src/frontend && npx playwright test
+
+outputs:
+  - created: src/frontend/src/lib/components/UserMenu.svelte
+  - modified: src/frontend/src/lib/auth/RequireAuth.svelte
+  - modified: src/frontend/src/routes/+layout.svelte
+  - created: src/frontend/e2e/user-menu.test.ts
+  - modified: planning/plan.yaml
+  - modified: planning/README.md

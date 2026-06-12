@@ -2,8 +2,16 @@
 	import '../app.css';
 	import favicon from '$lib/assets/favicon.svg';
 	import RequireAuth from '$lib/auth/RequireAuth.svelte';
+	import UserMenu from '$lib/components/UserMenu.svelte';
+	import { getAuthProvider } from '$lib/auth';
 
 	let { children } = $props();
+
+	let account = $state(getAuthProvider().getAccount());
+
+	function refresh() {
+		account = getAuthProvider().getAccount();
+	}
 </script>
 
 <svelte:head>
@@ -26,10 +34,15 @@
 			</picture>
 		</a>
 		<span class="text-brand-green text-xs font-semibold tracking-widest uppercase">Estimator</span>
+		{#if account}
+			<div class="ml-auto flex items-center gap-3">
+				<UserMenu {account} onlogout={refresh} />
+			</div>
+		{/if}
 	</div>
 	<div class="h-[3px]" style="background: var(--gradient-brand)"></div>
 </header>
 
 <main>
-	<RequireAuth {children} />
+	<RequireAuth {account} {refresh} {children} />
 </main>

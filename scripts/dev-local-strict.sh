@@ -14,10 +14,27 @@ export APP_AUTH_PROVIDER=dev
 export APP_AUTH_DEV_DEFAULT_USER=
 export QUARKUS_HTTP_PORT=8081
 
+# Snapshot Kotlin daemons that already exist before we spawn ours, so
+# cleanup only kills the daemon THIS script started — NOT the one the
+# primary dev-local backend on :8080 may still be using.
+KOTLIN_DAEMONS_BEFORE=$(pgrep -u "$USER" -f KotlinCompileDaemon 2>/dev/null | sort -n | xargs || true)
+
 cleanup() {
     echo "Stopping strict backend..."
     kill $BACKEND_PID 2>/dev/null
     wait $BACKEND_PID 2>/dev/null
+    # Sweep only Kotlin daemons that appeared after this script started.
+    # `mvn quarkus:dev` detaches its daemon with -Dkotlin.environment.keepalive,
+    # so it would otherwise outlive the kill above and accumulate across
+    # sessions (symptom: subsequent builds fail with "Failed connecting
+    # to the daemon in 4 retries").
+    KOTLIN_DAEMONS_NOW=$(pgrep -u "$USER" -f KotlinCompileDaemon 2>/dev/null || true)
+    for pid in $KOTLIN_DAEMONS_NOW; do
+        case " $KOTLIN_DAEMONS_BEFORE " in
+            *" $pid "*) ;;  # was already running; leave alone
+            *) kill -9 "$pid" 2>/dev/null || true ;;
+        esac
+    done
     echo "Done."
 }
 trap cleanup EXIT INT TERM

@@ -50,7 +50,7 @@ phases:
   - id: phase-2
     name: Modular Authentication and Authorization
     duration_weeks: 1
-    tasks: [task-005, task-006, task-007, task-008, task-060]
+    tasks: [task-005, task-006, task-007, task-008, task-060, task-068]
   - id: phase-3
     name: Core Domain and Persistence
     duration_weeks: 1

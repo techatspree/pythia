@@ -1,15 +1,17 @@
 <script lang="ts">
 	import type { Snippet } from 'svelte';
-	import { getAuthProvider } from '$lib/auth';
+	import type { AuthAccount } from '$lib/auth/AuthProvider';
 	import DevLoginDialog from '$lib/components/DevLoginDialog.svelte';
 
-	let { children }: { children: Snippet } = $props();
-
-	let account = $state(getAuthProvider().getAccount());
-
-	function refresh() {
-		account = getAuthProvider().getAccount();
-	}
+	let {
+		account,
+		refresh,
+		children
+	}: {
+		account: AuthAccount | null;
+		refresh: () => void;
+		children: Snippet;
+	} = $props();
 </script>
 
 {#if account == null}
