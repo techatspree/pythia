@@ -40,6 +40,69 @@ The project uses a top-level Maven reactor build that covers both frontend and b
 ./mvnw verify -pl src/backend/end2end -DskipITs=false
 ```
 
+## Static code analysis
+
+`./mvnw verify` runs static analysis across every source layer in
+addition to the regular tests. The reports are currently
+**informational** — the build stays green (exit code 0) regardless of
+how many findings each tool produces. A follow-up task can flip the
+gates to enforcing once the existing backlog has been triaged.
+
+### Tools and report locations
+
+| Layer              | Tool   | Phase    | Reports                                                       |
+|--------------------|--------|----------|---------------------------------------------------------------|
+| Kotlin — backend   | detekt | `verify` | `src/backend/implementation/target/detekt/detekt.{xml,html}`  |
+| Kotlin — domain    | detekt | `verify` | `src/domain/build/reports/detekt/detekt.{xml,html}`           |
+| TS / Svelte / HTML | ESLint | `verify` | `src/frontend/reports/eslint.{json,html}`                     |
+
+Both detekt scopes share `config/detekt/detekt.yml` (top-level config
+with `buildUponDefaultConfig: true`). The frontend's ESLint flat config
+lives at `src/frontend/eslint.config.js` and composes
+`typescript-eslint` (non-type-checked), `eslint-plugin-svelte`
+(parses `<script lang="ts">` blocks via `tseslint.parser`), and
+`@html-eslint`'s flat-recommended set for plain `*.html`.
+
+### Running a single tool in isolation
+
+Fastest iteration loops during a focused fix:
+
+```bash
+# Backend Kotlin only
+./mvnw -pl src/backend/implementation detekt:check
+
+# Domain Kotlin only (KMP via Gradle)
+cd src/domain && ./gradlew detekt
+
+# Frontend (TS + Svelte + HTML)
+cd src/frontend && npm run lint          # console output, exits non-zero on findings
+cd src/frontend && npm run lint:report   # writes reports/eslint.{json,html}, always exits 0
+```
+
+### Skipping static analysis on quick runs
+
+The static-analysis suite adds a few seconds per layer to `./mvnw
+verify`. For most workflows this is fine; if you need a faster build
+(e.g. you're iterating on a single test and don't care about lint
+output), the per-tool commands above let you skip the full reactor.
+
+Several task validation blocks gate their heaviest checks behind the
+environment variable `staticCodeAnalysis`. Set it to `1` before
+running a validation pass when you want detekt/ESLint included; leave
+it unset (the default) when you just want the cheap structural greps:
+
+```bash
+# Cheap validation only (file-exists, grep — milliseconds)
+./scripts/task.sh ...
+
+# Include the heavy static-analysis runs
+export staticCodeAnalysis=1
+./scripts/task.sh ...
+```
+
+This convention was introduced in `task-056` and applies to the
+validation blocks of any task whose work spans the lint pipeline.
+
 ## Development Profiles
 
 ### dev-local — Local with H2 in-memory database
