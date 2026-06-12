@@ -9,7 +9,7 @@ FRONTEND_DIR="$PROJECT_ROOT/src/frontend"
 
 # Modular auth selector — same value must be set on backend and
 # frontend for the auth modules to agree.
-export APP_AUTH_PROVIDER=devgner
+export APP_AUTH_PROVIDER=dev
 export VITE_AUTH_PROVIDER=dev
 
 # Snapshot Kotlin daemons that already exist before we spawn ours, so

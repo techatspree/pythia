@@ -6,6 +6,10 @@ export type TreeColumn<T> = {
 	width: string;
 	align?: 'left' | 'right' | 'center';
 	cell: Snippet<[T, TreeNodeContext<T>]>;
+	/** When true, the TreeTable auto-collapses this column when its
+	 *  container is narrower than `TreeTableProps.collapseBreakpointPx`.
+	 *  Default false. */
+	collapsible?: boolean;
 };
 
 export type TreeNodeContext<T> = {
@@ -33,6 +37,9 @@ export type TreeTableProps<T> = {
 	rowActions?: Snippet<[T, TreeNodeContext<T>]>;
 	rowAttrs?: (node: T, ctx: TreeNodeContext<T>) => Record<string, string>;
 	childrenZoneAttrs?: (parent: T | null) => Record<string, string>;
+	/** Container width (px) below which columns marked `collapsible`
+	 *  are hidden. Default 900. */
+	collapseBreakpointPx?: number;
 	footer?: Snippet<[T[]]>;
 	initialCollapsed?: Set<string>;
 };

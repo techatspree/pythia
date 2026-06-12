@@ -38,5 +38,4 @@ src/frontend/node/
 # Generated TypeScript types from domain module
 src/frontend/src/lib/types/generated/
 /docs/InfosNotForGit.txt
-/src/frontend/test-results/smoke-build-a-three-level-tree-via-UI-buttons-chromium/error-context.md
-/src/frontend/test-results/smoke-draft-version-page-loads-without-errors-chromium/error-context.md
+/src/frontend/test-results/

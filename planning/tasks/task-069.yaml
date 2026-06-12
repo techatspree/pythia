@@ -1,0 +1,378 @@
+id: task-069
+phase: phase-9
+title: Responsive TreeTable — collapsible columns + horizontal scroll
+depends_on: [task-059]
+description: |
+  When the browser window is narrow, the estimation editor's table
+  silently truncates on the right edge: there is no horizontal
+  scrollbar, and the rightmost columns ("Cost (EUR)", "Offer Price
+  (EUR)") disappear behind the page bezel. The user has no way to
+  see those values, and no way to interact with them. Two fixes,
+  both delivered by this task:
+
+    1. **TreeTable** gains a per-column "collapsible" affordance.
+       Columns marked `collapsible: true` get hidden (track width
+       shrinks to a thin sliver) when the table's container is
+       narrower than a configurable breakpoint. A ResizeObserver
+       on the outer wrapper toggles the state on every container
+       resize, so the behaviour is automatic and reactive.
+
+    2. **EstimationGrid** marks `cost` and `offerPrice` as
+       collapsible, AND wraps the TreeTable in a horizontally-
+       scrollable container so a sufficiently narrow viewport
+       still lets the user reach every cell via scrollbar.
+
+  Current state (verified):
+    - `src/frontend/src/lib/components/treetable/TreeTable.svelte`
+      and `treetable/types.ts` define the generic component. The
+      outer wrapper is `<div class="border rounded-lg
+      overflow-hidden">` — `overflow-hidden` clips anything wider
+      than the container with no scrollbar.
+    - `gridTemplateColumns` (TreeTable.svelte lines 149-153) is a
+      `$derived` that joins each `col.width` value as-is; columns
+      have no concept of "currently hidden".
+    - `TreeColumn<T>` (types.ts) has `key`, `header`, `width`,
+      optional `align`, and `cell`. No collapsibility flag.
+    - `src/frontend/src/lib/components/EstimationGrid.svelte`
+      declares 11 columns; `cost` is `width: '7rem'`, `offerPrice`
+      is `width: '7rem'`. Both currently fall off the right edge
+      on narrow viewports.
+    - `EstimationGrid`'s outermost element is
+      `<div class="border rounded-lg overflow-hidden">` containing
+      `<TreeTable>` (which itself has the same wrapper, so the
+      effective wrapper is nested). Neither sets
+      `overflow-x: auto`.
+    - The estimation editor page (`src/routes/estimations/[id]/
+      versions/[versionNumber]/+page.svelte`) doesn't impose any
+      `max-width` on the grid panel, so the grid stretches to the
+      viewport width — narrow viewports clip the right columns
+      directly.
+    - svelte-check confirms `ResizeObserver` is available as a
+      DOM global in the tsconfig's lib set (`DOM`).
+
+  Target state:
+    - `TreeColumn<T>` gains an optional `collapsible?: boolean`
+      field (default false). The flag means: "this column may be
+      auto-collapsed by the TreeTable when the container is too
+      narrow". Columns without the flag are always visible.
+    - `TreeTableProps<T>` gains an optional
+      `collapseBreakpointPx?: number` (default 900). When the
+      container's measured `clientWidth` drops STRICTLY below this
+      value, every `collapsible` column collapses simultaneously.
+      When it rises back above the breakpoint, they all expand
+      simultaneously. The sync is unconditional — no animation,
+      no debounce beyond the ResizeObserver's natural batching.
+    - "Collapsed" rendering, per column:
+        * Grid track width becomes `0.5rem` (a thin strip with the
+          existing column padding / border still drawn).
+        * Header cell renders an empty span (no header text;
+          `title=col.header` attribute set so hovering still
+          reveals the name as a tooltip).
+        * Body cells render nothing — empty `<div>` so the grid
+          row keeps its cell. The caller's `cell` snippet is NOT
+          invoked when the column is collapsed (saves work; avoids
+          surprising side-effects from a snippet that assumed it
+          was visible).
+        * Footer is unchanged — it spans `1 / -1` already.
+    - Outer wrapper restructured to enable horizontal scrolling
+      while preserving the rounded border:
+          <div class="border rounded-lg overflow-hidden">
+              <div class="overflow-x-auto" bind:this={scrollHost}>
+                  <div class="grid" style="grid-template-columns: …">…</div>
+              </div>
+          </div>
+      `scrollHost` is what the ResizeObserver watches. The inner
+      grid keeps `min-width: max-content` (set via inline style)
+      so it never shrinks columns below their declared widths —
+      it pushes wider than the wrapper and the wrapper scrolls.
+    - `EstimationGrid.svelte` marks the `cost` and `offerPrice`
+      columns with `collapsible: true`. The other nine columns
+      (description, type, phase, optimistic, likely, pessimistic,
+      pert, assumptions, offerPT) stay non-collapsible per the
+      user's request.
+    - The existing 26-passing Playwright suite continues passing
+      unchanged (the default Playwright viewport is 1280×720, well
+      above 900px, so the collapse never triggers in those tests).
+      Two new cases land in `src/frontend/e2e/treetable-responsive
+      .test.ts` that drive the demo route at
+      `/dev/tree-table-demo` to prove collapse + scroll behaviour.
+
+  Key design decisions (leave no ambiguity):
+    - **Single global breakpoint per TreeTable**, not per-column.
+      Per-column breakpoints would let columns disappear in
+      arbitrary order on resize and complicate testing; the user's
+      requirement is "Cost and Offer Price" so a single shared
+      breakpoint that toggles both at once matches the spec.
+    - **ResizeObserver, not CSS container queries**. Container
+      queries would be cleaner but the collapsed-cell rendering
+      (don't invoke the caller's `cell` snippet at all) requires
+      Svelte-side state, not a pure CSS class. Same component
+      already uses `$state` + `$derived` extensively.
+    - **No manual toggle to override the auto-collapse.** v1 is
+      pure-auto. If the user wants to peek at a collapsed column,
+      they can resize the window. Adding a click-to-toggle is a
+      candidate for a follow-up task.
+    - **`min-width: max-content` on the inner grid**, NOT
+      `min-width: 100%`. The former pushes the grid to its
+      natural total of (sum of column widths + drag handle + row
+      actions), regardless of viewport. The latter would shrink
+      `1fr` tracks and break alignment. With `max-content` the
+      scrollbar appears precisely when the viewport can't fit the
+      natural width.
+
+  Out of scope (explicit):
+    - Per-column manual collapse toggle (click the column header
+      to hide/show).
+    - Animated transitions on collapse / expand.
+    - Mobile/touch-specific gestures (swipe-to-reveal etc.).
+    - Vertical scroll for tall tree-tables (already works
+      naturally via the page scroll).
+    - Adjusting estimation-editor PANEL layouts on the version
+      page (the grid is one of several panels; this task only
+      touches the grid itself).
+    - Saving collapsed state across reloads.
+
+steps:
+  - |
+    Extend the types in
+    `src/frontend/src/lib/components/treetable/types.ts`:
+      - Add `collapsible?: boolean;` to `TreeColumn<T>` (after
+        `align?`).
+      - Add `collapseBreakpointPx?: number;` to
+        `TreeTableProps<T>` (after `childrenZoneAttrs?` and
+        before `footer?`).
+      - Add a short JSDoc comment on each new field stating the
+        documented default (`false` and `900` respectively).
+
+  - |
+    Update `src/frontend/src/lib/components/treetable/TreeTable.svelte`
+    as follows.
+
+    1. Destructure the new prop:
+           collapseBreakpointPx = 900,
+       inside the existing `let { … } = $props();` block.
+
+    2. Add reactive collapse state and the observer wiring near
+       the other `$state` declarations:
+           let scrollHost: HTMLDivElement | null = $state(null);
+           let containerWidth = $state(Infinity);
+
+           $effect(() => {
+               if (scrollHost == null) return;
+               const ro = new ResizeObserver((entries) => {
+                   containerWidth = entries[0].contentRect.width;
+               });
+               ro.observe(scrollHost);
+               return () => ro.disconnect();
+           });
+
+           const isCollapsed = $derived(
+               (key: string) =>
+                   containerWidth < collapseBreakpointPx &&
+                   (columns.find((c) => c.key === key)?.collapsible ?? false)
+           );
+
+    3. Update `gridTemplateColumns` to substitute `0.5rem` for
+       any collapsed column:
+           const gridTemplateColumns = $derived(
+               (editable ? '2rem ' : '') +
+                   columns
+                       .map((c) => (isCollapsed(c.key) ? '0.5rem' : c.width))
+                       .join(' ') +
+                   (rowActions && editable ? ' 4rem' : '')
+           );
+
+    4. Rework the outer wrapper so the inner area scrolls
+       horizontally and the inner grid forces its `max-content`
+       width. The header, dndzone, and footer move INSIDE the
+       new `<div class="overflow-x-auto">` along with their
+       grids (they need to scroll together):
+
+           <div class="border rounded-lg overflow-hidden">
+               <div class="overflow-x-auto" bind:this={scrollHost}>
+                   <div style="min-width: max-content">
+                       <div class="grid items-center bg-brand-green/10 …"
+                            style="grid-template-columns: {gridTemplateColumns}">
+                           …existing header cells…
+                       </div>
+                       <div use:dndzone={{ …existing roots zone… }}
+                            …existing handlers…
+                            {...rootZoneAttrs}>
+                           {#each wrappedRoots as w, idx (w.__treeTableId)}
+                               {@render renderRow(w.node, [idx], 0)}
+                           {/each}
+                       </div>
+                       {#if footer}
+                           <div class="bg-gray-50 border-t-2 border-gray-300 py-2 px-3">
+                               {@render footer(roots)}
+                           </div>
+                       {/if}
+                   </div>
+               </div>
+           </div>
+
+    5. In the header `{#each columns as col (col.key)}` block,
+       render an empty cell when collapsed AND set
+       `title={col.header}` so a tooltip still surfaces the
+       column name:
+           {#each columns as col (col.key)}
+               <div class="py-2 px-2 {alignClass(col.align)}"
+                    title={col.header}>
+                   {isCollapsed(col.key) ? '' : col.header}
+               </div>
+           {/each}
+
+    6. In `renderRow`'s body-cell `{#each columns as col (col.key)}`
+       block, skip the caller's `cell` snippet when collapsed:
+           {#each columns as col (col.key)}
+               <div class="py-1 px-2 {alignClass(col.align)}">
+                   {#if !isCollapsed(col.key)}
+                       {#if col.key === treeColumnKey}
+                           {@render indent(depth)}
+                           {@render chevron(ctx)}
+                       {/if}
+                       {@render col.cell(node, ctx)}
+                   {/if}
+               </div>
+           {/each}
+       Note: the tree decorations (indent + chevron) also hide
+       when the tree column itself is collapsed — but the project
+       won't mark the tree column as `collapsible`, so this is a
+       theoretical case.
+
+  - |
+    Update `src/frontend/src/lib/components/EstimationGrid.svelte`
+    to mark the two columns as collapsible. In the existing
+    `const columns: TreeColumn<Node>[] = […]` array, add
+    `collapsible: true` to the entries whose `key` is `'cost'`
+    and `'offerPrice'`. Leave every other column entry untouched.
+
+  - |
+    Add `src/frontend/e2e/treetable-responsive.test.ts` with two
+    cases against the demo route at `/dev/tree-table-demo` (the
+    estimation editor would require a logged-in fixture and full
+    backend state; the demo route exercises the same generic
+    TreeTable component with simpler fixture). The demo's column
+    list does NOT mark any column as collapsible today — extend
+    the demo route AS PART OF THIS TASK to mark `unitPrice` as
+    collapsible (one-line addition; this is a developer aid only,
+    not user-facing). Cases:
+      a) "TreeTable shows all columns at full viewport" — set
+         `viewport: { width: 1280, height: 720 }`, visit the
+         demo, assert the "Stückpreis" header text is visible.
+         (Width math: the demo's `<div class="p-8 max-w-5xl
+         mx-auto">` caps the TreeTable container at
+         `min(1280, 1024) - 64 = 960` px — above the default
+         900 px breakpoint, so no collapse.)
+      b) "TreeTable hides collapsible columns when container is
+         narrow AND the inner wrapper actually scrolls
+         horizontally" — set `viewport: { width: 600, height:
+         720 }`, visit the demo. (Width math: 600 - 64 = 536 px,
+         well below 900 — so collapse triggers.) Assert THREE
+         things:
+           - "Stückpreis" header text is NOT visible (locator
+             count == 0 or the header cell text is empty).
+           - The `.overflow-x-auto` inner wrapper has
+             `scrollWidth > clientWidth` (DOM ALLOWS scrolling).
+           - Setting `el.scrollLeft = 9999` then re-reading
+             `el.scrollLeft` returns a value `> 0` (the wrapper
+             ACTUALLY scrolls — catches the edge case where
+             `min-width: max-content` is missing and scrollWidth
+             happens to equal clientWidth).
+
+  - |
+    Update CLAUDE.md (project root): append one sentence to the
+    existing "Generic `TreeTable` component" paragraph
+    documenting the new public API surface. Suggested text:
+        "Columns may opt in to auto-collapse on narrow
+         containers via `collapsible: true`; the threshold is
+         configurable per-TreeTable through `collapseBreakpointPx`
+         (default 900 px). The outer wrapper is horizontally
+         scrollable, so content that exceeds the viewport stays
+         reachable even when no columns collapse further."
+    Do not add a new heading. Do not duplicate any pre-existing
+    description.
+
+  - |
+    Update the planning index so phase-9 lists task-069:
+      - In `planning/plan.yaml`, change the phase-9 `tasks:`
+        line from
+            tasks: [task-049, task-050, task-051, task-052, task-053, task-054, task-055, task-057, task-058, task-059]
+        to
+            tasks: [task-049, task-050, task-051, task-052, task-053, task-054, task-055, task-057, task-058, task-059, task-069]
+      - In `planning/README.md`, change the phase-9 row from
+            | 9 | 1 | Tree-shaped Estimation Hierarchy | 049–055, 057–059 |
+        to
+            | 9 | 1 | Tree-shaped Estimation Hierarchy | 049–055, 057–059, 069 |
+
+  - |
+    Frontend type-check:
+      cd src/frontend && npm run check
+
+  - |
+    Restart dev-local (so the rebuilt frontend is served), then
+    run the Playwright suite. Expected count: 26 existing + 2
+    new = 28 passing + 3 skipped (the strict-backend auth-gate
+    cases continue to self-skip):
+      cd src/frontend && npx playwright test
+
+validation:
+  - |
+    Types updated:
+      grep -q "collapsible" src/frontend/src/lib/components/treetable/types.ts
+      grep -q "collapseBreakpointPx" src/frontend/src/lib/components/treetable/types.ts
+  - |
+    TreeTable wires ResizeObserver + collapse logic + scroll
+    wrapper:
+      grep -q "ResizeObserver" src/frontend/src/lib/components/treetable/TreeTable.svelte
+      grep -q "isCollapsed" src/frontend/src/lib/components/treetable/TreeTable.svelte
+      grep -q "overflow-x-auto" src/frontend/src/lib/components/treetable/TreeTable.svelte
+      grep -q "min-width: max-content" src/frontend/src/lib/components/treetable/TreeTable.svelte
+      grep -q "bind:this={scrollHost}" src/frontend/src/lib/components/treetable/TreeTable.svelte
+  - |
+    EstimationGrid marks exactly TWO columns as collapsible (the
+    cost + offerPrice keys still appear elsewhere in the file as
+    column descriptors, so we don't need a per-key proximity grep
+    — the count-of-2 is sufficient to lock the intent). Tolerant
+    of `collapsible:true` (no space) just in case prettier or
+    the implementer omits it:
+      test "$(grep -cE 'collapsible: *true' src/frontend/src/lib/components/EstimationGrid.svelte)" -eq 2
+      grep -q "key: 'cost'" src/frontend/src/lib/components/EstimationGrid.svelte
+      grep -q "key: 'offerPrice'" src/frontend/src/lib/components/EstimationGrid.svelte
+  - |
+    Demo route gained a collapsible column (so the new e2e file
+    has something to assert on):
+      grep -q "collapsible: true" src/frontend/src/routes/dev/tree-table-demo/+page.svelte
+  - |
+    Responsive e2e file exists with the two documented cases:
+      test -f src/frontend/e2e/treetable-responsive.test.ts
+      grep -q "viewport.*1280" src/frontend/e2e/treetable-responsive.test.ts
+      grep -q "viewport.*600" src/frontend/e2e/treetable-responsive.test.ts
+      grep -q "Stückpreis" src/frontend/e2e/treetable-responsive.test.ts
+      grep -q "scrollWidth" src/frontend/e2e/treetable-responsive.test.ts
+  - |
+    plan.yaml + README list task-069 under phase-9:
+      grep -A4 "id: phase-9" planning/plan.yaml | grep -q "task-069"
+      grep -q "069" planning/README.md
+  - |
+    CLAUDE.md documents the new collapsible-columns API on
+    TreeTable:
+      grep -q "collapsible" CLAUDE.md
+      grep -q "collapseBreakpointPx" CLAUDE.md
+  - |
+    Frontend type-check passes:
+      cd src/frontend && npm run check
+  - |
+    Full Playwright suite (26 existing + 2 new = 28 passing +
+    3 skipped strict-backend cases):
+      cd src/frontend && npx playwright test
+
+outputs:
+  - modified: src/frontend/src/lib/components/treetable/types.ts
+  - modified: src/frontend/src/lib/components/treetable/TreeTable.svelte
+  - modified: src/frontend/src/lib/components/EstimationGrid.svelte
+  - modified: src/frontend/src/routes/dev/tree-table-demo/+page.svelte
+  - created: src/frontend/e2e/treetable-responsive.test.ts
+  - modified: CLAUDE.md
+  - modified: planning/plan.yaml
+  - modified: planning/README.md

@@ -101,7 +101,7 @@
 	const columns: TreeColumn<CatalogNode>[] = [
 		{ key: 'name', header: 'Name', width: 'minmax(16rem, 1fr)', cell: nameCell },
 		{ key: 'quantity', header: 'Menge', width: '6rem', align: 'right', cell: quantityCell },
-		{ key: 'unitPrice', header: 'Stückpreis', width: '7rem', align: 'right', cell: unitPriceCell },
+		{ key: 'unitPrice', header: 'Stückpreis', width: '7rem', align: 'right', cell: unitPriceCell, collapsible: true },
 		{ key: 'lineTotal', header: 'Summe', width: '8rem', align: 'right', cell: lineTotalCell }
 	];
 </script>

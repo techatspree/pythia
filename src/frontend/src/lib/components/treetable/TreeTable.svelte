@@ -23,6 +23,7 @@
 		rowActions,
 		rowAttrs,
 		childrenZoneAttrs,
+		collapseBreakpointPx = 900,
 		footer,
 		initialCollapsed = new Set<string>()
 	}: TreeTableProps<T> & { roots?: T[] } = $props();
@@ -30,6 +31,24 @@
 	let collapsed = $state(new Set(initialCollapsed));
 	let preDragSnapshot: T[] | null = null;
 	let cycleCheckPending = false;
+
+	let scrollHost: HTMLDivElement | null = $state(null);
+	let containerWidth = $state(Infinity);
+
+	$effect(() => {
+		if (scrollHost == null) return;
+		const ro = new ResizeObserver((entries) => {
+			containerWidth = entries[0].contentRect.width;
+		});
+		ro.observe(scrollHost);
+		return () => ro.disconnect();
+	});
+
+	const isCollapsed = $derived(
+		(key: string) =>
+			containerWidth < collapseBreakpointPx &&
+			(columns.find((c) => c.key === key)?.collapsible ?? false)
+	);
 
 	type Wrapped = { __treeTableId: string; node: T };
 
@@ -148,7 +167,7 @@
 
 	const gridTemplateColumns = $derived(
 		(editable ? '2rem ' : '') +
-			columns.map((c) => c.width).join(' ') +
+			columns.map((c) => (isCollapsed(c.key) ? '0.5rem' : c.width)).join(' ') +
 			(rowActions && editable ? ' 4rem' : '')
 	);
 
@@ -217,11 +236,11 @@
 			{/if}
 			{#each columns as col (col.key)}
 				<div class="py-1 px-2 {alignClass(col.align)}">
-					{#if col.key === treeColumnKey}
-						{@render indent(depth)}
-						{@render chevron(ctx)}
-						{@render col.cell(node, ctx)}
-					{:else}
+					{#if !isCollapsed(col.key)}
+						{#if col.key === treeColumnKey}
+							{@render indent(depth)}
+							{@render chevron(ctx)}
+						{/if}
 						{@render col.cell(node, ctx)}
 					{/if}
 				</div>
@@ -259,41 +278,47 @@
 {/snippet}
 
 <div class="border rounded-lg overflow-hidden">
-	<div
-		class="grid items-center bg-brand-green/10 border-b text-xs font-semibold uppercase tracking-wide text-brand-green"
-		style="grid-template-columns: {gridTemplateColumns}"
-	>
-		{#if editable}
-			<div class="py-2 px-1"></div>
-		{/if}
-		{#each columns as col (col.key)}
-			<div class="py-2 px-2 {alignClass(col.align)}">{col.header}</div>
-		{/each}
-		{#if rowActions && editable}
-			<div class="py-2 px-2"></div>
-		{/if}
-	</div>
+	<div class="overflow-x-auto" bind:this={scrollHost}>
+		<div style="min-width: max-content">
+			<div
+				class="grid items-center bg-brand-green/10 border-b text-xs font-semibold uppercase tracking-wide text-brand-green"
+				style="grid-template-columns: {gridTemplateColumns}"
+			>
+				{#if editable}
+					<div class="py-2 px-1"></div>
+				{/if}
+				{#each columns as col (col.key)}
+					<div class="py-2 px-2 {alignClass(col.align)}" title={col.header}>
+						{isCollapsed(col.key) ? '' : col.header}
+					</div>
+				{/each}
+				{#if rowActions && editable}
+					<div class="py-2 px-2"></div>
+				{/if}
+			</div>
 
-	<div
-		use:dndzone={{
-			items: wrappedRoots,
-			type: 'tree-table-node',
-			flipDurationMs: 200,
-			dropTargetStyle: {},
-			dragDisabled: !editable
-		}}
-		onconsider={(e) => handleZoneEvent([], e)}
-		onfinalize={(e) => handleZoneEvent([], e)}
-		{...rootZoneAttrs}
-	>
-		{#each wrappedRoots as w, idx (w.__treeTableId)}
-			{@render renderRow(w.node, [idx], 0)}
-		{/each}
-	</div>
+			<div
+				use:dndzone={{
+					items: wrappedRoots,
+					type: 'tree-table-node',
+					flipDurationMs: 200,
+					dropTargetStyle: {},
+					dragDisabled: !editable
+				}}
+				onconsider={(e) => handleZoneEvent([], e)}
+				onfinalize={(e) => handleZoneEvent([], e)}
+				{...rootZoneAttrs}
+			>
+				{#each wrappedRoots as w, idx (w.__treeTableId)}
+					{@render renderRow(w.node, [idx], 0)}
+				{/each}
+			</div>
 
-	{#if footer}
-		<div class="bg-gray-50 border-t-2 border-gray-300 py-2 px-3">
-			{@render footer(roots)}
+			{#if footer}
+				<div class="bg-gray-50 border-t-2 border-gray-300 py-2 px-3">
+					{@render footer(roots)}
+				</div>
+			{/if}
 		</div>
-	{/if}
+	</div>
 </div>

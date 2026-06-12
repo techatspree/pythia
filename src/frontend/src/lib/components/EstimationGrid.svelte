@@ -300,13 +300,21 @@
 			align: 'right',
 			cell: offerPTCell
 		},
-		{ key: 'cost', header: 'Cost (EUR)', width: '7rem', align: 'right', cell: costCell },
+		{
+			key: 'cost',
+			header: 'Cost (EUR)',
+			width: '7rem',
+			align: 'right',
+			cell: costCell,
+			collapsible: true
+		},
 		{
 			key: 'offerPrice',
 			header: 'Offer Price (EUR)',
 			width: '7rem',
 			align: 'right',
-			cell: offerPriceCell
+			cell: offerPriceCell,
+			collapsible: true
 		}
 	];
 
