@@ -146,11 +146,26 @@ steps:
     onkeydown/oninput handlers.
 
   - |
+    Make the demo cover the full EstimationGrid-like template before
+    writing the alignment test. The demo
+    (src/frontend/src/routes/dev/tree-table-demo/+page.svelte) is
+    `editable={true}` (so it already has the `2rem` drag-handle prefix
+    track) but passes NO `rowActions` snippet, so it never renders the
+    trailing `4rem` actions track that EstimationGrid adds. Add a small
+    `rowActions` snippet to the demo's `<TreeTable …>` (e.g. a single
+    no-op/✕ button) so the demo's grid template is
+    `2rem + columns + 4rem` — the same shape users actually see. The 5
+    existing cases in src/frontend/e2e/tree-table.test.ts select by
+    data-testid and children zones (not column index) and must keep
+    passing unchanged; verify they still pass.
+
+  - |
     Add a Playwright regression test that proves alignment holds at
     depth. Create src/frontend/e2e/tree-table-alignment.test.ts that
-    drives the existing /dev/tree-table-demo route (no backend needed)
-    and asserts the RESOLVED grid tracks of a nested row match the
-    header. Implementation sketch:
+    drives the /dev/tree-table-demo route (no backend needed) and
+    asserts the RESOLVED grid tracks of a nested row match the header —
+    now including both the leading `2rem` handle and the trailing `4rem`
+    rowActions track from the previous step. Implementation sketch:
       - goto('/dev/tree-table-demo')
       - In page.evaluate(), read the header grid element (the first
         `.grid` inside the table container) and a deep row's inner
@@ -178,7 +193,16 @@ steps:
     smoke cases require the API; the new alignment test and the
     tree-table cases only need the dev server / demo route.)
 
-validation:
+  - |
+    Record the layout gotcha as a memory so future contributors don't
+    re-trip on it. Via the auto-memory system add a short `project`
+    memory (one fact, linked from MEMORY.md) capturing: "Each TreeTable
+    row is an independent CSS grid sharing only the grid-template
+    STRING; flexible (`fr`) tracks must be `minmax(0, …)` and every cell
+    must be `min-w-0`, otherwise deep-indent content expands the tree
+    column and pushes later columns out of alignment with the header."
+    This is a doc-only step (no repo file) — skip if an equivalent
+    memory already exists.
   - |
     Flexible tracks are wrapped in minmax(0, …) so content cannot grow
     them; the transform lives in the gridTemplateColumns derivation:
@@ -189,6 +213,10 @@ validation:
   - |
     The tree column editors shrink within their track in EstimationGrid:
       grep -q "min-w-0" src/frontend/src/lib/components/EstimationGrid.svelte
+  - |
+    The demo exercises the trailing rowActions track so the alignment
+    test covers the full EstimationGrid-like template:
+      grep -q "rowActions" src/frontend/src/routes/dev/tree-table-demo/+page.svelte
   - |
     The alignment regression test exists and references the demo route
     and resolved grid tracks:
@@ -206,4 +234,5 @@ validation:
 outputs:
   - modified: src/frontend/src/lib/components/treetable/TreeTable.svelte
   - modified: src/frontend/src/lib/components/EstimationGrid.svelte
+  - modified: src/frontend/src/routes/dev/tree-table-demo/+page.svelte
   - created: src/frontend/e2e/tree-table-alignment.test.ts
