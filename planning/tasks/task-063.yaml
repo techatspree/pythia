@@ -1,0 +1,139 @@
+id: task-063
+phase: phase-11
+title: Backend — session persistence schema and entities
+depends_on: [task-062]
+description: |
+  Persistence layer for collaborative estimation sessions. A session
+  is started by a moderator against an existing estimation's DRAFT
+  version, over a chosen subset of the draft's leaf items, and walks
+  each item through a two-phase Delphi flow. This task adds the Flyway
+  migration, the Panache entities, and the repositories. No REST or
+  WebSocket wiring yet (task-064 / task-065).
+
+  Domain decisions for the whole feature (recap): full PERT triple per
+  estimator, mean aggregation with spread (task-062), authenticated
+  users only, finalize writes back onto the draft version's items.
+
+  Current state:
+    - PostgreSQL via Flyway; latest migration is V7 (submitted_tree).
+      Tests run against PostgreSQL Testcontainers (`%test`), dev-local
+      uses H2 — so the migration MUST be portable SQL (no PG-only
+      types; use `varchar`, `double precision`, `timestamp`, `boolean`,
+      integer ids/uuids as text or native uuid that H2 also supports —
+      follow the column-type choices already used in V1–V7).
+    - Entities live under
+      src/backend/implementation/src/main/kotlin/io/github/theestimator/domain/
+      (JPA Panache); repositories under …/repository/.
+    - Draft leaves are rows in `draft_estimation_nodes` keyed by a
+      stable `logical_id` (see CLAUDE.md persistence section).
+
+  Target state — Flyway V8 (
+  src/backend/implementation/src/main/resources/db/migration/V8__estimation_sessions.sql)
+  creating four tables (match V1–V7 conventions for id/timestamp
+  columns and FK naming):
+
+    estimation_sessions
+      id (pk), estimation_id (fk → estimations), title,
+      moderator_subject_id, status (varchar; see enum below),
+      current_item_index (int, default 0), current_phase (varchar;
+      'PHASE1' | 'PHASE2'), created_at, updated_at, finalized_at (null).
+
+    session_items
+      id (pk), session_id (fk → estimation_sessions, cascade delete),
+      node_logical_id (varchar; the draft leaf's logical_id),
+      position (int), status (varchar; 'PENDING'|'PHASE1'|'PHASE2'|
+      'FINALIZED'), discussion_notes (text, null),
+      final_min_effort / final_expected_effort / final_max_effort
+      (double precision, null until finalized).
+      unique(session_id, node_logical_id).
+
+    session_participants
+      id (pk), session_id (fk, cascade), subject_id (varchar),
+      display_name (varchar), participant_role (varchar;
+      'MODERATOR'|'ESTIMATOR'), joined_at, agreed (boolean default
+      false — phase-2 agreement on the CURRENT item; reset when the
+      item advances).
+      unique(session_id, subject_id).
+
+    session_votes
+      id (pk), session_id (fk, cascade), session_item_id (fk →
+      session_items, cascade), participant_subject_id (varchar),
+      phase (varchar; 'PHASE1'|'PHASE2'), min_effort,
+      expected_effort, max_effort (double precision), submitted_at.
+      unique(session_item_id, participant_subject_id, phase).
+
+  Session status enum (Kotlin `SessionStatus`): CREATED, RUNNING,
+  FINALIZED, CANCELLED. (Per-item progress is tracked by
+  session_items.status + the session's current_item_index/current_phase;
+  the session-level status is the coarse lifecycle.)
+
+  Entities + repositories (Kotlin, Panache; follow the existing
+  PanacheRepository pattern with finder extension methods):
+    - EstimationSession, SessionItem, SessionParticipant, SessionVote
+      under …/domain/session/.
+    - EstimationSessionRepository, SessionVoteRepository (+ finders:
+      findBySession, findByItemAndPhase, findParticipant) under
+      …/repository/.
+
+steps:
+  - |
+    Write the Flyway migration
+    src/backend/implementation/src/main/resources/db/migration/V8__estimation_sessions.sql
+    with the four tables above, portable across PostgreSQL and H2
+    (mirror id/timestamp column types from V7). Add the listed unique
+    constraints and FK cascade-deletes.
+
+  - |
+    Add the JPA Panache entities under
+    src/backend/implementation/src/main/kotlin/io/github/theestimator/domain/session/:
+    EstimationSession.kt, SessionItem.kt, SessionParticipant.kt,
+    SessionVote.kt (use the all-open/no-arg Kotlin plugins already
+    configured; map enums as `@Enumerated(EnumType.STRING)` or plain
+    String columns consistent with existing entities). Add
+    SessionStatus.kt, SessionItemStatus.kt, SessionPhase.kt,
+    ParticipantRole.kt enums under the same package.
+
+  - |
+    Add repositories under
+    src/backend/implementation/src/main/kotlin/io/github/theestimator/repository/:
+    EstimationSessionRepository.kt and SessionVoteRepository.kt with the
+    finder extension methods listed in the description.
+
+  - |
+    Build and run the backend test suite (Testcontainers spins up
+    PostgreSQL — Docker must be running) so the migration applies
+    cleanly and the entities map:
+      mvn -pl src/backend/implementation -am test
+
+validation:
+  - |
+    Migration and entities exist:
+      test -f src/backend/implementation/src/main/resources/db/migration/V8__estimation_sessions.sql
+      test -f src/backend/implementation/src/main/kotlin/io/github/theestimator/domain/session/EstimationSession.kt
+      test -f src/backend/implementation/src/main/kotlin/io/github/theestimator/domain/session/SessionVote.kt
+  - |
+    The four tables are declared in V8:
+      grep -q "estimation_sessions" src/backend/implementation/src/main/resources/db/migration/V8__estimation_sessions.sql
+      grep -q "session_items" src/backend/implementation/src/main/resources/db/migration/V8__estimation_sessions.sql
+      grep -q "session_participants" src/backend/implementation/src/main/resources/db/migration/V8__estimation_sessions.sql
+      grep -q "session_votes" src/backend/implementation/src/main/resources/db/migration/V8__estimation_sessions.sql
+  - |
+    Repositories exist:
+      test -f src/backend/implementation/src/main/kotlin/io/github/theestimator/repository/EstimationSessionRepository.kt
+      test -f src/backend/implementation/src/main/kotlin/io/github/theestimator/repository/SessionVoteRepository.kt
+  - |
+    Backend builds, migration applies, entities map:
+      mvn -pl src/backend/implementation -am test
+
+outputs:
+  - created: src/backend/implementation/src/main/resources/db/migration/V8__estimation_sessions.sql
+  - created: src/backend/implementation/src/main/kotlin/io/github/theestimator/domain/session/EstimationSession.kt
+  - created: src/backend/implementation/src/main/kotlin/io/github/theestimator/domain/session/SessionItem.kt
+  - created: src/backend/implementation/src/main/kotlin/io/github/theestimator/domain/session/SessionParticipant.kt
+  - created: src/backend/implementation/src/main/kotlin/io/github/theestimator/domain/session/SessionVote.kt
+  - created: src/backend/implementation/src/main/kotlin/io/github/theestimator/domain/session/SessionStatus.kt
+  - created: src/backend/implementation/src/main/kotlin/io/github/theestimator/domain/session/SessionItemStatus.kt
+  - created: src/backend/implementation/src/main/kotlin/io/github/theestimator/domain/session/SessionPhase.kt
+  - created: src/backend/implementation/src/main/kotlin/io/github/theestimator/domain/session/ParticipantRole.kt
+  - created: src/backend/implementation/src/main/kotlin/io/github/theestimator/repository/EstimationSessionRepository.kt
+  - created: src/backend/implementation/src/main/kotlin/io/github/theestimator/repository/SessionVoteRepository.kt

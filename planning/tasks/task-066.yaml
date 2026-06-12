@@ -1,0 +1,168 @@
+id: task-066
+phase: phase-11
+title: Frontend — session GUI shell, WS client, moderator setup
+depends_on: [task-062, task-065]
+description: |
+  Build the separate session UI shell and the real-time plumbing. Per
+  the requirement the session GUI is SEPARATED from the standard
+  estimation GUI: it lives under its own SvelteKit route group
+  `src/frontend/src/routes/sessions/` with its OWN `+layout.svelte`
+  (not the standard app chrome) — a focused, full-screen "room" look.
+  This task delivers the shell, navigation, the API + WebSocket client,
+  and the moderator's create/setup screen. The live phase-1/phase-2
+  interaction is task-067.
+
+  Current state:
+    - SvelteKit 5 (runes) + Tailwind 4, adapter-static SPA. API access
+      via `$lib/api/client.ts` (openapi-fetch; types regenerated from
+      the backend OpenAPI by `npm run gen:api`). Auth via
+      `$lib/auth` `getAuthProvider()`; the client middleware already
+      attaches the bearer token to `/api` calls.
+    - Vite dev server proxies `/api` to the backend; prod uses
+      `src/frontend/nginx.conf`. Neither proxies WebSocket upgrades yet.
+    - There is no `/sessions` route and no WebSocket code.
+
+  Target state:
+    - Regenerated API types include the `/api/sessions…` shapes (run
+      `npm run gen:api` after task-064/065 are merged so the backend
+      OpenAPI is current).
+    - Gateway WS support:
+        * vite.config.ts dev proxy: add a `/ws` entry with
+          `ws: true`, target the backend, so `wss`/`ws` upgrades reach
+          Quarkus during local dev.
+        * nginx.conf: add a `location /ws/` block with
+          `proxy_http_version 1.1`, `Upgrade`/`Connection` headers,
+          proxying to the backend service (mirror the existing `/api`
+          proxy block; keep the deferred-resolution resolver pattern).
+    - A typed session API wrapper
+      `src/frontend/src/lib/session/api.ts`: createSession, getSession,
+      listSessions, join, start, updateNotes, revealPhase2, finalize,
+      submitVote, agree, cancel, getWsTicket — thin wrappers over the
+      shared client.
+    - A WebSocket client `src/frontend/src/lib/session/socket.ts`:
+      `connectSessionSocket(sessionId, onSession, onError)` that
+      (1) calls getWsTicket to obtain a one-time ticket, (2) opens
+      `new WebSocket(wsUrl(sessionId, ticket))` where wsUrl derives
+      ws(s):// from location + `/ws/sessions/{id}?ticket=…`,
+      (3) parses `{type:"session"|"error", …}` frames and invokes the
+      callbacks, (4) auto-reconnects with backoff (re-fetching a fresh
+      ticket each attempt) and exposes a `close()` disposer. All errors
+      surface via the shared ErrorBanner rule (CLAUDE.md) — no
+      silent console-only catches.
+    - A Svelte store/rune module `src/frontend/src/lib/session/store.svelte.ts`
+      holding the current SessionDto as `$state`, updated from socket
+      frames, with derived helpers (currentItem, isModerator computed
+      from `$lib/auth` account subjectId vs moderatorSubjectId, my
+      participant, submittedCount).
+    - Routes:
+        * `src/frontend/src/routes/sessions/+layout.svelte` — minimal
+          room chrome (title bar with session title + connection
+          indicator + "leave" link back to the standard app). Distinct
+          from the standard layout.
+        * `src/frontend/src/routes/sessions/+page.svelte` — moderator
+          landing: pick an estimation (reuse the existing estimations
+          list endpoint), load its draft, show the draft's LEAF items
+          as a checkbox tree (reuse the draft GET; flatten leaves),
+          enter a title, "Start session" → POST create → navigate to
+          the room. Also lists existing sessions for the chosen
+          estimation with a "join" link.
+        * `src/frontend/src/routes/sessions/[id]/+page.svelte` — the
+          room. THIS TASK renders only the shell: connect the socket,
+          show session title/status, the participant list with live
+          connection + agreed badges, the current item header, and a
+          role banner (moderator vs estimator). The phase-specific
+          panels are stubbed with a placeholder the task-067 fills in.
+    - A discoverable entry point: add a "Sessions" link in the standard
+      app navigation (wherever the top nav/header lives) pointing to
+      `/sessions`. (Find the existing nav component; do not invent a new
+      layout.)
+
+  Out of scope (task-067): the phase-1 blind input form, the phase-2
+  reveal/aggregate/spread display, agreement + finalize controls, and
+  the multi-browser e2e test.
+
+steps:
+  - |
+    Regenerate API types so the session endpoints are available to the
+    client:
+      cd src/frontend && npm run gen:api
+    (Requires the backend OpenAPI to already include task-064/065
+    endpoints — i.e. those tasks are merged.)
+
+  - |
+    Add WebSocket gateway support:
+      - vite.config.ts: add a `/ws` proxy entry with `ws: true`.
+      - src/frontend/nginx.conf: add a `location /ws/` upgrade-proxy
+        block mirroring the `/api` block.
+
+  - |
+    Add src/frontend/src/lib/session/api.ts (typed wrappers over
+    $lib/api/client.ts for every /api/sessions endpoint incl.
+    getWsTicket).
+
+  - |
+    Add src/frontend/src/lib/session/socket.ts (connectSessionSocket
+    with ticket fetch, parse, reconnect-with-backoff, close()). Surface
+    failures through ErrorBanner — never swallow.
+
+  - |
+    Add src/frontend/src/lib/session/store.svelte.ts holding the
+    SessionDto `$state` + derived helpers (currentItem, isModerator,
+    myParticipant, submittedCount).
+
+  - |
+    Add the route group:
+      - sessions/+layout.svelte (distinct room chrome).
+      - sessions/+page.svelte (moderator setup: choose estimation,
+        flatten draft leaves into a checkbox picker, title, create;
+        list+join existing sessions).
+      - sessions/[id]/+page.svelte (room SHELL: connect socket, show
+        title/status/participants/current-item header/role banner, with
+        a placeholder where task-067 mounts phase panels).
+
+  - |
+    Add a "Sessions" nav entry in the existing standard-app navigation
+    component pointing to /sessions.
+
+  - |
+    Type-check:
+      cd src/frontend && npm run check
+    Expected: 0 errors.
+
+  - |
+    Manual smoke (no e2e yet — that's task-067): with
+    ./scripts/dev-local.sh running, open /sessions, create a session
+    over a draft's items, confirm the room loads and the connection
+    indicator turns green (socket frame received).
+
+validation:
+  - |
+    The separated route group and its own layout exist:
+      test -f src/frontend/src/routes/sessions/+layout.svelte
+      test -f src/frontend/src/routes/sessions/+page.svelte
+      test -f src/frontend/src/routes/sessions/[id]/+page.svelte
+  - |
+    The session client modules exist and the socket targets /ws/sessions:
+      test -f src/frontend/src/lib/session/api.ts
+      test -f src/frontend/src/lib/session/socket.ts
+      test -f src/frontend/src/lib/session/store.svelte.ts
+      grep -q "/ws/sessions" src/frontend/src/lib/session/socket.ts
+  - |
+    WebSocket gateway proxying is configured for dev and prod:
+      grep -q "ws: true" src/frontend/vite.config.ts
+      grep -q "location /ws" src/frontend/nginx.conf
+  - |
+    Frontend type-check passes:
+      cd src/frontend && npm run check
+
+outputs:
+  - modified: src/frontend/src/lib/api/schema.d.ts
+  - created: src/frontend/src/lib/session/api.ts
+  - created: src/frontend/src/lib/session/socket.ts
+  - created: src/frontend/src/lib/session/store.svelte.ts
+  - created: src/frontend/src/routes/sessions/+layout.svelte
+  - created: src/frontend/src/routes/sessions/+page.svelte
+  - created: src/frontend/src/routes/sessions/[id]/+page.svelte
+  - modified: src/frontend/vite.config.ts
+  - modified: src/frontend/nginx.conf
+  - modified: src/frontend/src/routes/+layout.svelte

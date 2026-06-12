@@ -1,0 +1,149 @@
+id: task-067
+phase: phase-11
+title: Frontend — two-phase session flow, finalize, e2e and docs
+depends_on: [task-066]
+description: |
+  Fill the session room (task-066 shell) with the actual two-phase
+  Wideband-Delphi interaction, then prove it end-to-end and document
+  it. Closes out the collaborative-estimation-session phase.
+
+  Behaviour (matches the user's description, driven by the live
+  SessionDto store from task-066 and pushed over the WebSocket):
+    - Current-item header shows the item description, position
+      (e.g. "Item 2 of 5"), status and phase.
+    - PHASE1 (blind individual estimate):
+        * Estimator view: a PERT-triple form (optimistic/likely/
+          pessimistic = minEffort/expectedEffort/maxEffort) with a
+          "Submit estimate" button → POST /votes. After submitting,
+          show "submitted — waiting for others"; show ONLY the
+          submitted/total count (never others' numbers in phase 1).
+        * Moderator view: the submitted count + a discussion-notes
+          textarea that PUTs /items/current/notes (debounced), plus an
+          "Advance to phase 2 (reveal)" button.
+        * Discussion notes are visible to everyone (pushed via socket).
+    - PHASE2 (reveal + converge):
+        * Everyone sees the table of all estimators' phase-1 values and
+          the AGGREGATE — mean triple, PERT mean, and the SPREAD
+          (range, std-dev, coefficient of variation). When the
+          aggregate's `diverged` flag is set, highlight it (amber
+          banner "Estimates differ strongly — discuss and revise").
+          The mean/spread shown MUST come from the domain
+          `VoteAggregation` (task-062) computed locally for snappy
+          display — reuse the adapter.ts pattern of calling the
+          Kotlin/JS bundle — AND must match the AggregateDto the
+          backend sends (assert equality in the e2e).
+        * Estimators may submit a revised triple (same form, posts a
+          PHASE2 vote) and toggle an "I agree" control (POST /agree);
+          the participant list shows who has agreed.
+        * Moderator sees an "all agreed" indicator and a "Finalize
+          item" button → POST /items/current/finalize. On success the
+          socket pushes the advanced session (next item PHASE1, or
+          session FINALIZED).
+    - When the session status becomes FINALIZED: show a summary list of
+      every item with its final PERT triple, and a link back to the
+      draft version editor (the draft now carries the written-back
+      values — confirm by navigating there).
+
+  Conservative UI: match the existing Tailwind/brand-green dense style;
+  reuse the number-input + label patterns from EstimationGrid where
+  practical. Keep components small — a `PhaseOnePanel.svelte`,
+  `PhaseTwoPanel.svelte`, and `SessionSummary.svelte` under
+  `src/frontend/src/lib/session/` mounted by the room page's
+  placeholder.
+
+  All error paths surface via ErrorBanner (CLAUDE.md rule).
+
+steps:
+  - |
+    Add src/frontend/src/lib/session/PhaseOnePanel.svelte (estimator
+    form + submit + waiting state; moderator notes textarea + advance
+    button; blind count only).
+
+  - |
+    Add src/frontend/src/lib/session/PhaseTwoPanel.svelte (votes table,
+    aggregate + spread via the domain bundle, diverged highlight,
+    revise form, agree control, moderator finalize button). Import the
+    aggregation from the Kotlin/JS domain the same way adapter.ts
+    imports domain functions.
+
+  - |
+    Add src/frontend/src/lib/session/SessionSummary.svelte (final
+    per-item triples + link back to the draft editor).
+
+  - |
+    Wire these into the room page
+    src/frontend/src/routes/sessions/[id]/+page.svelte, replacing the
+    task-066 placeholder: pick the panel by
+    store.session.status / currentPhase / item status; pass the live
+    store + the session api wrappers.
+
+  - |
+    Add a Playwright e2e
+    src/frontend/e2e/session.test.ts that drives the full flow with
+    TWO browser contexts (moderator + one estimator) against
+    ./scripts/dev-local.sh (dev auth module gives distinct users):
+      1. moderator creates a session over a draft with ≥2 leaves and
+         opens the room
+      2. estimator joins (second context) and the room shows 2
+         participants in BOTH contexts (proves the socket broadcast)
+      3. both submit phase-1 triples; moderator sees count 2/2 without
+         seeing values
+      4. moderator reveals; both contexts see the votes table + the
+         aggregate; assert the displayed mean equals the backend
+         AggregateDto
+      5. estimator revises + agrees; moderator finalizes
+      6. after the last item, both see the FINALIZED summary; then
+         assert the draft version's item now holds the aggregated mean
+         (navigate to the draft editor or GET the draft).
+
+  - |
+    Type-check and run the e2e:
+      cd src/frontend && npm run check
+      cd src/frontend && npm run test:e2e
+
+  - |
+    Documentation + plan bookkeeping:
+      - Add docs/estimation-sessions.md: the moderator/estimator flow,
+        the two phases, how finalize writes back to the draft, the
+        realtime/ws-ticket model (cross-link the task-065 CLAUDE.md
+        note), and the divergence threshold.
+      - Update CLAUDE.md with a short "Collaborative estimation
+        sessions" subsection under Architecture (separate /sessions GUI,
+        push-only WS, domain VoteAggregation as the single source of
+        truth for mean/spread).
+      - Update planning/README.md phase summary table: add the phase-11
+        row (Collaborative Estimation Sessions, tasks 062–067).
+
+validation:
+  - |
+    The phase panels, summary, and e2e exist:
+      test -f src/frontend/src/lib/session/PhaseOnePanel.svelte
+      test -f src/frontend/src/lib/session/PhaseTwoPanel.svelte
+      test -f src/frontend/src/lib/session/SessionSummary.svelte
+      test -f src/frontend/e2e/session.test.ts
+  - |
+    Phase 2 uses the domain aggregation (single source of truth), not a
+    hand-rolled average in the component:
+      grep -qiE "aggregate|VoteAggregation" src/frontend/src/lib/session/PhaseTwoPanel.svelte
+  - |
+    The e2e drives two contexts and asserts the broadcast + write-back:
+      grep -q "newContext\\|browser.newContext\\|context" src/frontend/e2e/session.test.ts
+  - |
+    Docs and plan updated:
+      test -f docs/estimation-sessions.md
+      grep -q "phase-11\\|Collaborative Estimation Sessions" planning/README.md
+      grep -qi "session" CLAUDE.md
+  - |
+    Frontend type-check and the full e2e suite pass:
+      cd src/frontend && npm run check
+      cd src/frontend && npm run test:e2e
+
+outputs:
+  - created: src/frontend/src/lib/session/PhaseOnePanel.svelte
+  - created: src/frontend/src/lib/session/PhaseTwoPanel.svelte
+  - created: src/frontend/src/lib/session/SessionSummary.svelte
+  - modified: src/frontend/src/routes/sessions/[id]/+page.svelte
+  - created: src/frontend/e2e/session.test.ts
+  - created: docs/estimation-sessions.md
+  - modified: CLAUDE.md
+  - modified: planning/README.md

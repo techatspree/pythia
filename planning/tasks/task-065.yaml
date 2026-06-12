@@ -1,0 +1,139 @@
+id: task-065
+phase: phase-11
+title: Backend — real-time session WebSocket channel
+depends_on: [task-064]
+description: |
+  Push session state to every participant in real time so all
+  browsers show the same thing (vote counts ticking up, phase changes,
+  reveal, finalize) without polling. The HTTP control plane (task-064)
+  remains the only way to MUTATE state; the WebSocket is push-only:
+  whenever the service publishes a change, the server broadcasts the
+  fresh SessionDto to all sockets joined to that session.
+
+  Technology: Quarkus 3.35 → use `io.quarkus:quarkus-websockets-next`
+  (NOT the legacy `quarkus-websockets`). Server endpoint, in-memory
+  per-session connection registry via `OpenConnections`, broadcast on
+  the task-064 `SessionEventPublisher` hook.
+
+  Browser auth constraint + solution (authenticated-users decision):
+    - Browsers cannot set an Authorization header on a WebSocket
+      handshake, and the modular auth (dev/entra/keycloak) is
+      provider-specific. To stay provider-agnostic, use a short-lived
+      one-time ticket:
+        * Add `POST /api/sessions/{id}/ws-ticket` to SessionResource
+          (authenticated, `@RolesAllowed` ESTIMATOR, must be a joined
+          participant) returning `{ticket}` — a random opaque token
+          stored in an in-memory `SessionTicketStore` mapping
+          ticket → (sessionId, subjectId), TTL ~30s, single use.
+        * The client opens `wss://…/ws/sessions/{id}?ticket=…`.
+        * `@OnOpen` validates the ticket against the store (matching
+          sessionId), resolves the subjectId, confirms the user is a
+          participant, then registers the connection. Invalid/expired
+          ticket → close with a policy-violation code.
+      Document this exchange in CLAUDE.md.
+
+  Message protocol (server → client JSON, push-only):
+    {type: "session", session: SessionDto}        on every change
+    {type: "error", message: string}              on a handshake/runtime problem
+  The client does not send domain messages over the socket (mutations
+  go through REST); a periodic ping/keepalive is fine.
+
+  Plumbing the publisher: implement task-064's `SessionEventPublisher`
+  (or observe its CDI event) in a `SessionBroadcaster` that, given a
+  sessionId, loads the session via EstimationSessionService, maps it to
+  the (moderator-scoped? — see note) SessionDto, and sends it to every
+  open connection for that session. NOTE on PHASE1 vote hiding: the
+  broadcast payload must respect the same role-scoping as the REST GET
+  (estimators must not receive other estimators' PHASE1 values). Send a
+  per-connection payload: scope the DTO to each recipient's role
+  (moderator gets full data, estimators get counts only during PHASE1).
+
+  Gateway wiring is handled on the frontend side (task-066) for nginx /
+  vite; this task only needs the Quarkus endpoint to answer at
+  `/ws/sessions/{id}`.
+
+steps:
+  - |
+    Add the dependency to
+    src/backend/implementation/pom.xml:
+      <dependency><groupId>io.quarkus</groupId>
+        <artifactId>quarkus-websockets-next</artifactId></dependency>
+
+  - |
+    Add the in-memory ticket store
+    src/backend/implementation/src/main/kotlin/io/github/theestimator/service/SessionTicketStore.kt
+    (`@ApplicationScoped`; concurrent map; issue(sessionId, subjectId)
+    → ticket; consume(ticket, sessionId) → subjectId?; TTL + single
+    use). Add `POST /api/sessions/{id}/ws-ticket` to SessionResource
+    (task-064's file) returning `{ticket}`.
+
+  - |
+    Add the WebSocket endpoint
+    src/backend/implementation/src/main/kotlin/io/github/theestimator/ws/SessionSocket.kt
+    annotated `@WebSocket(path = "/ws/sessions/{sessionId}")`, with
+    `@OnOpen` (ticket validation + participant check + register),
+    `@OnClose` (deregister), using `WebSocketConnection` /
+    `OpenConnections`. Read the ticket from the query string.
+
+  - |
+    Add
+    src/backend/implementation/src/main/kotlin/io/github/theestimator/ws/SessionBroadcaster.kt
+    that implements the task-064 publisher hook (or `@Observes` its CDI
+    event) and, on each change, sends a per-recipient role-scoped
+    `{type:"session", session:…}` text message to every open connection
+    for that session.
+
+  - |
+    Add a test
+    src/backend/implementation/src/test/kotlin/io/github/theestimator/ws/SessionSocketIT.kt
+    using Quarkus' websockets-next test client (or a basic client): a
+    joined participant obtains a ws-ticket, connects, and receives a
+    `session` message after a moderator action (e.g. start or a vote);
+    a connection with a bogus ticket is rejected.
+
+  - |
+    Update CLAUDE.md: add the `/ws/sessions/{id}` endpoint, the
+    ws-ticket handshake, and the push-only protocol to the REST/realtime
+    section.
+
+  - |
+    Build + test (Docker required):
+      mvn -pl src/backend/implementation -am test
+
+  - |
+    Record the realtime pattern as a `project` memory via the
+    auto-memory system: "Session realtime = quarkus-websockets-next,
+    push-only; mutations stay on REST; browser WS auth uses a
+    short-lived single-use ticket from POST /api/sessions/{id}/ws-ticket
+    because browsers can't set an Authorization header on the
+    handshake." Doc-only step; skip if an equivalent memory exists.
+
+validation:
+  - |
+    websockets-next dependency added:
+      grep -q "quarkus-websockets-next" src/backend/implementation/pom.xml
+  - |
+    Socket endpoint, broadcaster, ticket store and IT exist:
+      test -f src/backend/implementation/src/main/kotlin/io/github/theestimator/ws/SessionSocket.kt
+      test -f src/backend/implementation/src/main/kotlin/io/github/theestimator/ws/SessionBroadcaster.kt
+      test -f src/backend/implementation/src/main/kotlin/io/github/theestimator/service/SessionTicketStore.kt
+      test -f src/backend/implementation/src/test/kotlin/io/github/theestimator/ws/SessionSocketIT.kt
+  - |
+    The endpoint path and ticket endpoint are wired:
+      grep -q "/ws/sessions" src/backend/implementation/src/main/kotlin/io/github/theestimator/ws/SessionSocket.kt
+      grep -q "ws-ticket" src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/SessionResource.kt
+  - |
+    CLAUDE.md documents the realtime channel:
+      grep -q "/ws/sessions" CLAUDE.md
+  - |
+    Backend builds and the socket IT passes:
+      mvn -pl src/backend/implementation -am test
+
+outputs:
+  - modified: src/backend/implementation/pom.xml
+  - created: src/backend/implementation/src/main/kotlin/io/github/theestimator/service/SessionTicketStore.kt
+  - created: src/backend/implementation/src/main/kotlin/io/github/theestimator/ws/SessionSocket.kt
+  - created: src/backend/implementation/src/main/kotlin/io/github/theestimator/ws/SessionBroadcaster.kt
+  - created: src/backend/implementation/src/test/kotlin/io/github/theestimator/ws/SessionSocketIT.kt
+  - modified: src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/SessionResource.kt
+  - modified: CLAUDE.md
