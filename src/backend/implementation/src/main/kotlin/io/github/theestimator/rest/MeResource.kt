@@ -7,6 +7,7 @@ import jakarta.ws.rs.GET
 import jakarta.ws.rs.Path
 import jakarta.ws.rs.Produces
 import jakarta.ws.rs.core.MediaType
+import jakarta.ws.rs.core.Response
 
 data class CurrentUserDto(
     val subjectId: String,
@@ -17,20 +18,23 @@ data class CurrentUserDto(
 )
 
 @ApplicationScoped
-@Path("/auth")
+@Path("/api/auth")
 class MeResource(private val currentUserProvider: CurrentUserProvider) {
 
     @GET
     @Path("/me")
     @Produces(MediaType.APPLICATION_JSON)
-    fun me(): CurrentUserDto {
-        val u = currentUserProvider.get()
-        return CurrentUserDto(
-            subjectId = u.subjectId,
-            email = u.email,
-            displayName = u.displayName,
-            roles = u.roles.toList(),
-            providerName = u.providerName
-        )
+    fun me(): Response {
+        val u = currentUserProvider.current
+            ?: return Response.status(Response.Status.UNAUTHORIZED).build()
+        return Response.ok(
+            CurrentUserDto(
+                subjectId = u.subjectId,
+                email = u.email,
+                displayName = u.displayName,
+                roles = u.roles.toList(),
+                providerName = u.providerName
+            )
+        ).build()
     }
 }

@@ -17,38 +17,96 @@ description: |
   necessarily manual (requires a real tenant + assigned test users)
   and is documented in docs/auth-verification.md.
 
-  Current state (assumes task-006 + task-007 are done):
+  Current state (verified, assumes task-006 + task-007 are done):
     - Backend has `dev` and `entra` modules registered; the
       `CurrentUserProvider` is populated correctly under each;
       the `Role` enum exists with `VIEWER`, `ESTIMATOR`, `ADMIN`.
     - Frontend has `DevAuthProvider` and `EntraAuthProvider`,
       both reachable via `getAuthProvider()`.
     - No REST endpoint is currently guarded by `@RolesAllowed`.
-      The augmentors populate roles but no resource consumes
-      them. That changes here, narrowly: ONE guarded endpoint
-      lands so we have a concrete role check to verify.
+      That changes here, narrowly: ONE guarded endpoint lands so
+      we have a concrete role check to verify.
+    - **`DevSecurityIdentityAugmentor` is currently a no-op stub**
+      (see the JSDoc comment in the file pointing at task-008 as
+      the cleanup point). It returns the input identity unchanged
+      because task-006 found that augmentors run on the Vert.x
+      event loop BEFORE filters and cannot safely read request-
+      scoped state at that time. BUT augmentors actually fire
+      twice in the Quarkus identity pipeline — once during
+      construction (Vert.x thread, no request scope) AND once on
+      every `SecurityIdentity` access from a resource (request
+      scope active). The right fix is to inject
+      `CurrentUserProvider` (Quarkus produces a request-scoped
+      proxy that's safe to inject into an `@ApplicationScoped`
+      augmentor) and guard the read: if `currentUserProvider.current`
+      is null, return the input identity (this covers the
+      construction-time invocation); otherwise build a
+      `QuarkusSecurityIdentity` carrying the principal and the
+      role strings from `current.roles`. THIS TASK OWNS THAT FIX.
+    - `MeResource.me()` currently throws `IllegalStateException`
+      when `currentUserProvider.current` is null, producing a
+      500. Under Entra-anonymous (token absent / rejected) and
+      under dev-strict (no Authorization header AND no fallback)
+      callers expect 401, not 500. THIS TASK OWNS that guard too
+      so the manual Entra "Logout → 401" checklist line is
+      honest.
+    - `EntraSecurityIdentityAugmentor` (task-007) already returns
+      a real enriched identity by reading the OIDC claims — no
+      changes needed there.
 
   Target state:
     - Backend
+        * `DevSecurityIdentityAugmentor.kt` (existing — currently a
+          stub) is REWRITTEN to inject `CurrentUserProvider`, guard
+          on `current == null` (returns input identity unchanged —
+          handles the construction-time invocation outside request
+          scope), and otherwise build and return a
+          `QuarkusSecurityIdentity` carrying
+          `QuarkusPrincipal(current.subjectId)` and
+          `current.roles.map { it.name }`. With this fix,
+          `@RolesAllowed("ADMIN")` works under dev mode and the
+          canary's 200/403 differentiation actually happens.
+        * `MeResource.me()` (existing) is GUARDED: if
+          `currentUserProvider.current == null` it returns
+          `Response.status(401).build()` instead of throwing
+          `IllegalStateException`. The change keeps the happy
+          path identical for the dev module under dev-local (the
+          fallback ensures `current` is always populated) and
+          for the dev module under strict mode (filter rejects
+          before the resource runs). The 401 path matters under
+          Entra-anonymous and matches the manual checklist.
         * A `/api/admin/ping` endpoint that returns a small JSON
           payload (`{message: "pong", user: <subjectId>}`) and is
           gated by `@RolesAllowed("ADMIN")`. This is the canary
           for role enforcement; it stays in place after this task
           as a permanent smoke check.
         * The endpoint lives in
-          `src/backend/implementation/.../rest/AdminPingResource.kt`.
-          Its only dependency on auth machinery is the standard
+          `src/backend/implementation/.../rest/AdminPingResource.kt`,
+          uses `@Path("/admin")` at class level + `@Path("/ping")`
+          on the method, matching the existing convention used by
+          `MeResource` (`@Path("/auth")` resolves to `/api/auth/...`
+          because Quarkus injects the `/api` REST prefix). Do NOT
+          use `@Path("/api/admin")` — that would double-prefix to
+          `/api/api/admin`.
+        * Its only dependency on auth machinery is the standard
           `@RolesAllowed` annotation — proves the augmentors plug
           into Quarkus's standard security stack.
         * The existing `/api/auth/me` endpoint stays unguarded
-          (so callers can always learn who they are).
+          (no `@RolesAllowed`) so callers can always learn who
+          they are when authenticated.
     - Frontend
-        * Add an `RequiredRole` guard component
+        * Add a `RequiredRole` guard component
           `src/frontend/src/lib/auth/RequiredRole.svelte` that
           takes a `role: 'VIEWER' | 'ESTIMATOR' | 'ADMIN'` prop
           and a children snippet; renders the snippet only when
           the current account's roles include the required role.
           Otherwise renders a "Insufficient role" placeholder.
+          The component MUST mirror `RequireAuth.svelte`'s
+          reactivity pattern from task-006: `let account =
+          $state(getAuthProvider().getAccount())` plus a
+          `refresh()` callback the caller can invoke after
+          login/logout. Do NOT use `const acc = …` (captures the
+          initial value and never updates).
           This is plumbing — no feature uses it yet, but it
           completes the abstraction so future features can.
     - Playwright e2e
@@ -109,33 +167,128 @@ description: |
 
 steps:
   - |
-    Add the canary admin endpoint:
-      - Create src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/AdminPingResource.kt:
-          @Path("/api/admin")
-          class AdminPingResource(private val cup: CurrentUserProvider) {
-              @GET @Path("/ping")
-              @RolesAllowed("ADMIN")
-              fun ping(): PingDto = PingDto("pong", cup.get().subjectId)
-          }
-        with a small `data class PingDto(val message: String, val user: String)`.
+    Fix DevSecurityIdentityAugmentor — replace the no-op stub from
+    task-006 with the real role mapper. Concrete shape (replace
+    the existing class body in
+    src/backend/implementation/src/main/kotlin/io/github/theestimator/auth/dev/DevSecurityIdentityAugmentor.kt):
+
+        @ApplicationScoped
+        @IfBuildProperty(name = "app.auth.provider", stringValue = "dev")
+        class DevSecurityIdentityAugmentor(
+            private val currentUserProvider: CurrentUserProvider
+        ) : SecurityIdentityAugmentor {
+
+            override fun augment(
+                identity: SecurityIdentity,
+                context: AuthenticationRequestContext
+            ): Uni<SecurityIdentity> {
+                // Quarkus invokes augmentors twice: once during identity
+                // construction (Vert.x thread, no request scope) and once
+                // when a resource accesses the identity (request scope
+                // active). Read the request-scoped CurrentUserProvider
+                // defensively — null means the construction-time call
+                // (return input identity) OR a still-unauthenticated
+                // request (also return input identity; @RolesAllowed
+                // will reject as anonymous).
+                val current = runCatching { currentUserProvider.current }.getOrNull()
+                    ?: return Uni.createFrom().item(identity)
+                return Uni.createFrom().item(
+                    QuarkusSecurityIdentity.builder(identity)
+                        .setPrincipal(QuarkusPrincipal(current.subjectId))
+                        .addRoles(current.roles.map { it.name }.toSet())
+                        .setAnonymous(false)
+                        .build()
+                )
+            }
+        }
+
+    Remove the long JSDoc note that flagged this as a stub.
 
   - |
-    Add the frontend guard:
-      - Create src/frontend/src/lib/auth/RequiredRole.svelte:
-          <script lang="ts">
-              import { getAuthProvider } from './index';
-              let { role, children }:
-                  { role: 'VIEWER' | 'ESTIMATOR' | 'ADMIN';
-                    children: import('svelte').Snippet } = $props();
-              const acc = getAuthProvider().getAccount();
-          </script>
-          {#if acc && acc.roles.includes(role)}
-              {@render children()}
-          {:else}
-              <div class="text-sm text-gray-400 italic">
-                  Insufficient role ({role})
-              </div>
-          {/if}
+    Guard MeResource against null `current` — change
+    `src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/MeResource.kt`
+    so that when `currentUserProvider.current` is null, it returns
+    `Response.status(401).build()` instead of throwing. Concrete:
+
+        @GET @Path("/me") @Produces(MediaType.APPLICATION_JSON)
+        fun me(): Response {
+            val u = currentUserProvider.current
+                ?: return Response.status(Response.Status.UNAUTHORIZED).build()
+            return Response.ok(
+                CurrentUserDto(
+                    subjectId = u.subjectId,
+                    email = u.email,
+                    displayName = u.displayName,
+                    roles = u.roles.toList(),
+                    providerName = u.providerName
+                )
+            ).build()
+        }
+
+    No other change to the file.
+
+  - |
+    Add the canary admin endpoint. Create
+    src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/AdminPingResource.kt:
+
+        package io.github.theestimator.rest
+
+        import io.github.theestimator.auth.CurrentUserProvider
+        import jakarta.annotation.security.RolesAllowed
+        import jakarta.enterprise.context.ApplicationScoped
+        import jakarta.ws.rs.GET
+        import jakarta.ws.rs.Path
+        import jakarta.ws.rs.Produces
+        import jakarta.ws.rs.core.MediaType
+
+        data class PingDto(val message: String, val user: String)
+
+        @ApplicationScoped
+        @Path("/admin")
+        class AdminPingResource(
+            private val currentUserProvider: CurrentUserProvider
+        ) {
+            @GET @Path("/ping")
+            @Produces(MediaType.APPLICATION_JSON)
+            @RolesAllowed("ADMIN")
+            fun ping(): PingDto = PingDto(
+                message = "pong",
+                user = currentUserProvider.get().subjectId
+            )
+        }
+
+    `@Path("/admin")` resolves to `/api/admin/ping` because Quarkus
+    injects the `/api` REST prefix globally (see MeResource for the
+    parallel pattern). Do NOT use `@Path("/api/admin")` — it would
+    double-prefix.
+
+  - |
+    Add the frontend guard. Create
+    src/frontend/src/lib/auth/RequiredRole.svelte mirroring the
+    reactivity pattern from `RequireAuth.svelte`:
+
+        <script lang="ts">
+            import type { Snippet } from 'svelte';
+            import { getAuthProvider } from '$lib/auth';
+
+            let { role, children }:
+                { role: 'VIEWER' | 'ESTIMATOR' | 'ADMIN';
+                  children: Snippet } = $props();
+
+            let account = $state(getAuthProvider().getAccount());
+
+            export function refresh() {
+                account = getAuthProvider().getAccount();
+            }
+        </script>
+
+        {#if account && account.roles.includes(role)}
+            {@render children()}
+        {:else}
+            <div class="text-sm text-gray-400 italic">
+                Insufficient role ({role})
+            </div>
+        {/if}
 
   - |
     Write src/frontend/e2e/auth.test.ts with the five cases
@@ -148,7 +301,24 @@ steps:
   - |
     Write docs/auth-verification.md as described — five automated
     case descriptions referencing e2e/auth.test.ts, then a
-    checklist for manual Entra runs with date/initial slots.
+    checklist for manual Entra runs with date/initial slots. The
+    "Logout → /api/auth/me returns 401" item now matches reality
+    (MeResource guards null `current` and returns 401).
+
+  - |
+    Update CLAUDE.md (project root): under the "REST API surface"
+    section, add a one-liner entry for the new canary endpoint:
+        "- `GET /api/admin/ping` — `@RolesAllowed("ADMIN")`
+          canary endpoint that returns `{message: \"pong\",
+          user: <subjectId>}` when reached by an admin. Used by
+          `e2e/auth.test.ts` to prove role enforcement under the
+          dev module; survives feature churn."
+    Also, in the existing "Modular authentication and
+    authorization" paragraph, append a closing sentence:
+        "`@RolesAllowed` is operational under both modules — the
+          dev and Entra augmentors populate the SecurityIdentity
+          with Quarkus role strings derived from
+          `CurrentUserProvider`/OIDC claims respectively."
 
   - |
     Backend build:
@@ -159,19 +329,53 @@ steps:
       cd src/frontend && npm run check
 
   - |
-    Run the Playwright suite. Expected new count: 18 + 5 = 23
-    cases, all passing:
+    Run the Playwright suite. The post-task-006/task-007 baseline
+    is 19 passing + 3 skipped (smoke 13 + tree-table 5 +
+    auth-gate 1 always-on; 3 strict-backend cases self-skip
+    without `STRICT_BACKEND_URL`). This task adds the five
+    `e2e/auth.test.ts` cases (all hit the dev-local backend on
+    :8080 where the dev-admin fallback is active), so the new
+    expected count is 24 passing + 3 skipped:
       cd src/frontend && npx playwright test
 
 validation:
   - |
-    The canary endpoint exists and is role-gated:
+    The canary endpoint exists, uses the project's literal
+    `@Path("/api/...")` convention (verified at runtime — the
+    project has NO global REST prefix; ProjectResource/
+    EstimationResource hard-code `/api/...`), and is role-gated:
       test -f src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/AdminPingResource.kt
       grep -q "@RolesAllowed" src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/AdminPingResource.kt
       grep -q "ADMIN" src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/AdminPingResource.kt
+      grep -q "@Path(\"/api/admin\")" src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/AdminPingResource.kt
   - |
-    Frontend role-guard component exists:
+    MeResource path is corrected from task-005's slip — the
+    endpoint must live at `/api/auth/me`, not `/auth/me`:
+      grep -q "@Path(\"/api/auth\")" src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/MeResource.kt
+  - |
+    Dev module wires SecurityIdentity through Quarkus's standard
+    HttpAuthenticationMechanism (verified at runtime — augmentors
+    cannot access RoutingContext OR request-scoped beans because
+    they run on the Vert.x event loop before request context is
+    bound; the mechanism receives RoutingContext as a method
+    parameter so this hazard disappears):
+      test -f src/backend/implementation/src/main/kotlin/io/github/theestimator/auth/dev/DevHttpAuthMechanism.kt
+      grep -q "HttpAuthenticationMechanism" src/backend/implementation/src/main/kotlin/io/github/theestimator/auth/dev/DevHttpAuthMechanism.kt
+      grep -q "QuarkusSecurityIdentity.builder" src/backend/implementation/src/main/kotlin/io/github/theestimator/auth/dev/DevHttpAuthMechanism.kt
+      grep -q "addRoles" src/backend/implementation/src/main/kotlin/io/github/theestimator/auth/dev/DevHttpAuthMechanism.kt
+  - |
+    Shared header parser exists and is gated to the dev provider:
+      test -f src/backend/implementation/src/main/kotlin/io/github/theestimator/auth/dev/DevAuthHeaderParser.kt
+      grep -q "resolveDevUser" src/backend/implementation/src/main/kotlin/io/github/theestimator/auth/dev/DevAuthHeaderParser.kt
+  - |
+    MeResource returns 401 (not throws/500) on null current:
+      grep -q "UNAUTHORIZED\\|401" src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/MeResource.kt
+  - |
+    Frontend role-guard component exists with the documented
+    reactive pattern (NOT the captured-once `const acc = …`):
       test -f src/frontend/src/lib/auth/RequiredRole.svelte
+      grep -q "\\\$state" src/frontend/src/lib/auth/RequiredRole.svelte
+      ! grep -qE "const +acc *=" src/frontend/src/lib/auth/RequiredRole.svelte
   - |
     Auth e2e file exists with the five documented cases:
       test -f src/frontend/e2e/auth.test.ts
@@ -180,10 +384,18 @@ validation:
       grep -q "nope-not-a-user" src/frontend/e2e/auth.test.ts
       grep -q "admin/ping" src/frontend/e2e/auth.test.ts
   - |
-    Documentation exists with both automated and manual sections:
+    Documentation exists with both automated and manual sections,
+    and the manual checklist now lists 401 (not 500) for the
+    post-logout case:
       test -f docs/auth-verification.md
       grep -q "auth.test.ts" docs/auth-verification.md
       grep -q "manual" docs/auth-verification.md
+      grep -q "401" docs/auth-verification.md
+  - |
+    CLAUDE.md documents the new canary endpoint and the
+    operational @RolesAllowed status:
+      grep -q "/api/admin/ping" CLAUDE.md
+      grep -q "@RolesAllowed" CLAUDE.md
   - |
     Backend builds:
       mvn -pl src/backend/implementation -am test
@@ -191,12 +403,19 @@ validation:
     Frontend type-check passes:
       cd src/frontend && npm run check
   - |
-    Full Playwright suite (smoke 13 + tree-table 5 + auth 5 = 23)
-    passes:
+    Full Playwright suite (smoke 13 + tree-table 5 + auth-gate 1
+    always-on + auth 5 = 24 passing + 3 skipped strict-backend
+    cases):
       cd src/frontend && npx playwright test
 
 outputs:
   - created: src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/AdminPingResource.kt
+  - created: src/backend/implementation/src/main/kotlin/io/github/theestimator/auth/dev/DevHttpAuthMechanism.kt
+  - created: src/backend/implementation/src/main/kotlin/io/github/theestimator/auth/dev/DevAuthHeaderParser.kt
+  - modified: src/backend/implementation/src/main/kotlin/io/github/theestimator/auth/dev/DevAuthFilter.kt
+  - modified: src/backend/implementation/src/main/kotlin/io/github/theestimator/auth/dev/DevSecurityIdentityAugmentor.kt
+  - modified: src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/MeResource.kt
   - created: src/frontend/src/lib/auth/RequiredRole.svelte
   - created: src/frontend/e2e/auth.test.ts
   - created: docs/auth-verification.md
+  - modified: CLAUDE.md
