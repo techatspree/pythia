@@ -21,6 +21,7 @@
 		editable = true,
 		onChildrenChange,
 		rowActions,
+		actionsPlacement = 'trailing',
 		rowAttrs,
 		childrenZoneAttrs,
 		collapseBreakpointPx = 900,
@@ -168,7 +169,7 @@
 	const gridTemplateColumns = $derived(
 		(editable ? '2rem ' : '') +
 			columns.map((c) => (isCollapsed(c.key) ? '0.5rem' : c.width)).join(' ') +
-			(rowActions && editable ? ' 4rem' : '')
+			(rowActions && editable && actionsPlacement === 'trailing' ? ' 4rem' : '')
 	);
 
 	const rootZoneAttrs = $derived(
@@ -235,17 +236,30 @@
 				</div>
 			{/if}
 			{#each columns as col (col.key)}
-				<div class="py-1 px-2 {alignClass(col.align)}">
-					{#if !isCollapsed(col.key)}
-						{#if col.key === treeColumnKey}
+				{#if col.key === treeColumnKey && actionsPlacement === 'treeColumn'}
+					<div class="py-1 px-2 flex items-center gap-1 min-w-0 {alignClass(col.align)}">
+						{#if !isCollapsed(col.key)}
 							{@render indent(depth)}
 							{@render chevron(ctx)}
+							{@render col.cell(node, ctx)}
+							{#if rowActions && editable}
+								{@render rowActions(node, ctx)}
+							{/if}
 						{/if}
-						{@render col.cell(node, ctx)}
-					{/if}
-				</div>
+					</div>
+				{:else}
+					<div class="py-1 px-2 {alignClass(col.align)}">
+						{#if !isCollapsed(col.key)}
+							{#if col.key === treeColumnKey}
+								{@render indent(depth)}
+								{@render chevron(ctx)}
+							{/if}
+							{@render col.cell(node, ctx)}
+						{/if}
+					</div>
+				{/if}
 			{/each}
-			{#if rowActions && editable}
+			{#if rowActions && editable && actionsPlacement === 'trailing'}
 				<div class="py-1 px-2">
 					{@render rowActions(node, ctx)}
 				</div>
@@ -292,7 +306,7 @@
 						{isCollapsed(col.key) ? '' : col.header}
 					</div>
 				{/each}
-				{#if rowActions && editable}
+				{#if rowActions && editable && actionsPlacement === 'trailing'}
 					<div class="py-2 px-2"></div>
 				{/if}
 			</div>

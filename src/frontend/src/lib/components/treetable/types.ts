@@ -35,6 +35,11 @@ export type TreeTableProps<T> = {
 	editable?: boolean;
 	onChildrenChange?: (e: ChildrenChangeEvent<T>) => void;
 	rowActions?: Snippet<[T, TreeNodeContext<T>]>;
+	/** Where the `rowActions` snippet renders. `'trailing'` (default)
+	 *  reserves a dedicated 4rem column at the far right of every row.
+	 *  `'treeColumn'` inlines the actions inside the tree column, right
+	 *  after the cell content — no trailing column is reserved. */
+	actionsPlacement?: 'trailing' | 'treeColumn';
 	rowAttrs?: (node: T, ctx: TreeNodeContext<T>) => Record<string, string>;
 	childrenZoneAttrs?: (parent: T | null) => Record<string, string>;
 	/** Container width (px) below which columns marked `collapsible`

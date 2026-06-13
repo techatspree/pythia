@@ -28,6 +28,13 @@ description: |
     - So today the visual order on a group row is:
         [drag] [name | child-count] [value columns…] [+group +item ✕]
       i.e. the actions sit AFTER all the value columns, on the right.
+    - The /dev/tree-table-demo route now ALSO passes a `rowActions`
+      snippet (a single `✕` button) to TreeTable. The demo keeps the
+      TreeTable's default `actionsPlacement = 'trailing'`, so its `✕`
+      remains in the trailing column. This task's contract must
+      preserve that — the new prop opts EstimationGrid into the
+      tree-column layout while every other consumer of TreeTable
+      (including the demo) stays untouched.
 
   Target state:
     - On a group row the order becomes:
@@ -126,7 +133,9 @@ steps:
         weight). Apply the bold with a Svelte class directive
         `class:group-aggregate-bold={node.type === 'GROUP'}` and add a
         single style rule `.group-aggregate-bold { font-weight: 600; }`
-        in the component's <style> block. Using this distinctive class
+        in the component's scoped `<style>` block (Svelte component-
+        scoped, NOT `<style global>` — the class is intended to apply
+        only inside EstimationGrid). Using this distinctive class
         (rather than reusing the generic `font-semibold`, which already
         styles the group TITLE) keeps the change greppable and lets the
         e2e assert it precisely.
@@ -140,6 +149,13 @@ steps:
     instead of a trailing column).
 
   - |
+    Update planning/README.md: the phase-9 row currently reads
+    `| 9 | 1 | Tree-shaped Estimation Hierarchy | 049–055, 057–059, 069 |`
+    — missing both task-061 and task-070 even though both are in
+    plan.yaml's phase-9 task list. Update the range to
+    `049–055, 057–059, 061, 069–070`. Single-line edit.
+
+  - |
     Frontend type-check:
       cd src/frontend && npm run check
     Expected: 0 errors.
@@ -148,7 +164,11 @@ steps:
     Run the Playwright e2e suite (backend + frontend up via
     ./scripts/dev-local.sh). The existing smoke cases (which locate the
     `+ group` / `+ item` / delete buttons) and the tree-table +
-    alignment cases must all still pass with the buttons relocated:
+    alignment cases must all still pass with the buttons relocated.
+    Expected count: 28 passing + 3 skipped (smoke 13 + tree-table 5 +
+    auth-gate 1 always-on + auth 5 + treetable-responsive 2 +
+    user-menu 2 = 28; 3 strict-backend cases in auth-gate.test.ts
+    self-skip without STRICT_BACKEND_URL):
       cd src/frontend && npm run test:e2e
 
   - |
@@ -176,15 +196,28 @@ validation:
     CLAUDE.md documents the new actionsPlacement prop:
       grep -q "actionsPlacement" CLAUDE.md
   - |
-    The trailing 4rem action track is no longer unconditional in
-    EstimationGrid's footer template (no bare "+ ' 4rem'" tail):
-      ! grep -q "' 4rem'" src/frontend/src/lib/components/EstimationGrid.svelte
+    The trailing 4rem action track is no longer in EstimationGrid's
+    footer template. Quote-style-agnostic (catches both `' 4rem'` and
+    `" 4rem"` and `\` 4rem\``):
+      ! grep -qE "[\"'\\\`] 4rem[\"'\\\`]" src/frontend/src/lib/components/EstimationGrid.svelte
+  - |
+    The demo route at /dev/tree-table-demo still uses TreeTable's
+    DEFAULT `actionsPlacement = 'trailing'` — its single `✕` button
+    must remain in the trailing column, so the demo file must NOT
+    set `actionsPlacement` (the new prop is EstimationGrid-only):
+      ! grep -q "actionsPlacement" src/frontend/src/routes/dev/tree-table-demo/+page.svelte
+  - |
+    planning/README.md's phase-9 row includes both task-061 and
+    task-070 after the index amendment:
+      grep -q "070" planning/README.md
+      grep -q "061" planning/README.md
   - |
     Frontend type-check passes:
       cd src/frontend && npm run check
   - |
-    The full Playwright e2e suite passes with the relocated buttons
-    (smoke + tree-table + alignment), unmodified:
+    The full Playwright e2e suite passes with the relocated buttons —
+    28 passing + 3 skipped (matching the post-task-069 baseline; no
+    new tests added in this task):
       cd src/frontend && npm run test:e2e
 
 outputs:
@@ -192,3 +225,4 @@ outputs:
   - modified: src/frontend/src/lib/components/treetable/TreeTable.svelte
   - modified: src/frontend/src/lib/components/EstimationGrid.svelte
   - modified: CLAUDE.md
+  - modified: planning/README.md

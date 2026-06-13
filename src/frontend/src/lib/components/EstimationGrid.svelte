@@ -329,7 +329,7 @@
 	}
 
 	const gridTemplateColumns = $derived(
-		(editable ? '2rem ' : '') + columns.map((c) => c.width).join(' ') + (editable ? ' 4rem' : '')
+		(editable ? '2rem ' : '') + columns.map((c) => c.width).join(' ')
 	);
 </script>
 
@@ -517,7 +517,10 @@
 	{#if node.type !== 'GROUP' && node.type === 'TIME_RELATIVE' && !node.phaseAbbreviation}
 		<span class="text-amber-500 text-xs">⚠ needs phase</span>
 	{:else}
-		<span class="text-gray-600 tabular-nums">
+		<span
+			class="text-gray-600 tabular-nums"
+			class:group-aggregate-bold={node.type === 'GROUP'}
+		>
 			{calc != null ? calc.offerPT.toFixed(2) : '—'}
 		</span>
 	{/if}
@@ -525,20 +528,26 @@
 
 {#snippet costCell(node: Node, _ctx: TreeNodeContext<Node>)}
 	{@const calc = calcMap.get(node.logicalId)}
-	<span class="text-gray-600 tabular-nums">
+	<span
+		class="text-gray-600 tabular-nums"
+		class:group-aggregate-bold={node.type === 'GROUP'}
+	>
 		{calc != null ? calc.cost.toFixed(0) : '—'}
 	</span>
 {/snippet}
 
 {#snippet offerPriceCell(node: Node, _ctx: TreeNodeContext<Node>)}
 	{@const calc = calcMap.get(node.logicalId)}
-	<span class="text-gray-600 tabular-nums">
+	<span
+		class="text-gray-600 tabular-nums"
+		class:group-aggregate-bold={node.type === 'GROUP'}
+	>
 		{calc != null ? calc.offerPrice.toFixed(0) : '—'}
 	</span>
 {/snippet}
 
 {#snippet rowActionsSnippet(node: Node, ctx: TreeNodeContext<Node>)}
-	<div class="flex items-center gap-1">
+	<div class="flex items-center gap-1 shrink-0">
 		{#if node.type === 'GROUP'}
 			<button
 				type="button"
@@ -580,7 +589,6 @@
 		<div class="py-2 px-2 text-right text-gray-600 tabular-nums">{totalOfferPT.toFixed(2)}</div>
 		<div class="py-2 px-2 text-right text-gray-600 tabular-nums">{totalCost.toFixed(0)}</div>
 		<div class="py-2 px-2 text-right text-gray-600 tabular-nums">{totalOfferPrice.toFixed(0)}</div>
-		{#if editable}<div class="py-2 px-3"></div>{/if}
 	</div>
 {/snippet}
 
@@ -607,6 +615,7 @@
 			{editable}
 			onChildrenChange={handleChildrenChange}
 			rowActions={rowActionsSnippet}
+			actionsPlacement="treeColumn"
 			rowAttrs={legacyRowAttrs}
 			childrenZoneAttrs={legacyZoneAttrs}
 			footer={totalsFooter}
@@ -622,3 +631,9 @@
 		{/if}
 	{/if}
 </div>
+
+<style>
+	.group-aggregate-bold {
+		font-weight: 600;
+	}
+</style>
