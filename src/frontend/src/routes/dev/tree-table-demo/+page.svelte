@@ -155,6 +155,15 @@
 	{/if}
 {/snippet}
 
+{#snippet rowActionsSnippet(_node: CatalogNode, _ctx: TreeNodeContext<CatalogNode>)}
+	<button
+		type="button"
+		class="text-gray-300 hover:text-red-500 transition-colors leading-none"
+		title="Delete"
+		aria-label="Delete row">✕</button
+	>
+{/snippet}
+
 {#snippet totalsFooter(rs: CatalogNode[])}
 	<span class="font-semibold">Total: €{rootsTotal(rs).toFixed(2)}</span>
 {/snippet}
@@ -173,6 +182,7 @@
 		treeColumnKey="name"
 		editable={true}
 		onChildrenChange={handleChildrenChange}
+		rowActions={rowActionsSnippet}
 		footer={totalsFooter}
 	/>
 </div>

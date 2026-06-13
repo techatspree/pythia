@@ -338,7 +338,7 @@
 		{#if editable}
 			<input
 				type="text"
-				class="bg-transparent font-semibold focus:outline-none focus:bg-brand-green/5 focus:ring-1 focus:ring-brand-green/40 rounded px-1 py-0.5"
+				class="w-full min-w-0 bg-transparent font-semibold focus:outline-none focus:bg-brand-green/5 focus:ring-1 focus:ring-brand-green/40 rounded px-1 py-0.5"
 				value={node.title}
 				oninput={(e) => {
 					node.title = e.currentTarget.value;
@@ -354,7 +354,7 @@
 	{:else if editable}
 		<input
 			type="text"
-			class="bg-transparent focus:outline-none focus:bg-brand-green/5 focus:ring-1 focus:ring-brand-green/40 rounded px-1 py-0.5"
+			class="w-full min-w-0 bg-transparent focus:outline-none focus:bg-brand-green/5 focus:ring-1 focus:ring-brand-green/40 rounded px-1 py-0.5"
 			value={node.description}
 			data-cell="{pathKey(ctx.path)}-0"
 			onkeydown={(e) => onKeyDown(e, ctx.path, 0)}
@@ -496,7 +496,7 @@
 		{#if editable}
 			<input
 				type="text"
-				class="w-full bg-transparent focus:outline-none focus:bg-brand-green/5 focus:ring-1 focus:ring-brand-green/40 rounded px-1 py-0.5"
+				class="w-full min-w-0 bg-transparent focus:outline-none focus:bg-brand-green/5 focus:ring-1 focus:ring-brand-green/40 rounded px-1 py-0.5"
 				value={node.assumptions ?? ''}
 				placeholder="…"
 				data-cell="{pathKey(ctx.path)}-5"

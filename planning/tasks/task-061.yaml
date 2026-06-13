@@ -131,7 +131,9 @@ steps:
     Do not change their bindings or handlers.
 
   - |
-    Run the alignment test:
+    Run the alignment test (the Vite dev server must be up — start it
+    via ./scripts/dev-local.sh; the demo route /dev/tree-table-demo
+    needs it):
       cd src/frontend && npx playwright test tree-table-alignment
     - If it PASSES: the post-069 layout is already aligned; the
       grid-level fix is unnecessary — do NOT touch TreeTable's
@@ -186,7 +188,9 @@ validation:
       cd src/frontend && npx playwright test
 
 outputs:
+  # Always changed:
   - created: src/frontend/e2e/tree-table-alignment.test.ts
   - modified: src/frontend/src/lib/components/EstimationGrid.svelte
-  - modified: src/frontend/src/routes/dev/tree-table-demo/+page.svelte
-  - modified: src/frontend/src/lib/components/treetable/TreeTable.svelte
+  # Conditional — drop from the final outputs if left untouched:
+  - modified: src/frontend/src/routes/dev/tree-table-demo/+page.svelte   # only if the demo lacked a rowActions snippet (step 2)
+  - modified: src/frontend/src/lib/components/treetable/TreeTable.svelte  # only if the alignment test showed drift (step 5)

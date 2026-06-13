@@ -176,6 +176,7 @@ class ExcelImporter {
         return try {
             cell.stringCellValue.takeIf { it.isNotBlank() }
         } catch (e: Exception) {
+            e.printStackTrace()
             null
         }
     }
@@ -185,6 +186,7 @@ class ExcelImporter {
         return try {
             cell.numericCellValue.takeIf { !it.isNaN() }
         } catch (e: Exception) {
+            e.printStackTrace()
             null
         }
     }

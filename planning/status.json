@@ -363,9 +363,9 @@
       "notes": "Future / optional module — implement when a non-Entra deployment is needed."
     },
     "task-061": {
-      "status": "pending",
-      "started_at": null,
-      "completed_at": null,
+      "status": "done",
+      "started_at": "2026-06-12T17:24:39+00:00",
+      "completed_at": "2026-06-13T08:37:26+00:00",
       "notes": ""
     },
     "task-068": {
