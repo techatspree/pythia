@@ -1,0 +1,229 @@
+id: task-071
+phase: phase-10
+title: Introduce logging across all three modules
+depends_on: [task-055, task-056]
+description: |
+  The system has no logging. The backend never calls a logger (no
+  `Log`/`Logger` usage anywhere in src/backend), the KMP domain has no
+  logging facility, and the frontend writes ad-hoc `console.error` in
+  three places (src/lib/api/client.ts, and the version detail page). This
+  task establishes ONE coherent, per-module logging story, demonstrates
+  it on existing code, documents the conventions in CLAUDE.md, and
+  teaches the add-task / improve-task skills to require logging in future
+  tasks.
+
+  Phase placement: logging is "observability" (phase-7's theme), but
+  phase-7 is closed and a phase-7 task cannot depend on the later domain
+  work it must build on. It is therefore placed in phase-10 alongside the
+  other cross-cutting build/tooling work (task-056). It depends on
+  task-055 (final domain shape) and on task-056 (DONE), which already
+  added detekt/eslint config to the same three build descriptors —
+  src/domain/build.gradle.kts, src/backend/implementation/pom.xml,
+  src/frontend/package.json. Building on top of the post-056 versions of
+  those files keeps the new logging dependencies conflict-free and lets
+  detekt/eslint lint the new logging code.
+
+  Target state — one logging approach per module:
+
+  1. Backend (Quarkus 3.35 + Kotlin):
+     - Use Quarkus' built-in logging. No new logger API is needed for
+       basic use, but add `io.quarkus:quarkus-logging-json` so the
+       PROD profile emits structured JSON (Kubernetes-friendly);
+       human-readable console stays the default in dev.
+     - Log via the Quarkus static `io.quarkus.logging.Log` API
+       (Log.info/debug/warn/error) — no per-class logger field needed.
+     - Configure levels per profile in application.properties:
+       app code (`io.github.theestimator`) at DEBUG in `%dev`/`%test`,
+       INFO in `%prod`; root stays at the Quarkus default. Enable the
+       JSON formatter only under `%prod`
+       (`%prod.quarkus.log.console.json=true`, gated by the
+       quarkus-logging-json dependency).
+     - Demonstrate the pattern on existing code: add purposeful log
+       statements to EstimationVersionService.kt (INFO on
+       create/submit/draft-update operations with the estimation id;
+       DEBUG for finer detail; ERROR on caught failures). This proves
+       the wiring and gives reviewers a reference.
+
+  2. Domain (Kotlin Multiplatform, JVM + JS):
+     - Add the multiplatform logging facade
+       `io.github.oshai:kotlin-logging` (a recent 7.x release) to
+       commonMain in src/domain/build.gradle.kts. On the JVM target it
+       delegates to slf4j — which Quarkus captures through its
+       slf4j→JBoss LogManager bridge, so domain logs appear in the same
+       backend log stream. On the JS target it writes to the browser
+       console, so the frontend sees domain logs during development.
+     - Obtain a logger with `private val logger = KotlinLogging.logger {}`
+       and log with the lambda form (`logger.debug { "…" }`) which is
+       allocation-free when the level is disabled.
+     - Demonstrate on existing code: a DEBUG log in
+       EstimationVersion.calculate() (e.g. leaf count + total). Keep it
+       minimal — business math stays the single source of truth; logging
+       is observation only, not control flow.
+     - KMP constraints: this is additive — no @JsExport surface changes,
+       and the super-property recursion pitfall is irrelevant here. The
+       logging calls must not break the JS compile or the TypeScript
+       bundle the frontend consumes (verified by `npm run check`).
+
+  3. Frontend (SvelteKit 5 + TypeScript):
+     - Add `loglevel` (small, browser-first) to package.json.
+     - Create src/frontend/src/lib/log.ts exporting a configured logger:
+       default level `debug` when `import.meta.env.DEV`, else `warn`.
+       Export a `log` instance (and optionally named child loggers).
+     - Replace the three existing `console.error` calls
+       (src/lib/api/client.ts:13; the version detail page
+       src/routes/estimations/[id]/versions/[versionNumber]/+page.svelte
+       at the calcMap and loadVersion catches) with `log.error(...)`.
+       The CLAUDE.md error-surfacing rule still holds: these catches
+       MUST continue to surface failure via ErrorBanner — logging is in
+       ADDITION to, not instead of, user-facing surfacing.
+
+  4. Documentation: add a "Logging" subsection to CLAUDE.md's
+     Conventions describing all three module approaches and the rule
+     "never write bare `console.*` in the frontend — use `$lib/log.ts`;
+     errors still go to ErrorBanner".
+
+  5. Skills (this repo drives tasks via .claude/commands/*.md):
+     - .claude/commands/add-task.md: add a Style rule requiring that any
+       task introducing a backend service/REST endpoint, a domain
+       operation, or a significant frontend flow include log statements
+       at appropriate levels, and add a logging example to the
+       validation guidance.
+     - .claude/commands/improve-task.md: add a new review category
+       "Logging completeness" (a PASS/WARN/FAIL block in the report and
+       a matching check in the protocol) that flags a task which adds
+       backend services/endpoints or notable frontend flows without any
+       logging, referencing the CLAUDE.md logging conventions.
+
+  Out of scope:
+    - No log-aggregation/shipping stack (Loki/ELK), no k8s logging
+      manifests — that is a separate ops task.
+    - No exhaustive retrofit of logging into every existing class; only
+      the demonstrative sites named above plus the new conventions.
+
+steps:
+  - |
+    Backend deps + config:
+      - Add <dependency> io.quarkus:quarkus-logging-json to
+        src/backend/implementation/pom.xml.
+      - In src/backend/implementation/src/main/resources/application.properties
+        add: `quarkus.log.category."io.github.theestimator".level=INFO`,
+        `%dev.quarkus.log.category."io.github.theestimator".level=DEBUG`,
+        `%test.quarkus.log.category."io.github.theestimator".level=DEBUG`,
+        and `%prod.quarkus.log.console.json=true`.
+
+  - |
+    Backend demonstrative logging: in
+    src/backend/implementation/src/main/kotlin/io/github/theestimator/service/EstimationVersionService.kt
+    import `io.quarkus.logging.Log` and add INFO logs on the
+    create / submit / draft-update operations (include the estimation
+    id), a DEBUG log with finer detail, and an ERROR log on any caught
+    failure path. Do not change behaviour.
+
+  - |
+    Domain logging facade: in src/domain/build.gradle.kts add
+    `implementation("io.github.oshai:kotlin-logging:7.0.7")` (or the
+    current 7.x) to the commonMain dependencies block (next to
+    kotlinx-datetime).
+
+  - |
+    Domain demonstrative logging: in
+    src/domain/src/main/kotlin/io/github/theestimator/model/EstimationVersion.kt
+    add `private val logger = io.github.oshai.kotlinlogging.KotlinLogging.logger {}`
+    and a `logger.debug { … }` inside calculate() reporting e.g. the leaf
+    count and total effort. Use the lambda form. Do not alter the
+    calculation.
+
+  - |
+    Build the domain and confirm the JS bundle + frontend still
+    type-check with the new dependency:
+      mvn -pl src/domain -am test
+      cd src/frontend && npm run check
+
+  - |
+    Frontend logger: add `loglevel` to src/frontend/package.json
+    (run `npm install --legacy-peer-deps loglevel`) and create
+    src/frontend/src/lib/log.ts exporting a configured `log` whose level
+    is `debug` under `import.meta.env.DEV` and `warn` otherwise.
+
+  - |
+    Frontend usage: replace the `console.error` calls in
+    src/frontend/src/lib/api/client.ts and
+    src/frontend/src/routes/estimations/[id]/versions/[versionNumber]/+page.svelte
+    with `log.error(...)` from $lib/log.ts. Keep every ErrorBanner
+    surfacing exactly as-is (log in addition to surfacing).
+
+  - |
+    Documentation: add a "Logging" subsection under CLAUDE.md's
+    "Conventions" covering the backend (Quarkus Log + quarkus-logging-json
+    in prod), domain (kotlin-logging mp → slf4j on JVM / console on JS),
+    and frontend ($lib/log.ts, never bare console.*, errors still go to
+    ErrorBanner).
+
+  - |
+    Skill — add-task: edit .claude/commands/add-task.md to add a Style
+    rule that tasks adding a backend service/endpoint, a domain
+    operation, or a significant frontend flow must include logging at
+    appropriate levels, with a validation example
+    (e.g. `grep -q "Log\\." …` or `grep -q "log\\." …`).
+
+  - |
+    Skill — improve-task: edit .claude/commands/improve-task.md to add a
+    "Logging completeness" review category — both a checklist item in the
+    protocol and a `### Logging completeness` PASS/WARN/FAIL block in the
+    report template — that flags new backend services/endpoints or
+    notable frontend flows lacking logging, referencing the CLAUDE.md
+    logging conventions.
+
+  - |
+    Register this task in phase-10's task list in planning/plan.yaml
+    (append task-071 to the phase-10 tasks array).
+
+  - |
+    Full build + type-check (Docker required for backend IT):
+      mvn -pl src/domain -am test
+      mvn -pl src/backend/implementation -am test
+      cd src/frontend && npm run check
+
+validation:
+  - |
+    Backend logging is wired:
+      grep -q "quarkus-logging-json" src/backend/implementation/pom.xml
+      grep -q "io.github.theestimator\".level" src/backend/implementation/src/main/resources/application.properties
+      grep -q "io.quarkus.logging.Log" src/backend/implementation/src/main/kotlin/io/github/theestimator/service/EstimationVersionService.kt
+  - |
+    Domain logging facade is added and used:
+      grep -q "kotlin-logging" src/domain/build.gradle.kts
+      grep -q "KotlinLogging.logger" src/domain/src/main/kotlin/io/github/theestimator/model/EstimationVersion.kt
+  - |
+    Frontend logger exists, is used, and no bare console.error remains at
+    the two former sites:
+      test -f src/frontend/src/lib/log.ts
+      grep -q "loglevel" src/frontend/src/lib/log.ts
+      grep -q "loglevel" src/frontend/package.json
+      ! grep -q "console.error" src/frontend/src/lib/api/client.ts
+  - |
+    Documentation and both skills mention logging:
+      grep -qi "logging" CLAUDE.md
+      grep -qi "logging" .claude/commands/add-task.md
+      grep -qi "Logging completeness" .claude/commands/improve-task.md
+  - |
+    Everything builds and type-checks:
+      mvn -pl src/domain -am test
+      mvn -pl src/backend/implementation -am test
+      cd src/frontend && npm run check
+
+outputs:
+  - modified: src/backend/implementation/pom.xml
+  - modified: src/backend/implementation/src/main/resources/application.properties
+  - modified: src/backend/implementation/src/main/kotlin/io/github/theestimator/service/EstimationVersionService.kt
+  - modified: src/domain/build.gradle.kts
+  - modified: src/domain/src/main/kotlin/io/github/theestimator/model/EstimationVersion.kt
+  - created: src/frontend/src/lib/log.ts
+  - modified: src/frontend/package.json
+  - modified: src/frontend/package-lock.json
+  - modified: src/frontend/src/lib/api/client.ts
+  - modified: src/frontend/src/routes/estimations/[id]/versions/[versionNumber]/+page.svelte
+  - modified: CLAUDE.md
+  - modified: .claude/commands/add-task.md
+  - modified: .claude/commands/improve-task.md
+  - modified: planning/plan.yaml
