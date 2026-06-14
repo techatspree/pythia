@@ -1,0 +1,153 @@
+id: task-076
+phase: phase-12
+title: Frontend store — undo/redo client + keyboard handler
+depends_on: [task-075]
+description: |
+  Wire the backend Undo endpoints (task-075) into the SvelteKit app
+  and expose them via a small, focused store + a global keyboard
+  shortcut. This task is the plumbing layer; the visible GUI controls
+  land in task-077.
+
+  Target state:
+
+  1. Regenerate the openapi-fetch types from the new backend OpenAPI
+     so `undo`/`redo`/`history` paths are typed:
+       cd src/frontend && npm run gen:openapi
+     (The script already exists; verify the generated
+     `src/lib/api/schema.ts` contains the three new operations.)
+
+  2. New `src/frontend/src/lib/stores/undo.svelte.ts` exporting an
+     `UndoStore` (a Svelte 5 runes class) with this shape:
+
+       class UndoStore {
+         estimationId: string                      // bound at construction
+         history = $state<MutationLogEntryDto[]>([])
+         loading = $state(false)
+         conflict = $state<ConflictDetailsDto | null>(null)
+
+         canUndo = $derived(this.history.some(e => e.status === "ACTIVE"))
+         canRedo = $derived(this.history.some(e => e.status === "UNDONE")
+                            && /* no ACTIVE entry has a higher seq */ …)
+
+         async refresh(): Promise<void>            // GET /history
+         async undo(): Promise<EstimationVersionDto | null>
+         async redo(): Promise<EstimationVersionDto | null>
+         clearConflict(): void
+       }
+
+     The `undo`/`redo` methods call the API client, set
+     `this.conflict` on a 409 (the body is parsed as
+     `ConflictDetailsDto`), and surface ANY non-409 failure via the
+     shared `ErrorBanner` rule (per CLAUDE.md — `log.error` AND
+     ErrorBanner-bound state).
+
+  3. Global Ctrl/Cmd+Z and Ctrl/Cmd+Shift+Z keyboard handling, scoped
+     to the estimation detail route. Implement in a new file
+     `src/frontend/src/lib/stores/undoKeyboard.svelte.ts` that exports
+     `installUndoShortcuts(store: UndoStore): () => void` (returns a
+     cleanup function). Wire it from `EstimationDetail.svelte`'s
+     `onMount` / `$effect` so the listener is added/removed with the
+     component lifecycle. Skip the shortcut when the keydown target is
+     a contentEditable element other than the grid cells (don't fight
+     with native browser undo inside text inputs) — special-case the
+     grid cells by tagging them with `data-undo-aware="true"` in
+     `EstimationGrid.svelte` so the handler treats those as ours.
+
+  4. The store does NOT own the EstimationVersionDto state; the
+     existing `+page.svelte` for `/estimations/[id]` already loads the
+     draft and rerenders the grid via `$derived(computeCalcMap(...))`.
+     After undo/redo, the store returns the updated DTO and the page
+     replaces its `draft` state with it — same pattern as today's PUT
+     handler. Update `+page.svelte` to:
+       - construct a `UndoStore` once per `estimationId`,
+       - call `store.refresh()` after the initial draft load AND after
+         every successful PUT,
+       - replace `draft` when `undo()` or `redo()` returns a non-null
+         DTO.
+
+  5. Logging — per the task-071 conventions, route all logs through
+     `$lib/log.ts`; never bare `console.*`. ErrorBanner remains the
+     user-facing surface for non-409 failures.
+
+  Out of scope:
+    - Toolbar buttons, history panel, conflict dialog — task-077.
+    - Optimistic local undo (always round-trips to the server in this
+      task; if latency becomes a problem the local stack can be added
+      later without changing the store's public API).
+
+steps:
+  - |
+    Regenerate API types:
+      cd src/frontend && npm run gen:openapi
+    Verify `src/lib/api/schema.ts` now mentions
+    `/versions/draft/undo`, `/versions/draft/redo`,
+    `/versions/draft/history`, and the two new DTO names.
+
+  - |
+    Create `src/frontend/src/lib/stores/undo.svelte.ts` with the
+    `UndoStore` class described in the description. Use the existing
+    `$lib/api/client.ts` helper for HTTP and `$lib/log.ts` for logging.
+
+  - |
+    Create `src/frontend/src/lib/stores/undoKeyboard.svelte.ts`
+    exporting `installUndoShortcuts(store)`. Handle Ctrl+Z, Cmd+Z
+    (call `store.undo()`), Ctrl+Shift+Z, Cmd+Shift+Z, and Ctrl+Y
+    (call `store.redo()`). Ignore when the event target is inside
+    a non-grid input/textarea/contentEditable.
+
+  - |
+    Wire the store + shortcut into the estimation detail page:
+    `src/frontend/src/routes/estimations/[id]/+page.svelte` —
+      - instantiate `UndoStore` for the route's `estimationId`,
+      - install/remove the shortcut listener,
+      - refresh the store after PUT,
+      - on undo/redo result, update the page's `draft` state.
+
+  - |
+    Tag the cells in `EstimationGrid.svelte` with
+    `data-undo-aware="true"` (on the editable inputs) so the keyboard
+    handler treats them as part of the undo surface rather than the
+    browser's native input undo.
+
+  - |
+    Tests:
+      - Vitest unit test for `UndoStore` under
+        `src/frontend/tests/unit/undoStore.test.ts`: mock the API
+        client; assert that a 409 response sets `store.conflict`
+        without throwing; assert `canUndo`/`canRedo` derive correctly
+        from a fixture history.
+      - Playwright e2e under
+        `src/frontend/e2e/undo.spec.ts`: open an estimation, edit a
+        leaf value, press Ctrl+Z, expect the value to revert; press
+        Ctrl+Shift+Z, expect it to re-apply.
+
+  - |
+    Build + tests:
+      cd src/frontend && npm run check
+      cd src/frontend && npm run test:e2e -- --grep "undo"
+
+validation:
+  - |
+    Stores and wiring exist:
+      test -f src/frontend/src/lib/stores/undo.svelte.ts
+      test -f src/frontend/src/lib/stores/undoKeyboard.svelte.ts
+      grep -q "UndoStore" src/frontend/src/lib/stores/undo.svelte.ts
+      grep -q "installUndoShortcuts" src/frontend/src/lib/stores/undoKeyboard.svelte.ts
+      grep -q "UndoStore" src/frontend/src/routes/estimations/[id]/+page.svelte
+  - |
+    No bare console.* introduced (per task-071 logging conventions):
+      ! grep -q "console\\." src/frontend/src/lib/stores/undo.svelte.ts
+      ! grep -q "console\\." src/frontend/src/lib/stores/undoKeyboard.svelte.ts
+  - |
+    Types regenerated and check passes:
+      grep -q "/versions/draft/undo" src/frontend/src/lib/api/schema.ts
+      cd src/frontend && npm run check
+
+outputs:
+  - created: src/frontend/src/lib/stores/undo.svelte.ts
+  - created: src/frontend/src/lib/stores/undoKeyboard.svelte.ts
+  - modified: src/frontend/src/lib/api/schema.ts
+  - modified: src/frontend/src/routes/estimations/[id]/+page.svelte
+  - modified: src/frontend/src/lib/components/EstimationGrid.svelte
+  - created: src/frontend/tests/unit/undoStore.test.ts
+  - created: src/frontend/e2e/undo.spec.ts
