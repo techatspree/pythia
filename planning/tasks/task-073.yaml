@@ -1,0 +1,141 @@
+id: task-073
+phase: phase-12
+title: Persistence — draft revision counter and mutation log
+depends_on: [task-072]
+description: |
+  Persisted state for the Undo system. The schema must support:
+
+  - Replaying inverse mutations after re-login (so the log lives in
+    PostgreSQL, not in-memory).
+  - Detecting cross-user conflicts: if user A makes a change and user
+    B then makes a change, A's undo of their own change is no longer
+    "safe" because B's edit may depend on A's state.
+
+  Target schema (Flyway migration `V8__undo_log.sql`):
+
+  1. Add column `revision BIGINT NOT NULL DEFAULT 0` to
+     `draft_estimation_versions`. Every successful draft mutation
+     increments this counter atomically.
+     Add column `last_modified_by UUID NULL REFERENCES users(id)` so
+     conflict reporting can name the other user.
+     Add column `last_modified_at TIMESTAMPTZ NULL`.
+
+  2. New table `draft_mutation_log`:
+        id                UUID PRIMARY KEY
+        draft_version_id  UUID NOT NULL REFERENCES draft_estimation_versions(id) ON DELETE CASCADE
+        user_id           UUID NOT NULL REFERENCES users(id)
+        sequence_number   BIGINT NOT NULL          -- monotonically per draft_version_id
+        revision_before   BIGINT NOT NULL          -- the draft's revision BEFORE this mutation
+        revision_after    BIGINT NOT NULL          -- the draft's revision AFTER this mutation
+        kind              VARCHAR(64) NOT NULL     -- DraftMutation.kind discriminator
+        payload           JSONB NOT NULL           -- forward mutation (before/after snapshots etc.)
+        inverse_payload   JSONB NOT NULL           -- DraftMutation.inverse() serialised
+        status            VARCHAR(16) NOT NULL     -- ACTIVE | UNDONE
+        created_at        TIMESTAMPTZ NOT NULL DEFAULT now()
+        undone_at         TIMESTAMPTZ NULL
+     Unique constraint `(draft_version_id, sequence_number)`.
+     Index `(draft_version_id, status, sequence_number DESC)` for the
+     "find latest undoable for this draft" query.
+     Index `(draft_version_id, user_id, status, sequence_number DESC)`
+     for the "find latest undoable for this user on this draft" query.
+
+  3. New JPA entity in
+     `src/backend/implementation/src/main/kotlin/io/github/theestimator/domain/draft/`:
+     `DraftMutationLogEntry` (BaseEntity-derived), enum
+     `DraftMutationStatus { ACTIVE, UNDONE }`. JSONB columns mapped as
+     `String` (the service serialises to JSON; see task-074) and
+     declared with `@JdbcTypeCode(SqlTypes.JSON)` consistent with how
+     other JSONB columns are mapped in the codebase (verify by
+     grepping for `SqlTypes.JSON`; if no precedent exists, use
+     `columnDefinition = "jsonb"`).
+
+  4. Two new fields on `DraftEstimationVersion`:
+        var revision: Long = 0
+        var lastModifiedBy: User? = null
+        var lastModifiedAt: Instant? = null
+     With matching Hibernate validation (`@Column(nullable = false)` for
+     revision, nullable for the audit pair).
+
+  5. New Panache repository
+     `DraftMutationLogRepository` with finders:
+        fun findActiveByDraftId(draftId: UUID): List<DraftMutationLogEntry>
+            // ordered by sequence_number ASC
+        fun findLatestActiveForDraft(draftId: UUID): DraftMutationLogEntry?
+        fun findLatestActiveForUserOnDraft(draftId: UUID, userId: UUID): DraftMutationLogEntry?
+        fun findLatestUndoneForDraft(draftId: UUID): DraftMutationLogEntry?
+        fun nextSequenceNumber(draftId: UUID): Long
+     The last one uses `SELECT coalesce(max(sequence_number), 0) + 1`.
+
+  This task touches the schema and the repository surface only. It
+  does NOT yet record or apply any mutations — that wiring lands in
+  task-074.
+
+  Notes:
+    - PostgreSQL JSONB is preferred. The %test profile uses
+      PostgreSQL Testcontainers (per CLAUDE.md), so JSONB is available
+      there; no H2 dialect workaround is needed for tests.
+    - Hibernate `validate` runs in dev-minikube/prod — the entity and
+      the migration must match exactly. Mismatches will fail startup.
+
+steps:
+  - |
+    Write `src/backend/implementation/src/main/resources/db/migration/V8__undo_log.sql`
+    with:
+      - ALTER TABLE draft_estimation_versions ADD COLUMN revision BIGINT NOT NULL DEFAULT 0;
+      - ALTER TABLE draft_estimation_versions ADD COLUMN last_modified_by UUID NULL REFERENCES users(id);
+      - ALTER TABLE draft_estimation_versions ADD COLUMN last_modified_at TIMESTAMPTZ NULL;
+      - CREATE TABLE draft_mutation_log (…) with the columns described above.
+      - The two indices and the unique constraint.
+
+  - |
+    Edit `DraftEstimationVersion.kt` (under
+    src/backend/implementation/src/main/kotlin/io/github/theestimator/domain/draft/)
+    to add the three new fields with matching JPA annotations.
+
+  - |
+    Add `DraftMutationStatus.kt` (enum) and `DraftMutationLogEntry.kt`
+    (entity) under the same package. Use `@Enumerated(EnumType.STRING)`
+    for the status column and map the two JSONB columns consistent with
+    the codebase convention (`@JdbcTypeCode(SqlTypes.JSON)` if precedent
+    exists, otherwise `columnDefinition = "jsonb"` with `String`).
+
+  - |
+    Add `DraftMutationLogRepository.kt` under
+    src/backend/implementation/src/main/kotlin/io/github/theestimator/repository/
+    with the five finder methods listed in the description. Follow the
+    Panache extension-method style already used by sibling repositories.
+
+  - |
+    Repository smoke IT under
+    src/backend/implementation/src/test/kotlin/io/github/theestimator/repository/DraftMutationLogRepositoryIT.kt:
+      - persist a draft + two log entries (sequence 1 ACTIVE, sequence 2 ACTIVE)
+      - assert nextSequenceNumber == 3
+      - assert findLatestActiveForDraft == sequence 2
+      - mark sequence 2 UNDONE; assert findLatestActiveForDraft == sequence 1,
+        findLatestUndoneForDraft == sequence 2.
+
+  - |
+    Build:
+      ./mvnw -pl src/backend/implementation -am test
+
+validation:
+  - |
+    Migration and entities exist with expected content:
+      test -f src/backend/implementation/src/main/resources/db/migration/V8__undo_log.sql
+      grep -q "draft_mutation_log" src/backend/implementation/src/main/resources/db/migration/V8__undo_log.sql
+      grep -q "revision BIGINT" src/backend/implementation/src/main/resources/db/migration/V8__undo_log.sql
+      test -f src/backend/implementation/src/main/kotlin/io/github/theestimator/domain/draft/DraftMutationLogEntry.kt
+      test -f src/backend/implementation/src/main/kotlin/io/github/theestimator/domain/draft/DraftMutationStatus.kt
+      test -f src/backend/implementation/src/main/kotlin/io/github/theestimator/repository/DraftMutationLogRepository.kt
+      grep -q "var revision" src/backend/implementation/src/main/kotlin/io/github/theestimator/domain/draft/DraftEstimationVersion.kt
+  - |
+    Tests pass (uses Testcontainers PostgreSQL; Docker must be running):
+      ./mvnw -pl src/backend/implementation -am test
+
+outputs:
+  - created: src/backend/implementation/src/main/resources/db/migration/V8__undo_log.sql
+  - created: src/backend/implementation/src/main/kotlin/io/github/theestimator/domain/draft/DraftMutationLogEntry.kt
+  - created: src/backend/implementation/src/main/kotlin/io/github/theestimator/domain/draft/DraftMutationStatus.kt
+  - created: src/backend/implementation/src/main/kotlin/io/github/theestimator/repository/DraftMutationLogRepository.kt
+  - created: src/backend/implementation/src/test/kotlin/io/github/theestimator/repository/DraftMutationLogRepositoryIT.kt
+  - modified: src/backend/implementation/src/main/kotlin/io/github/theestimator/domain/draft/DraftEstimationVersion.kt

@@ -1,0 +1,161 @@
+id: task-074
+phase: phase-12
+title: Backend service — record, undo, redo, conflict detection
+depends_on: [task-072, task-073]
+description: |
+  Wire the DraftMutation model (task-072) and the mutation log
+  (task-073) into the existing draft-edit flow.
+
+  Recording rule:
+    Every successful `updateDraft` MUST insert exactly one
+    `DraftMutationLogEntry`. The current implementation in
+    `EstimationVersionService.updateDraft` (clear-and-rebuild) is the
+    natural boundary: capture the pre-state, apply the update as
+    today, capture the post-state, compute the `DraftMutation` via the
+    domain extension `EstimationVersion.diff(other)`, persist the log
+    entry, then increment the draft's `revision` counter and stamp
+    `lastModifiedBy` / `lastModifiedAt` from the current user.
+
+  The same rule applies to `createDraft` (no pre-state — skip
+  logging) but NOT to `submitDraft` (a snapshot, not a mutation; the
+  log is cleared on submit because the draft is gone — handled below).
+
+  Undo:
+    `undoLastForUser(estimationId, currentUserId)`:
+      1. Resolve the draft for `estimationId`. If none, 404.
+      2. Find latest ACTIVE entry on this draft via
+         `findLatestActiveForUserOnDraft(draft.id, currentUserId)`.
+         If null → 404 "Nothing to undo".
+      3. Conflict check: also fetch `findLatestActiveForDraft(draft.id)`.
+         If that entry's id != the user's-latest entry id, throw
+         `UndoConflictException(blockingEntry: DraftMutationLogEntry)`.
+         Meaning: another user (or this user later) made a change on
+         top of the one we're trying to undo, so undoing it would
+         corrupt their work.
+      4. Otherwise: deserialise the `inverse_payload` to a
+         `DraftMutation`, call `mutation.apply(currentDomainVersion)`,
+         map the resulting `EstimationVersion` back into the draft
+         entity via `DraftVersionMapper`, mark the log entry UNDONE
+         with `undone_at = now()`, increment `revision`, stamp
+         `lastModifiedBy/At`. Return the new domain `EstimationVersion`.
+
+  Redo:
+    `redoLastForUser(estimationId, currentUserId)`:
+      1. Find the latest UNDONE entry for this draft via
+         `findLatestUndoneForDraft`. If null → 404.
+      2. Conflict check: if the latest ACTIVE entry's
+         `sequence_number > undone_entry.sequence_number`, throw
+         `UndoConflictException` — a newer ACTIVE change has
+         supplanted the redo target.
+      3. Otherwise: replay `payload` (the forward mutation), mark
+         entry ACTIVE again, clear `undone_at`, bump revision, stamp.
+
+  Submit:
+    On `submitDraft`, after the draft is removed/transformed into a
+    submitted version, delete all `draft_mutation_log` entries for that
+    draft (cascade on delete already covers this — verify and rely
+    on it).
+
+  History:
+    `historyFor(estimationId): List<DraftMutationLogEntry>` for the
+    REST endpoint (task-075). Returns entries ordered by
+    `sequence_number ASC`, both ACTIVE and UNDONE.
+
+  Implementation notes:
+    - New service `UndoService` under `service/`. Inject
+      `DraftEstimationVersionRepository`,
+      `DraftMutationLogRepository`, `DraftVersionMapper`,
+      `CurrentUserProvider`, `UserRepository`, and `AuditLogService`.
+    - JSON serialisation of `DraftMutation` and its `EstimationVersion`
+      payloads: use the existing Jackson `ObjectMapper` Quarkus
+      provides. Configure a Jackson `@JsonSubTypes` registration for
+      the `DraftMutation` sealed hierarchy so deserialisation is
+      type-safe across future subclasses (task-072 currently exposes
+      only `ReplaceWholeDraft`). Place the Jackson configuration in a
+      small `DraftMutationJackson.kt` next to the service.
+    - `UndoConflictException` is a regular Kotlin exception (carries
+      the blocking entry) — task-075 maps it to a `409 Conflict` with
+      a `ConflictDetailsDto`.
+    - All three methods are `@Transactional`. Log at INFO on success
+      (estimation id, kind, user) and ERROR on caught failures, per
+      the task-071 conventions.
+
+  Out of scope:
+    - REST endpoints (task-075).
+    - Finer-grained mutation kinds beyond `ReplaceWholeDraft`.
+    - Cross-draft Undo (Undo only operates on the current draft).
+
+steps:
+  - |
+    Add `UndoConflictException.kt` and `DraftMutationJackson.kt` under
+    src/backend/implementation/src/main/kotlin/io/github/theestimator/service/.
+    The Jackson file registers `@JsonTypeInfo` / `@JsonSubTypes` for
+    DraftMutation so `ObjectMapper.writeValueAsString` / `readValue`
+    round-trip through the `kind` discriminator.
+
+  - |
+    Add `UndoService.kt` under the same package with the three public
+    methods described:
+      fun recordMutation(draft: DraftEstimationVersion, before: EstimationVersion, after: EstimationVersion, userId: UUID)
+      fun undoLastForUser(estimationId: UUID): EstimationVersion
+      fun redoLastForUser(estimationId: UUID): EstimationVersion
+      fun historyFor(estimationId: UUID): List<DraftMutationLogEntry>
+
+  - |
+    Modify `EstimationVersionService.updateDraft` so that:
+      - It captures `before = draftVersionMapper.toDomain(draft)` BEFORE
+        applying changes.
+      - After the existing clear-and-rebuild block, it computes
+        `after = draftVersionMapper.toDomain(draft)`, and calls
+        `undoService.recordMutation(draft, before, after, currentUserId)`.
+      - The recording bumps `draft.revision`, sets
+        `lastModifiedBy`/`lastModifiedAt`. Keep all existing audit
+        logging untouched.
+
+  - |
+    Verify `submitDraft` cleans up: because `draft_mutation_log` has
+    `ON DELETE CASCADE` on `draft_version_id` (task-073), the entries
+    disappear when the draft is removed during the submit flow. Add an
+    explicit IT (`UndoServiceSubmitClearsLogIT`) asserting the rows
+    are gone after submit.
+
+  - |
+    Unit + integration tests under
+    src/backend/implementation/src/test/kotlin/io/github/theestimator/service/:
+      - UndoServiceIT: updateDraft → undo → state equals pre-update;
+        redo → state equals post-update; double-undo fails with 404
+        when nothing left.
+      - UndoConflictIT: simulate user A's update, then user B's
+        update (via two different SecurityIdentity setups), then A's
+        undo attempt → expect `UndoConflictException` carrying B's
+        entry as the blocker.
+      - UndoServiceSubmitClearsLogIT (above).
+
+  - |
+    Build:
+      ./mvnw -pl src/backend/implementation -am test
+
+validation:
+  - |
+    Service and exception files exist:
+      test -f src/backend/implementation/src/main/kotlin/io/github/theestimator/service/UndoService.kt
+      test -f src/backend/implementation/src/main/kotlin/io/github/theestimator/service/UndoConflictException.kt
+      test -f src/backend/implementation/src/main/kotlin/io/github/theestimator/service/DraftMutationJackson.kt
+      grep -q "fun undoLastForUser" src/backend/implementation/src/main/kotlin/io/github/theestimator/service/UndoService.kt
+      grep -q "fun redoLastForUser" src/backend/implementation/src/main/kotlin/io/github/theestimator/service/UndoService.kt
+      grep -q "fun recordMutation" src/backend/implementation/src/main/kotlin/io/github/theestimator/service/UndoService.kt
+  - |
+    Recording is wired into the update flow:
+      grep -q "undoService.recordMutation\|undoService\\.recordMutation" src/backend/implementation/src/main/kotlin/io/github/theestimator/service/EstimationVersionService.kt
+  - |
+    Tests pass:
+      ./mvnw -pl src/backend/implementation -am test
+
+outputs:
+  - created: src/backend/implementation/src/main/kotlin/io/github/theestimator/service/UndoService.kt
+  - created: src/backend/implementation/src/main/kotlin/io/github/theestimator/service/UndoConflictException.kt
+  - created: src/backend/implementation/src/main/kotlin/io/github/theestimator/service/DraftMutationJackson.kt
+  - modified: src/backend/implementation/src/main/kotlin/io/github/theestimator/service/EstimationVersionService.kt
+  - created: src/backend/implementation/src/test/kotlin/io/github/theestimator/service/UndoServiceIT.kt
+  - created: src/backend/implementation/src/test/kotlin/io/github/theestimator/service/UndoConflictIT.kt
+  - created: src/backend/implementation/src/test/kotlin/io/github/theestimator/service/UndoServiceSubmitClearsLogIT.kt

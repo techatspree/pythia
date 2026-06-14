@@ -1,0 +1,145 @@
+id: task-077
+phase: phase-12
+title: GUI — Undo/Redo toolbar, history panel, conflict dialog
+depends_on: [task-076]
+description: |
+  Visible UI for the persisted Undo system. Up to now (task-076) the
+  store and the keyboard shortcuts exist; this task makes Undo
+  discoverable on screen and gives the user a graceful path when a
+  conflict makes their undo impossible.
+
+  Target UI:
+
+  1. Toolbar in `EstimationDetail.svelte`:
+       - Two icon buttons "Rückgängig" and "Wiederholen" placed left
+         of the existing action area, before the "Submit" button.
+         Disabled when `undoStore.canUndo` / `canRedo` is false.
+         Tooltip shows the keyboard shortcut and, when enabled, the
+         display name + relative time of the entry that will be
+         undone/redone (drawn from `undoStore.history`).
+       - The buttons call `undoStore.undo()` / `undoStore.redo()` and
+         on a successful (non-null) result replace the page-level
+         `draft` state (same path the keyboard handler uses in
+         task-076).
+
+  2. History side panel (collapsible) under `EstimationGrid.svelte`:
+       - New component
+         `src/frontend/src/lib/components/UndoHistoryPanel.svelte`
+         shown when the user opens "Verlauf" from the toolbar.
+       - Renders `undoStore.history` newest-first: one row per entry
+         with kind label, user display name, relative timestamp, and a
+         status badge (`Aktiv` / `Rückgängig gemacht`).
+
+  3. Conflict resolution dialog:
+       - New component
+         `src/frontend/src/lib/components/UndoConflictDialog.svelte`
+         shown whenever `undoStore.conflict` is non-null.
+       - The body explains in German that another user (named via
+         `conflict.blockingUserDisplayName`) made a newer change
+         (`conflict.blockingKind`, `conflict.blockingCreatedAt`) so the
+         undo cannot be performed without overwriting their work.
+       - Two actions:
+           "Aktuellen Stand neu laden" — calls the existing draft
+             loader, then `undoStore.refresh()`, then
+             `undoStore.clearConflict()`. This is the recommended
+             path.
+           "Abbrechen" — only calls `undoStore.clearConflict()` and
+             keeps the local view as-is (no further undo possible
+             until something changes).
+       - The dialog uses the same modal styling as
+         `CreateProjectDialog.svelte` / `DevLoginDialog.svelte`
+         (verify by reading those components — match patterns
+         verbatim per the CLAUDE.md "match existing pattern" rule for
+         dialogs).
+
+  4. Error surfacing:
+       - 409 conflicts go to the dialog above (NOT to ErrorBanner —
+         this is a structured, recoverable user-facing state, not a
+         generic error).
+       - All other failures (network, 5xx, …) still go to the shared
+         `ErrorBanner` per the CLAUDE.md error-surfacing rule. The
+         `UndoStore` from task-076 already routes these; this task
+         must NOT add a `console.error` fallback that swallows them.
+
+  5. Accessibility:
+       - Toolbar buttons get `aria-label` + tooltip text.
+       - Dialog is keyboard-trappable; ESC triggers "Abbrechen".
+       - History entries are a `<ul>` with `<li>` rows, not divs.
+
+  6. E2E (Playwright):
+       - Extend `src/frontend/e2e/undo.spec.ts` (created in task-076)
+         with:
+           * click-the-toolbar variant of the keyboard test (proves
+             the buttons wire up),
+           * conflict scenario: simulate a second user's PUT via the
+             test-only auth helper, then attempt undo, expect the
+             dialog to appear with the other user's display name,
+             click "Aktuellen Stand neu laden", assert the dialog
+             closes and the grid shows the second user's value.
+
+  Out of scope:
+    - Finer-grained per-cell undo highlights (animations, flashing
+      diff highlighting) — nice-to-have, defer.
+    - Multi-user real-time collaboration (planned separately in
+      phase-11). Undo here is per-user and synchronous.
+
+steps:
+  - |
+    Create `src/frontend/src/lib/components/UndoHistoryPanel.svelte`
+    rendering `undoStore.history` newest-first with kind, user,
+    relative time, status badge.
+
+  - |
+    Create `src/frontend/src/lib/components/UndoConflictDialog.svelte`
+    matching the modal pattern from `CreateProjectDialog.svelte`. Two
+    actions ("Aktuellen Stand neu laden", "Abbrechen") as described.
+
+  - |
+    Edit `EstimationDetail.svelte`:
+      - Add the two toolbar buttons (Rückgängig / Wiederholen) bound
+        to `undoStore.canUndo` / `canRedo`.
+      - Render `<UndoConflictDialog>` whenever
+        `undoStore.conflict != null`.
+      - Add a "Verlauf" toggle button that opens
+        `<UndoHistoryPanel>` in a collapsible region.
+
+  - |
+    Extend `src/frontend/e2e/undo.spec.ts` with the two scenarios
+    described (button-driven undo + conflict dialog flow).
+
+  - |
+    Build + tests:
+      cd src/frontend && npm run check
+      cd src/frontend && npm run test:e2e -- --grep "undo"
+
+  - |
+    Manual UI sanity check via `./scripts/dev-local.sh`:
+    open an estimation, edit a value, click "Rückgängig", confirm the
+    grid reverts; click "Wiederholen", confirm it re-applies; force a
+    conflict by editing through a second dev user in another browser
+    profile and confirm the dialog renders.
+
+validation:
+  - |
+    Components exist and toolbar is wired up:
+      test -f src/frontend/src/lib/components/UndoHistoryPanel.svelte
+      test -f src/frontend/src/lib/components/UndoConflictDialog.svelte
+      grep -q "UndoConflictDialog" src/frontend/src/lib/components/EstimationDetail.svelte
+      grep -q "UndoHistoryPanel" src/frontend/src/lib/components/EstimationDetail.svelte
+      grep -q "canUndo" src/frontend/src/lib/components/EstimationDetail.svelte
+      grep -q "canRedo" src/frontend/src/lib/components/EstimationDetail.svelte
+  - |
+    No bare console.* introduced; ErrorBanner still wired up for
+    non-conflict failures:
+      ! grep -q "console\\." src/frontend/src/lib/components/UndoHistoryPanel.svelte
+      ! grep -q "console\\." src/frontend/src/lib/components/UndoConflictDialog.svelte
+  - |
+    Builds + e2e passes:
+      cd src/frontend && npm run check
+      cd src/frontend && npm run test:e2e -- --grep "undo"
+
+outputs:
+  - created: src/frontend/src/lib/components/UndoHistoryPanel.svelte
+  - created: src/frontend/src/lib/components/UndoConflictDialog.svelte
+  - modified: src/frontend/src/lib/components/EstimationDetail.svelte
+  - modified: src/frontend/e2e/undo.spec.ts

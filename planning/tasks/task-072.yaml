@@ -1,0 +1,120 @@
+id: task-072
+phase: phase-12
+title: Domain — DraftMutation model with apply/inverse
+depends_on: [task-055, task-071]
+description: |
+  Today the system has no first-class notion of "a change". The
+  backend's `EstimationVersionService.updateDraft` follows a
+  clear-and-rebuild pattern (`dto.field?.let { list.clear(); list.add(…) }`,
+  per CLAUDE.md), so a single PUT can rewrite the entire tree, the
+  parameters, the drivers, the phases, and the additional costs at
+  once. There is no way to ask "what changed?" or "give me the inverse
+  of what just happened" — which is exactly what an Undo system needs.
+
+  This task adds a pure-KMP model of mutations to `src/domain/`. It is
+  the single source of truth for what an Undo operation IS; the backend
+  and frontend in later tasks (073–077) read/write/transport these
+  values but do not redefine the semantics.
+
+  Target state:
+
+  1. New sealed class `DraftMutation` in
+     `src/domain/src/main/kotlin/io/github/theestimator/model/mutation/`.
+     Cases (one subclass each, all `@JsExport`-able data classes):
+       - `ReplaceWholeDraft(before: EstimationVersion, after: EstimationVersion)`
+         — the catch-all that covers today's clear-and-rebuild PUT.
+         Subsequent tasks may add finer-grained kinds (`AddNode`,
+         `RemoveNode`, `UpdateField`, `ReorderChildren`,
+         `ChangeParameters`, …) as the editor grows, but
+         `ReplaceWholeDraft` is sufficient to make Undo work end-to-end
+         and keeps task-072 focused.
+     The sealed class exposes:
+       - `fun apply(current: EstimationVersion): EstimationVersion` —
+         produces the post-state when re-applied to `current`. For
+         `ReplaceWholeDraft` this simply returns `after`.
+       - `fun inverse(): DraftMutation` — returns the mutation that
+         undoes this one. For `ReplaceWholeDraft` that is
+         `ReplaceWholeDraft(before = after, after = before)`.
+       - `val kind: String` — stable discriminator string for
+         persistence/wire format (`"REPLACE_WHOLE_DRAFT"` for the first
+         case).
+
+  2. New top-level helper
+     `fun EstimationVersion.diff(other: EstimationVersion): DraftMutation`
+     that returns `null` when the two versions are structurally equal
+     and a `ReplaceWholeDraft(this, other)` otherwise. Equality is the
+     existing `data class` equality on `EstimationVersion` and its
+     children — verify in tests.
+
+  3. Tests in
+     `src/domain/src/jvmTest/kotlin/io/github/theestimator/model/mutation/`:
+       - `apply` of a `ReplaceWholeDraft` returns its `after`.
+       - `inverse().apply(after) == before`.
+       - `inverse().inverse() == original`.
+       - `diff` on two structurally equal versions returns `null`.
+       - `diff` on two different versions returns a
+         `ReplaceWholeDraft` whose `inverse().apply(after) == before`.
+
+  KMP constraints:
+    - All new code is `commonMain` Kotlin. No JVM-only or JS-only APIs.
+    - The model uses immutable `data class`es and existing domain types
+      (`EstimationVersion`, `EstimationNode`, …). No new platform
+      dependencies.
+    - Kotlin/JS super-property pitfall is irrelevant here (no
+      inheritance with computed property overrides), but the
+      secondary-constructor JsName rule still applies if any subclass
+      adds one — keep to primary constructors.
+    - `@JsExport` the sealed class and each subclass so the frontend
+      (task-076) can construct/inspect them through the generated
+      TypeScript bindings.
+
+  Out of scope:
+    - No persistence layer changes (task-073).
+    - No service wiring or REST endpoints (task-074 / task-075).
+    - No finer-grained mutation kinds beyond `ReplaceWholeDraft` — those
+      can be added incrementally without changing the sealed-class API.
+
+steps:
+  - |
+    Create directory
+    `src/domain/src/main/kotlin/io/github/theestimator/model/mutation/`
+    and add `DraftMutation.kt` with the sealed class, the
+    `ReplaceWholeDraft` subclass, and the `kind`/`apply`/`inverse`
+    members. Annotate with `@JsExport` and follow the existing
+    `@DomainEntity` style used elsewhere in the model package.
+
+  - |
+    Add the `EstimationVersion.diff(other)` extension in the same
+    package (file `Diff.kt`). Return `null` when `this == other`,
+    otherwise a `ReplaceWholeDraft(this, other)`.
+
+  - |
+    Add unit tests under
+    `src/domain/src/jvmTest/kotlin/io/github/theestimator/model/mutation/DraftMutationTest.kt`
+    covering the five assertions in the description.
+
+  - |
+    Build domain + verify the TypeScript stub still compiles cleanly so
+    later frontend tasks can rely on it:
+      ./mvnw -pl src/domain -am test
+      cd src/frontend && npm run check
+
+validation:
+  - |
+    Structural checks for the new files:
+      test -f src/domain/src/main/kotlin/io/github/theestimator/model/mutation/DraftMutation.kt
+      test -f src/domain/src/main/kotlin/io/github/theestimator/model/mutation/Diff.kt
+      test -f src/domain/src/jvmTest/kotlin/io/github/theestimator/model/mutation/DraftMutationTest.kt
+      grep -q "sealed class DraftMutation" src/domain/src/main/kotlin/io/github/theestimator/model/mutation/DraftMutation.kt
+      grep -q "class ReplaceWholeDraft" src/domain/src/main/kotlin/io/github/theestimator/model/mutation/DraftMutation.kt
+      grep -q "fun EstimationVersion.diff" src/domain/src/main/kotlin/io/github/theestimator/model/mutation/Diff.kt
+
+  - |
+    Build and tests pass:
+      ./mvnw -pl src/domain -am test
+      cd src/frontend && npm run check
+
+outputs:
+  - created: src/domain/src/main/kotlin/io/github/theestimator/model/mutation/DraftMutation.kt
+  - created: src/domain/src/main/kotlin/io/github/theestimator/model/mutation/Diff.kt
+  - created: src/domain/src/jvmTest/kotlin/io/github/theestimator/model/mutation/DraftMutationTest.kt
