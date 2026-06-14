@@ -1,0 +1,140 @@
+id: task-075
+phase: phase-12
+title: REST API — undo / redo / history endpoints
+depends_on: [task-074]
+description: |
+  Expose `UndoService` (task-074) over HTTP. All endpoints live on
+  `EstimationVersionResource` under the existing
+  `/api/estimations/{eid}/versions/draft` prefix, so they share auth,
+  path conventions, and the draft-scoped semantics already in place.
+
+  Endpoints:
+
+    POST /api/estimations/{eid}/versions/draft/undo
+        Auth: @RolesAllowed("ESTIMATOR", "ADMIN")
+        Body: none
+        200 → EstimationVersionDto         (the draft after undo, with
+                                            on-the-fly calculated values
+                                            populated as today)
+        404 → no draft / nothing to undo
+        409 → UndoConflictException — body is ConflictDetailsDto
+              (see below)
+
+    POST /api/estimations/{eid}/versions/draft/redo
+        Same auth and shape as undo. 409 with ConflictDetailsDto if a
+        newer ACTIVE mutation supplants the redo target.
+
+    GET  /api/estimations/{eid}/versions/draft/history
+        Auth: @RolesAllowed("VIEWER", "ESTIMATOR", "ADMIN")
+        200 → List<MutationLogEntryDto>
+        Ordered by sequence_number ASC; both ACTIVE and UNDONE entries
+        included so the GUI can render the timeline.
+
+  DTOs (under
+  src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/dto/):
+
+    data class ConflictDetailsDto(
+        val message: String,
+        val blockingSequenceNumber: Long,
+        val blockingUserId: UUID,
+        val blockingUserDisplayName: String,
+        val blockingKind: String,                  // DraftMutation.kind
+        val blockingCreatedAt: Instant,
+        val currentDraftRevision: Long
+    )
+
+    data class MutationLogEntryDto(
+        val id: UUID,
+        val sequenceNumber: Long,
+        val revisionBefore: Long,
+        val revisionAfter: Long,
+        val userId: UUID,
+        val userDisplayName: String,
+        val kind: String,
+        val status: String,                        // ACTIVE | UNDONE
+        val createdAt: Instant,
+        val undoneAt: Instant?
+    )
+
+  Mapping helpers live in
+  `rest/dto/MutationLogMapper.kt`.
+
+  Exception handling:
+    Add `UndoConflictExceptionMapper` (JAX-RS `ExceptionMapper`) that
+    serialises `UndoConflictException` → HTTP 409 with a
+    `ConflictDetailsDto` body. Place it under
+    src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/.
+
+  OpenAPI:
+    The Quarkus build regenerates the OpenAPI document; verify the new
+    paths and DTOs appear in
+    `src/backend/implementation/target/generated/openapi.json` after
+    the build. The frontend openapi-fetch types regenerate from this
+    file via the existing pipeline — task-076 will consume them.
+
+  Tests:
+    REST IT under
+    src/backend/implementation/src/test/kotlin/io/github/theestimator/rest/UndoEndpointsIT.kt:
+      - 200 happy path for undo + redo (state matches expectations).
+      - 404 when no draft exists.
+      - 404 when undo has nothing to undo / redo has nothing to redo.
+      - 409 conflict from a second user, body contains a non-empty
+        `blockingUserDisplayName` and a positive `blockingSequenceNumber`.
+      - `GET history` returns expected sequence after an update + undo.
+
+steps:
+  - |
+    Add the DTOs and the mapper:
+      - rest/dto/ConflictDetailsDto.kt
+      - rest/dto/MutationLogEntryDto.kt
+      - rest/dto/MutationLogMapper.kt   (helper that joins on the user
+        repository to populate display names)
+
+  - |
+    Add `UndoConflictExceptionMapper.kt` under rest/. Map the
+    exception's `blockingEntry` plus the current draft's revision into
+    a `ConflictDetailsDto` and return `Response.status(409).entity(...)`.
+
+  - |
+    Extend `EstimationVersionResource.kt` with three new methods
+    annotated with the appropriate `@POST` / `@GET`, `@Path`, and
+    `@RolesAllowed`. They delegate to `UndoService` and, for undo/redo,
+    return the recalculated `EstimationVersionDto` via the existing
+    `EstimationVersionMapper`.
+
+  - |
+    REST IT under
+    src/backend/implementation/src/test/kotlin/io/github/theestimator/rest/UndoEndpointsIT.kt
+    covering the five scenarios in the description. Use the existing
+    test helpers (`buildRealisticDraft`, the dev-auth header pattern
+    from `EstimationVersionResourceIT`) for setup.
+
+  - |
+    Build + verify OpenAPI is updated:
+      ./mvnw -pl src/backend/implementation -am test
+      grep -q "/versions/draft/undo" src/backend/implementation/target/generated/openapi.json
+      grep -q "/versions/draft/redo" src/backend/implementation/target/generated/openapi.json
+      grep -q "ConflictDetailsDto" src/backend/implementation/target/generated/openapi.json
+
+validation:
+  - |
+    Resource and DTOs exist:
+      grep -q "/draft/undo" src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/EstimationVersionResource.kt
+      grep -q "/draft/redo" src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/EstimationVersionResource.kt
+      grep -q "/draft/history" src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/EstimationVersionResource.kt
+      test -f src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/dto/ConflictDetailsDto.kt
+      test -f src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/dto/MutationLogEntryDto.kt
+      test -f src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/UndoConflictExceptionMapper.kt
+  - |
+    Tests pass and OpenAPI is updated:
+      ./mvnw -pl src/backend/implementation -am test
+      grep -q "/versions/draft/undo" src/backend/implementation/target/generated/openapi.json
+      grep -q "/versions/draft/redo" src/backend/implementation/target/generated/openapi.json
+
+outputs:
+  - created: src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/dto/ConflictDetailsDto.kt
+  - created: src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/dto/MutationLogEntryDto.kt
+  - created: src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/dto/MutationLogMapper.kt
+  - created: src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/UndoConflictExceptionMapper.kt
+  - modified: src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/EstimationVersionResource.kt
+  - created: src/backend/implementation/src/test/kotlin/io/github/theestimator/rest/UndoEndpointsIT.kt
