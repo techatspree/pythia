@@ -2,9 +2,16 @@ Create a new planning task for the problem or feature described in $ARGUMENTS. W
 
 ## Protocol
 
-### 1. Determine the next task ID
+### 1. Register the task and get its ID
 
-Read `planning/status.json` and find the highest numeric task ID currently present. The new task ID is that number + 1, zero-padded to three digits (e.g. if the highest is `task-055`, the new one is `task-056`).
+Run the helper script — it computes the next task ID (highest numeric ID + 1, zero-padded to three digits), registers a `pending` entry in `planning/status.json`, and prints the new ID on stdout:
+
+```bash
+NEW_ID=$(./scripts/task.sh add "<one-line problem statement from $ARGUMENTS>")
+echo "$NEW_ID"
+```
+
+Capture the printed ID (e.g. `task-056`) and use it as `<new-id>` throughout the rest of this protocol. Do NOT compute the ID yourself or edit `status.json` by hand — the script owns both. The description you pass is stored as the entry's `notes` as an initial record; you still write the full `description` into the task YAML in step 5.
 
 ### 2. Read planning context
 
@@ -97,37 +104,12 @@ outputs:
 - **Logging.** If the task adds a backend service or REST endpoint, a domain operation, or a significant frontend flow, it MUST include log statements at appropriate levels following the CLAUDE.md "Logging" conventions: backend via `io.quarkus.logging.Log` (INFO on the operation with key ids, DEBUG for finer detail, ERROR on failure paths); domain via the `KotlinLogging.logger {}` facade with the lambda form; frontend via `log` from `$lib/log.ts` (never bare `console.*`, and errors still surface via `ErrorBanner`). Add a validation check that proves it — e.g. `grep -q "Log\\." <service-or-resource>.kt`, `grep -q "logger\\." <domain-file>.kt`, or `grep -q "log\\." <frontend-file>` plus `! grep -q "console\\." <frontend-file>`.
 - Outputs must list every file the steps create, modify, or delete. Include test files.
 
-### 6. Update status.json
+### 6. Verify the status.json entry
 
-Add the new task entry to `planning/status.json` inside the `"tasks"` object:
-
-```json
-"<new-id>": {
-  "status": "pending",
-  "started_at": null,
-  "completed_at": null,
-  "notes": ""
-}
-```
-
-Use `python3` to read, update, and write status.json so the JSON stays valid and existing entries are preserved:
+The `./scripts/task.sh add` call in step 1 already created the `pending` entry in `planning/status.json`. There is nothing to add here — do NOT re-register the task or hand-edit `status.json`. If you need to confirm it landed:
 
 ```bash
-python3 - <<'EOF'
-import json, sys
-with open('planning/status.json', 'r') as f:
-    d = json.load(f)
-d['tasks']['<new-id>'] = {
-    'status': 'pending',
-    'started_at': None,
-    'completed_at': None,
-    'notes': ''
-}
-with open('planning/status.json', 'w') as f:
-    json.dump(d, f, indent=2)
-    f.write('\n')
-print('status.json updated')
-EOF
+jq ".tasks[\"<new-id>\"]" planning/status.json
 ```
 
 ### 7. Report
