@@ -16,14 +16,17 @@ if [[ ! -f "$STATUS_FILE" ]]; then
 fi
 
 usage() {
-  echo "Usage: $0 <command> <task-id>"
+  echo "Usage: $0 <command> <args>"
   echo ""
   echo "Commands:"
-  echo "  start    <task-id>   Mark task as in_progress with current timestamp"
-  echo "  done     <task-id>   Mark task as done with current timestamp"
-  echo "  pending  <task-id>   Reset task back to pending"
+  echo "  add      <description>   Register a new task (auto-assigns next id) and"
+  echo "                           print the new task id on stdout"
+  echo "  start    <task-id>       Mark task as in_progress with current timestamp"
+  echo "  done     <task-id>       Mark task as done with current timestamp"
+  echo "  pending  <task-id>       Reset task back to pending"
   echo ""
   echo "Examples:"
+  echo "  $0 add \"Add CSV export to the version comparison endpoint\""
   echo "  $0 start task-013"
   echo "  $0 done task-013"
   exit 1
@@ -34,6 +37,31 @@ if [[ $# -lt 2 ]]; then
 fi
 
 COMMAND="$1"
+
+# 'add' takes a free-text description rather than an existing task id; handle it
+# before the task-id validation that the other commands share.
+if [[ "$COMMAND" == "add" ]]; then
+  DESCRIPTION="$2"
+  if [[ -z "${DESCRIPTION// }" ]]; then
+    echo "Error: a non-empty task description is required" >&2
+    usage
+  fi
+  # Next id = (highest existing numeric id) + 1, zero-padded to three digits.
+  NEXT_NUM=$(jq -r '([.tasks | keys[] | capture("task-(?<n>[0-9]+)").n | tonumber] | max // 0) + 1' "$STATUS_FILE")
+  NEW_ID=$(printf "task-%03d" "$NEXT_NUM")
+  if jq -e ".tasks[\"$NEW_ID\"]" "$STATUS_FILE" >/dev/null 2>&1; then
+    echo "Error: $NEW_ID already exists in $STATUS_FILE" >&2
+    exit 1
+  fi
+  jq --arg id "$NEW_ID" --arg notes "$DESCRIPTION" \
+    '.tasks[$id] = {status: "pending", started_at: null, completed_at: null, notes: $notes}' \
+    "$STATUS_FILE" > "$STATUS_FILE.tmp" && mv "$STATUS_FILE.tmp" "$STATUS_FILE"
+  echo "✓ Registered $NEW_ID (pending)" >&2
+  # The id goes to stdout alone so callers can capture it: NEW_ID=$(task.sh add "...")
+  echo "$NEW_ID"
+  exit 0
+fi
+
 TASK_ID="$2"
 
 # Validate task exists in status.json

@@ -51,7 +51,16 @@ Check whether the task adequately addresses documentation:
 - **planning/plan.yaml and planning/README.md**: if the task adds a new phase or changes the phase structure, both files must be listed in `outputs`. Flag if absent.
 - **Memory**: if the task changes a fundamental architectural invariant (e.g. the shape of the domain model, the KMP compilation pipeline, a cross-cutting naming convention), add a note suggesting a memory update via the auto-memory system.
 
-### 6. Report
+### 6. Logging completeness
+
+Check whether the task introduces work that the CLAUDE.md "Logging" conventions require to be logged:
+
+- If `outputs`/`steps` add a **backend service or REST endpoint** (a JAX-RS resource method, an `@ApplicationScoped` service operation), the task must add `io.quarkus.logging.Log` statements at appropriate levels (INFO on the operation with key ids, DEBUG for finer detail, ERROR on failure paths). Flag if absent.
+- If they add a **domain operation** (a new `calculate()`-style computation or significant model behaviour), the task should add a `KotlinLogging.logger {}` debug observation (lambda form). Flag if a substantial new domain operation has none.
+- If they add a **significant frontend flow** (a new route load, store action, or data-mutation path with a `try`/`catch`), the task must log via `log` from `$lib/log.ts` — never bare `console.*` — while keeping `ErrorBanner` surfacing. Flag bare `console.*` or missing logging.
+- Reference the CLAUDE.md logging conventions in any finding. Purely structural/config/docs tasks with no new service, domain op, or frontend flow are exempt — rate PASS.
+
+### 7. Report
 
 Produce this exact structure:
 
@@ -74,6 +83,10 @@ Produce this exact structure:
 [PASS | WARN | FAIL]
 <one line per finding, or "No issues found.">
 
+### Logging completeness
+[PASS | WARN | FAIL]
+<one line per finding, or "No issues found.">
+
 ### Improvement suggestions
 <bullet list of optional improvements, or "None.">
 
@@ -86,7 +99,7 @@ Rating rules:
 - **WARN** — issues that should be addressed but won't block execution
 - **FAIL** — issues that must be fixed before running `/implement-task $ARGUMENTS`
 
-### 7. Apply fixes (if requested)
+### 8. Apply fixes (if requested)
 
 If the user asks you to apply fixes after seeing the report:
 

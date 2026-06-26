@@ -94,6 +94,7 @@ outputs:
 - If the task adds a REST endpoint, specify: HTTP method, path, request/response body shape, and which JAX-RS resource class it goes into.
 - If the task adds a Flyway migration, specify the migration file name (`V<N>__<description>.sql`) and the key DDL changes.
 - If the task touches the KMP domain, flag the super-property pitfall: `super.<computed prop>` causes infinite recursion on Kotlin/JS — inline the parent formula instead.
+- **Logging.** If the task adds a backend service or REST endpoint, a domain operation, or a significant frontend flow, it MUST include log statements at appropriate levels following the CLAUDE.md "Logging" conventions: backend via `io.quarkus.logging.Log` (INFO on the operation with key ids, DEBUG for finer detail, ERROR on failure paths); domain via the `KotlinLogging.logger {}` facade with the lambda form; frontend via `log` from `$lib/log.ts` (never bare `console.*`, and errors still surface via `ErrorBanner`). Add a validation check that proves it — e.g. `grep -q "Log\\." <service-or-resource>.kt`, `grep -q "logger\\." <domain-file>.kt`, or `grep -q "log\\." <frontend-file>` plus `! grep -q "console\\." <frontend-file>`.
 - Outputs must list every file the steps create, modify, or delete. Include test files.
 
 ### 6. Update status.json

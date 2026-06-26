@@ -34,6 +34,7 @@ kotlin {
             kotlin.srcDir("src/main/kotlin")
             dependencies {
                 implementation("org.jetbrains.kotlinx:kotlinx-datetime:0.6.2")
+                implementation("io.github.oshai:kotlin-logging:7.0.7")
             }
         }
         val jvmTest by getting {
@@ -41,6 +42,10 @@ kotlin {
             dependencies {
                 implementation(kotlin("test-junit5"))
                 implementation("org.junit.jupiter:junit-jupiter:5.11.4")
+                // kotlin-logging delegates to slf4j on the JVM target; the
+                // backend supplies a provider via Quarkus' JBoss LogManager
+                // bridge, but the domain's own JVM tests need one too.
+                runtimeOnly("org.slf4j:slf4j-simple:2.0.16")
             }
         }
     }

@@ -46,6 +46,15 @@
             <artifactId>domain</artifactId>
             <version>1.0.0-SNAPSHOT</version>
         </dependency>
+        <!-- Domain logging facade runtime: the KMP domain logs via
+             kotlin-logging, which on the JVM delegates to slf4j (captured
+             by Quarkus' JBoss LogManager bridge). The domain Maven jar does
+             not propagate Gradle dependencies, so declare it explicitly. -->
+        <dependency>
+            <groupId>io.github.oshai</groupId>
+            <artifactId>kotlin-logging-jvm</artifactId>
+            <version>7.0.7</version>
+        </dependency>
         <dependency>
             <groupId>io.quarkus</groupId>
             <artifactId>quarkus-kotlin</artifactId>
@@ -105,6 +114,10 @@
         <dependency>
             <groupId>io.quarkus</groupId>
             <artifactId>quarkus-hibernate-validator</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>io.quarkus</groupId>
+            <artifactId>quarkus-logging-json</artifactId>
         </dependency>
         <dependency>
             <groupId>org.apache.poi</groupId>

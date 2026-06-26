@@ -11,6 +11,7 @@ import io.github.theestimator.model.TimeRelativeEstimationItem
 import io.github.theestimator.repository.DraftEstimationVersionRepository
 import io.github.theestimator.repository.EstimationRepository
 import io.github.theestimator.repository.SubmittedEstimationVersionRepository
+import io.quarkus.logging.Log
 import jakarta.enterprise.context.ApplicationScoped
 import jakarta.transaction.Transactional
 import jakarta.ws.rs.WebApplicationException
@@ -41,8 +42,12 @@ class EstimationVersionService(
 
     @Transactional
     fun createDraft(estimationId: UUID): DraftEstimationVersion {
+        Log.info("Creating draft for estimation $estimationId")
         val estimation = estimationRepository.findById(estimationId)
-            ?: throw WebApplicationException("Estimation not found: $estimationId", Response.Status.NOT_FOUND)
+            ?: run {
+                Log.error("Cannot create draft: estimation $estimationId not found")
+                throw WebApplicationException("Estimation not found: $estimationId", Response.Status.NOT_FOUND)
+            }
 
         if (draftRepository.findByEstimationId(estimationId) != null) {
             throw WebApplicationException("A draft already exists for estimation $estimationId", Response.Status.CONFLICT)
@@ -50,6 +55,7 @@ class EstimationVersionService(
 
         val latestSubmitted = submittedRepository.findLatestByEstimationId(estimationId)
         val newVersionNumber = (latestSubmitted?.versionNumber ?: 0) + 1
+        Log.debug("New draft version=$newVersionNumber for estimation $estimationId, clonedFrom=${latestSubmitted?.versionNumber}")
 
         val draft = DraftEstimationVersion().apply {
             this.estimation = estimation
@@ -67,16 +73,24 @@ class EstimationVersionService(
             "CREATE", "version=$newVersionNumber, clonedFrom=${latestSubmitted?.versionNumber}"
         )
 
+        Log.info("Created draft ${draft.id} (version=$newVersionNumber) for estimation $estimationId")
         return draft
     }
 
     @Transactional
     fun submitDraft(estimationId: UUID): SubmittedEstimationVersion {
+        Log.info("Submitting draft for estimation $estimationId")
         estimationRepository.findById(estimationId)
-            ?: throw WebApplicationException("Estimation not found: $estimationId", Response.Status.NOT_FOUND)
+            ?: run {
+                Log.error("Cannot submit draft: estimation $estimationId not found")
+                throw WebApplicationException("Estimation not found: $estimationId", Response.Status.NOT_FOUND)
+            }
 
         val draft = draftRepository.findByEstimationId(estimationId)
-            ?: throw WebApplicationException("No draft found for estimation $estimationId", Response.Status.NOT_FOUND)
+            ?: run {
+                Log.error("Cannot submit draft: no draft found for estimation $estimationId")
+                throw WebApplicationException("No draft found for estimation $estimationId", Response.Status.NOT_FOUND)
+            }
 
         val submitted = snapshotDraft(draft)
 
@@ -88,6 +102,7 @@ class EstimationVersionService(
             "SUBMIT", "version=${submitted.versionNumber}"
         )
 
+        Log.info("Submitted estimation $estimationId as version ${submitted.versionNumber}")
         return submitted
     }
 
@@ -202,8 +217,12 @@ class EstimationVersionService(
 
     @Transactional
     fun deleteDraft(estimationId: UUID) {
+        Log.info("Deleting draft for estimation $estimationId")
         val draft = draftRepository.findByEstimationId(estimationId)
-            ?: throw WebApplicationException("No draft found for estimation $estimationId", Response.Status.NOT_FOUND)
+            ?: run {
+                Log.error("Cannot delete draft: no draft found for estimation $estimationId")
+                throw WebApplicationException("No draft found for estimation $estimationId", Response.Status.NOT_FOUND)
+            }
         draftRepository.delete(draft)
     }
 

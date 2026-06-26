@@ -1,6 +1,7 @@
 import createClient from 'openapi-fetch';
 import type { paths } from './schema.d.ts';
 import { getAuthProvider } from '$lib/auth';
+import { log } from '$lib/log';
 
 export function createApiClient(baseUrl: string = '/') {
 	const client = createClient<paths>({ baseUrl });
@@ -10,7 +11,7 @@ export function createApiClient(baseUrl: string = '/') {
 				const h = await getAuthProvider().getAuthorizationHeader();
 				if (h) request.headers.set('Authorization', h);
 			} catch (e) {
-				console.error('Auth provider unavailable:', e);
+				log.error('Auth provider unavailable:', e);
 			}
 			return request;
 		}

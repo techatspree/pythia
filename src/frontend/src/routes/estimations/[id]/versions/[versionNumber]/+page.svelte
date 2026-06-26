@@ -9,6 +9,7 @@
 	import AdditionalCostsPanel from '$lib/components/AdditionalCostsPanel.svelte';
 	import ErrorBanner from '$lib/components/ErrorBanner.svelte';
 	import { computeCalcMap } from '$lib/adapter.js';
+	import { log } from '$lib/log';
 	import type { ApiVersionResponse, ApiAdditionalCost } from '$lib/api/types.js';
 
 	let versionData = $state<ApiVersionResponse | null>(null);
@@ -28,7 +29,7 @@
 		try {
 			return computeCalcMap(currentRoots, currentParameters, currentDrivers, currentPhases);
 		} catch (e: any) {
-			console.error('calcMap computation failed:', e);
+			log.error('calcMap computation failed:', e);
 			bannerMessage = `Calculation failed: ${e?.message ?? e}`;
 			return new Map<string, { offerPT: number; cost: number; offerPrice: number }>();
 		}
@@ -55,7 +56,7 @@
 			currentAdditionalCosts = versionData!.additionalCosts ?? [];
 		} catch (e: any) {
 			bannerMessage = e.message;
-			console.error('loadVersion failed:', e);
+			log.error('loadVersion failed:', e);
 		} finally {
 			loading = false;
 		}

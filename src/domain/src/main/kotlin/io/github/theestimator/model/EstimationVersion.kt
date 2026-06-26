@@ -2,8 +2,11 @@
 
 package io.github.theestimator.model
 
+import io.github.oshai.kotlinlogging.KotlinLogging
 import kotlin.js.ExperimentalJsExport
 import kotlin.js.JsExport
+
+private val logger = KotlinLogging.logger {}
 
 @JsExport
 @DomainEntity
@@ -42,6 +45,8 @@ data class EstimationVersion(
 
         val newRoots = roots.map { it.withCalculationParameters(params) }
         val newTotalEffort = newRoots.sumOf { it.offerPT }
+
+        logger.debug { "calculate(): ${leaves.size} leaves, totalMean=$totalMean, totalEffort=$newTotalEffort" }
 
         return copy(roots = newRoots, totalEffort = newTotalEffort)
     }
