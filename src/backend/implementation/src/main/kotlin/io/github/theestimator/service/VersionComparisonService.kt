@@ -5,7 +5,10 @@ import io.github.theestimator.domain.submitted.SubmittedEstimationVersion
 import io.github.theestimator.domain.submitted.SubmittedFixedItemNode
 import io.github.theestimator.domain.submitted.SubmittedGroupNode
 import io.github.theestimator.domain.submitted.SubmittedTimeRelativeItemNode
-import io.github.theestimator.rest.dto.*
+import io.github.theestimator.rest.dto.ComparisonNodeDto
+import io.github.theestimator.rest.dto.NodeModificationDto
+import io.github.theestimator.rest.dto.ParameterChangeDto
+import io.github.theestimator.rest.dto.VersionComparisonDto
 import jakarta.enterprise.context.ApplicationScoped
 import java.util.UUID
 
@@ -55,7 +58,9 @@ class VersionComparisonService {
         )
     }
 
-    private fun flattenWithPath(version: SubmittedEstimationVersion): List<Pair<SubmittedEstimationNode, List<String>>> {
+    private fun flattenWithPath(
+        version: SubmittedEstimationVersion
+    ): List<Pair<SubmittedEstimationNode, List<String>>> {
         val out = mutableListOf<Pair<SubmittedEstimationNode, List<String>>>()
         fun walk(node: SubmittedEstimationNode, path: List<String>) {
             out.add(node to path)
@@ -90,7 +95,10 @@ class VersionComparisonService {
         return fields
     }
 
-    private fun compareParameters(versionA: SubmittedEstimationVersion, versionB: SubmittedEstimationVersion): List<ParameterChangeDto> {
+    private fun compareParameters(
+        versionA: SubmittedEstimationVersion,
+        versionB: SubmittedEstimationVersion
+    ): List<ParameterChangeDto> {
         val paramsA = versionA.parameters.associate { it.name to it.value }
         val paramsB = versionB.parameters.associate { it.name to it.value }
 

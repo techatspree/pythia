@@ -1,7 +1,23 @@
 package io.github.theestimator.service
 
-import io.github.theestimator.domain.draft.*
-import io.github.theestimator.domain.submitted.*
+import io.github.theestimator.domain.draft.DraftAdditionalCost
+import io.github.theestimator.domain.draft.DraftEffortDriver
+import io.github.theestimator.domain.draft.DraftEstimationNode
+import io.github.theestimator.domain.draft.DraftEstimationParameter
+import io.github.theestimator.domain.draft.DraftEstimationVersion
+import io.github.theestimator.domain.draft.DraftFixedItemNode
+import io.github.theestimator.domain.draft.DraftGroupNode
+import io.github.theestimator.domain.draft.DraftProjectPhase
+import io.github.theestimator.domain.draft.DraftTimeRelativeItemNode
+import io.github.theestimator.domain.submitted.SubmittedAdditionalCost
+import io.github.theestimator.domain.submitted.SubmittedEffortDriver
+import io.github.theestimator.domain.submitted.SubmittedEstimationNode
+import io.github.theestimator.domain.submitted.SubmittedEstimationParameter
+import io.github.theestimator.domain.submitted.SubmittedEstimationVersion
+import io.github.theestimator.domain.submitted.SubmittedFixedItemNode
+import io.github.theestimator.domain.submitted.SubmittedGroupNode
+import io.github.theestimator.domain.submitted.SubmittedProjectPhase
+import io.github.theestimator.domain.submitted.SubmittedTimeRelativeItemNode
 import io.github.theestimator.model.EstimationGroup
 import io.github.theestimator.model.EstimationItem
 import io.github.theestimator.model.EstimationNode
@@ -50,12 +66,18 @@ class EstimationVersionService(
             }
 
         if (draftRepository.findByEstimationId(estimationId) != null) {
-            throw WebApplicationException("A draft already exists for estimation $estimationId", Response.Status.CONFLICT)
+            throw WebApplicationException(
+                "A draft already exists for estimation $estimationId",
+                Response.Status.CONFLICT
+            )
         }
 
         val latestSubmitted = submittedRepository.findLatestByEstimationId(estimationId)
         val newVersionNumber = (latestSubmitted?.versionNumber ?: 0) + 1
-        Log.debug("New draft version=$newVersionNumber for estimation $estimationId, clonedFrom=${latestSubmitted?.versionNumber}")
+        Log.debug(
+            "New draft version=$newVersionNumber for estimation $estimationId, " +
+                "clonedFrom=${latestSubmitted?.versionNumber}"
+        )
 
         val draft = DraftEstimationVersion().apply {
             this.estimation = estimation
@@ -159,7 +181,11 @@ class EstimationVersionService(
         }
         draft.roots.forEach(::indexDraft)
 
-        fun buildSubmitted(domainNode: EstimationNode, parentNode: SubmittedEstimationNode?, pos: Int): SubmittedEstimationNode {
+        fun buildSubmitted(
+            domainNode: EstimationNode,
+            parentNode: SubmittedEstimationNode?,
+            pos: Int
+        ): SubmittedEstimationNode {
             val draftNode = draftNodesById[domainNode.logicalId]
             val node: SubmittedEstimationNode = when (domainNode) {
                 is EstimationGroup -> SubmittedGroupNode().apply { title = domainNode.title }
@@ -257,7 +283,11 @@ class EstimationVersionService(
             target.phases.add(draftPhase)
         }
 
-        fun cloneNode(submittedNode: SubmittedEstimationNode, parentDraft: DraftEstimationNode?, pos: Int): DraftEstimationNode {
+        fun cloneNode(
+            submittedNode: SubmittedEstimationNode,
+            parentDraft: DraftEstimationNode?,
+            pos: Int
+        ): DraftEstimationNode {
             val draftNode: DraftEstimationNode = when (submittedNode) {
                 is SubmittedGroupNode -> DraftGroupNode().apply { title = submittedNode.title }
                 is SubmittedTimeRelativeItemNode -> DraftTimeRelativeItemNode().apply { unit = submittedNode.unit }

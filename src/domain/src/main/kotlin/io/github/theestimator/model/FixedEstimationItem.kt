@@ -20,7 +20,20 @@ data class FixedEstimationItem(
     private val _id: String? = null,
     private val _createdAt: String? = null,
     private val _updatedAt: String? = null
-) : EstimationItem(_description, _code, _minEffort, _expectedEffort, _maxEffort, _assumptions, _phase, _logicalId, _calculationParameters, _id, _createdAt, _updatedAt) {
+) : EstimationItem(
+    _description,
+    _code,
+    _minEffort,
+    _expectedEffort,
+    _maxEffort,
+    _assumptions,
+    _phase,
+    _logicalId,
+    _calculationParameters,
+    _id,
+    _createdAt,
+    _updatedAt
+) {
 
     override fun withCalculationParameters(params: CalculationParameters): FixedEstimationItem =
         copy(_calculationParameters = params)

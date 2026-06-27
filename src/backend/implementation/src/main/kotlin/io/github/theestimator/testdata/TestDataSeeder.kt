@@ -1,7 +1,15 @@
 package io.github.theestimator.testdata
 
 import io.github.theestimator.domain.AdditionalCostType
-import io.github.theestimator.domain.draft.*
+import io.github.theestimator.domain.draft.DraftAdditionalCost
+import io.github.theestimator.domain.draft.DraftEffortDriver
+import io.github.theestimator.domain.draft.DraftEstimationNode
+import io.github.theestimator.domain.draft.DraftEstimationParameter
+import io.github.theestimator.domain.draft.DraftEstimationVersion
+import io.github.theestimator.domain.draft.DraftFixedItemNode
+import io.github.theestimator.domain.draft.DraftGroupNode
+import io.github.theestimator.domain.draft.DraftProjectPhase
+import io.github.theestimator.domain.draft.DraftTimeRelativeItemNode
 import io.github.theestimator.repository.DraftEstimationVersionRepository
 import io.github.theestimator.repository.ProjectRepository
 import io.github.theestimator.service.EstimationService
@@ -119,9 +127,24 @@ class TestDataSeeder(
             version = draft1
         })
 
-        val phaseKO = DraftProjectPhase().apply { name = "Konzeption"; abbreviation = "KO"; durationWeeks = 3.0; version = draft1 }
-        val phaseUM = DraftProjectPhase().apply { name = "Umsetzung"; abbreviation = "UM"; durationWeeks = 12.0; version = draft1 }
-        val phaseAB = DraftProjectPhase().apply { name = "Abnahme"; abbreviation = "AB"; durationWeeks = 2.0; version = draft1 }
+        val phaseKO = DraftProjectPhase().apply {
+            name = "Konzeption"
+            abbreviation = "KO"
+            durationWeeks = 3.0
+            version = draft1
+        }
+        val phaseUM = DraftProjectPhase().apply {
+            name = "Umsetzung"
+            abbreviation = "UM"
+            durationWeeks = 12.0
+            version = draft1
+        }
+        val phaseAB = DraftProjectPhase().apply {
+            name = "Abnahme"
+            abbreviation = "AB"
+            durationWeeks = 2.0
+            version = draft1
+        }
         draft1.phases.addAll(listOf(phaseKO, phaseUM, phaseAB))
 
         addRoots(draft1, listOf(
@@ -154,8 +177,21 @@ class TestDataSeeder(
         ))
 
         draft1.additionalCosts.addAll(listOf(
-            DraftAdditionalCost().apply { description = "Software-Lizenzen (Figma, JIRA)"; amount = 3500.0; type = AdditionalCostType.ONE_TIME; phase = phaseKO; version = draft1 },
-            DraftAdditionalCost().apply { description = "Hosting & Infrastruktur (AWS)"; amount = 0.0; type = AdditionalCostType.RECURRING; amountPerWeek = 250.0; phase = phaseUM; version = draft1 }
+            DraftAdditionalCost().apply {
+                description = "Software-Lizenzen (Figma, JIRA)"
+                amount = 3500.0
+                type = AdditionalCostType.ONE_TIME
+                phase = phaseKO
+                version = draft1
+            },
+            DraftAdditionalCost().apply {
+                description = "Hosting & Infrastruktur (AWS)"
+                amount = 0.0
+                type = AdditionalCostType.RECURRING
+                amountPerWeek = 250.0
+                phase = phaseUM
+                version = draft1
+            }
         ))
 
         draftRepository.persist(draft1)
@@ -181,13 +217,38 @@ class TestDataSeeder(
         ))
 
         draft2.effortDrivers.addAll(listOf(
-            DraftEffortDriver().apply { description = "Qualitätssicherung (QA)"; factor = 0.15; comment = "Inkl. automatisierter Tests"; version = draft2 },
-            DraftEffortDriver().apply { description = "Technische Komplexität"; factor = 0.10; comment = "Legacy-System-Anbindung (SAP)"; version = draft2 }
+            DraftEffortDriver().apply {
+                description = "Qualitätssicherung (QA)"
+                factor = 0.15
+                comment = "Inkl. automatisierter Tests"
+                version = draft2
+            },
+            DraftEffortDriver().apply {
+                description = "Technische Komplexität"
+                factor = 0.10
+                comment = "Legacy-System-Anbindung (SAP)"
+                version = draft2
+            }
         ))
 
-        val phase2KO = DraftProjectPhase().apply { name = "Konzeption"; abbreviation = "KO"; durationWeeks = 4.0; version = draft2 }
-        val phase2UM = DraftProjectPhase().apply { name = "Umsetzung"; abbreviation = "UM"; durationWeeks = 10.0; version = draft2 }
-        val phase2AB = DraftProjectPhase().apply { name = "Abnahme"; abbreviation = "AB"; durationWeeks = 2.0; version = draft2 }
+        val phase2KO = DraftProjectPhase().apply {
+            name = "Konzeption"
+            abbreviation = "KO"
+            durationWeeks = 4.0
+            version = draft2
+        }
+        val phase2UM = DraftProjectPhase().apply {
+            name = "Umsetzung"
+            abbreviation = "UM"
+            durationWeeks = 10.0
+            version = draft2
+        }
+        val phase2AB = DraftProjectPhase().apply {
+            name = "Abnahme"
+            abbreviation = "AB"
+            durationWeeks = 2.0
+            version = draft2
+        }
         draft2.phases.addAll(listOf(phase2KO, phase2UM, phase2AB))
 
         addRoots(draft2, listOf(
@@ -222,8 +283,21 @@ class TestDataSeeder(
         ))
 
         draft2.additionalCosts.addAll(listOf(
-            DraftAdditionalCost().apply { description = "Software-Lizenzen (Figma, JIRA, Confluence)"; amount = 2500.0; type = AdditionalCostType.ONE_TIME; phase = phase2KO; version = draft2 },
-            DraftAdditionalCost().apply { description = "Hosting & Infrastruktur (AWS)"; amount = 0.0; type = AdditionalCostType.RECURRING; amountPerWeek = 300.0; phase = phase2UM; version = draft2 }
+            DraftAdditionalCost().apply {
+                description = "Software-Lizenzen (Figma, JIRA, Confluence)"
+                amount = 2500.0
+                type = AdditionalCostType.ONE_TIME
+                phase = phase2KO
+                version = draft2
+            },
+            DraftAdditionalCost().apply {
+                description = "Hosting & Infrastruktur (AWS)"
+                amount = 0.0
+                type = AdditionalCostType.RECURRING
+                amountPerWeek = 300.0
+                phase = phase2UM
+                version = draft2
+            }
         ))
 
         draftRepository.persist(draft2)
@@ -247,7 +321,12 @@ class TestDataSeeder(
         }
 
         draft.parameters.addAll(listOf(
-            DraftEstimationParameter().apply { name = "Tagessatz"; value = 950.0; comment = "Mobile-Entwickler-Rate"; version = draft },
+            DraftEstimationParameter().apply {
+                name = "Tagessatz"
+                value = 950.0
+                comment = "Mobile-Entwickler-Rate"
+                version = draft
+            },
             DraftEstimationParameter().apply { name = "Standardabweichungsfaktor"; value = 2.0; version = draft },
             DraftEstimationParameter().apply { name = "Vertriebszuschlag"; value = 0.15; version = draft }
         ))
@@ -259,10 +338,30 @@ class TestDataSeeder(
             version = draft
         })
 
-        val phaseKD = DraftProjectPhase().apply { name = "Konzeption & Design"; abbreviation = "KD"; durationWeeks = 4.0; version = draft }
-        val phaseS1 = DraftProjectPhase().apply { name = "Sprint 1 – Grundlagen"; abbreviation = "S1"; durationWeeks = 6.0; version = draft }
-        val phaseS2 = DraftProjectPhase().apply { name = "Sprint 2 – Features"; abbreviation = "S2"; durationWeeks = 6.0; version = draft }
-        val phaseAS = DraftProjectPhase().apply { name = "App Store Release"; abbreviation = "AS"; durationWeeks = 2.0; version = draft }
+        val phaseKD = DraftProjectPhase().apply {
+            name = "Konzeption & Design"
+            abbreviation = "KD"
+            durationWeeks = 4.0
+            version = draft
+        }
+        val phaseS1 = DraftProjectPhase().apply {
+            name = "Sprint 1 – Grundlagen"
+            abbreviation = "S1"
+            durationWeeks = 6.0
+            version = draft
+        }
+        val phaseS2 = DraftProjectPhase().apply {
+            name = "Sprint 2 – Features"
+            abbreviation = "S2"
+            durationWeeks = 6.0
+            version = draft
+        }
+        val phaseAS = DraftProjectPhase().apply {
+            name = "App Store Release"
+            abbreviation = "AS"
+            durationWeeks = 2.0
+            version = draft
+        }
         draft.phases.addAll(listOf(phaseKD, phaseS1, phaseS2, phaseAS))
 
         addRoots(draft, listOf(
@@ -294,14 +393,41 @@ class TestDataSeeder(
             ))
         ))
 
-        draft.additionalCosts.addAll(listOf(
-            DraftAdditionalCost().apply { description = "Apple Developer Program"; amount = 99.0; type = AdditionalCostType.ONE_TIME; phase = phaseAS; version = draft },
-            DraftAdditionalCost().apply { description = "Google Play Store Gebühr"; amount = 25.0; type = AdditionalCostType.ONE_TIME; phase = phaseAS; version = draft },
-            DraftAdditionalCost().apply { description = "Backend-Hosting (Firebase)"; amount = 0.0; type = AdditionalCostType.RECURRING; amountPerWeek = 150.0; phase = phaseS1; version = draft }
-        ))
+        addMobileAppCosts(draft, phaseS1, phaseAS)
 
         draftRepository.persist(draft)
 
         estimationVersionService.submitDraft(estimation.id!!)
+    }
+
+    private fun addMobileAppCosts(
+        draft: DraftEstimationVersion,
+        phaseS1: DraftProjectPhase,
+        phaseAS: DraftProjectPhase
+    ) {
+        draft.additionalCosts.addAll(listOf(
+            DraftAdditionalCost().apply {
+                description = "Apple Developer Program"
+                amount = 99.0
+                type = AdditionalCostType.ONE_TIME
+                phase = phaseAS
+                version = draft
+            },
+            DraftAdditionalCost().apply {
+                description = "Google Play Store Gebühr"
+                amount = 25.0
+                type = AdditionalCostType.ONE_TIME
+                phase = phaseAS
+                version = draft
+            },
+            DraftAdditionalCost().apply {
+                description = "Backend-Hosting (Firebase)"
+                amount = 0.0
+                type = AdditionalCostType.RECURRING
+                amountPerWeek = 150.0
+                phase = phaseS1
+                version = draft
+            }
+        ))
     }
 }

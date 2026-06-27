@@ -1,7 +1,23 @@
 package io.github.theestimator.service
 
-import io.github.theestimator.domain.draft.*
-import io.github.theestimator.model.*
+import io.github.theestimator.domain.draft.DraftAdditionalCost
+import io.github.theestimator.domain.draft.DraftEffortDriver
+import io.github.theestimator.domain.draft.DraftEstimationNode
+import io.github.theestimator.domain.draft.DraftEstimationParameter
+import io.github.theestimator.domain.draft.DraftEstimationVersion
+import io.github.theestimator.domain.draft.DraftFixedItemNode
+import io.github.theestimator.domain.draft.DraftGroupNode
+import io.github.theestimator.domain.draft.DraftProjectPhase
+import io.github.theestimator.domain.draft.DraftTimeRelativeItemNode
+import io.github.theestimator.model.AdditionalCost
+import io.github.theestimator.model.EffortDriver
+import io.github.theestimator.model.EstimationGroup
+import io.github.theestimator.model.EstimationNode
+import io.github.theestimator.model.EstimationParameter
+import io.github.theestimator.model.EstimationVersion
+import io.github.theestimator.model.FixedEstimationItem
+import io.github.theestimator.model.ProjectPhase
+import io.github.theestimator.model.TimeRelativeEstimationItem
 import jakarta.enterprise.context.ApplicationScoped
 
 @ApplicationScoped

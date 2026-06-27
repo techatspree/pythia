@@ -21,7 +21,20 @@ data class TimeRelativeEstimationItem(
     private val _id: String? = null,
     private val _createdAt: String? = null,
     private val _updatedAt: String? = null
-) : EstimationItem(_description, _code, _minEffort, _expectedEffort, _maxEffort, _assumptions, _phase, _logicalId, _calculationParameters, _id, _createdAt, _updatedAt) {
+) : EstimationItem(
+    _description,
+    _code,
+    _minEffort,
+    _expectedEffort,
+    _maxEffort,
+    _assumptions,
+    _phase,
+    _logicalId,
+    _calculationParameters,
+    _id,
+    _createdAt,
+    _updatedAt
+) {
 
     // NOTE: do not use `super.mean` / `super.variance` here. On Kotlin/JS the
     // super-property access on a computed (custom-get) property dispatches to

@@ -1,7 +1,22 @@
 package io.github.theestimator.rest.dto
 
-import io.github.theestimator.domain.draft.*
-import io.github.theestimator.domain.submitted.*
+import io.github.theestimator.domain.draft.DraftAdditionalCost
+import io.github.theestimator.domain.draft.DraftEffortDriver
+import io.github.theestimator.domain.draft.DraftEstimationNode
+import io.github.theestimator.domain.draft.DraftEstimationParameter
+import io.github.theestimator.domain.draft.DraftEstimationVersion
+import io.github.theestimator.domain.draft.DraftFixedItemNode
+import io.github.theestimator.domain.draft.DraftGroupNode
+import io.github.theestimator.domain.draft.DraftProjectPhase
+import io.github.theestimator.domain.draft.DraftTimeRelativeItemNode
+import io.github.theestimator.domain.submitted.SubmittedAdditionalCost
+import io.github.theestimator.domain.submitted.SubmittedEffortDriver
+import io.github.theestimator.domain.submitted.SubmittedEstimationNode
+import io.github.theestimator.domain.submitted.SubmittedEstimationParameter
+import io.github.theestimator.domain.submitted.SubmittedEstimationVersion
+import io.github.theestimator.domain.submitted.SubmittedGroupNode
+import io.github.theestimator.domain.submitted.SubmittedProjectPhase
+import io.github.theestimator.domain.submitted.SubmittedTimeRelativeItemNode
 import io.github.theestimator.model.EstimationGroup
 import io.github.theestimator.model.EstimationItem
 import io.github.theestimator.model.EstimationNode
