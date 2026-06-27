@@ -73,6 +73,43 @@ async function mouseDragOnto(
 	return engaged;
 }
 
+/**
+ * Drag the source row INTO the children zone of a (possibly deeply nested)
+ * target group, by dropping onto one of that group's existing child rows. Uses
+ * cursor-based detection in TreeTable, so we steer the cursor onto the target —
+ * re-capturing its position a few times because rows reflow as the drag's shadow
+ * moves around.
+ */
+async function mouseDragIntoGroup(
+	page: Page,
+	sourceRowTestId: string,
+	targetChildRowTestId: string
+): Promise<boolean> {
+	const handle = page.locator(`[data-testid="${sourceRowTestId}"] [data-dnd-handle]`).first();
+	const sb = await handle.boundingBox();
+	if (!sb) throw new Error('source row not found');
+
+	await page.mouse.move(sb.x + sb.width / 2, sb.y + sb.height / 2);
+	await page.mouse.down();
+	await page.mouse.move(sb.x + sb.width / 2, sb.y + sb.height / 2 + 6, { steps: 4 });
+	await page.waitForTimeout(150);
+
+	const engaged = (await page.locator('#dnd-action-dragged-el').count()) > 0;
+
+	// Steer the cursor onto the target child's grid line, re-reading its position
+	// between moves since the layout shifts as the shadow is inserted/removed.
+	for (let i = 0; i < 4; i++) {
+		const tb = await page.locator(`[data-testid="${targetChildRowTestId}"] > div`).first().boundingBox();
+		if (!tb) break;
+		await page.mouse.move(tb.x + tb.width / 2, tb.y + tb.height * 0.5, { steps: 6 });
+		await page.waitForTimeout(180);
+	}
+
+	await page.mouse.up();
+	await page.waitForTimeout(450);
+	return engaged;
+}
+
 test.beforeEach(async ({ page }) => {
 	await page.goto('/dev/tree-table-demo');
 	await page.waitForLoadState('networkidle');
@@ -121,4 +158,23 @@ test('pointer: reordering groups at the root updates the DOM immediately', async
 	// After dropping g2 above g1, the rendered DOM order must reflect it without
 	// any further interaction.
 	expect(await directChildIds(page, ROOT_ZONE)).toEqual(['g2', 'g1']);
+});
+
+test('pointer: dragging a subgroup into a deeper nested subgroup works', async ({ page }) => {
+	// Fixture: g2 > g2b > g2b1 (a depth-2 group). Precondition checks.
+	expect(await directChildIds(page, childrenZone('g1'))).toEqual(['g1a', 'g1b']);
+	expect(await directChildIds(page, childrenZone('g2b1'))).toEqual(['l9', 'l10']);
+
+	// Drag the subgroup g1b (which itself holds l3/l4) into the deeply nested
+	// subgroup g2b1 by dropping onto its LAST child l10. (Dropping on the last
+	// child is the discriminating case: with the old element-centre detection a
+	// tall dragged group's centre falls past g2b1 into the shallower g2b; cursor
+	// detection correctly targets g2b1 where the pointer actually is.)
+	const engaged = await mouseDragIntoGroup(page, 'tt-row-g1b', 'tt-row-l10');
+	expect(engaged, 'drag should have engaged svelte-dnd-action').toBe(true);
+
+	// g1b is gone from g1 and now lives inside g2b1, carrying its own children.
+	expect(await directChildIds(page, childrenZone('g1'))).toEqual(['g1a']);
+	expect(await directChildIds(page, childrenZone('g2b1'))).toContain('g1b');
+	expect(await directChildIds(page, childrenZone('g1b'))).toEqual(['l3', 'l4']);
 });

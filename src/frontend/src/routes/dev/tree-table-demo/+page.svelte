@@ -45,6 +45,10 @@
 				leaf('l6', 'Spax 5×60', 30, 0.18)
 			]),
 			group('g2b', 'Klebstoffe', [
+				group('g2b1', 'Spezialkleber', [
+					leaf('l9', 'Epoxidharz', 1, 9.9),
+					leaf('l10', '2K-Kleber', 1, 7.5)
+				]),
 				leaf('l7', 'Holzleim 250ml', 2, 4.5),
 				leaf('l8', 'Sekundenkleber', 4, 2.99)
 			])

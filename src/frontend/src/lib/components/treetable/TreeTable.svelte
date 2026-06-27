@@ -347,7 +347,8 @@
 					flipDurationMs: 200,
 					dropTargetStyle: {},
 					dragDisabled: !editable,
-					dropFromOthersDisabled: draggedSubtreeIds.has(getId(node))
+					dropFromOthersDisabled: draggedSubtreeIds.has(getId(node)),
+					useCursorForDetection: true
 				}}
 				onconsider={(e) => handleZoneEvent(path, node, e)}
 				onfinalize={(e) => handleZoneEvent(path, node, e)}
@@ -387,7 +388,8 @@
 					type: 'tree-table-node',
 					flipDurationMs: 200,
 					dropTargetStyle: {},
-					dragDisabled: !editable
+					dragDisabled: !editable,
+					useCursorForDetection: true
 				}}
 				onconsider={(e) => handleZoneEvent([], null, e)}
 				onfinalize={(e) => handleZoneEvent([], null, e)}

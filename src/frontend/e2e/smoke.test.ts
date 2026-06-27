@@ -432,3 +432,59 @@ test('dragging a group onto its own descendant is a no-op (cycle protection)', a
 	expect(fetched.roots[0].children[0].children).toHaveLength(1);
 	expect(fetched.roots[0].children[0].children[0].description).toBe('Leaf');
 });
+
+test('drag a subgroup into a deeper nested subgroup reparents it', async ({ page }) => {
+	const projectId = await createProject(page);
+	const estimationId = await createEstimation(page, projectId);
+	const versionNumber = await createDraft(page, estimationId);
+
+	// G1 > Sub (a subgroup with one leaf), and a separately nested
+	// G2 > Mid > Deep (Deep is a depth-2 subgroup). We drag Sub into Deep.
+	await putRoots(page, estimationId, [
+		{
+			type: 'GROUP', title: 'G1',
+			children: [
+				{
+					type: 'GROUP', title: 'Sub',
+					children: [{ type: 'FIXED', description: 'SubLeaf', minEffort: 1, expectedEffort: 2, maxEffort: 3 }]
+				}
+			]
+		},
+		{
+			type: 'GROUP', title: 'G2',
+			children: [
+				{
+					type: 'GROUP', title: 'Mid',
+					children: [
+						{
+							type: 'GROUP', title: 'Deep',
+							children: [{ type: 'FIXED', description: 'DeepLeaf', minEffort: 1, expectedEffort: 2, maxEffort: 3 }]
+						}
+					]
+				}
+			]
+		}
+	]);
+
+	await page.goto(`/estimations/${estimationId}/versions/${versionNumber}?draft=true`);
+	await page.waitForLoadState('networkidle');
+
+	// Sub is the first child of G1 (path 0-0). Drop it into Deep's children zone.
+	const subRow = page.locator('[data-testid="row-0-0"]');
+	const deepZone = page.locator('[aria-label="Children of Deep"]');
+	await keyboardReparent(page, subRow, deepZone);
+
+	const fetched = await page.request.get(`${API}/api/estimations/${estimationId}/versions/draft`).then((r) => r.json());
+	const g1 = fetched.roots.find((r: FetchedNode) => r.title === 'G1');
+	const g2 = fetched.roots.find((r: FetchedNode) => r.title === 'G2');
+	// Sub left G1 entirely...
+	expect(g1.children).toHaveLength(0);
+	// ...and now lives inside Deep (G2 > Mid > Deep), carrying its own leaf.
+	const deep = g2.children[0].children[0];
+	expect(deep.title).toBe('Deep');
+	const deepChildTitles = deep.children.map((c: FetchedNode) => c.title ?? c.description);
+	expect(deepChildTitles).toContain('Sub');
+	expect(deepChildTitles).toContain('DeepLeaf');
+	const sub = deep.children.find((c: FetchedNode) => c.title === 'Sub');
+	expect(sub.children.map((c: FetchedNode) => c.description)).toEqual(['SubLeaf']);
+});
