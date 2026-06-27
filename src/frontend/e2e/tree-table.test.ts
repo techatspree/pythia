@@ -1,6 +1,6 @@
-import { test, expect, type Page } from '@playwright/test';
+import { test, expect, type Page, type Locator } from '@playwright/test';
 
-async function keyboardReorder(page: Page, sourceRow: any, direction: 'up' | 'down') {
+async function keyboardReorder(page: Page, sourceRow: Locator, direction: 'up' | 'down') {
 	await sourceRow.focus();
 	await page.waitForTimeout(100);
 	await page.keyboard.press('Space');
@@ -11,7 +11,7 @@ async function keyboardReorder(page: Page, sourceRow: any, direction: 'up' | 'do
 	await page.waitForTimeout(400);
 }
 
-async function keyboardReparent(page: Page, sourceRow: any, targetZone: any) {
+async function keyboardReparent(page: Page, sourceRow: Locator, targetZone: Locator) {
 	await sourceRow.focus();
 	await page.waitForTimeout(100);
 	await page.keyboard.press('Space');

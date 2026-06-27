@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { page } from '$app/state';
+	import { resolve } from '$app/paths';
 	import { onMount } from 'svelte';
 	import ErrorBanner from '$lib/components/ErrorBanner.svelte';
 	import type { ApiVersionComparison, ApiVersionResponse } from '$lib/api/types.js';
@@ -96,7 +97,7 @@
 </script>
 
 <div class="p-6">
-	<a href="/estimations/{page.params.id}" class="text-sm text-brand-green hover:underline">
+	<a href={resolve('/estimations/[id]', { id: page.params.id! })} class="text-sm text-brand-green hover:underline">
 		&larr; Back to estimation
 	</a>
 
@@ -139,7 +140,7 @@
 						</tr>
 					</thead>
 					<tbody>
-						{#each comparison.parameterChanges as pc}
+						{#each comparison.parameterChanges as pc (pc.name)}
 							<tr class="border-t bg-yellow-50">
 								<td class="px-3 py-2 font-medium">{pc.name}</td>
 								<td class="px-3 py-2">{pc.oldValue ?? '—'}</td>
@@ -164,7 +165,7 @@
 					</tr>
 				</thead>
 				<tbody>
-					{#each comparison.addedNodes as node}
+					{#each comparison.addedNodes as node (node.path.join('.'))}
 						<tr class="border-t bg-green-50 text-green-800">
 							<td class="px-3 py-2">{pathLabel(node.path)}</td>
 							<td class="px-3 py-2">{node.type}</td>
@@ -176,7 +177,7 @@
 						</tr>
 					{/each}
 
-					{#each comparison.removedNodes as node}
+					{#each comparison.removedNodes as node (node.path.join('.'))}
 						<tr class="border-t bg-red-50 text-red-800">
 							<td class="px-3 py-2">{pathLabel(node.path)}</td>
 							<td class="px-3 py-2">{node.type}</td>
@@ -188,7 +189,7 @@
 						</tr>
 					{/each}
 
-					{#each comparison.modifiedNodes as mod}
+					{#each comparison.modifiedNodes as mod (mod.after.path.join('.'))}
 						{@const cf = new Set(mod.changedFields)}
 						<tr class="border-t bg-yellow-50">
 							<td class="px-3 py-2 {cf.has('parent') ? 'font-semibold bg-yellow-200' : ''}">

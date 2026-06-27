@@ -5,12 +5,7 @@
 
 <script lang="ts" generics="T">
 	import { dndzone } from 'svelte-dnd-action';
-	import type {
-		TreeColumn,
-		TreeNodeContext,
-		TreeTableProps,
-		ChildrenChangeEvent
-	} from './types';
+	import type { TreeNodeContext, TreeTableProps } from './types';
 
 	let {
 		roots = $bindable<T[]>([]),
@@ -66,6 +61,9 @@
 	}
 
 	function collectIds(nodes: T[]): { ids: Set<string>; duplicate: boolean } {
+		// Transient local for duplicate detection — never reactive state, so a
+		// plain Set is correct (SvelteSet would add needless signal overhead).
+		// eslint-disable-next-line svelte/prefer-svelte-reactivity
 		const ids = new Set<string>();
 		let duplicate = false;
 		const walk = (n: T) => {
@@ -148,6 +146,9 @@
 
 	function toggle(node: T) {
 		const id = getId(node);
+		// Throwaway copy; reactivity comes from reassigning the `collapsed`
+		// $state below, not from mutating this Set.
+		// eslint-disable-next-line svelte/prefer-svelte-reactivity
 		const next = new Set(collapsed);
 		if (next.has(id)) next.delete(id);
 		else next.add(id);
@@ -184,7 +185,7 @@
 </script>
 
 {#snippet indent(d: number)}
-	{#each Array(d) as _}
+	{#each Array(d) as _, i (i)}
 		<span
 			class="inline-block border-l-2 border-gray-300 align-middle"
 			style="width: 1.5rem; height: 1.5rem;"

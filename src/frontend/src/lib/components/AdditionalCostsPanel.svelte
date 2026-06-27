@@ -137,7 +137,7 @@
 						</tr>
 					</thead>
 					<tbody>
-						{#each items as cost, i}
+						{#each items as cost, i (i)}
 							{#if cost.type === 'ONE_TIME'}
 								<tr class="border-b hover:bg-gray-50">
 									<td class="py-1 px-3">
@@ -173,7 +173,7 @@
 												onchange={(e) => updatePhase(i, e.currentTarget.value)}
 											>
 												<option value="">—</option>
-												{#each phases as p}
+												{#each phases as p (p.abbreviation)}
 													<option value={p.abbreviation}>{p.abbreviation}</option>
 												{/each}
 											</select>
@@ -237,7 +237,7 @@
 						</tr>
 					</thead>
 					<tbody>
-						{#each items as cost, i}
+						{#each items as cost, i (i)}
 							{#if cost.type === 'RECURRING'}
 								<tr class="border-b hover:bg-gray-50">
 									<td class="py-1 px-3">
@@ -273,7 +273,7 @@
 												onchange={(e) => updatePhase(i, e.currentTarget.value)}
 											>
 												<option value="">—</option>
-												{#each phases as p}
+												{#each phases as p (p.abbreviation)}
 													<option value={p.abbreviation}>{p.abbreviation}</option>
 												{/each}
 											</select>

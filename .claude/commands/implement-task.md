@@ -18,19 +18,26 @@ Implement the planning task whose ID is given in $ARGUMENTS (e.g. `task-041`).
    - If the task covers both backend and frontend, run both.
    - **Do not mark the task done until the build passes with zero failures.** If the build fails, diagnose and fix the root cause, then re-run. Never skip or work around the build step.
 
-7. **Update documentation**: after a green build, update any documentation affected by the changes.
+7. **STATIC-ANALYSIS GATE** — non-negotiable, like the build check. The reactor runs detekt (Kotlin: domain + backend) and ESLint (TypeScript / Svelte / HTML) in the `verify` phase, but the reports are *informational*: `./mvnw verify` stays green even when there are findings (see task-056). A passing build therefore does NOT prove the code is clean — check explicitly, scoped to what this task changed:
+   - Regenerate the reports for the affected module(s): `./mvnw -pl src/backend/implementation verify` and/or `./mvnw -pl src/domain verify`; for frontend, `cd src/frontend && npm run lint:report`.
+   - For every **source** file in the task's `outputs` (its `.kt`, `.kts`, `.ts`, `.svelte`, `.html` paths), confirm it introduces no new findings:
+     - Kotlin — the path must NOT appear in `src/backend/implementation/target/detekt/detekt.xml` or `src/domain/build/reports/detekt/detekt.xml` (detekt's checkstyle XML emits a `<file>` block only for files that have findings).
+     - Frontend — the file's entry in `src/frontend/reports/eslint.json` must show `errorCount` and `warningCount` of `0`, e.g. `! jq -e '.[] | select(.filePath | endswith("Foo.svelte")) | select(.errorCount > 0 or .warningCount > 0)' src/frontend/reports/eslint.json > /dev/null`.
+   - Do NOT gate on the whole repo — the legacy baseline already has findings; only the files this task touched must be clean. Fix any new finding on a touched file before marking done. If a touched file carries a pre-existing finding unrelated to this change, leave it and note it in the report rather than expanding the task's scope.
+
+8. **Update documentation**: after a green build, update any documentation affected by the changes.
    - If the task added, removed, or renamed a module, endpoint, schema, or public API: update `CLAUDE.md` (or the relevant section of it) to reflect the new state.
    - If the task's `outputs` section lists `.md` files, ensure they exist and are accurate.
    - If nothing in the codebase's documented structure changed (e.g. pure internal refactor), skip this step.
    - Do not create new documentation files unless the task explicitly requires it.
 
-8. **Mark done**: only after all validations pass, the build is green, and documentation is up to date, run `./scripts/task.sh done $ARGUMENTS`.
+9. **Mark done**: only after all validations pass, the build is green, the static-analysis gate shows no new findings, and documentation is up to date, run `./scripts/task.sh done $ARGUMENTS`.
 
-9. **Report**: one short paragraph — what was changed, what the build outcome was, and (if applicable) what documentation was updated. No bullet lists of every file touched.
+10. **Report**: one short paragraph — what was changed, what the build outcome was, whether static analysis was clean on the touched files, and (if applicable) what documentation was updated. No bullet lists of every file touched.
 
 ## Hard rules
 
-- Never call `./scripts/task.sh done` before a successful build run in the same session.
+- Never call `./scripts/task.sh done` before a successful build run in the same session, or while any file the task changed shows a new static-analysis finding.
 - Never delete a file that is not explicitly listed as deleted in the task's `outputs` section.
 - If the task says "do not delete X", treat that as an absolute constraint.
 - If a build failure cannot be fixed within the scope of the task (e.g. it requires changes to a different module), stop, explain the blocker, and do NOT mark done.

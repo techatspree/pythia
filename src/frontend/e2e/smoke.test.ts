@@ -1,6 +1,15 @@
-import { test, expect, type Page } from '@playwright/test';
+import { test, expect, type Page, type Locator } from '@playwright/test';
 
 const API = 'http://localhost:8080';
+
+/** Minimal shape of an estimation node as returned by the REST API, used to
+    type the JSON traversal in assertions below. */
+type FetchedNode = {
+	type?: string;
+	title?: string;
+	description?: string;
+	children?: FetchedNode[];
+};
 
 // ── helpers ────────────────────────────────────────────────────────────────
 
@@ -200,7 +209,7 @@ test('draft autosave payload uses canonical roots (not legacy itemGroups)', asyn
 	const versionNumber = await createDraft(page, estimationId);
 	await populateDraft(page, estimationId);
 
-	const putBodies: any[] = [];
+	const putBodies: unknown[] = [];
 	page.on('request', (req) => {
 		if (req.method() === 'PUT' && req.url().includes('/api/estimations/') && req.url().endsWith('/draft')) {
 			const body = req.postData();
@@ -251,7 +260,7 @@ test('three-level tree round-trips through the draft REST API', async ({ page })
 // ── DnD / UI tree-building (task-057) ──────────────────────────────────────
 
 /** PUT a custom roots tree to the draft. */
-async function putRoots(page: Page, estimationId: string, roots: any[]) {
+async function putRoots(page: Page, estimationId: string, roots: unknown[]) {
 	const res = await page.request.put(`${API}/api/estimations/${estimationId}/versions/draft`, {
 		data: { roots }
 	});
@@ -267,7 +276,7 @@ async function putRoots(page: Page, estimationId: string, roots: any[]) {
       2. focus a different zone or use ArrowUp/Down within the same zone
       3. press Space to drop
     This is the same flow exposed to keyboard users in production. */
-async function keyboardReorder(page: Page, sourceRow: any, direction: 'up' | 'down') {
+async function keyboardReorder(page: Page, sourceRow: Locator, direction: 'up' | 'down') {
 	await sourceRow.focus();
 	await page.waitForTimeout(100);
 	await page.keyboard.press('Space');
@@ -278,7 +287,7 @@ async function keyboardReorder(page: Page, sourceRow: any, direction: 'up' | 'do
 	await page.waitForTimeout(1500); // autosave debounce
 }
 
-async function keyboardReparent(page: Page, sourceRow: any, targetZone: any) {
+async function keyboardReparent(page: Page, sourceRow: Locator, targetZone: Locator) {
 	await sourceRow.focus();
 	await page.waitForTimeout(100);
 	await page.keyboard.press('Space');
@@ -316,7 +325,7 @@ test('build a three-level tree via UI buttons', async ({ page }) => {
 	expect(fetched.roots).toHaveLength(1);
 	expect(fetched.roots[0].type).toBe('GROUP');
 	// Default root group contains a default leaf (from addRootGroup) + the new sub-group with its leaf.
-	const subGroup = fetched.roots[0].children.find((c: any) => c.type === 'GROUP');
+	const subGroup = fetched.roots[0].children.find((c: FetchedNode) => c.type === 'GROUP');
 	expect(subGroup, 'expected a nested GROUP under the root').toBeTruthy();
 	expect(subGroup.children.length).toBeGreaterThanOrEqual(1);
 });
@@ -348,11 +357,11 @@ test('drag a leaf into a different group reparents it', async ({ page }) => {
 	await keyboardReparent(page, sourceRow, targetZone);
 
 	const fetched = await page.request.get(`${API}/api/estimations/${estimationId}/versions/draft`).then((r) => r.json());
-	const g1 = fetched.roots.find((r: any) => r.title === 'G1');
-	const g2 = fetched.roots.find((r: any) => r.title === 'G2');
+	const g1 = fetched.roots.find((r: FetchedNode) => r.title === 'G1');
+	const g2 = fetched.roots.find((r: FetchedNode) => r.title === 'G2');
 	expect(g1.children).toHaveLength(0);
 	expect(g2.children.length).toBe(2);
-	const movedDescriptions = g2.children.map((c: any) => c.description);
+	const movedDescriptions = g2.children.map((c: FetchedNode) => c.description);
 	expect(movedDescriptions).toContain('L1');
 	expect(movedDescriptions).toContain('L2');
 });
@@ -383,7 +392,7 @@ test('drag a leaf onto another leaf reorders siblings', async ({ page }) => {
 	const fetched = await page.request.get(`${API}/api/estimations/${estimationId}/versions/draft`).then((r) => r.json());
 	const g1 = fetched.roots[0];
 	expect(g1.children).toHaveLength(2);
-	const descriptions = g1.children.map((c: any) => c.description);
+	const descriptions = g1.children.map((c: FetchedNode) => c.description);
 	expect(descriptions).toEqual(['B', 'A']);
 });
 

@@ -82,7 +82,7 @@
 					</tr>
 				</thead>
 				<tbody>
-					{#each items as item, i}
+					{#each items as item, i (i)}
 						<tr class="border-b hover:bg-gray-50">
 							<td class="py-1 px-3">
 								{#if editable}

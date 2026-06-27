@@ -44,3 +44,6 @@ src/frontend/src/lib/types/generated/
 # target/ and build/ which are already ignored; ESLint reports
 # need an explicit entry)
 src/frontend/reports/
+
+# clean-up-project resumable state
+planning/cleanup-state.json

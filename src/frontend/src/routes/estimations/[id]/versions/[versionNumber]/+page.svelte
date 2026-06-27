@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { page } from '$app/state';
 	import { goto } from '$app/navigation';
+	import { resolve } from '$app/paths';
 	import { onMount } from 'svelte';
 	import EstimationGrid from '$lib/components/EstimationGrid.svelte';
 	import ParametersPanel from '$lib/components/ParametersPanel.svelte';
@@ -93,11 +94,11 @@
 	}
 
 	async function submitVersion() {
-		const id = page.params.id;
+		const id = page.params.id!;
 		const res = await fetch(`/api/estimations/${id}/versions/draft/submit`, {
 			method: 'POST'
 		});
-		if (res.ok) goto(`/estimations/${id}`);
+		if (res.ok) goto(resolve('/estimations/[id]', { id }));
 	}
 </script>
 
@@ -107,7 +108,7 @@
 	{:else if versionData}
 		<ErrorBanner message={bannerMessage} ondismiss={() => (bannerMessage = null)} />
 		<div class="flex items-center justify-between mb-4">
-			<a href="/estimations/{page.params.id}" class="text-sm text-brand-green hover:underline"
+			<a href={resolve('/estimations/[id]', { id: page.params.id! })} class="text-sm text-brand-green hover:underline"
 				>&larr; Back to estimation</a
 			>
 			<div class="flex items-center gap-3">
@@ -130,11 +131,13 @@
 						<a
 							class="block px-4 py-2 hover:bg-gray-50"
 							download
+							rel="external"
 							href="/api/estimations/{page.params.id}/versions/{versionData.isDraft ? 'draft' : versionData.versionNumber}/export?format=xlsx"
 						>Excel (.xlsx)</a>
 						<a
 							class="block px-4 py-2 hover:bg-gray-50"
 							download
+							rel="external"
 							href="/api/estimations/{page.params.id}/versions/{versionData.isDraft ? 'draft' : versionData.versionNumber}/export?format=csv"
 						>CSV (.csv)</a>
 					</div>

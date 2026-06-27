@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { resolve } from '$app/paths';
 	let { project, loading, error }: { project: any | null; loading: boolean; error: string } = $props();
 </script>
 
@@ -39,10 +40,10 @@
 					</tr>
 				</thead>
 				<tbody>
-					{#each project.estimations as estimation}
+					{#each project.estimations as estimation (estimation.id)}
 						<tr class="border-b hover:bg-gray-50">
 							<td class="px-4 py-3 font-medium">
-								<a href="/estimations/{estimation.id}" class="text-brand-green hover:underline">{estimation.offer}</a>
+								<a href={resolve('/estimations/[id]', { id: estimation.id })} class="text-brand-green hover:underline">{estimation.offer}</a>
 							</td>
 							<td class="px-4 py-3 text-gray-600">{estimation.description || '—'}</td>
 							<td class="px-4 py-3">{estimation.versionCount}</td>

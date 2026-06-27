@@ -21,7 +21,7 @@
 			Local development only. Pick a role to act as.
 		</p>
 		<div class="flex flex-col gap-2">
-			{#each Object.values(DEV_USERS) as user}
+			{#each Object.values(DEV_USERS) as user (user.subjectId)}
 				<button
 					type="button"
 					onclick={() => pick(user.subjectId)}

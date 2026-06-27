@@ -12,6 +12,10 @@ export type TreeColumn<T> = {
 	collapsible?: boolean;
 };
 
+// `T` is kept for API symmetry with the other generic TreeTable types
+// (TreeColumn<T>, TreeTableProps<T>, …) and the call sites that pass it; the
+// context shape itself happens not to reference the node type today.
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 export type TreeNodeContext<T> = {
 	depth: number;
 	path: number[];

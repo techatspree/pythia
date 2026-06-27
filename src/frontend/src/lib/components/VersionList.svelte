@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { resolve } from '$app/paths';
 	import type { ApiVersionSummary } from '$lib/api/types.js';
 	let { versions, estimationId, oncreate, onsubmit }: { versions: ApiVersionSummary[]; estimationId: string; oncreate: () => void; onsubmit: () => void } = $props();
 
@@ -37,7 +38,9 @@
 	const compareHref = $derived.by(() => {
 		if (compareSelection.length !== 2) return '';
 		const [a, b] = sortRefs(compareSelection);
-		return `/estimations/${estimationId}/compare?a=${a}&b=${b}`;
+		// Route is resolved via resolve(); the dynamic ?a/?b query is appended
+		// separately because resolve() can only type-check a literal search suffix.
+		return `${resolve('/estimations/[id]/compare', { id: estimationId })}?a=${a}&b=${b}`;
 	});
 
 	const compareLabel = $derived.by(() => {
@@ -59,7 +62,7 @@
 		<p class="text-gray-500">No versions yet. Create one to get started.</p>
 	{:else}
 		<div class="space-y-3">
-			{#each versions as version}
+			{#each versions as version (refOf(version))}
 				<div class="flex items-stretch border rounded-lg hover:bg-gray-50 transition-colors">
 					<label class="flex items-center px-3 cursor-pointer">
 						<input
@@ -70,7 +73,15 @@
 						/>
 					</label>
 					<a
-						href="/estimations/{estimationId}/versions/{version.versionNumber}{version.isDraft ? '?draft=true' : ''}"
+						href={version.isDraft
+							? resolve('/estimations/[id]/versions/[versionNumber]?draft=true', {
+									id: estimationId,
+									versionNumber: String(version.versionNumber)
+								})
+							: resolve('/estimations/[id]/versions/[versionNumber]', {
+									id: estimationId,
+									versionNumber: String(version.versionNumber)
+								})}
 						class="flex-1 p-4"
 					>
 						<div class="flex items-center justify-between">
@@ -109,10 +120,10 @@
 	{/if}
 
 	{#if compareSelection.length === 2}
-		<a
-			href={compareHref}
-			class="mt-3 inline-block px-4 py-2 text-sm bg-brand-green text-white rounded hover:bg-[#007a45]"
-		>
+		<!-- compareHref resolves the route via resolve(); only the dynamic ?a/?b
+		     query is concatenated, which this rule cannot model. -->
+		<!-- eslint-disable-next-line svelte/no-navigation-without-resolve -->
+		<a href={compareHref} class="mt-3 inline-block px-4 py-2 text-sm bg-brand-green text-white rounded hover:bg-[#007a45]">
 			{compareLabel}
 		</a>
 	{/if}

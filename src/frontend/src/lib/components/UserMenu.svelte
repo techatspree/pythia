@@ -22,7 +22,7 @@
 		{account.displayName ?? account.subjectId}
 	</span>
 	<div class="flex items-center gap-1">
-		{#each ROLE_ORDER as r}
+		{#each ROLE_ORDER as r (r)}
 			{#if account.roles.includes(r)}
 				<span
 					class="text-xs uppercase tracking-wide px-1.5 py-0.5 rounded bg-brand-green/10 text-brand-green"

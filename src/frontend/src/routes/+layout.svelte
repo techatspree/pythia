@@ -4,6 +4,7 @@
 	import RequireAuth from '$lib/auth/RequireAuth.svelte';
 	import UserMenu from '$lib/components/UserMenu.svelte';
 	import { getAuthProvider } from '$lib/auth';
+	import { resolve } from '$app/paths';
 
 	let { children } = $props();
 
@@ -20,7 +21,7 @@
 
 <header class="bg-white">
 	<div class="px-6 py-3 flex items-center gap-3">
-		<a href="/projects">
+		<a href={resolve('/projects')}>
 			<picture>
 				<source srcset="/estimator_logo.webp" type="image/webp" />
 				<img

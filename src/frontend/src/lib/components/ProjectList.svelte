@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { resolve } from '$app/paths';
 	let { projects, loading, error }: { projects: any[]; loading: boolean; error: string } = $props();
 </script>
 
@@ -20,10 +21,10 @@
 				</tr>
 			</thead>
 			<tbody>
-				{#each projects as project}
+				{#each projects as project (project.id)}
 					<tr class="border-b hover:bg-gray-50">
 						<td class="px-4 py-3">
-							<a href="/projects/{project.id}" class="text-brand-green hover:underline font-medium">
+							<a href={resolve('/projects/[id]', { id: project.id })} class="text-brand-green hover:underline font-medium">
 								{project.name}
 							</a>
 							{#if project.description}

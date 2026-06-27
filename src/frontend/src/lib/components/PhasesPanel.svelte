@@ -107,7 +107,7 @@
 					</tr>
 				</thead>
 				<tbody>
-					{#each items as item, i}
+					{#each items as item, i (i)}
 						{@const { total: totalOfferPT, hasMissing } = phaseOfferPT(item.abbreviation)}
 						{@const effortPerWeek = item.durationWeeks != null && item.durationWeeks > 0 ? totalOfferPT / item.durationWeeks : null}
 						<tr class="border-b hover:bg-gray-50">

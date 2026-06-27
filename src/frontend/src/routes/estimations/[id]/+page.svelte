@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { page } from '$app/state';
+	import { resolve } from '$app/paths';
 	import { onMount } from 'svelte';
 	import EstimationDetail from '$lib/components/EstimationDetail.svelte';
 	import VersionList from '$lib/components/VersionList.svelte';
@@ -57,7 +58,7 @@
 		<ErrorBanner message={bannerMessage} ondismiss={() => (bannerMessage = null)} />
 		{#if estimation}
 		{#if estimation.projectId}
-			<a href="/projects/{estimation.projectId}" class="text-sm text-brand-green hover:underline mb-4 inline-block">&larr; Back to {estimation.projectName ?? 'project'}</a>
+			<a href={resolve('/projects/[id]', { id: estimation.projectId })} class="text-sm text-brand-green hover:underline mb-4 inline-block">&larr; Back to {estimation.projectName ?? 'project'}</a>
 		{/if}
 		<EstimationDetail {estimation} />
 		<VersionList versions={estimation.versions} estimationId={estimation.id ?? ''} oncreate={createVersion} onsubmit={submitVersion} />

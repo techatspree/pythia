@@ -404,7 +404,7 @@
 				}}
 			>
 				<option value="">— none —</option>
-				{#each phases as p}
+				{#each phases as p (p.abbreviation)}
 					<option value={p.abbreviation}>{p.abbreviation}</option>
 				{/each}
 			</select>
