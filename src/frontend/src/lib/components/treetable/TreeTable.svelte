@@ -5,6 +5,7 @@
 
 <script lang="ts" generics="T">
 	import { dndzone } from 'svelte-dnd-action';
+	import { SvelteMap, SvelteSet } from 'svelte/reactivity';
 	import type { TreeNodeContext, TreeTableProps } from './types';
 
 	let {
@@ -27,6 +28,21 @@
 	let collapsed = $state(new Set(initialCollapsed));
 	let preDragSnapshot: T[] | null = null;
 	let cycleCheckPending = false;
+
+	// Live drag buffers, keyed by the zone's parent path (`a-b-c`, root = `''`).
+	// While a pointer drag is in flight svelte-dnd-action inserts a shadow
+	// placeholder (id `id:dnd-shadow-placeholder-0000`) into the `consider`
+	// items, and it requires us to hand that exact array back to the zone so the
+	// shadow identity survives. We therefore render the affected zone(s) straight
+	// from these buffers during the drag and only commit unwrapped nodes to the
+	// real model on `finalize`. (Unwrapping + re-wrapping on every `consider`
+	// regenerates the shadow's id and breaks the drag.)
+	const dragItems = new SvelteMap<string, Wrapped[]>();
+
+	// Ids of the node currently being dragged plus all of its descendants. While
+	// a group is in flight, its own subtree zones must refuse the drop, otherwise
+	// the group would be dropped into itself (a cycle). Empty when idle.
+	const draggedSubtreeIds = new SvelteSet<string>();
 
 	let scrollHost: HTMLDivElement | null = $state(null);
 	let containerWidth = $state(Infinity);
@@ -90,49 +106,100 @@
 		return false;
 	}
 
-	function nodeAtPath(path: number[]): T | null {
-		if (path.length === 0) return null;
-		let current: T[] = roots;
-		let node: T | null = null;
-		for (const idx of path) {
-			node = current[idx] ?? null;
-			if (node == null) return null;
-			const kids = getChildren(node);
-			if (kids != null) current = kids;
-		}
-		return node;
-	}
-
-	function applyChildren(parentPath: number[], newChildren: T[]) {
-		if (parentPath.length === 0) {
+	// Commit a zone's children to the model, keyed by the OWNER NODE (null = root)
+	// rather than an index path: a multi-zone finalize removes the dragged node
+	// from one zone, which would shift the index path of the other zone — owner
+	// identity is stable across that.
+	function applyChildren(owner: T | null, newChildren: T[]) {
+		if (owner == null) {
 			roots = newChildren;
 		} else {
-			const parent = nodeAtPath(parentPath);
-			if (parent == null) return;
-			const kids = getChildren(parent);
+			const kids = getChildren(owner);
 			if (kids == null) return;
 			kids.length = 0;
 			for (const c of newChildren) kids.push(c);
 		}
 	}
 
+	function zoneKeyOf(owner: T | null): string {
+		return owner == null ? '__root__' : getId(owner);
+	}
+
+	function collectSubtreeIds(node: T, into: Set<string>) {
+		into.add(getId(node));
+		const kids = getChildren(node);
+		if (kids != null) for (const k of kids) collectSubtreeIds(k, into);
+	}
+
+	function findNodeById(nodes: T[], id: string): T | null {
+		for (const n of nodes) {
+			if (getId(n) === id) return n;
+			const kids = getChildren(n);
+			if (kids != null) {
+				const found = findNodeById(kids, id);
+				if (found != null) return found;
+			}
+		}
+		return null;
+	}
+
+	// Items a zone should render: its live drag buffer while a drag touches it,
+	// otherwise the wrapped model children.
+	function itemsForZone(owner: T | null, children: T[]): Wrapped[] {
+		return dragItems.get(zoneKeyOf(owner)) ?? children.map(wrap);
+	}
+
 	function handleZoneEvent(
 		parentPath: number[],
-		e: CustomEvent<{ items: Wrapped[]; info: { trigger?: string } }>
+		owner: T | null,
+		e: CustomEvent<{ items: Wrapped[]; info: { trigger?: string; id?: string } }>
 	) {
 		const eventType = (e.type as 'consider' | 'finalize') ?? 'consider';
-		const newChildren = unwrap(e.detail.items);
 		if (eventType === 'consider') {
+			// The keyboard drop sequence ends with a `dragStopped` consider AFTER the
+			// move's finalize already ran. Re-applying its (stale) items here would
+			// undo a cycle revert, so treat it purely as end-of-drag cleanup.
+			if (e.detail.info?.trigger === 'dragStopped') {
+				dragItems.clear();
+				draggedSubtreeIds.clear();
+				return;
+			}
 			if (preDragSnapshot === null) {
 				preDragSnapshot = deepClone(roots);
 			}
-			applyChildren(parentPath, newChildren);
+			// Identify the dragged node (works for both pointer and keyboard, which
+			// carry the dragged id in `info.id`) and remember its whole subtree, so
+			// its own zones can refuse the drop — cycle prevention via
+			// dropFromOthersDisabled below (effective for pointer drags).
+			if (draggedSubtreeIds.size === 0) {
+				const draggedId = e.detail.info?.id;
+				const dragged = draggedId != null ? findNodeById(preDragSnapshot ?? roots, draggedId) : null;
+				if (dragged != null) {
+					const ids = new Set<string>();
+					collectSubtreeIds(dragged, ids);
+					for (const id of ids) draggedSubtreeIds.add(id);
+				}
+			}
+			// Render this zone straight from the library's array (incl. the shadow
+			// placeholder) so the shadow's id survives the drag — re-wrapping the
+			// model would regenerate it and break the drag. The model is still kept
+			// in sync below so totals/consumers update live during the drag.
+			const newChildren = unwrap(e.detail.items);
+			dragItems.set(zoneKeyOf(owner), e.detail.items);
+			applyChildren(owner, newChildren);
 			onChildrenChange?.({ parentPath, newChildren, phase: 'consider' });
 		} else {
-			applyChildren(parentPath, newChildren);
+			const newChildren = unwrap(e.detail.items);
+			// The drag is ending: drop all live buffers so every zone reverts to the
+			// model, then commit this zone's final order to the model.
+			dragItems.clear();
+			applyChildren(owner, newChildren);
 			if (cycleCheckPending) return;
 			cycleCheckPending = true;
 			queueMicrotask(() => {
+				// Reject structurally invalid results (e.g. a group dropped into its
+				// own descendant via keyboard, which dropFromOthersDisabled does not
+				// cover): restore the pre-drag snapshot.
 				if (preDragSnapshot !== null && isStructuralAnomaly(roots, preDragSnapshot)) {
 					roots = preDragSnapshot;
 				} else {
@@ -140,6 +207,7 @@
 				}
 				preDragSnapshot = null;
 				cycleCheckPending = false;
+				draggedSubtreeIds.clear();
 			});
 		}
 	}
@@ -165,7 +233,7 @@
 		};
 	}
 
-	const wrappedRoots = $derived(roots.map(wrap));
+	const wrappedRoots = $derived(itemsForZone(null, roots));
 
 	const gridTemplateColumns = $derived(
 		(editable ? '2rem ' : '') +
@@ -268,7 +336,7 @@
 		</div>
 
 		{#if isGroup && ctx.expanded}
-			{@const wrappedChildren = (kids as T[]).map(wrap)}
+			{@const wrappedChildren = itemsForZone(node, kids as T[])}
 			{@const childZoneAttrs = childrenZoneAttrs
 				? childrenZoneAttrs(node)
 				: { 'aria-label': 'Children' }}
@@ -278,10 +346,11 @@
 					type: 'tree-table-node',
 					flipDurationMs: 200,
 					dropTargetStyle: {},
-					dragDisabled: !editable
+					dragDisabled: !editable,
+					dropFromOthersDisabled: draggedSubtreeIds.has(getId(node))
 				}}
-				onconsider={(e) => handleZoneEvent(path, e)}
-				onfinalize={(e) => handleZoneEvent(path, e)}
+				onconsider={(e) => handleZoneEvent(path, node, e)}
+				onfinalize={(e) => handleZoneEvent(path, node, e)}
 				{...childZoneAttrs}
 			>
 				{#each wrappedChildren as w, idx (w.__treeTableId)}
@@ -320,8 +389,8 @@
 					dropTargetStyle: {},
 					dragDisabled: !editable
 				}}
-				onconsider={(e) => handleZoneEvent([], e)}
-				onfinalize={(e) => handleZoneEvent([], e)}
+				onconsider={(e) => handleZoneEvent([], null, e)}
+				onfinalize={(e) => handleZoneEvent([], null, e)}
 				{...rootZoneAttrs}
 			>
 				{#each wrappedRoots as w, idx (w.__treeTableId)}
