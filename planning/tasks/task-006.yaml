@@ -446,5 +446,5 @@ outputs:
   - created: src/frontend/e2e/auth-gate.test.ts
   - modified: scripts/dev-local.sh
   - created: scripts/dev-local-strict.sh
-  - created: docs/auth-dev.md
+  - created: docs/authentication.md
   - modified: CLAUDE.md

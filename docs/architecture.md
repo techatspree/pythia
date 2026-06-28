@@ -1,6 +1,4 @@
-# Architecture
-
-## Tech Stack
+# Tech Stack
 
 | Layer    | Technology                      |
 |----------|---------------------------------|
@@ -11,7 +9,7 @@
 | Platform | Kubernetes (Minikube for local) |
 | Auth     | Microsoft Entra ID (MSAL/OIDC)  |
 
-## Repository Structure
+# Repository Structure
 
 ```
 src/
@@ -24,7 +22,7 @@ scripts/      — Helper scripts for local development
 planning/     — Project plan and task definitions
 ```
 
-## Domain module: single source of truth
+# Domain module: single source of truth
 
 The `domain` module is a Kotlin Multiplatform project that contains **all
 business logic and domain models** shared between frontend and backend.
@@ -76,7 +74,7 @@ So `src/domain/` runs a "Maven outside, Gradle inside" sandwich:
 For everything else in the repo, `pom.xml` is the single build file — Gradle
 is contained inside `src/domain/` only.
 
-#### Could we remove one of them?
+### Could we remove one of them?
 
 Three options if the dual build ever feels like too much:
 
@@ -96,9 +94,15 @@ hard. Doing it piecemeal usually makes things worse — keep the current
 "Maven outside, Gradle inside `src/domain/`" pattern until you're ready to
 commit to a full switch.
 
-## Frontend conventions
+# Athentication
 
-### Error handling: no silent try/catch
+This application uses a modular approach for authentication. For easy development there is a module with static authentication.
+
+More details are described in [authentication.md](./authentication.md).
+
+# Frontend conventions
+
+## Error handling: no silent try/catch
 
 Every `try`/`catch` block in the SvelteKit frontend MUST surface failures to
 the user via the shared `ErrorBanner` component

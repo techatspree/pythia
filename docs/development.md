@@ -130,6 +130,10 @@ npm run dev
 
 The backend is available at http://localhost:8080, the frontend at http://localhost:5173. The frontend proxies API requests to the locally running backend. No Docker or container image is needed.
 
+The authentication is done using a static authentication provider described in [authentication.md](./authentication.md).
+
+
+
 ### dev-minikube — Full stack on Minikube
 
 Backend, frontend, and PostgreSQL run as pods on your local Minikube cluster.
