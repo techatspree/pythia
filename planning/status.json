@@ -481,6 +481,12 @@
       "started_at": null,
       "completed_at": null,
       "notes": "Fully remove the dev auth default-user fallback; make strict authentication the only behavior"
+    },
+    "task-081": {
+      "status": "pending",
+      "started_at": null,
+      "completed_at": null,
+      "notes": "Refactor frontend editor components to idiomatic Svelte 5 $bindable state management"
     }
   }
 }

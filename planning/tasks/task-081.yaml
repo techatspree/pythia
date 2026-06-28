@@ -1,0 +1,252 @@
+id: task-081
+phase: phase-10
+title: Idiomatic Svelte 5 $bindable state for editor panels
+depends_on: [task-070]
+description: |
+  The version-editor frontend currently manages component state in a
+  React-style way rather than the idiomatic Svelte 5 way, producing
+  redundant double-bookkeeping and svelte-check warnings.
+
+  Current state (working tree):
+  - The page src/frontend/src/routes/estimations/[id]/versions/[versionNumber]/+page.svelte
+    holds the source-of-truth `$state`: currentNotes, currentParameters,
+    currentDrivers, currentPhases, currentAdditionalCosts, currentRoots.
+    It loads them in loadVersion(), passes COPIES down to four sibling
+    panels + EstimationGrid, and each child syncs changes back up through
+    an `onchange(...)` callback that the page uses to reassign the
+    corresponding `currentX` and then call scheduleSave() (an 800 ms
+    debounced PUT to /api/estimations/{id}/versions/draft).
+  - Each of the four panels — ParametersPanel.svelte, EffortDriversPanel.svelte,
+    PhasesPanel.svelte, AdditionalCostsPanel.svelte — receives its data as
+    a plain prop, then snapshots it ONCE into a local `let items = $state(...)`
+    (mapping/normalising), edits `items`, and re-emits the whole list via a
+    `notify()` → `onchange(items.map(...))` on every keystroke/add/delete.
+  - EstimationGrid.svelte receives the whole `version` object plus an
+    `onchange(roots)` callback; it normalises version.roots into its local
+    `Node[]` model via module-scope `initRoots`/`initNode`, holds it as
+    `let roots = $state(...)`, and emits `onchange(serialize(roots))`.
+  - This "snapshot prop into $state once + onchange callback" pattern is
+    the documented "$state snapshot idiom (panels)" convention in CLAUDE.md.
+    It is the cause of the six svelte-check `state_referenced_locally`
+    warnings (one per panel + EstimationGrid + TreeTable): svelte-check
+    sees a reactive prop read once inside a `$state(...)` initialiser.
+
+  Target state — let Svelte own the state via `$bindable`:
+  - The page keeps a SINGLE source-of-truth `$state` per collection and
+    passes it down with `bind:`; children declare the data prop as
+    `$bindable()` and MUTATE IT DIRECTLY. The `items` snapshot, `notify()`,
+    `serialize()` and the `onchange` props disappear. Svelte propagates
+    child mutations back to the page automatically.
+  - Autosave moves from per-callback scheduleSave() calls to a single
+    reactive `$effect` in the page that observes the editable state and
+    debounces the PUT. It MUST be guarded so it does not fire on the
+    initial load (only after the user actually edits) and only while the
+    version is a draft (editable). The existing 800 ms debounce, the
+    `saveStatus` indicator, and the ErrorBanner + log.error failure
+    surfacing all stay.
+  - EstimationGrid becomes `roots = $bindable<Node[]>()`-driven. The
+    version→Node[] normalisation (initRoots/initNode) and the Node/Leaf/
+    Group types move OUT of EstimationGrid into a shared module so the
+    page can normalise once at load and bind the result. EstimationGrid's
+    own add/delete/childrenChange handlers mutate the bound `roots`
+    directly (it already drives TreeTable via `bind:roots`).
+  - The `calcMap` $derived in the page stays as-is (it already deep-reads
+    currentRoots/parameters/drivers/phases). Submitted (read-only)
+    versions still pass editable=false; with binding and no user edits no
+    mutation or save occurs.
+  - CLAUDE.md's "Frontend — $state snapshot idiom (panels)" subsection is
+    rewritten to document the `$bindable` two-way-binding approach instead.
+  - The documentation in docs/architecture.md in chapter "Frontend conventions" should be updated.
+  - Convention-change note: this reverses the cross-cutting "$state
+    snapshot idiom" convention. After implementing, record the new
+    `$bindable` two-way-binding convention in the auto-memory system
+    (a `feedback`/`project` memory) so future frontend work does not
+    reintroduce the snapshot+onchange pattern.
+
+  Out of scope:
+  - TreeTable.svelte `collapsed` (seeded from the `initialCollapsed` prop)
+    is GENUINELY LOCAL UI state the parent does not own; it stays a local
+    `$state` and its single `state_referenced_locally` warning is accepted
+    (it is a true "initial value" case, not double-bookkeeping). Do not
+    convert it to $bindable.
+  - The tsconfig.json "Cannot find type definition file for 'node'"
+    svelte-check note is unrelated and out of scope.
+  - No backend, REST, or domain changes — the PUT payload shape is
+    unchanged.
+
+steps:
+  - |
+    Start the task:
+      ./scripts/task.sh start task-081
+
+  - |
+    Extract the estimation-node model + normalisation out of
+    EstimationGrid.svelte into a shared module
+    src/frontend/src/lib/estimationNodes.ts:
+      - Move the exported types Leaf, Group, Node, NodePath, CalcEntry
+        (currently in EstimationGrid's `<script lang="ts" module>` block).
+      - Move `initNode`/`initRoots` and rename the public entry point to
+        `normalizeRoots(version: any): Node[]` (same behaviour: map
+        version.roots through initNode, filling defaults + logicalId).
+        Keep `newId()` (crypto.randomUUID) here too.
+      - EstimationGrid imports Node/Leaf/Group/NodePath/CalcEntry from this
+        module instead of declaring them.
+
+  - |
+    Convert EstimationGrid.svelte to a bindable `roots` model:
+      - Replace the `version` and `onchange` props with
+        `roots = $bindable<Node[]>([])`. Keep `editable`, `calcMap`,
+        `phases`.
+      - Delete the local `let roots = $state(initRoots(version))`,
+        `serialize()`, `notify()`, and `handleChildrenChange`'s call to
+        notify(); the component now mutates the bound `roots` directly
+        (addRootGroup, addChildGroupAt, addChildLeafAt, deleteAt and the
+        TreeTable onChildrenChange already mutate `roots` in place / via
+        reassignment — keep those, just drop the onchange emission).
+      - The `<TreeTable bind:roots ... />` wiring stays.
+
+  - |
+    Convert the four sibling panels to `$bindable`. For each panel
+    (ParametersPanel=parameters, EffortDriversPanel=effortDrivers,
+    PhasesPanel=phases, AdditionalCostsPanel=costs):
+      - Declare the data prop as `$bindable()` (e.g.
+        `let { costs = $bindable<ApiAdditionalCost[]>([]), phases, editable } = $props()`).
+      - Remove the local `let items = $state(...)` snapshot, the
+        `notify()` function, and the `onchange` prop from `$props()`.
+      - Rewrite every add / delete / update handler and every `{#each}` /
+        input binding to read and mutate the bound prop directly (e.g.
+        `costs.push(...)`, `costs.splice(i,1)`, `costs[i].amount = ...`)
+        instead of `items` + notify().
+      - Keep non-owned props as plain props (AdditionalCostsPanel.phases,
+        PhasesPanel.roots/calcMap remain read-only inputs).
+
+  - |
+    Rewire the page
+    src/frontend/src/routes/estimations/[id]/versions/[versionNumber]/+page.svelte:
+      - In loadVersion(), normalise once: set currentRoots =
+        normalizeRoots(versionData) (import from $lib/estimationNodes),
+        and keep currentParameters/currentDrivers/currentPhases/
+        currentAdditionalCosts/currentNotes from versionData (filling the
+        same defaults the panels used to fill, so binding starts from
+        complete objects).
+      - Replace the panel usages with bindings and drop the onchange
+        callbacks:
+          <ParametersPanel bind:parameters={currentParameters} editable={...} />
+          <EffortDriversPanel bind:effortDrivers={currentDrivers} editable={...} />
+          <PhasesPanel bind:phases={currentPhases} roots={currentRoots} {calcMap} editable={...} />
+          <AdditionalCostsPanel bind:costs={currentAdditionalCosts} phases={currentPhases} editable={...} />
+          <EstimationGrid bind:roots={currentRoots} {calcMap} phases={currentPhases} editable={...} />
+      - Replace the per-callback scheduleSave() calls with ONE guarded
+        reactive autosave $effect that deep-reads the editable state
+        (notes + the five collections, e.g. via `$state.snapshot(...)` of
+        each so nested edits are tracked) and calls scheduleSave() only
+        for an actual user edit while editable.
+        CRITICAL — do NOT save on load. A bare `let ready` flag is NOT
+        enough: the $effect still runs once when it first reads the
+        freshly-loaded state, which would PUT the just-loaded data back
+        (a spurious save that can clobber). Make the effect skip that
+        first post-load run. Recommended approach: keep a
+        `let lastSavedSnapshot: string | null = $state(null)`; in
+        loadVersion() AFTER assigning all the currentX state, set
+        lastSavedSnapshot to the JSON of the current editable state
+        (the baseline). In the $effect, compute the current snapshot
+        JSON; if it equals lastSavedSnapshot (or versionData is not a
+        draft) do nothing; otherwise update lastSavedSnapshot and call
+        scheduleSave(). (A first-run-skip flag captured before the
+        tracked read is an acceptable alternative — the requirement is
+        that loading a version, or reloading, triggers zero PUTs.)
+        Keep scheduleSave()'s debounce, saveStatus, PUT body, ErrorBanner
+        message and log.error exactly as today. The notes <textarea> no
+        longer needs its inline scheduleSave() — it can bind currentNotes
+        and let the $effect handle saving (use the project's logging rule:
+        no bare console.*).
+
+  - |
+    Update CLAUDE.md: replace the "Frontend — $state snapshot idiom
+    (panels)" subsection with a "Frontend — $bindable two-way binding"
+    subsection describing the new convention (page owns one $state,
+    children declare `$bindable()` and mutate directly, autosave via a
+    guarded $effect). Note that TreeTable.collapsed remains a deliberately
+    local `$state` seeded from `initialCollapsed`. Do not rewrite
+    unrelated sections.
+
+  - |
+    Update docs/architecture.md, "Frontend conventions" chapter (the
+    `# Frontend conventions` section): replace any description of the old
+    "$state snapshot idiom" with the `$bindable` two-way-binding
+    convention — the version page owns a single source-of-truth `$state`
+    per collection, passes it down with `bind:`, child editor components
+    declare the data prop as `$bindable()` and mutate it directly, and
+    autosave runs as one guarded `$effect`. Mention that TreeTable's
+    `collapsed` stays deliberately local `$state` (seeded from
+    `initialCollapsed`). Keep the chapter's other prose intact.
+
+  - |
+    Validate and finish:
+      cd src/frontend && npm run check        # 0 errors; the 5 panel/grid
+                                              # state_referenced_locally
+                                              # warnings are gone (only the
+                                              # TreeTable one may remain)
+      cd src/frontend && npm run lint
+      cd src/frontend && npm run test:e2e     # smoke autosave + tree DnD +
+                                              # tree-table suites (backend on
+                                              # :8080 via dev-local for smoke)
+      ./mvnw -pl src/frontend -am package
+      ./scripts/task.sh done task-081
+
+validation:
+  - |
+    The shared node module exists and EstimationGrid no longer declares
+    the normalisation locally:
+      test -f src/frontend/src/lib/estimationNodes.ts
+      grep -q "export function normalizeRoots" src/frontend/src/lib/estimationNodes.ts
+      ! grep -q "function initRoots" src/frontend/src/lib/components/EstimationGrid.svelte
+  - |
+    The four panels and EstimationGrid use $bindable and no longer carry
+    the onchange/notify snapshot plumbing:
+      grep -q "\\$bindable" src/frontend/src/lib/components/ParametersPanel.svelte
+      grep -q "\\$bindable" src/frontend/src/lib/components/EffortDriversPanel.svelte
+      grep -q "\\$bindable" src/frontend/src/lib/components/PhasesPanel.svelte
+      grep -q "\\$bindable" src/frontend/src/lib/components/AdditionalCostsPanel.svelte
+      grep -q "\\$bindable" src/frontend/src/lib/components/EstimationGrid.svelte
+      ! grep -q "onchange" src/frontend/src/lib/components/ParametersPanel.svelte
+      ! grep -q "onchange" src/frontend/src/lib/components/AdditionalCostsPanel.svelte
+      ! grep -q "function notify" src/frontend/src/lib/components/EstimationGrid.svelte
+  - |
+    The page binds the editor state and runs a reactive autosave $effect
+    (no per-component onchange reassignment, no bare console.*):
+      grep -q "bind:roots" src/frontend/src/routes/estimations/\[id\]/versions/\[versionNumber\]/+page.svelte
+      grep -q "bind:parameters" src/frontend/src/routes/estimations/\[id\]/versions/\[versionNumber\]/+page.svelte
+      grep -q "\\$effect" src/frontend/src/routes/estimations/\[id\]/versions/\[versionNumber\]/+page.svelte
+      grep -q "normalizeRoots" src/frontend/src/routes/estimations/\[id\]/versions/\[versionNumber\]/+page.svelte
+      ! grep -q "console\\." src/frontend/src/routes/estimations/\[id\]/versions/\[versionNumber\]/+page.svelte
+  - |
+    Error surfacing + logging conventions preserved on the autosave path:
+      grep -q "ErrorBanner" src/frontend/src/routes/estimations/\[id\]/versions/\[versionNumber\]/+page.svelte
+      grep -q "log\\." src/frontend/src/routes/estimations/\[id\]/versions/\[versionNumber\]/+page.svelte
+  - |
+    Both docs document the new convention:
+      grep -q "\\$bindable" CLAUDE.md
+      grep -q "\\$bindable" docs/architecture.md
+  - |
+    Type-check is clean and the state_referenced_locally warnings on the
+    five converted components are gone (at most the TreeTable one remains):
+      cd src/frontend && npm run check 2>&1 | tee /tmp/task-081-check.txt
+      test "$(grep -c 'state_referenced_locally' /tmp/task-081-check.txt)" -le 1
+      ! grep -q 'ParametersPanel.*state_referenced_locally' /tmp/task-081-check.txt
+      ! grep -q 'EstimationGrid.*state_referenced_locally' /tmp/task-081-check.txt
+  - |
+    End-to-end behaviour (autosave + tree editing) still works — requires
+    the dev-local backend on :8080 and the Vite dev server:
+      cd src/frontend && npm run test:e2e
+
+outputs:
+  - created: src/frontend/src/lib/estimationNodes.ts
+  - modified: src/frontend/src/lib/components/ParametersPanel.svelte
+  - modified: src/frontend/src/lib/components/EffortDriversPanel.svelte
+  - modified: src/frontend/src/lib/components/PhasesPanel.svelte
+  - modified: src/frontend/src/lib/components/AdditionalCostsPanel.svelte
+  - modified: src/frontend/src/lib/components/EstimationGrid.svelte
+  - modified: src/frontend/src/routes/estimations/[id]/versions/[versionNumber]/+page.svelte
+  - modified: CLAUDE.md
+  - modified: docs/architecture.md
