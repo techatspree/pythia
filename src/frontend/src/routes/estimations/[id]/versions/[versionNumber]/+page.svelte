@@ -10,6 +10,7 @@
 	import AdditionalCostsPanel from '$lib/components/AdditionalCostsPanel.svelte';
 	import ErrorBanner from '$lib/components/ErrorBanner.svelte';
 	import { computeCalcMap } from '$lib/adapter.js';
+	import { normalizeRoots } from '$lib/estimationNodes';
 	import { log } from '$lib/log';
 	import type { ApiVersionResponse, ApiAdditionalCost } from '$lib/api/types.js';
 
@@ -50,11 +51,33 @@
 			if (!res.ok) throw new Error(`Failed to load version (${res.status})`);
 			versionData = await res.json();
 			currentNotes = versionData!.notes ?? '';
-			currentRoots = versionData!.roots ?? [];
-			currentParameters = versionData!.parameters ?? [];
-			currentDrivers = versionData!.effortDrivers ?? [];
-			currentPhases = versionData!.phases ?? [];
-			currentAdditionalCosts = versionData!.additionalCosts ?? [];
+			currentRoots = normalizeRoots(versionData);
+			currentParameters = (versionData!.parameters ?? []).map((p: any) => ({
+				name: p.name ?? '',
+				value: p.value ?? 0,
+				comment: p.comment ?? ''
+			}));
+			currentDrivers = (versionData!.effortDrivers ?? []).map((d: any) => ({
+				description: d.description ?? '',
+				factor: d.factor ?? 0,
+				comment: d.comment ?? ''
+			}));
+			currentPhases = (versionData!.phases ?? []).map((p: any) => ({
+				name: p.name ?? '',
+				abbreviation: p.abbreviation ?? '',
+				durationWeeks: p.durationWeeks ?? null
+			}));
+			currentAdditionalCosts = (versionData!.additionalCosts ?? []).map((c: any) => ({
+				id: c.id ?? null,
+				description: c.description ?? '',
+				amount: c.amount ?? 0,
+				type: c.type,
+				amountPerWeek: c.amountPerWeek ?? null,
+				phaseAbbreviation: c.phaseAbbreviation ?? null
+			}));
+			// Baseline for the autosave effect: any subsequent change to the
+			// editable state (and only those) triggers a save.
+			lastSavedSnapshot = editableSnapshot();
 		} catch (e: any) {
 			bannerMessage = e.message;
 			log.error('loadVersion failed:', e);
@@ -64,6 +87,32 @@
 	}
 
 	onMount(loadVersion);
+
+	// Non-reactive baseline; null until the first successful load.
+	let lastSavedSnapshot: string | null = null;
+
+	function editableSnapshot(): string {
+		return JSON.stringify({
+			notes: currentNotes,
+			parameters: $state.snapshot(currentParameters),
+			effortDrivers: $state.snapshot(currentDrivers),
+			phases: $state.snapshot(currentPhases),
+			additionalCosts: $state.snapshot(currentAdditionalCosts),
+			roots: $state.snapshot(currentRoots)
+		});
+	}
+
+	// Single reactive autosave: fires only on an actual edit to a draft.
+	// The deep-read snapshot tracks nested mutations; the baseline comparison
+	// guarantees no PUT happens on load (or reload).
+	$effect(() => {
+		const snap = editableSnapshot();
+		if (!versionData?.isDraft) return;
+		if (lastSavedSnapshot === null) return;
+		if (snap === lastSavedSnapshot) return;
+		lastSavedSnapshot = snap;
+		scheduleSave();
+	});
 
 	function scheduleSave() {
 		if (saveTimer) clearTimeout(saveTimer);
@@ -160,64 +209,34 @@
 				class="w-full mb-4 p-2 border rounded text-sm resize-none focus:outline-none focus:ring-1 focus:ring-brand-green/40"
 				rows="2"
 				placeholder="Notes…"
-				value={currentNotes}
-				oninput={(e) => {
-					currentNotes = e.currentTarget.value;
-					scheduleSave();
-				}}
+				bind:value={currentNotes}
 			></textarea>
 		{:else if versionData.notes}
 			<p class="mb-4 text-sm text-gray-600 italic">{versionData.notes}</p>
 		{/if}
 
-		<ParametersPanel
-			parameters={currentParameters}
-			editable={versionData.isDraft}
-			onchange={(params) => {
-				currentParameters = params;
-				scheduleSave();
-			}}
-		/>
+		<ParametersPanel bind:parameters={currentParameters} editable={versionData.isDraft} />
 
-		<EffortDriversPanel
-			effortDrivers={currentDrivers}
-			editable={versionData.isDraft}
-			onchange={(drivers) => {
-				currentDrivers = drivers;
-				scheduleSave();
-			}}
-		/>
+		<EffortDriversPanel bind:effortDrivers={currentDrivers} editable={versionData.isDraft} />
 
 		<PhasesPanel
-			phases={currentPhases}
+			bind:phases={currentPhases}
 			roots={currentRoots}
 			{calcMap}
 			editable={versionData.isDraft}
-			onchange={(phases) => {
-				currentPhases = phases;
-				scheduleSave();
-			}}
 		/>
 
 		<AdditionalCostsPanel
-			costs={currentAdditionalCosts}
+			bind:costs={currentAdditionalCosts}
 			phases={currentPhases}
 			editable={versionData?.isDraft ?? false}
-			onchange={(c) => {
-				currentAdditionalCosts = c;
-				scheduleSave();
-			}}
 		/>
 
 		<EstimationGrid
-			version={versionData}
+			bind:roots={currentRoots}
 			editable={versionData.isDraft}
 			{calcMap}
 			phases={currentPhases}
-			onchange={(roots) => {
-				currentRoots = roots;
-				scheduleSave();
-			}}
 		/>
 	{:else}
 		<ErrorBanner message={bannerMessage} ondismiss={() => (bannerMessage = null)} />

@@ -117,3 +117,25 @@ the user via the shared `ErrorBanner` component
 Pattern to follow — set a banner-visible state, render
 `<ErrorBanner message={...} ondismiss={() => (...)} />` near the top of the
 view, and (optionally) keep a `console.error` for developers.
+
+## State management: `$bindable`, not snapshot + callback
+
+Editor components let Svelte own state via two-way binding rather than copying
+props into local state. The version page
+(`routes/estimations/[id]/versions/[versionNumber]/+page.svelte`) keeps a single
+source-of-truth `$state` per collection — parameters, effort drivers, phases,
+additional costs, roots, notes — normalised once at load (`normalizeRoots` from
+`$lib/estimationNodes`). It passes each down with `bind:`; the editor children
+(`ParametersPanel`, `EffortDriversPanel`, `PhasesPanel`, `AdditionalCostsPanel`,
+`EstimationGrid`) declare the data prop as `$bindable()` and **mutate it
+directly**. No local snapshot, no `notify()`, no `onchange` callback — Svelte
+propagates child edits back to the page.
+
+Autosave is one guarded `$effect` on the page: it deep-reads the editable state
+with `$state.snapshot(...)`, compares against a baseline captured at load, and
+debounces the draft PUT only when an actual edit changed something (never on
+load or reload).
+
+Exception: `TreeTable`'s `collapsed` stays a deliberately local `$state` seeded
+from the `initialCollapsed` prop — it is private expand/collapse UI state that
+the page does not own, so it is not bindable.

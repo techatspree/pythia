@@ -2,43 +2,27 @@
 	type Driver = { description: string; factor: number; comment: string };
 
 	let {
-		effortDrivers,
-		editable,
-		onchange
+		effortDrivers = $bindable<Driver[]>([]),
+		editable
 	}: {
-		effortDrivers: Driver[];
+		effortDrivers?: Driver[];
 		editable: boolean;
-		onchange: (drivers: Driver[]) => void;
 	} = $props();
 
-	let items = $state<Driver[]>(
-		effortDrivers.map((d) => ({
-			description: d.description ?? '',
-			factor: d.factor ?? 0,
-			comment: d.comment ?? ''
-		}))
-	);
 	let open = $state(false);
 
-	const totalFactor = $derived(items.reduce((s, d) => s + (d.factor ?? 0), 0));
-
-	function notify() {
-		onchange(items.map((i) => ({ description: i.description, factor: i.factor, comment: i.comment })));
-	}
+	const totalFactor = $derived(effortDrivers.reduce((s, d) => s + (d.factor ?? 0), 0));
 
 	function addRow() {
-		items.push({ description: '', factor: 0, comment: '' });
-		notify();
+		effortDrivers.push({ description: '', factor: 0, comment: '' });
 	}
 
 	function deleteRow(i: number) {
-		items.splice(i, 1);
-		notify();
+		effortDrivers.splice(i, 1);
 	}
 
 	function update(i: number, field: keyof Driver, raw: string) {
-		(items[i] as any)[field] = field === 'factor' ? (raw === '' ? 0 : parseFloat(raw)) : raw;
-		notify();
+		(effortDrivers[i] as any)[field] = field === 'factor' ? (raw === '' ? 0 : parseFloat(raw)) : raw;
 	}
 </script>
 
@@ -52,7 +36,7 @@
 	</button>
 
 	{#if open}
-		{#if items.length === 0 && !editable}
+		{#if effortDrivers.length === 0 && !editable}
 			<p class="p-4 text-sm text-gray-400 text-center">No effort drivers</p>
 		{:else}
 			<table class="w-full text-sm border-collapse">
@@ -65,7 +49,7 @@
 					</tr>
 				</thead>
 				<tbody>
-					{#each items as item, i (i)}
+					{#each effortDrivers as item, i (i)}
 						<tr class="border-b hover:bg-gray-50">
 							<td class="py-1 px-3">
 								{#if editable}

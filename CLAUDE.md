@@ -95,9 +95,9 @@ Anything you'd want to call "business logic" (PERT, accumulation, risk surcharge
 
 Every `try`/`catch` MUST surface failure to the user via the shared `ErrorBanner` component (`src/frontend/src/lib/components/ErrorBanner.svelte`). A `catch` that returns a fallback while only logging to `console.error` is **not** acceptable — that is the bug pattern that hid the Kotlin/JS stack-overflow as blank `—` cells in the grid.
 
-### Frontend — `$state` snapshot idiom (panels)
+### Frontend — `$bindable` two-way binding (editor components)
 
-Sibling panels (`PhasesPanel`, `ParametersPanel`, `EffortDriversPanel`, `AdditionalCostsPanel`) all snapshot the prop into local `$state` once and never re-sync. Do NOT use `$derived` or two-way bindings to keep `items` in sync with the prop — match the existing pattern verbatim.
+The version editor lets Svelte own state end-to-end. The page (`routes/estimations/[id]/versions/[versionNumber]/+page.svelte`) holds one source-of-truth `$state` per collection (`currentParameters`, `currentDrivers`, `currentPhases`, `currentAdditionalCosts`, `currentRoots`, `currentNotes`), normalised once in `loadVersion()` (roots via `normalizeRoots` from `$lib/estimationNodes`). It passes each down with `bind:` to the editor children — the four sibling panels (`ParametersPanel`, `EffortDriversPanel`, `PhasesPanel`, `AdditionalCostsPanel`) and `EstimationGrid` — which declare the data prop as `$bindable()` and **mutate it directly** (`push`/`splice`/field assignment, or reassign for wholesale replacement). There is no local snapshot, no `notify()`, and no `onchange` callback; Svelte propagates child mutations back to the page. Autosave is a single guarded `$effect` in the page: it deep-reads the editable state via `$state.snapshot(...)`, compares against a `lastSavedSnapshot` baseline set at load, and debounces a PUT only on an actual edit to a draft (never on load/reload). Do NOT reintroduce the old "snapshot prop into local `$state` + onchange" pattern. (`TreeTable.collapsed` is the one exception that stays a deliberately local `$state` seeded from `initialCollapsed` — it is private UI state the page does not own.)
 
 ### Frontend — generic `TreeTable` component
 

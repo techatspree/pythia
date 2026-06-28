@@ -8,42 +8,29 @@
 	];
 
 	let {
-		parameters,
-		editable,
-		onchange
+		parameters = $bindable<Param[]>([]),
+		editable
 	}: {
-		parameters: Param[];
+		parameters?: Param[];
 		editable: boolean;
-		onchange: (params: Param[]) => void;
 	} = $props();
 
-	let items = $state<Param[]>(
-		parameters.map((p) => ({ name: p.name ?? '', value: p.value ?? 0, comment: p.comment ?? '' }))
-	);
 	let open = $state(false);
 
-	function notify() {
-		onchange(items.map((i) => ({ name: i.name, value: i.value, comment: i.comment })));
-	}
-
 	function addRow() {
-		items.push({ name: '', value: 0, comment: '' });
-		notify();
+		parameters.push({ name: '', value: 0, comment: '' });
 	}
 
 	function deleteRow(i: number) {
-		items.splice(i, 1);
-		notify();
+		parameters.splice(i, 1);
 	}
 
 	function useDefaults() {
-		items = DEFAULTS.map((p) => ({ ...p }));
-		notify();
+		parameters = DEFAULTS.map((p) => ({ ...p }));
 	}
 
 	function update(i: number, field: keyof Param, raw: string) {
-		(items[i] as any)[field] = field === 'value' ? (raw === '' ? 0 : parseFloat(raw)) : raw;
-		notify();
+		(parameters[i] as any)[field] = field === 'value' ? (raw === '' ? 0 : parseFloat(raw)) : raw;
 	}
 </script>
 
@@ -57,7 +44,7 @@
 	</button>
 
 	{#if open}
-		{#if items.length === 0}
+		{#if parameters.length === 0}
 			{#if editable}
 				<div class="p-4 text-center">
 					<p class="text-sm text-gray-400 mb-3">No parameters defined.</p>
@@ -82,7 +69,7 @@
 					</tr>
 				</thead>
 				<tbody>
-					{#each items as item, i (i)}
+					{#each parameters as item, i (i)}
 						<tr class="border-b hover:bg-gray-50">
 							<td class="py-1 px-3">
 								{#if editable}

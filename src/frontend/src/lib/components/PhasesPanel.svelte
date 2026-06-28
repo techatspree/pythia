@@ -3,45 +3,33 @@
 	type CalcEntry = { offerPT: number; cost: number; offerPrice: number };
 
 	let {
-		phases,
+		phases = $bindable<Phase[]>([]),
 		roots,
 		calcMap,
-		editable,
-		onchange
+		editable
 	}: {
-		phases: any[];
+		phases?: Phase[];
 		roots: any[];
 		calcMap: Map<string, CalcEntry>;
 		editable: boolean;
-		onchange: (phases: any[]) => void;
 	} = $props();
 
-	let items = $state<Phase[]>(
-		phases.map((p) => ({ name: p.name ?? '', abbreviation: p.abbreviation ?? '', durationWeeks: p.durationWeeks ?? null }))
-	);
 	let open = $state(false);
 
-	function notify() {
-		onchange(items.map((i) => ({ name: i.name, abbreviation: i.abbreviation, durationWeeks: i.durationWeeks })));
-	}
-
 	function addRow() {
-		items.push({ name: '', abbreviation: '', durationWeeks: null });
-		notify();
+		phases.push({ name: '', abbreviation: '', durationWeeks: null });
 	}
 
 	function deleteRow(i: number) {
-		items.splice(i, 1);
-		notify();
+		phases.splice(i, 1);
 	}
 
 	function update(i: number, field: keyof Phase, raw: string) {
 		if (field === 'durationWeeks') {
-			(items[i] as any)[field] = raw === '' ? null : parseFloat(raw);
+			(phases[i] as any)[field] = raw === '' ? null : parseFloat(raw);
 		} else {
-			(items[i] as any)[field] = raw;
+			(phases[i] as any)[field] = raw;
 		}
-		notify();
 	}
 
 	function collectLeaves(nodes: any[]): any[] {
@@ -80,7 +68,7 @@
 	</button>
 
 	{#if open}
-		{#if items.length === 0}
+		{#if phases.length === 0}
 			{#if editable}
 				<div class="p-4 text-center">
 					<p class="text-sm text-gray-400 mb-3">No phases defined.</p>
@@ -107,7 +95,7 @@
 					</tr>
 				</thead>
 				<tbody>
-					{#each items as item, i (i)}
+					{#each phases as item, i (i)}
 						{@const { total: totalOfferPT, hasMissing } = phaseOfferPT(item.abbreviation)}
 						{@const effortPerWeek = item.durationWeeks != null && item.durationWeeks > 0 ? totalOfferPT / item.durationWeeks : null}
 						<tr class="border-b hover:bg-gray-50">

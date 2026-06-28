@@ -2,47 +2,22 @@
 	import type { ApiAdditionalCost, ApiPhase } from '$lib/api/types.js';
 
 	let {
-		costs,
+		costs = $bindable<ApiAdditionalCost[]>([]),
 		phases,
-		editable,
-		onchange
+		editable
 	}: {
-		costs: ApiAdditionalCost[];
+		costs?: ApiAdditionalCost[];
 		phases: ApiPhase[];
 		editable: boolean;
-		onchange: (costs: ApiAdditionalCost[]) => void;
 	} = $props();
 
-	let items = $state<ApiAdditionalCost[]>(
-		costs.map((c) => ({
-			id: c.id ?? null,
-			description: c.description ?? '',
-			amount: c.amount ?? 0,
-			type: c.type,
-			amountPerWeek: c.amountPerWeek ?? null,
-			phaseAbbreviation: c.phaseAbbreviation ?? null
-		}))
-	);
 	let open = $state(false);
 
-	const oneTimeCount = $derived(items.filter((c) => c.type === 'ONE_TIME').length);
-	const recurringCount = $derived(items.filter((c) => c.type === 'RECURRING').length);
-
-	function notify() {
-		onchange(
-			items.map((c) => ({
-				id: c.id,
-				description: c.description,
-				amount: c.amount,
-				type: c.type,
-				amountPerWeek: c.amountPerWeek,
-				phaseAbbreviation: c.phaseAbbreviation
-			}))
-		);
-	}
+	const oneTimeCount = $derived(costs.filter((c) => c.type === 'ONE_TIME').length);
+	const recurringCount = $derived(costs.filter((c) => c.type === 'RECURRING').length);
 
 	function addOneTime() {
-		items.push({
+		costs.push({
 			id: null,
 			description: '',
 			amount: 0,
@@ -50,11 +25,10 @@
 			amountPerWeek: null,
 			phaseAbbreviation: null
 		});
-		notify();
 	}
 
 	function addRecurring() {
-		items.push({
+		costs.push({
 			id: null,
 			description: '',
 			amount: 0,
@@ -62,32 +36,26 @@
 			amountPerWeek: 0,
 			phaseAbbreviation: null
 		});
-		notify();
 	}
 
 	function deleteRow(i: number) {
-		items.splice(i, 1);
-		notify();
+		costs.splice(i, 1);
 	}
 
 	function updateDescription(i: number, raw: string) {
-		items[i].description = raw;
-		notify();
+		costs[i].description = raw;
 	}
 
 	function updatePhase(i: number, raw: string) {
-		items[i].phaseAbbreviation = raw === '' ? null : raw;
-		notify();
+		costs[i].phaseAbbreviation = raw === '' ? null : raw;
 	}
 
 	function updateAmount(i: number, raw: string) {
-		items[i].amount = raw === '' ? 0 : parseFloat(raw);
-		notify();
+		costs[i].amount = raw === '' ? 0 : parseFloat(raw);
 	}
 
 	function updateAmountPerWeek(i: number, raw: string) {
-		items[i].amountPerWeek = raw === '' ? null : parseFloat(raw);
-		notify();
+		costs[i].amountPerWeek = raw === '' ? null : parseFloat(raw);
 	}
 
 	function totalRecurring(cost: ApiAdditionalCost): string {
@@ -137,7 +105,7 @@
 						</tr>
 					</thead>
 					<tbody>
-						{#each items as cost, i (i)}
+						{#each costs as cost, i (i)}
 							{#if cost.type === 'ONE_TIME'}
 								<tr class="border-b hover:bg-gray-50">
 									<td class="py-1 px-3">
@@ -237,7 +205,7 @@
 						</tr>
 					</thead>
 					<tbody>
-						{#each items as cost, i (i)}
+						{#each costs as cost, i (i)}
 							{#if cost.type === 'RECURRING'}
 								<tr class="border-b hover:bg-gray-50">
 									<td class="py-1 px-3">

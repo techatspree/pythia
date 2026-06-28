@@ -1,48 +1,23 @@
-<script lang="ts" module>
-	export type Leaf = {
-		logicalId: string;
-		type: 'FIXED' | 'TIME_RELATIVE';
-		description: string;
-		minEffort: number | null;
-		expectedEffort: number | null;
-		maxEffort: number | null;
-		assumptions: string | null;
-		phaseAbbreviation: string | null;
-		unit: string | null;
-	};
-
-	export type Group = {
-		logicalId: string;
-		type: 'GROUP';
-		title: string;
-		children: Node[];
-	};
-
-	export type Node = Leaf | Group;
-
-	export type NodePath = number[];
-
-	export type CalcEntry = { offerPT: number; cost: number; offerPrice: number };
-</script>
-
 <script lang="ts">
 	import TreeTable from './treetable/TreeTable.svelte';
-	import type {
-		TreeColumn,
-		TreeNodeContext,
-		ChildrenChangeEvent
-	} from './treetable/types';
+	import type { TreeColumn, TreeNodeContext } from './treetable/types';
+	import {
+		newId,
+		type Node,
+		type Leaf,
+		type Group,
+		type NodePath,
+		type CalcEntry
+	} from '$lib/estimationNodes';
 
 	let {
-		version,
+		roots = $bindable<Node[]>([]),
 		editable,
-		onchange,
 		calcMap = new Map<string, CalcEntry>(),
 		phases = []
 	}: {
-		version: any;
+		roots?: Node[];
 		editable: boolean;
-		onchange: (roots: Node[]) => void;
 		calcMap?: Map<string, CalcEntry>;
 		phases?: any[];
 	} = $props();
@@ -50,38 +25,6 @@
 	function pert(o: number | null, m: number | null, p: number | null): number {
 		return ((o ?? 0) + 4 * (m ?? 0) + (p ?? 0)) / 6;
 	}
-
-	function newId(): string {
-		return crypto.randomUUID();
-	}
-
-	function initRoots(v: any): Node[] {
-		return (v?.roots ?? []).map(initNode);
-	}
-
-	function initNode(n: any): Node {
-		if (n.type === 'GROUP') {
-			return {
-				logicalId: n.logicalId ?? newId(),
-				type: 'GROUP',
-				title: n.title ?? '',
-				children: (n.children ?? []).map(initNode)
-			};
-		}
-		return {
-			logicalId: n.logicalId ?? newId(),
-			type: n.type === 'TIME_RELATIVE' ? 'TIME_RELATIVE' : 'FIXED',
-			description: n.description ?? '',
-			minEffort: n.minEffort ?? null,
-			expectedEffort: n.expectedEffort ?? null,
-			maxEffort: n.maxEffort ?? null,
-			assumptions: n.assumptions ?? null,
-			phaseAbbreviation: n.phaseAbbreviation ?? null,
-			unit: n.unit ?? null
-		};
-	}
-
-	let roots = $state<Node[]>(initRoots(version));
 
 	function pathKey(p: NodePath): string {
 		return p.join('-');
@@ -102,38 +45,6 @@
 			if (node && node.type === 'GROUP') current = node.children;
 		}
 		return node!;
-	}
-
-	function serialize(nodes: Node[]): Node[] {
-		return nodes.map((n) => {
-			if (n.type === 'GROUP') {
-				return {
-					logicalId: n.logicalId,
-					type: 'GROUP',
-					title: n.title,
-					children: serialize(n.children)
-				};
-			}
-			return {
-				logicalId: n.logicalId,
-				type: n.type,
-				description: n.description,
-				minEffort: n.minEffort,
-				expectedEffort: n.expectedEffort,
-				maxEffort: n.maxEffort,
-				assumptions: n.assumptions,
-				phaseAbbreviation: n.phaseAbbreviation,
-				unit: n.unit
-			};
-		});
-	}
-
-	function notify() {
-		onchange(serialize(roots));
-	}
-
-	function handleChildrenChange(e: ChildrenChangeEvent<Node>) {
-		if (e.phase === 'finalize') notify();
 	}
 
 	function addRootGroup() {
@@ -158,7 +69,6 @@
 				]
 			}
 		];
-		notify();
 	}
 
 	function addChildGroupAt(path: NodePath) {
@@ -168,7 +78,6 @@
 			{ logicalId: newId(), type: 'GROUP', title: 'New group', children: [] }
 		];
 		roots = [...roots];
-		notify();
 	}
 
 	function addChildLeafAt(path: NodePath) {
@@ -188,7 +97,6 @@
 			}
 		];
 		roots = [...roots];
-		notify();
 	}
 
 	function deleteAt(path: NodePath) {
@@ -202,7 +110,6 @@
 			g.children = g.children.filter((_, i) => i !== idx);
 			roots = [...roots];
 		}
-		notify();
 	}
 
 	function allLeaves(nodes: Node[]): Leaf[] {
@@ -342,7 +249,6 @@
 				value={node.title}
 				oninput={(e) => {
 					node.title = e.currentTarget.value;
-					notify();
 				}}
 			/>
 		{:else}
@@ -360,7 +266,6 @@
 			onkeydown={(e) => onKeyDown(e, ctx.path, 0)}
 			oninput={(e) => {
 				node.description = e.currentTarget.value;
-				notify();
 			}}
 		/>
 	{:else}
@@ -378,7 +283,6 @@
 					const v = e.currentTarget.value;
 					node.type = v === 'TIME_RELATIVE' ? 'TIME_RELATIVE' : 'FIXED';
 					node.unit = v === 'TIME_RELATIVE' ? 'h/Woche' : null;
-					notify();
 				}}
 			>
 				<option value="FIXED">Fixed</option>
@@ -400,7 +304,6 @@
 				value={node.phaseAbbreviation ?? ''}
 				onchange={(e) => {
 					node.phaseAbbreviation = e.currentTarget.value === '' ? null : e.currentTarget.value;
-					notify();
 				}}
 			>
 				<option value="">— none —</option>
@@ -428,7 +331,6 @@
 				oninput={(e) => {
 					const v = e.currentTarget.value;
 					node.minEffort = v === '' ? null : parseFloat(v);
-					notify();
 				}}
 			/>
 		{:else}
@@ -451,7 +353,6 @@
 				oninput={(e) => {
 					const v = e.currentTarget.value;
 					node.expectedEffort = v === '' ? null : parseFloat(v);
-					notify();
 				}}
 			/>
 		{:else}
@@ -474,7 +375,6 @@
 				oninput={(e) => {
 					const v = e.currentTarget.value;
 					node.maxEffort = v === '' ? null : parseFloat(v);
-					notify();
 				}}
 			/>
 		{:else}
@@ -503,7 +403,6 @@
 				onkeydown={(e) => onKeyDown(e, ctx.path, 5)}
 				oninput={(e) => {
 					node.assumptions = e.currentTarget.value || null;
-					notify();
 				}}
 			/>
 		{:else}
@@ -613,7 +512,6 @@
 			{getChildren}
 			treeColumnKey="description"
 			{editable}
-			onChildrenChange={handleChildrenChange}
 			rowActions={rowActionsSnippet}
 			actionsPlacement="treeColumn"
 			rowAttrs={legacyRowAttrs}
