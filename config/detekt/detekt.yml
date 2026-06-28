@@ -19,6 +19,15 @@ complexity:
   LargeClass:
     threshold: 800
 
+naming:
+  ConstructorParameterNaming:
+    # The KMP domain models use underscore-prefixed private constructor
+    # parameters that back get()-computed properties (the "underscore-forwarding
+    # constructor" convention — see CLAUDE.md). Allow an optional leading
+    # underscore on private constructor params so this intentional pattern is
+    # not reported.
+    privateParameterPattern: '_?[a-z][A-Za-z0-9]*'
+
 style:
   MagicNumber:
     ignoreNumbers: ['-1', '0', '1', '2', '6', '10', '100']

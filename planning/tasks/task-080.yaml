@@ -1,0 +1,224 @@
+id: task-080
+phase: phase-2
+title: Remove dev auth default-user fallback; strict-only
+depends_on: [task-006, task-008]
+description: |
+  Remove the dev authentication module's "default-user" fallback
+  entirely, so the dev module has exactly one behaviour: a request must
+  carry a valid `Authorization: Dev <subjectId>` header or it is
+  rejected (401). There is no implicit logged-in user.
+
+  WHY. Today, when no `Authorization` header is sent, the dev module can
+  assume a configured fallback user (`app.auth.dev.default-user`). It is
+  set to `dev-admin` under `%dev-local`, `%dev`, and `%test`, and left
+  empty (strict) under `%dev-minikube`/`%prod` (which use Entra anyway).
+  This is NOT a production vulnerability — the prod/minikube images are
+  built with `app.auth.provider=entra`, so the dev beans are gated out
+  by `@IfBuildProperty` and the fallback code is not even compiled in,
+  and both profiles set the fallback empty regardless. But it is a
+  developer/quality footgun: in local dev every unauthenticated request
+  silently becomes `dev-admin`, so authz regressions (missing
+  `@RolesAllowed`, wrong role checks, unauthenticated paths) stay
+  invisible until they hit Entra. Making strict the only behaviour
+  forces the real auth path to be exercised everywhere.
+
+  CURRENT STATE (verified against the working tree):
+    - `application.properties` declares `app.auth.dev.default-user`
+      (file-level empty) plus `%dev-local`/`%dev`/`%test` = `dev-admin`
+      and `%dev-minikube`/`%prod` = empty, under a "Dev module
+      default-user fallback" comment block.
+    - `DevHttpAuthMechanism` injects
+      `@ConfigProperty(name="app.auth.dev.default-user") defaultUserConfig: Optional<String>`
+      and passes the resolved `defaultUser` into `resolveDevUser(...)`.
+    - `DevAuthHeaderParser.resolveDevUser(authorizationHeader, defaultUser)`
+      returns `Authenticated(defaultUser)` when the header is absent and
+      a default is configured, else `Anonymous`.
+    - The 5 backend `@QuarkusTest` ITs
+      (`EstimationResourceIT`, `EstimationVersionResourceIT`,
+      `ProjectResourceIT`, `SubmissionTreeIT`, `ProjectServiceIT`) issue
+      RestAssured `given()` calls with NO `Authorization` header — they
+      pass today ONLY because the `%test` fallback makes every call
+      `dev-admin`. Removing the fallback 401s them unless they send a
+      header.
+    - `scripts/dev-local-strict.sh` spins up a SECOND backend on :8081
+      with the fallback disabled purely so the strict-mode e2e cases can
+      run; `e2e/auth-gate.test.ts` gates three API-level 401 assertions
+      behind `STRICT_BACKEND_URL` pointing at :8081.
+    - `e2e/auth.test.ts` test #1 asserts unauthenticated `/api/auth/me`
+      → 200 `dev-admin` (the fallback). Its other cases send real
+      headers and are unaffected.
+    - The Playwright suite pre-seeds `devAuthSubject=dev-admin` in
+      localStorage (`playwright.config.ts`), so the SPA attaches a real
+      `Authorization: Dev dev-admin` header — the seeded e2e tests do
+      NOT rely on the backend fallback and need no change.
+    - Docs: `docs/authentication.md` has a "Default-user fallback" section,
+      a "Strict-mode integration (the second backend)" section, and an
+      "Automated coverage" table whose row #1 documents the no-header →
+      dev-admin behaviour.
+
+  TARGET STATE:
+    - No `app.auth.dev.default-user` property anywhere; no `defaultUser`
+      parameter or `Optional<String>` config in the dev module. The dev
+      module is strict-only: missing/blank header → `Anonymous` → 401;
+      invalid header (wrong scheme, malformed/unknown subject) →
+      `Reject` → 401; valid `Dev <known-subject>` → `Authenticated`.
+    - dev-local is therefore strict by itself, so the separate
+      `scripts/dev-local-strict.sh` "second backend" and the
+      `STRICT_BACKEND_URL` gating disappear; the strict-mode e2e
+      assertions run against the normal dev-local backend.
+    - The 5 ITs authenticate via one shared test helper (a JUnit5
+      extension that installs a global RestAssured `Authorization: Dev
+      dev-admin` request spec) rather than editing every `given()` call.
+    - A new pure-unit `DevAuthHeaderParserTest` locks in the strict
+      contract for `resolveDevUser`.
+    - `docs/authentication.md` and `CLAUDE.md` reflect strict-only.
+
+  This is a config + small backend refactor + test retrofit. It adds no
+  new REST endpoint, service operation, domain calculation, or frontend
+  data flow, so the CLAUDE.md "Logging" conventions impose no new log
+  statements (the dev module's existing behaviour is only simplified).
+
+steps:
+  - |
+    application.properties — in
+    `src/backend/implementation/src/main/resources/application.properties`,
+    delete the entire "Dev module default-user fallback" comment block
+    and ALL `app.auth.dev.default-user` lines (the file-level default and
+    the `%dev-local`, `%dev`, `%test`, `%dev-minikube`, `%prod`
+    overrides). Leave every `app.auth.provider` line untouched.
+
+  - |
+    DevAuthHeaderParser — in
+    `src/backend/implementation/src/main/kotlin/io/github/theestimator/auth/dev/DevAuthHeaderParser.kt`,
+    change the signature to `fun resolveDevUser(authorizationHeader: String?): DevAuthResult`
+    (drop the `defaultUser` parameter). When `authorizationHeader` is
+    null/blank, return `DevAuthResult.Anonymous` (no default lookup).
+    Keep the existing scheme/subject validation for the present-header
+    path. Update the `DevAuthResult.Anonymous` KDoc to read that the
+    header is missing so the request is rejected with 401 (strict).
+
+  - |
+    DevHttpAuthMechanism — in
+    `src/backend/implementation/src/main/kotlin/io/github/theestimator/auth/dev/DevHttpAuthMechanism.kt`,
+    remove the `@ConfigProperty(name="app.auth.dev.default-user")
+    defaultUserConfig: Optional<String>` constructor parameter, the
+    `defaultUser` property/getter, and the now-unused imports
+    (`java.util.Optional`, `org.eclipse.microprofile.config.inject.ConfigProperty`).
+    Call `resolveDevUser(header)` with the single argument. Behaviour of
+    the three result branches (Authenticated / Anonymous→nullItem /
+    Reject→AuthenticationFailedException) stays as-is.
+
+  - |
+    Parser unit test — create
+    `src/backend/implementation/src/test/kotlin/io/github/theestimator/auth/DevAuthHeaderParserTest.kt`
+    (package `io.github.theestimator.auth`, plain JUnit5 — NOT `@QuarkusTest`).
+    Assert: null header → `Anonymous`; blank/whitespace header →
+    `Anonymous`; `"Dev dev-admin"` → `Authenticated` with subjectId
+    `dev-admin`; `"Dev nope-not-a-user"` → `Reject`; `"Bearer x.y.z"` →
+    `Reject`; lowercase `"dev dev-admin"` → `Reject`.
+
+  - |
+    Shared IT auth helper — create
+    `src/backend/implementation/src/test/kotlin/io/github/theestimator/auth/DevAuthTestSupport.kt`
+    providing a JUnit5 extension `DevAdminAuth` (implements
+    `BeforeEachCallback` + `AfterEachCallback`) that, in `beforeEach`,
+    sets `io.restassured.RestAssured.requestSpecification =
+    io.restassured.builder.RequestSpecBuilder().addHeader("Authorization", "Dev dev-admin").build()`
+    and, in `afterEach`, resets it to `null` so the global spec does not
+    leak across classes. Expose the header value as a constant.
+
+  - |
+    Annotate the ITs — add `@org.junit.jupiter.api.extension.ExtendWith(DevAdminAuth::class)`
+    to each of the five `@QuarkusTest` IT classes
+    (`EstimationResourceIT`, `EstimationVersionResourceIT`,
+    `ProjectResourceIT`, `SubmissionTreeIT`, `ProjectServiceIT`) so their
+    RestAssured calls (including any in `@BeforeEach setup()`) carry the
+    dev-admin header. Do NOT edit individual `given()` calls.
+
+  - |
+    Strict-by-default scripts — delete `scripts/dev-local-strict.sh`
+    (dev-local is now strict on its own). In `scripts/dev-local.sh`,
+    remove the comment references to the strict second backend
+    (the daemon-snapshot comment and any mention of
+    `scripts/dev-local-strict.sh`), leaving the script's behaviour
+    otherwise unchanged.
+
+  - |
+    e2e — update `src/frontend/e2e/auth.test.ts`: change test #1 so an
+    unauthenticated `GET /api/auth/me` expects **401** (rename it to
+    reflect strict rejection; drop the "default-user fallback" wording).
+    Leave the header-bearing tests unchanged. In
+    `src/frontend/e2e/auth-gate.test.ts`, remove the `STRICT_BACKEND_URL`
+    / `SKIP_MSG` gating and the `test.skip(...)` calls so the three
+    API-level 401 assertions (no header, unknown `Dev` user, `Bearer`
+    scheme) run against the standard dev-local backend
+    (`http://localhost:8080`); keep the "unauthenticated SPA gate" test.
+
+  - |
+    Docs — in `docs/authentication.md`: delete the "## Default-user
+    fallback (developer convenience)" section; rewrite "## Strict-mode
+    integration (the second backend)" to state the dev module is
+    strict-only (no second backend, no `STRICT_BACKEND_URL`, no
+    `dev-local-strict.sh`); fix the "## Automated coverage — dev module"
+    table so the no-header row reads 401 (not 200/dev-admin) and drop the
+    :8081 / `APP_AUTH_DEV_DEFAULT_USER` / second-backend references. In
+    `CLAUDE.md`, add one sentence to the "### Modular authentication and
+    authorization" section stating the dev module is strict — a
+    missing/invalid `Authorization: Dev <subjectId>` header yields 401
+    and there is no default-user fallback.
+
+  - |
+    Build + checks (Docker required for the Testcontainers ITs):
+      ./mvnw -pl src/backend/implementation -am test
+      cd src/frontend && npm run check
+
+validation:
+  - |
+    Fallback config and mechanism are gone:
+      ! grep -q "app.auth.dev.default-user" src/backend/implementation/src/main/resources/application.properties
+      ! grep -q "default-user" src/backend/implementation/src/main/kotlin/io/github/theestimator/auth/dev/DevHttpAuthMechanism.kt
+      ! grep -q "defaultUser" src/backend/implementation/src/main/kotlin/io/github/theestimator/auth/dev/DevAuthHeaderParser.kt
+      grep -q "fun resolveDevUser(authorizationHeader: String?)" src/backend/implementation/src/main/kotlin/io/github/theestimator/auth/dev/DevAuthHeaderParser.kt
+  - |
+    Strict contract is unit-tested and the second backend is removed:
+      test -f src/backend/implementation/src/test/kotlin/io/github/theestimator/auth/DevAuthHeaderParserTest.kt
+      grep -q "Anonymous" src/backend/implementation/src/test/kotlin/io/github/theestimator/auth/DevAuthHeaderParserTest.kt
+      ! test -f scripts/dev-local-strict.sh
+  - |
+    ITs authenticate via the shared helper:
+      test -f src/backend/implementation/src/test/kotlin/io/github/theestimator/auth/DevAuthTestSupport.kt
+      grep -q "Dev dev-admin" src/backend/implementation/src/test/kotlin/io/github/theestimator/auth/DevAuthTestSupport.kt
+      grep -q "DevAdminAuth" src/backend/implementation/src/test/kotlin/io/github/theestimator/rest/EstimationVersionResourceIT.kt
+      grep -q "DevAdminAuth" src/backend/implementation/src/test/kotlin/io/github/theestimator/rest/ProjectResourceIT.kt
+  - |
+    e2e reflects strict-only (no fallback assertion, no STRICT gating):
+      ! grep -qi "default-user fallback" src/frontend/e2e/auth.test.ts
+      grep -q "401" src/frontend/e2e/auth.test.ts
+      ! grep -q "STRICT_BACKEND_URL" src/frontend/e2e/auth-gate.test.ts
+  - |
+    Docs updated:
+      ! grep -q "Default-user fallback" docs/authentication.md
+      ! grep -q "dev-local-strict" docs/authentication.md
+      grep -qi "no default-user fallback" CLAUDE.md
+  - |
+    Backend ITs pass under strict auth and the frontend type-checks:
+      ./mvnw -pl src/backend/implementation -am test
+      cd src/frontend && npm run check
+
+outputs:
+  - modified: src/backend/implementation/src/main/resources/application.properties
+  - modified: src/backend/implementation/src/main/kotlin/io/github/theestimator/auth/dev/DevAuthHeaderParser.kt
+  - modified: src/backend/implementation/src/main/kotlin/io/github/theestimator/auth/dev/DevHttpAuthMechanism.kt
+  - created: src/backend/implementation/src/test/kotlin/io/github/theestimator/auth/DevAuthHeaderParserTest.kt
+  - created: src/backend/implementation/src/test/kotlin/io/github/theestimator/auth/DevAuthTestSupport.kt
+  - modified: src/backend/implementation/src/test/kotlin/io/github/theestimator/rest/EstimationResourceIT.kt
+  - modified: src/backend/implementation/src/test/kotlin/io/github/theestimator/rest/EstimationVersionResourceIT.kt
+  - modified: src/backend/implementation/src/test/kotlin/io/github/theestimator/rest/ProjectResourceIT.kt
+  - modified: src/backend/implementation/src/test/kotlin/io/github/theestimator/rest/SubmissionTreeIT.kt
+  - modified: src/backend/implementation/src/test/kotlin/io/github/theestimator/service/ProjectServiceIT.kt
+  - deleted: scripts/dev-local-strict.sh
+  - modified: scripts/dev-local.sh
+  - modified: src/frontend/e2e/auth.test.ts
+  - modified: src/frontend/e2e/auth-gate.test.ts
+  - modified: docs/authentication.md
+  - modified: CLAUDE.md
