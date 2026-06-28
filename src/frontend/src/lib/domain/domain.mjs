@@ -26,6 +26,7 @@ import {
   toListx6x8nvfmvvht as toList_0,
   addAll1k27qatfgp3k5 as addAll,
   initMetadataForObject1cxne3s9w65el as initMetadataForObject,
+  initMetadataForCompanion1wyw17z38v6ac as initMetadataForCompanion,
   copyToArray2j022khrow2yi as copyToArray,
 } from './kotlin-kotlin-stdlib.mjs';
 import { KotlinLogging_instance20u19uwz7rzsk as KotlinLogging_instance } from './kotlin-logging.mjs';
@@ -52,6 +53,7 @@ initMetadataForClass(ProjectPhase, 'ProjectPhase', VOID, BaseDomain);
 initMetadataForClass(ProjectStatus, 'ProjectStatus', VOID, Enum);
 initMetadataForClass(TimeRelativeEstimationItem, 'TimeRelativeEstimationItem', VOID, EstimationItem);
 initMetadataForClass(User, 'User', User, BaseDomain);
+initMetadataForCompanion(Companion);
 initMetadataForClass(EstimationCalculator, 'EstimationCalculator', EstimationCalculator);
 initMetadataForClass(InvariantResult, 'InvariantResult');
 //endregion
@@ -1248,9 +1250,11 @@ protoOf(FixedEstimationItem).equals = function (other) {
   return true;
 };
 function PertCalculation_0() {
+  this.pd_1 = 4.0;
+  this.qd_1 = 6.0;
 }
 protoOf(PertCalculation_0).mean = function (min, expected, max) {
-  return (min + 4 * expected + max) / 6.0;
+  return (min + 4.0 * expected + max) / 6.0;
 };
 protoOf(PertCalculation_0).variance = function (min, max) {
   var range = (max - min) / 6.0;
@@ -1275,29 +1279,29 @@ function Project(name, description, client, status, owner, _id, _createdAt, _upd
   _createdAt = _createdAt === VOID ? null : _createdAt;
   _updatedAt = _updatedAt === VOID ? null : _updatedAt;
   BaseDomain.call(this, _id, _createdAt, _updatedAt);
-  this.sd_1 = name;
-  this.td_1 = description;
-  this.ud_1 = client;
-  this.vd_1 = status;
-  this.wd_1 = owner;
-  this.xd_1 = _id;
-  this.yd_1 = _createdAt;
-  this.zd_1 = _updatedAt;
+  this.ud_1 = name;
+  this.vd_1 = description;
+  this.wd_1 = client;
+  this.xd_1 = status;
+  this.yd_1 = owner;
+  this.zd_1 = _id;
+  this.ae_1 = _createdAt;
+  this.be_1 = _updatedAt;
 }
 protoOf(Project).c1 = function () {
-  return this.sd_1;
-};
-protoOf(Project).k7 = function () {
-  return this.td_1;
-};
-protoOf(Project).ae = function () {
   return this.ud_1;
 };
-protoOf(Project).yb = function () {
+protoOf(Project).k7 = function () {
   return this.vd_1;
 };
-protoOf(Project).be = function () {
+protoOf(Project).ce = function () {
   return this.wd_1;
+};
+protoOf(Project).yb = function () {
+  return this.xd_1;
+};
+protoOf(Project).de = function () {
+  return this.yd_1;
 };
 protoOf(Project).g5 = function () {
   return this.name;
@@ -1314,7 +1318,7 @@ protoOf(Project).q7 = function () {
 protoOf(Project).r7 = function () {
   return this.owner;
 };
-protoOf(Project).ce = function (name, description, client, status, owner, _id, _createdAt, _updatedAt) {
+protoOf(Project).ee = function (name, description, client, status, owner, _id, _createdAt, _updatedAt) {
   return new Project(name, description, client, status, owner, _id, _createdAt, _updatedAt);
 };
 protoOf(Project).copy = function (name, description, client, status, owner, _id, _createdAt, _updatedAt, $super) {
@@ -1323,13 +1327,13 @@ protoOf(Project).copy = function (name, description, client, status, owner, _id,
   client = client === VOID ? this.client : client;
   status = status === VOID ? this.status : status;
   owner = owner === VOID ? this.owner : owner;
-  _id = _id === VOID ? this.xd_1 : _id;
-  _createdAt = _createdAt === VOID ? this.yd_1 : _createdAt;
-  _updatedAt = _updatedAt === VOID ? this.zd_1 : _updatedAt;
-  return $super === VOID ? this.ce(name, description, client, status, owner, _id, _createdAt, _updatedAt) : $super.ce.call(this, name, description, client, status, owner, _id, _createdAt, _updatedAt);
+  _id = _id === VOID ? this.zd_1 : _id;
+  _createdAt = _createdAt === VOID ? this.ae_1 : _createdAt;
+  _updatedAt = _updatedAt === VOID ? this.be_1 : _updatedAt;
+  return $super === VOID ? this.ee(name, description, client, status, owner, _id, _createdAt, _updatedAt) : $super.ee.call(this, name, description, client, status, owner, _id, _createdAt, _updatedAt);
 };
 protoOf(Project).toString = function () {
-  return 'Project(name=' + this.name + ', description=' + this.description + ', client=' + this.client + ', status=' + this.status.toString() + ', owner=' + toString(this.owner) + ', _id=' + this.xd_1 + ', _createdAt=' + this.yd_1 + ', _updatedAt=' + this.zd_1 + ')';
+  return 'Project(name=' + this.name + ', description=' + this.description + ', client=' + this.client + ', status=' + this.status.toString() + ', owner=' + toString(this.owner) + ', _id=' + this.zd_1 + ', _createdAt=' + this.ae_1 + ', _updatedAt=' + this.be_1 + ')';
 };
 protoOf(Project).hashCode = function () {
   var result = getStringHashCode(this.name);
@@ -1337,9 +1341,9 @@ protoOf(Project).hashCode = function () {
   result = imul(result, 31) + getStringHashCode(this.client) | 0;
   result = imul(result, 31) + this.status.hashCode() | 0;
   result = imul(result, 31) + (this.owner == null ? 0 : this.owner.hashCode()) | 0;
-  result = imul(result, 31) + (this.xd_1 == null ? 0 : getStringHashCode(this.xd_1)) | 0;
-  result = imul(result, 31) + (this.yd_1 == null ? 0 : getStringHashCode(this.yd_1)) | 0;
   result = imul(result, 31) + (this.zd_1 == null ? 0 : getStringHashCode(this.zd_1)) | 0;
+  result = imul(result, 31) + (this.ae_1 == null ? 0 : getStringHashCode(this.ae_1)) | 0;
+  result = imul(result, 31) + (this.be_1 == null ? 0 : getStringHashCode(this.be_1)) | 0;
   return result;
 };
 protoOf(Project).equals = function (other) {
@@ -1358,11 +1362,11 @@ protoOf(Project).equals = function (other) {
     return false;
   if (!equals(this.owner, tmp0_other_with_cast.owner))
     return false;
-  if (!(this.xd_1 == tmp0_other_with_cast.xd_1))
-    return false;
-  if (!(this.yd_1 == tmp0_other_with_cast.yd_1))
-    return false;
   if (!(this.zd_1 == tmp0_other_with_cast.zd_1))
+    return false;
+  if (!(this.ae_1 == tmp0_other_with_cast.ae_1))
+    return false;
+  if (!(this.be_1 == tmp0_other_with_cast.be_1))
     return false;
   return true;
 };
@@ -1372,21 +1376,21 @@ function ProjectPhase(name, abbreviation, durationWeeks, _id, _createdAt, _updat
   _createdAt = _createdAt === VOID ? null : _createdAt;
   _updatedAt = _updatedAt === VOID ? null : _updatedAt;
   BaseDomain.call(this, _id, _createdAt, _updatedAt);
-  this.ge_1 = name;
-  this.he_1 = abbreviation;
-  this.ie_1 = durationWeeks;
-  this.je_1 = _id;
-  this.ke_1 = _createdAt;
-  this.le_1 = _updatedAt;
+  this.ie_1 = name;
+  this.je_1 = abbreviation;
+  this.ke_1 = durationWeeks;
+  this.le_1 = _id;
+  this.me_1 = _createdAt;
+  this.ne_1 = _updatedAt;
 }
 protoOf(ProjectPhase).c1 = function () {
-  return this.ge_1;
-};
-protoOf(ProjectPhase).me = function () {
-  return this.he_1;
-};
-protoOf(ProjectPhase).ne = function () {
   return this.ie_1;
+};
+protoOf(ProjectPhase).oe = function () {
+  return this.je_1;
+};
+protoOf(ProjectPhase).pe = function () {
+  return this.ke_1;
 };
 protoOf(ProjectPhase).g5 = function () {
   return this.name;
@@ -1397,28 +1401,28 @@ protoOf(ProjectPhase).h5 = function () {
 protoOf(ProjectPhase).p7 = function () {
   return this.durationWeeks;
 };
-protoOf(ProjectPhase).oe = function (name, abbreviation, durationWeeks, _id, _createdAt, _updatedAt) {
+protoOf(ProjectPhase).qe = function (name, abbreviation, durationWeeks, _id, _createdAt, _updatedAt) {
   return new ProjectPhase(name, abbreviation, durationWeeks, _id, _createdAt, _updatedAt);
 };
 protoOf(ProjectPhase).copy = function (name, abbreviation, durationWeeks, _id, _createdAt, _updatedAt, $super) {
   name = name === VOID ? this.name : name;
   abbreviation = abbreviation === VOID ? this.abbreviation : abbreviation;
   durationWeeks = durationWeeks === VOID ? this.durationWeeks : durationWeeks;
-  _id = _id === VOID ? this.je_1 : _id;
-  _createdAt = _createdAt === VOID ? this.ke_1 : _createdAt;
-  _updatedAt = _updatedAt === VOID ? this.le_1 : _updatedAt;
-  return $super === VOID ? this.oe(name, abbreviation, durationWeeks, _id, _createdAt, _updatedAt) : $super.oe.call(this, name, abbreviation, durationWeeks, _id, _createdAt, _updatedAt);
+  _id = _id === VOID ? this.le_1 : _id;
+  _createdAt = _createdAt === VOID ? this.me_1 : _createdAt;
+  _updatedAt = _updatedAt === VOID ? this.ne_1 : _updatedAt;
+  return $super === VOID ? this.qe(name, abbreviation, durationWeeks, _id, _createdAt, _updatedAt) : $super.qe.call(this, name, abbreviation, durationWeeks, _id, _createdAt, _updatedAt);
 };
 protoOf(ProjectPhase).toString = function () {
-  return 'ProjectPhase(name=' + this.name + ', abbreviation=' + this.abbreviation + ', durationWeeks=' + this.durationWeeks + ', _id=' + this.je_1 + ', _createdAt=' + this.ke_1 + ', _updatedAt=' + this.le_1 + ')';
+  return 'ProjectPhase(name=' + this.name + ', abbreviation=' + this.abbreviation + ', durationWeeks=' + this.durationWeeks + ', _id=' + this.le_1 + ', _createdAt=' + this.me_1 + ', _updatedAt=' + this.ne_1 + ')';
 };
 protoOf(ProjectPhase).hashCode = function () {
   var result = getStringHashCode(this.name);
   result = imul(result, 31) + getStringHashCode(this.abbreviation) | 0;
   result = imul(result, 31) + getNumberHashCode(this.durationWeeks) | 0;
-  result = imul(result, 31) + (this.je_1 == null ? 0 : getStringHashCode(this.je_1)) | 0;
-  result = imul(result, 31) + (this.ke_1 == null ? 0 : getStringHashCode(this.ke_1)) | 0;
   result = imul(result, 31) + (this.le_1 == null ? 0 : getStringHashCode(this.le_1)) | 0;
+  result = imul(result, 31) + (this.me_1 == null ? 0 : getStringHashCode(this.me_1)) | 0;
+  result = imul(result, 31) + (this.ne_1 == null ? 0 : getStringHashCode(this.ne_1)) | 0;
   return result;
 };
 protoOf(ProjectPhase).equals = function (other) {
@@ -1433,11 +1437,11 @@ protoOf(ProjectPhase).equals = function (other) {
     return false;
   if (!equals(this.durationWeeks, tmp0_other_with_cast.durationWeeks))
     return false;
-  if (!(this.je_1 == tmp0_other_with_cast.je_1))
-    return false;
-  if (!(this.ke_1 == tmp0_other_with_cast.ke_1))
-    return false;
   if (!(this.le_1 == tmp0_other_with_cast.le_1))
+    return false;
+  if (!(this.me_1 == tmp0_other_with_cast.me_1))
+    return false;
+  if (!(this.ne_1 == tmp0_other_with_cast.ne_1))
     return false;
   return true;
 };
@@ -1491,22 +1495,22 @@ function TimeRelativeEstimationItem(unit, _description, _code, _minEffort, _expe
   _createdAt = _createdAt === VOID ? null : _createdAt;
   _updatedAt = _updatedAt === VOID ? null : _updatedAt;
   EstimationItem.call(this, _description, _code, _minEffort, _expectedEffort, _maxEffort, _assumptions, _phase, _logicalId, _calculationParameters, _id, _createdAt, _updatedAt);
-  this.df_1 = unit;
-  this.ef_1 = _description;
-  this.ff_1 = _code;
-  this.gf_1 = _minEffort;
-  this.hf_1 = _expectedEffort;
-  this.if_1 = _maxEffort;
-  this.jf_1 = _assumptions;
-  this.kf_1 = _phase;
-  this.lf_1 = _logicalId;
-  this.mf_1 = _calculationParameters;
-  this.nf_1 = _id;
-  this.of_1 = _createdAt;
-  this.pf_1 = _updatedAt;
+  this.ff_1 = unit;
+  this.gf_1 = _description;
+  this.hf_1 = _code;
+  this.if_1 = _minEffort;
+  this.jf_1 = _expectedEffort;
+  this.kf_1 = _maxEffort;
+  this.lf_1 = _assumptions;
+  this.mf_1 = _phase;
+  this.nf_1 = _logicalId;
+  this.of_1 = _calculationParameters;
+  this.pf_1 = _id;
+  this.qf_1 = _createdAt;
+  this.rf_1 = _updatedAt;
 }
-protoOf(TimeRelativeEstimationItem).qf = function () {
-  return this.df_1;
+protoOf(TimeRelativeEstimationItem).sf = function () {
+  return this.ff_1;
 };
 protoOf(TimeRelativeEstimationItem).s9 = function () {
   var tmp = PertCalculation_instance.mean(this.minEffort, this.expectedEffort, this.maxEffort);
@@ -1526,42 +1530,42 @@ protoOf(TimeRelativeEstimationItem).withCalculationParameters = function (params
 protoOf(TimeRelativeEstimationItem).g5 = function () {
   return this.unit;
 };
-protoOf(TimeRelativeEstimationItem).rf = function (unit, _description, _code, _minEffort, _expectedEffort, _maxEffort, _assumptions, _phase, _logicalId, _calculationParameters, _id, _createdAt, _updatedAt) {
+protoOf(TimeRelativeEstimationItem).tf = function (unit, _description, _code, _minEffort, _expectedEffort, _maxEffort, _assumptions, _phase, _logicalId, _calculationParameters, _id, _createdAt, _updatedAt) {
   return new TimeRelativeEstimationItem(unit, _description, _code, _minEffort, _expectedEffort, _maxEffort, _assumptions, _phase, _logicalId, _calculationParameters, _id, _createdAt, _updatedAt);
 };
 protoOf(TimeRelativeEstimationItem).copy = function (unit, _description, _code, _minEffort, _expectedEffort, _maxEffort, _assumptions, _phase, _logicalId, _calculationParameters, _id, _createdAt, _updatedAt, $super) {
   unit = unit === VOID ? this.unit : unit;
-  _description = _description === VOID ? this.ef_1 : _description;
-  _code = _code === VOID ? this.ff_1 : _code;
-  _minEffort = _minEffort === VOID ? this.gf_1 : _minEffort;
-  _expectedEffort = _expectedEffort === VOID ? this.hf_1 : _expectedEffort;
-  _maxEffort = _maxEffort === VOID ? this.if_1 : _maxEffort;
-  _assumptions = _assumptions === VOID ? this.jf_1 : _assumptions;
-  _phase = _phase === VOID ? this.kf_1 : _phase;
-  _logicalId = _logicalId === VOID ? this.lf_1 : _logicalId;
-  _calculationParameters = _calculationParameters === VOID ? this.mf_1 : _calculationParameters;
-  _id = _id === VOID ? this.nf_1 : _id;
-  _createdAt = _createdAt === VOID ? this.of_1 : _createdAt;
-  _updatedAt = _updatedAt === VOID ? this.pf_1 : _updatedAt;
-  return $super === VOID ? this.rf(unit, _description, _code, _minEffort, _expectedEffort, _maxEffort, _assumptions, _phase, _logicalId, _calculationParameters, _id, _createdAt, _updatedAt) : $super.rf.call(this, unit, _description, _code, _minEffort, _expectedEffort, _maxEffort, _assumptions, _phase, _logicalId, _calculationParameters, _id, _createdAt, _updatedAt);
+  _description = _description === VOID ? this.gf_1 : _description;
+  _code = _code === VOID ? this.hf_1 : _code;
+  _minEffort = _minEffort === VOID ? this.if_1 : _minEffort;
+  _expectedEffort = _expectedEffort === VOID ? this.jf_1 : _expectedEffort;
+  _maxEffort = _maxEffort === VOID ? this.kf_1 : _maxEffort;
+  _assumptions = _assumptions === VOID ? this.lf_1 : _assumptions;
+  _phase = _phase === VOID ? this.mf_1 : _phase;
+  _logicalId = _logicalId === VOID ? this.nf_1 : _logicalId;
+  _calculationParameters = _calculationParameters === VOID ? this.of_1 : _calculationParameters;
+  _id = _id === VOID ? this.pf_1 : _id;
+  _createdAt = _createdAt === VOID ? this.qf_1 : _createdAt;
+  _updatedAt = _updatedAt === VOID ? this.rf_1 : _updatedAt;
+  return $super === VOID ? this.tf(unit, _description, _code, _minEffort, _expectedEffort, _maxEffort, _assumptions, _phase, _logicalId, _calculationParameters, _id, _createdAt, _updatedAt) : $super.tf.call(this, unit, _description, _code, _minEffort, _expectedEffort, _maxEffort, _assumptions, _phase, _logicalId, _calculationParameters, _id, _createdAt, _updatedAt);
 };
 protoOf(TimeRelativeEstimationItem).toString = function () {
-  return 'TimeRelativeEstimationItem(unit=' + this.unit + ', _description=' + this.ef_1 + ', _code=' + this.ff_1 + ', _minEffort=' + this.gf_1 + ', _expectedEffort=' + this.hf_1 + ', _maxEffort=' + this.if_1 + ', _assumptions=' + this.jf_1 + ', _phase=' + toString(this.kf_1) + ', _logicalId=' + this.lf_1 + ', _calculationParameters=' + this.mf_1.toString() + ', _id=' + this.nf_1 + ', _createdAt=' + this.of_1 + ', _updatedAt=' + this.pf_1 + ')';
+  return 'TimeRelativeEstimationItem(unit=' + this.unit + ', _description=' + this.gf_1 + ', _code=' + this.hf_1 + ', _minEffort=' + this.if_1 + ', _expectedEffort=' + this.jf_1 + ', _maxEffort=' + this.kf_1 + ', _assumptions=' + this.lf_1 + ', _phase=' + toString(this.mf_1) + ', _logicalId=' + this.nf_1 + ', _calculationParameters=' + this.of_1.toString() + ', _id=' + this.pf_1 + ', _createdAt=' + this.qf_1 + ', _updatedAt=' + this.rf_1 + ')';
 };
 protoOf(TimeRelativeEstimationItem).hashCode = function () {
   var result = getStringHashCode(this.unit);
-  result = imul(result, 31) + getStringHashCode(this.ef_1) | 0;
-  result = imul(result, 31) + getStringHashCode(this.ff_1) | 0;
-  result = imul(result, 31) + getNumberHashCode(this.gf_1) | 0;
-  result = imul(result, 31) + getNumberHashCode(this.hf_1) | 0;
+  result = imul(result, 31) + getStringHashCode(this.gf_1) | 0;
+  result = imul(result, 31) + getStringHashCode(this.hf_1) | 0;
   result = imul(result, 31) + getNumberHashCode(this.if_1) | 0;
-  result = imul(result, 31) + getStringHashCode(this.jf_1) | 0;
-  result = imul(result, 31) + (this.kf_1 == null ? 0 : this.kf_1.hashCode()) | 0;
+  result = imul(result, 31) + getNumberHashCode(this.jf_1) | 0;
+  result = imul(result, 31) + getNumberHashCode(this.kf_1) | 0;
   result = imul(result, 31) + getStringHashCode(this.lf_1) | 0;
-  result = imul(result, 31) + this.mf_1.hashCode() | 0;
-  result = imul(result, 31) + (this.nf_1 == null ? 0 : getStringHashCode(this.nf_1)) | 0;
-  result = imul(result, 31) + (this.of_1 == null ? 0 : getStringHashCode(this.of_1)) | 0;
+  result = imul(result, 31) + (this.mf_1 == null ? 0 : this.mf_1.hashCode()) | 0;
+  result = imul(result, 31) + getStringHashCode(this.nf_1) | 0;
+  result = imul(result, 31) + this.of_1.hashCode() | 0;
   result = imul(result, 31) + (this.pf_1 == null ? 0 : getStringHashCode(this.pf_1)) | 0;
+  result = imul(result, 31) + (this.qf_1 == null ? 0 : getStringHashCode(this.qf_1)) | 0;
+  result = imul(result, 31) + (this.rf_1 == null ? 0 : getStringHashCode(this.rf_1)) | 0;
   return result;
 };
 protoOf(TimeRelativeEstimationItem).equals = function (other) {
@@ -1572,29 +1576,29 @@ protoOf(TimeRelativeEstimationItem).equals = function (other) {
   var tmp0_other_with_cast = other instanceof TimeRelativeEstimationItem ? other : THROW_CCE();
   if (!(this.unit === tmp0_other_with_cast.unit))
     return false;
-  if (!(this.ef_1 === tmp0_other_with_cast.ef_1))
+  if (!(this.gf_1 === tmp0_other_with_cast.gf_1))
     return false;
-  if (!(this.ff_1 === tmp0_other_with_cast.ff_1))
-    return false;
-  if (!equals(this.gf_1, tmp0_other_with_cast.gf_1))
-    return false;
-  if (!equals(this.hf_1, tmp0_other_with_cast.hf_1))
+  if (!(this.hf_1 === tmp0_other_with_cast.hf_1))
     return false;
   if (!equals(this.if_1, tmp0_other_with_cast.if_1))
     return false;
-  if (!(this.jf_1 === tmp0_other_with_cast.jf_1))
+  if (!equals(this.jf_1, tmp0_other_with_cast.jf_1))
     return false;
   if (!equals(this.kf_1, tmp0_other_with_cast.kf_1))
     return false;
   if (!(this.lf_1 === tmp0_other_with_cast.lf_1))
     return false;
-  if (!this.mf_1.equals(tmp0_other_with_cast.mf_1))
+  if (!equals(this.mf_1, tmp0_other_with_cast.mf_1))
     return false;
-  if (!(this.nf_1 == tmp0_other_with_cast.nf_1))
+  if (!(this.nf_1 === tmp0_other_with_cast.nf_1))
     return false;
-  if (!(this.of_1 == tmp0_other_with_cast.of_1))
+  if (!this.of_1.equals(tmp0_other_with_cast.of_1))
     return false;
   if (!(this.pf_1 == tmp0_other_with_cast.pf_1))
+    return false;
+  if (!(this.qf_1 == tmp0_other_with_cast.qf_1))
+    return false;
+  if (!(this.rf_1 == tmp0_other_with_cast.rf_1))
     return false;
   return true;
 };
@@ -1605,17 +1609,17 @@ function User(entraSubjectId, displayName, _id, _createdAt, _updatedAt) {
   _createdAt = _createdAt === VOID ? null : _createdAt;
   _updatedAt = _updatedAt === VOID ? null : _updatedAt;
   BaseDomain.call(this, _id, _createdAt, _updatedAt);
-  this.vf_1 = entraSubjectId;
-  this.wf_1 = displayName;
-  this.xf_1 = _id;
-  this.yf_1 = _createdAt;
-  this.zf_1 = _updatedAt;
+  this.xf_1 = entraSubjectId;
+  this.yf_1 = displayName;
+  this.zf_1 = _id;
+  this.ag_1 = _createdAt;
+  this.bg_1 = _updatedAt;
 }
-protoOf(User).ag = function () {
-  return this.vf_1;
+protoOf(User).cg = function () {
+  return this.xf_1;
 };
-protoOf(User).bg = function () {
-  return this.wf_1;
+protoOf(User).dg = function () {
+  return this.yf_1;
 };
 protoOf(User).g5 = function () {
   return this.entraSubjectId;
@@ -1623,26 +1627,26 @@ protoOf(User).g5 = function () {
 protoOf(User).h5 = function () {
   return this.displayName;
 };
-protoOf(User).cg = function (entraSubjectId, displayName, _id, _createdAt, _updatedAt) {
+protoOf(User).eg = function (entraSubjectId, displayName, _id, _createdAt, _updatedAt) {
   return new User(entraSubjectId, displayName, _id, _createdAt, _updatedAt);
 };
 protoOf(User).copy = function (entraSubjectId, displayName, _id, _createdAt, _updatedAt, $super) {
   entraSubjectId = entraSubjectId === VOID ? this.entraSubjectId : entraSubjectId;
   displayName = displayName === VOID ? this.displayName : displayName;
-  _id = _id === VOID ? this.xf_1 : _id;
-  _createdAt = _createdAt === VOID ? this.yf_1 : _createdAt;
-  _updatedAt = _updatedAt === VOID ? this.zf_1 : _updatedAt;
-  return $super === VOID ? this.cg(entraSubjectId, displayName, _id, _createdAt, _updatedAt) : $super.cg.call(this, entraSubjectId, displayName, _id, _createdAt, _updatedAt);
+  _id = _id === VOID ? this.zf_1 : _id;
+  _createdAt = _createdAt === VOID ? this.ag_1 : _createdAt;
+  _updatedAt = _updatedAt === VOID ? this.bg_1 : _updatedAt;
+  return $super === VOID ? this.eg(entraSubjectId, displayName, _id, _createdAt, _updatedAt) : $super.eg.call(this, entraSubjectId, displayName, _id, _createdAt, _updatedAt);
 };
 protoOf(User).toString = function () {
-  return 'User(entraSubjectId=' + this.entraSubjectId + ', displayName=' + this.displayName + ', _id=' + this.xf_1 + ', _createdAt=' + this.yf_1 + ', _updatedAt=' + this.zf_1 + ')';
+  return 'User(entraSubjectId=' + this.entraSubjectId + ', displayName=' + this.displayName + ', _id=' + this.zf_1 + ', _createdAt=' + this.ag_1 + ', _updatedAt=' + this.bg_1 + ')';
 };
 protoOf(User).hashCode = function () {
   var result = this.entraSubjectId == null ? 0 : getStringHashCode(this.entraSubjectId);
   result = imul(result, 31) + getStringHashCode(this.displayName) | 0;
-  result = imul(result, 31) + (this.xf_1 == null ? 0 : getStringHashCode(this.xf_1)) | 0;
-  result = imul(result, 31) + (this.yf_1 == null ? 0 : getStringHashCode(this.yf_1)) | 0;
   result = imul(result, 31) + (this.zf_1 == null ? 0 : getStringHashCode(this.zf_1)) | 0;
+  result = imul(result, 31) + (this.ag_1 == null ? 0 : getStringHashCode(this.ag_1)) | 0;
+  result = imul(result, 31) + (this.bg_1 == null ? 0 : getStringHashCode(this.bg_1)) | 0;
   return result;
 };
 protoOf(User).equals = function (other) {
@@ -1655,14 +1659,21 @@ protoOf(User).equals = function (other) {
     return false;
   if (!(this.displayName === tmp0_other_with_cast.displayName))
     return false;
-  if (!(this.xf_1 == tmp0_other_with_cast.xf_1))
-    return false;
-  if (!(this.yf_1 == tmp0_other_with_cast.yf_1))
-    return false;
   if (!(this.zf_1 == tmp0_other_with_cast.zf_1))
+    return false;
+  if (!(this.ag_1 == tmp0_other_with_cast.ag_1))
+    return false;
+  if (!(this.bg_1 == tmp0_other_with_cast.bg_1))
     return false;
   return true;
 };
+function Companion() {
+  this.fg_1 = 0.2;
+}
+var Companion_instance;
+function Companion_getInstance_0() {
+  return Companion_instance;
+}
 function EstimationCalculator() {
 }
 protoOf(EstimationCalculator).calculate = function (version) {
@@ -1769,13 +1780,13 @@ function InvariantResult(description, difference, tolerance) {
 protoOf(InvariantResult).k7 = function () {
   return this.description;
 };
-protoOf(InvariantResult).dg = function () {
+protoOf(InvariantResult).gg = function () {
   return this.difference;
 };
-protoOf(InvariantResult).eg = function () {
+protoOf(InvariantResult).hg = function () {
   return this.tolerance;
 };
-protoOf(InvariantResult).fg = function () {
+protoOf(InvariantResult).ig = function () {
   // Inline function 'kotlin.math.abs' call
   var x = this.difference;
   return Math.abs(x) <= this.tolerance;
@@ -1789,14 +1800,14 @@ protoOf(InvariantResult).h5 = function () {
 protoOf(InvariantResult).p7 = function () {
   return this.tolerance;
 };
-protoOf(InvariantResult).gg = function (description, difference, tolerance) {
+protoOf(InvariantResult).jg = function (description, difference, tolerance) {
   return new InvariantResult(description, difference, tolerance);
 };
 protoOf(InvariantResult).copy = function (description, difference, tolerance, $super) {
   description = description === VOID ? this.description : description;
   difference = difference === VOID ? this.difference : difference;
   tolerance = tolerance === VOID ? this.tolerance : tolerance;
-  return $super === VOID ? this.gg(description, difference, tolerance) : $super.gg.call(this, description, difference, tolerance);
+  return $super === VOID ? this.jg(description, difference, tolerance) : $super.jg.call(this, description, difference, tolerance);
 };
 protoOf(InvariantResult).toString = function () {
   return 'InvariantResult(description=' + this.description + ', difference=' + this.difference + ', tolerance=' + this.tolerance + ')';
@@ -1971,38 +1982,39 @@ defineProp(protoOf(Project), 'description', function () {
   return this.k7();
 });
 defineProp(protoOf(Project), 'client', function () {
-  return this.ae();
+  return this.ce();
 });
 defineProp(protoOf(Project), 'status', function () {
   return this.yb();
 });
 defineProp(protoOf(Project), 'owner', function () {
-  return this.be();
+  return this.de();
 });
 defineProp(protoOf(ProjectPhase), 'name', function () {
   return this.c1();
 });
 defineProp(protoOf(ProjectPhase), 'abbreviation', function () {
-  return this.me();
+  return this.oe();
 });
 defineProp(protoOf(ProjectPhase), 'durationWeeks', function () {
-  return this.ne();
+  return this.pe();
 });
 defineProp(protoOf(ProjectStatus), 'name', protoOf(ProjectStatus).c1);
 defineProp(protoOf(ProjectStatus), 'ordinal', protoOf(ProjectStatus).d1);
 defineProp(protoOf(TimeRelativeEstimationItem), 'unit', function () {
-  return this.qf();
+  return this.sf();
 });
 defineProp(protoOf(User), 'entraSubjectId', function () {
-  return this.ag();
+  return this.cg();
 });
 defineProp(protoOf(User), 'displayName', function () {
-  return this.bg();
+  return this.dg();
 });
-defineProp(protoOf(InvariantResult), 'passed', protoOf(InvariantResult).fg);
+defineProp(protoOf(InvariantResult), 'passed', protoOf(InvariantResult).ig);
 //endregion
 //region block: init
 PertCalculation_instance = new PertCalculation_0();
+Companion_instance = new Companion();
 //endregion
 //region block: exports
 AdditionalCostType.values = values;

@@ -13,6 +13,7 @@ import io.quarkus.vertx.http.runtime.security.HttpCredentialTransport
 import io.smallrye.mutiny.Uni
 import io.vertx.ext.web.RoutingContext
 import jakarta.enterprise.context.ApplicationScoped
+import jakarta.ws.rs.core.Response
 import org.eclipse.microprofile.config.inject.ConfigProperty
 import java.util.Optional
 
@@ -46,7 +47,7 @@ class DevHttpAuthMechanism(
     }
 
     override fun getChallenge(context: RoutingContext): Uni<ChallengeData> =
-        Uni.createFrom().item(ChallengeData(401, null, null))
+        Uni.createFrom().item(ChallengeData(Response.Status.UNAUTHORIZED.statusCode, null, null))
 
     override fun getCredentialTypes(): Set<Class<out AuthenticationRequest>> = emptySet()
 

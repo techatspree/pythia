@@ -23,6 +23,11 @@ import jakarta.enterprise.event.Observes
 import jakarta.persistence.EntityManager
 import jakarta.transaction.Transactional
 
+// This dev-only seeder is a wall of illustrative demo data — effort estimates,
+// prices, durations, week counts. Those literals ARE the data; extracting each
+// into a named constant would obscure rather than clarify, so MagicNumber is
+// suppressed for the whole class.
+@Suppress("MagicNumber")
 @ApplicationScoped
 @IfBuildProfile(anyOf = ["dev", "dev-local"])
 class TestDataSeeder(

@@ -3923,6 +3923,7 @@ export {
   getStringHashCode as getStringHashCode26igk1bx568vk,
   hashCode as hashCodeq5arwsb9dgti,
   initMetadataForClass as initMetadataForClassbxx6q50dy2s7,
+  initMetadataForCompanion as initMetadataForCompanion1wyw17z38v6ac,
   initMetadataForInterface as initMetadataForInterface1egvbzx539z91,
   initMetadataForObject as initMetadataForObject1cxne3s9w65el,
   objectCreate as objectCreate1ve4bgxiu4x98,

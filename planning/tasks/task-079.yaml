@@ -1,0 +1,155 @@
+id: task-079
+phase: phase-2
+title: Verify and document dev-minikube uses the Entra auth module
+depends_on: [task-007]
+description: |
+  Make it provably true — and clearly documented — that the
+  `dev-minikube` profile runs the **Entra** authentication module
+  (not the dev/static module).
+
+  Current state (verified against the working tree — the wiring
+  already exists from task-007; this task does NOT change it):
+    - `src/backend/implementation/src/main/resources/application.properties`
+      already sets `%dev-minikube.app.auth.provider=entra` (base
+      default is `dev`), enables OIDC for the profile
+      (`%dev-minikube.quarkus.oidc.enabled=true` + auth-server-url,
+      client-id, audience, role-claim-path bound to `ENTRA_TENANT_ID`
+      / `ENTRA_API_CLIENT_ID`), and leaves the dev default-user empty
+      (`%dev-minikube.app.auth.dev.default-user=`, i.e. strict).
+    - `scripts/minikube-deploy.sh` builds the images with
+      `./mvnw package -Pdev-minikube` (the `dev-minikube` Maven
+      profile sets `quarkus.profile=dev-minikube`), exports
+      `APP_AUTH_PROVIDER=entra` and `VITE_AUTH_PROVIDER=entra`, and
+      fails fast if `ENTRA_TENANT_ID`, `ENTRA_API_CLIENT_ID`, or
+      `ENTRA_SPA_CLIENT_ID` is unset.
+    - The concrete modules are selected by the BUILD-TIME property
+      `app.auth.provider` via Quarkus `@IfBuildProperty`
+      (`EntraAuthModule`/`EntraAuthFilter`/`EntraSecurityIdentityAugmentor`
+      carry `stringValue = "entra"`; the dev trio carries `"dev"`).
+      Because `@IfBuildProperty` is resolved at augmentation time, the
+      property's value **under the active build profile** is what
+      decides which beans are baked into the image — so the
+      `%dev-minikube.app.auth.provider=entra` override (applied when
+      the image is built with `-Pdev-minikube`) is exactly what makes
+      the Entra beans win.
+
+  The two real gaps:
+    1. There is NO automated regression guard. If someone changed or
+       deleted the `%dev-minikube.app.auth.provider=entra` line, every
+       existing test would still pass and the breakage would only
+       surface on a real minikube deploy. We want a fast, Docker-free
+       unit test that fails the moment the `dev-minikube` profile stops
+       resolving `app.auth.provider` to `entra`.
+    2. `docs/development.md` documents authentication only for the
+       `dev-local` profile (one line pointing at authentication.md).
+       The `dev-minikube` section says nothing about it using Entra,
+       and the required `ENTRA_*` environment variables are only
+       described in `docs/entra-setup.md`, not surfaced in the
+       dev-minikube quickstart.
+
+  Target state:
+    - A new backend **unit** test asserts the profile→provider mapping
+      directly against the real `application.properties`, using SmallRye
+      Config's programmatic API (so it needs neither Docker nor a booted
+      Quarkus app): `dev-minikube` → `entra`, `prod` → `entra`,
+      `dev-local`/`test` → `dev`. This is the "ensure" mechanism.
+    - `docs/development.md` clearly states which auth module each
+      profile uses and that selection is build-time, surfaces the
+      `ENTRA_*` env vars in the dev-minikube quickstart, and
+      cross-links `authentication.md` / `entra-setup.md`.
+
+  Out of scope / must NOT change:
+    - Do NOT modify `application.properties`, the auth module Kotlin
+      classes, `scripts/minikube-deploy.sh`, or the k8s manifests —
+      the wiring is correct; this task only verifies and documents it.
+    - A full build-time proof that the Entra CDI beans are physically
+      present in the `dev-minikube` image would require building that
+      image; that is covered operationally by `minikube-deploy.sh`
+      plus the Entra e2e checks in `docs/authentication.md` and is out
+      of scope here. The unit test validates the property resolution
+      that `@IfBuildProperty` keys on, which is the verifiable proxy.
+    - No new backend service or REST endpoint is added, so no new
+      application logging is required (the test is config-only).
+
+steps:
+  - |
+    Create the regression-guard unit test
+    `src/backend/implementation/src/test/kotlin/io/github/theestimator/auth/AuthProviderProfileTest.kt`
+    (package `io.github.theestimator.auth`). It must NOT be a
+    `@QuarkusTest` (the dev-minikube profile needs PostgreSQL + OIDC and
+    will not boot in the test phase) — use SmallRye Config directly so
+    it is a pure, fast unit test:
+      - Load the real main resource `application.properties` from the
+        test classpath (e.g. via
+        `Thread.currentThread().contextClassLoader.getResourceAsStream("application.properties")`
+        into a `java.util.Properties`, then into a `Map<String,String>`).
+      - Build a config per profile with
+        `io.smallrye.config.SmallRyeConfigBuilder()` —
+        `.addDefaultInterceptors()` (registers the profile interceptor
+        that resolves `%profile.` prefixes), `.withProfile("<profile>")`,
+        `.withSources(io.smallrye.config.PropertiesConfigSource(map, "application.properties", 100))`,
+        `.build()`.
+      - Assert `config.getValue("app.auth.provider", String::class.java)`
+        equals: `entra` for profile `dev-minikube`, `entra` for `prod`,
+        `dev` for `dev-local`, and `dev` for `test`. A parameterised
+        test or one assertion per profile is fine. Name the
+        dev-minikube case explicitly (e.g.
+        `dev-minikube profile resolves auth provider to entra`).
+
+  - |
+    Edit `docs/development.md`:
+      - In the existing "### dev-minikube — Full stack on Minikube"
+        section, add a short authentication note (mirroring the
+        dev-local section's auth sentence) stating that this profile
+        runs the **Entra** auth module in a production-like mode, that
+        `ENTRA_TENANT_ID`, `ENTRA_API_CLIENT_ID`, and
+        `ENTRA_SPA_CLIENT_ID` must be exported before
+        `./scripts/minikube-deploy.sh` (which fails fast if they are
+        missing), and cross-link `entra-setup.md` (how to obtain the
+        values) and `authentication.md` (module behaviour).
+      - Add a new subsection "### Authentication per profile" under
+        "## Development Profiles" with a table mapping each profile to
+        its active module:
+          dev-local → dev (static users) ; dev (quarkus:dev) → dev ;
+          test → dev ; dev-minikube → entra ; prod → entra.
+        Explain that the module is selected at BUILD time via the
+        `app.auth.provider` property (`@IfBuildProperty`), so the image
+        must be built under the matching profile, and that
+        `minikube-deploy.sh` does this by building with `-Pdev-minikube`
+        and exporting `APP_AUTH_PROVIDER=entra` / `VITE_AUTH_PROVIDER=entra`.
+
+  - |
+    Build + run the unit test (the new test is a `*Test.kt` unit test
+    run by surefire in the `test` phase — no Docker needed; the
+    Testcontainers `*IT.kt` cases run later under failsafe and are not
+    triggered by this command):
+      ./mvnw -pl src/backend/implementation -am test
+
+validation:
+  - |
+    Regression-guard test exists and asserts the dev-minikube → entra
+    mapping via the profile API:
+      test -f src/backend/implementation/src/test/kotlin/io/github/theestimator/auth/AuthProviderProfileTest.kt
+      grep -q "SmallRyeConfigBuilder" src/backend/implementation/src/test/kotlin/io/github/theestimator/auth/AuthProviderProfileTest.kt
+      grep -q "withProfile(\"dev-minikube\")" src/backend/implementation/src/test/kotlin/io/github/theestimator/auth/AuthProviderProfileTest.kt
+      grep -q "entra" src/backend/implementation/src/test/kotlin/io/github/theestimator/auth/AuthProviderProfileTest.kt
+  - |
+    The verified-but-unchanged wiring is still in place (guards against
+    an accidental edit in the same change):
+      grep -q "%dev-minikube.app.auth.provider=entra" src/backend/implementation/src/main/resources/application.properties
+      grep -q "APP_AUTH_PROVIDER=entra" scripts/minikube-deploy.sh
+      grep -q "VITE_AUTH_PROVIDER=entra" scripts/minikube-deploy.sh
+  - |
+    development.md documents the dev-minikube → Entra mapping and the
+    required env vars:
+      grep -qi "Authentication per profile" docs/development.md
+      grep -q "dev-minikube" docs/development.md
+      grep -qi "entra" docs/development.md
+      grep -q "ENTRA_TENANT_ID" docs/development.md
+  - |
+    Build is green and the new unit test passes:
+      ./mvnw -pl src/backend/implementation -am test
+
+outputs:
+  - created: src/backend/implementation/src/test/kotlin/io/github/theestimator/auth/AuthProviderProfileTest.kt
+  - modified: docs/development.md

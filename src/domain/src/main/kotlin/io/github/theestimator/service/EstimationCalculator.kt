@@ -2,6 +2,7 @@
 
 package io.github.theestimator.service
 
+import io.github.theestimator.model.EstimationDefaults
 import io.github.theestimator.model.EstimationVersion
 import io.github.theestimator.model.leaves
 import kotlin.js.ExperimentalJsExport
@@ -18,7 +19,7 @@ open class EstimationCalculator {
     fun validateInvariants(version: EstimationVersion): Array<InvariantResult> {
         val results = mutableListOf<InvariantResult>()
         val allItems = version.roots.flatMap { it.leaves().toList() }
-        val tolerance = 0.2
+        val tolerance = INVARIANT_TOLERANCE
 
         val totalOfferPT = allItems.sumOf { it.offerPT }
         results.add(InvariantResult(
@@ -29,7 +30,7 @@ open class EstimationCalculator {
 
         val totalMean = allItems.sumOf { it.mean }
         val totalVariance = allItems.sumOf { it.variance }
-        val stdDevFactor = version.parameterValue("Standardabweichungsfaktor") ?: 2.0
+        val stdDevFactor = version.parameterValue("Standardabweichungsfaktor") ?: EstimationDefaults.STD_DEV_FACTOR
         val totalDriverFactor = version.effortDrivers.sumOf { it.factor }
         val calculatedTotal = totalMean + sqrt(totalVariance) * stdDevFactor + totalMean * totalDriverFactor
         results.add(InvariantResult(
@@ -46,7 +47,7 @@ open class EstimationCalculator {
         ))
 
         val totalCost = allItems.sumOf { it.cost }
-        val dailyRate = version.parameterValue("Tagessatz") ?: 800.0
+        val dailyRate = version.parameterValue("Tagessatz") ?: EstimationDefaults.DAILY_RATE
         val costFromEffort = totalOfferPT * dailyRate
         results.add(InvariantResult(
             "Kosten im PSP = Kosten in der Paketübersicht",
@@ -62,6 +63,11 @@ open class EstimationCalculator {
         ))
 
         return results.toTypedArray()
+    }
+
+    private companion object {
+        /** Allowed rounding slack when checking accumulation invariants (PT). */
+        const val INVARIANT_TOLERANCE = 0.2
     }
 }
 

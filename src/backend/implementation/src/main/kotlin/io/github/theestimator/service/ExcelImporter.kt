@@ -19,6 +19,10 @@ import org.apache.poi.xssf.usermodel.XSSFWorkbook
 import java.io.InputStream
 import java.util.UUID
 
+// The integer literals here are POI spreadsheet column indices — the physical
+// layout of the imported sheet. Naming a constant per column would obscure the
+// layout rather than clarify it, so MagicNumber is suppressed for this class.
+@Suppress("MagicNumber")
 @ApplicationScoped
 class ExcelImporter {
 
