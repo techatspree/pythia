@@ -14,7 +14,7 @@ modular auth SPI declared by task-005. It uses three hard-wired
 in-memory users — one per role — and a custom `Authorization: Dev
 <subjectId>` header scheme. No external identity provider, no network
 calls, no tokens. It is the only module needed to run the application
-locally (`./scripts/dev-local.sh`), to execute the Playwright e2e
+locally (`./scripts/dev.sh`), to execute the Playwright e2e
 suite, and for outside contributors who don't have an Entra tenant.
 
 ## Hard-wired users
@@ -55,8 +55,7 @@ when no `Authorization` header is sent. Per-profile defaults:
 | profile        | default                | rationale                                                 |
 |----------------|------------------------|-----------------------------------------------------------|
 | *(file-level)* | *(empty)* — strict     | safe default; explicit profiles opt in                    |
-| `%dev-local`   | `dev-admin`            | developer convenience — `curl` smoke calls keep working    |
-| `%dev`         | `dev-admin`            | Quarkus dev mode                                          |
+| `%dev`         | `dev-admin`            | local Quarkus dev mode — `curl` smoke calls keep working   |
 | `%test`        | `dev-admin`            | keeps the existing `@QuarkusTest` IT suite green          |
 | `%dev-minikube`| *(empty)* — strict     | minikube deployments use Entra; dev module is not active  |
 | `%prod`        | *(empty)* — strict     | never use the dev module in prod, but be safe if misconfigured |
@@ -72,30 +71,30 @@ new `e2e/auth-gate.test.ts` cases can run alongside the existing 18
 smoke + tree-table cases — we run a **second** backend instance:
 
 ```bash
-./scripts/dev-local-strict.sh
+./scripts/dev-strict.sh
 ```
 
-That script starts the same `dev-local` Quarkus profile on port
+That script starts the same `dev` Quarkus profile on port
 **8081** with `APP_AUTH_DEV_DEFAULT_USER=` (empty) exported, so the
 filter rejects any request that lacks a valid `Authorization: Dev
 <subjectId>` header. Playwright auth-gate cases pick this backend up
 via the `STRICT_BACKEND_URL` env var:
 
 ```bash
-./scripts/dev-local-strict.sh &                  # background
+./scripts/dev-strict.sh &                        # background
 STRICT_BACKEND_URL=http://localhost:8081 \
     npx playwright test e2e/auth-gate.test.ts
 ```
 
 When `STRICT_BACKEND_URL` is unset, the three strict-backend cases
 self-skip, so the default `npx playwright test` invocation against
-the dev-local backend on :8080 still works.
+the dev backend on :8080 still works.
 
 ## Automated coverage — dev module
 
 `src/frontend/e2e/auth.test.ts` exercises the canary endpoint
 `/api/admin/ping` (gated by `@RolesAllowed("ADMIN")`) and the
-provider-agnostic `/api/auth/me` endpoint against the **dev-local**
+provider-agnostic `/api/auth/me` endpoint against the **dev**
 backend (port 8080) where the `app.auth.dev.default-user=dev-admin`
 fallback is active. Five API-level cases, all using Playwright's
 `request` fixture (no browser navigation):
@@ -113,12 +112,12 @@ Case 4 specifically proves the augmentor cleanup from task-006: the
 `QuarkusSecurityIdentity` with role strings, so `@RolesAllowed("ADMIN")`
 can distinguish `dev-viewer` (403) from `dev-admin` (200).
 
-The **strict-mode** dev backend (`scripts/dev-local-strict.sh` on port
+The **strict-mode** dev backend (`scripts/dev-strict.sh` on port
 8081, `APP_AUTH_DEV_DEFAULT_USER=` empty) is covered by the
 `auth-gate.test.ts` cases from task-006, which self-skip when
 `STRICT_BACKEND_URL` is unset.
 
-Run the full suite (dev-local backend on :8080 must be up):
+Run the full suite (dev backend on :8080 must be up):
 
 ```bash
 cd src/frontend && npx playwright test

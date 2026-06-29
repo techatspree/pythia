@@ -34,7 +34,6 @@ dependencies {
     implementation("io.quarkus:quarkus-flyway")
     implementation("io.quarkus:quarkus-smallrye-openapi")
     implementation("io.quarkus:quarkus-jdbc-postgresql")
-    implementation("io.quarkus:quarkus-jdbc-h2")
     implementation("io.quarkus:quarkus-container-image-jib")
     implementation("io.quarkus:quarkus-rest-jackson")
     implementation("io.quarkus:quarkus-jackson")

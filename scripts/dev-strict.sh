@@ -5,19 +5,20 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 BACKEND_DIR="$PROJECT_ROOT/src/backend/implementation"
 
-# Strict dev backend: same dev-local profile, but with the convenience
-# default-user fallback explicitly disabled (empty) and on port 8081 so
-# it can coexist with the primary dev-local backend on :8080.
+# Strict dev backend: same dev profile (PostgreSQL via Dev Services —
+# Docker must be running), but with the convenience default-user fallback
+# explicitly disabled (empty) and on port 8081 so it can coexist with the
+# primary dev backend on :8080.
 # Used by the auth-gate Playwright cases to assert that unauthenticated
 # requests are rejected with 401.
 export APP_AUTH_PROVIDER=dev
 export APP_AUTH_DEV_DEFAULT_USER=
 export QUARKUS_HTTP_PORT=8081
-export QUARKUS_PROFILE=dev-local
+export QUARKUS_PROFILE=dev
 
 # Snapshot Kotlin daemons that already exist before we spawn ours, so
 # cleanup only kills the daemon THIS script started — NOT the one the
-# primary dev-local backend on :8080 may still be using.
+# primary dev backend on :8080 may still be using.
 KOTLIN_DAEMONS_BEFORE=$(pgrep -u "$USER" -f KotlinCompileDaemon 2>/dev/null | sort -n | xargs || true)
 
 cleanup() {
@@ -39,7 +40,7 @@ cleanup() {
 }
 trap cleanup EXIT INT TERM
 
-echo "Starting strict backend on :8081 (dev-local profile, fallback disabled)..."
+echo "Starting strict backend on :8081 (dev profile, fallback disabled)..."
 cd "$PROJECT_ROOT"
 # stdin from /dev/null + plain console: Quarkus dev mode's interactive console
 # reads stdin, and a backgrounded process reading the TTY is SIGTTIN-suspended.

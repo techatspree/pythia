@@ -43,8 +43,8 @@ class AuthProviderProfileTest {
     }
 
     @Test
-    fun `dev-local profile resolves auth provider to dev`() {
-        assertEquals("dev", resolveProvider("dev-local"))
+    fun `dev profile resolves auth provider to dev`() {
+        assertEquals("dev", resolveProvider("dev"))
     }
 
     @Test

@@ -80,7 +80,7 @@ quarkus.oidc.token.audience=api://${ENTRA_API_CLIENT_ID}
 quarkus.oidc.roles.role-claim-path=roles
 ```
 
-`%dev-local`, `%dev`, and `%test` keep `quarkus.oidc.enabled=false`
+`%dev` and `%test` keep `quarkus.oidc.enabled=false`
 because the dev module covers those paths.
 
 ## Frontend wiring
@@ -127,7 +127,7 @@ as a precheck so deploys cannot silently ship unresolved placeholders.
 ## Running Entra locally (optional)
 
 To test the Entra wiring against a real tenant from a local checkout
-(no minikube), stop `dev-local.sh`, export the eight variables above,
+(no minikube), stop `dev.sh`, export the eight variables above,
 and start Quarkus + Vite manually:
 
 ```bash
@@ -140,7 +140,7 @@ export VITE_ENTRA_TENANT_ID="$ENTRA_TENANT_ID"
 export VITE_ENTRA_SPA_CLIENT_ID="$ENTRA_SPA_CLIENT_ID"
 export VITE_ENTRA_API_CLIENT_ID="$ENTRA_API_CLIENT_ID"
 
-cd src/backend/implementation && mvn quarkus:dev -Pdev-local
+QUARKUS_PROFILE=dev ./gradlew :backend:implementation:quarkusDev
 # in another shell:
 cd src/frontend && npm run dev
 ```

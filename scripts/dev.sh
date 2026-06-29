@@ -13,12 +13,13 @@ export APP_AUTH_PROVIDER=dev
 export VITE_AUTH_PROVIDER=dev
 
 # Quarkus run profile. Gradle does not forward -Dquarkus.profile to the
-# dev-mode JVM, so pass the profile via the environment.
-export QUARKUS_PROFILE=dev-local
+# dev-mode JVM, so pass the profile via the environment. The `dev` profile
+# runs PostgreSQL via Quarkus Dev Services, so DOCKER MUST BE RUNNING.
+export QUARKUS_PROFILE=dev
 
 # Snapshot Kotlin daemons that already exist before we spawn ours, so
 # cleanup only kills the daemon THIS script started — NOT IntelliJ's
-# and NOT the strict backend's (scripts/dev-local-strict.sh) if you're
+# and NOT the strict backend's (scripts/dev-strict.sh) if you're
 # running them in parallel.
 KOTLIN_DAEMONS_BEFORE=$(pgrep -u "$USER" -f KotlinCompileDaemon 2>/dev/null | sort -n | xargs || true)
 
@@ -41,7 +42,7 @@ cleanup() {
 }
 trap cleanup EXIT INT TERM
 
-echo "Starting backend (dev-local)..."
+echo "Starting backend (dev profile, PostgreSQL via Dev Services)..."
 cd "$PROJECT_ROOT"
 # Redirect stdin from /dev/null: Quarkus dev mode runs an interactive console
 # that reads stdin, and a backgrounded process reading the controlling terminal

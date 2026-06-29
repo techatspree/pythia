@@ -135,13 +135,14 @@ class SubmissionTreeIT {
 
     @Transactional
     fun nodeRowsForVersion(versionId: UUID): List<NodeRow> {
-        // UUIDs cast to text so the query is portable across H2 (%test) and PostgreSQL.
+        // UUID columns are cast to text on read for easy mapping; the WHERE
+        // parameter is bound as a UUID (PostgreSQL rejects uuid = varchar).
         @Suppress("UNCHECKED_CAST")
         val raw = entityManager.createNativeQuery(
             "SELECT CAST(id AS VARCHAR), CAST(parent_id AS VARCHAR), node_type, position, title, description, offer_pt " +
                 "FROM submitted_estimation_nodes WHERE version_id = :vid"
         )
-            .setParameter("vid", versionId.toString())
+            .setParameter("vid", versionId)
             .resultList as List<Array<Any?>>
         return raw.map { row ->
             NodeRow(
@@ -162,7 +163,7 @@ class SubmissionTreeIT {
             "SELECT CAST(id AS VARCHAR) FROM submitted_estimation_versions " +
                 "WHERE estimation_id = :eid AND version_number = :vn"
         )
-            .setParameter("eid", estimationId.toString())
+            .setParameter("eid", estimationId)
             .setParameter("vn", versionNumber)
             .singleResult as String
         return UUID.fromString(s)

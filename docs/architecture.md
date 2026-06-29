@@ -5,7 +5,7 @@
 | Frontend | SvelteKit + TypeScript (Vite)   |
 | Styling  | Tailwind CSS 4                  |
 | Backend  | Quarkus (Java 21)               |
-| Database | PostgreSQL 16 (H2 for dev-local)|
+| Database | PostgreSQL 16                   |
 | Platform | Kubernetes (Minikube for local) |
 | Auth     | Microsoft Entra ID (MSAL/OIDC)  |
 

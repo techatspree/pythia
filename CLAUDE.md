@@ -15,18 +15,18 @@ A single **Gradle** multi-project build drives every module. **Use `./gradlew`**
 ./gradlew build -x test                    # build everything, skip tests
 ./gradlew detekt                           # static-analysis reports (informational)
 ./gradlew :domain:build                    # domain (KMP) build + tests only
-./gradlew :backend:implementation:test     # backend unit + @QuarkusTest (H2, no Docker)
+./gradlew :backend:implementation:test     # backend unit + @QuarkusTest (PostgreSQL via Dev Services — Docker required)
 ./gradlew :frontend:check                  # TS/Svelte type-check + ESLint
 cd src/frontend && npm run test:e2e        # Playwright
 
-./scripts/dev-local.sh                     # H2 backend + Vite frontend, one command
+./scripts/dev.sh                           # PostgreSQL (Dev Services) backend + Vite frontend, one command
 ./scripts/minikube-deploy.sh               # full PostgreSQL + Quarkus stack on minikube
 ```
 
 Run one backend test class:
 `./gradlew :backend:implementation:test --tests "io.github.theestimator.rest.EstimationVersionResourceIT"`
 
-The dev-local profile uses H2 in-memory; dev-minikube and prod use PostgreSQL 16 via Flyway migrations (`src/backend/implementation/src/main/resources/db/migration/V*.sql`). The `%test` profile also uses H2 in-memory with dev-services disabled, so backend tests need **no** Docker.
+All profiles use PostgreSQL 16 — there is no H2. Local dev (`dev` profile) and tests (`%test`) start a throwaway PostgreSQL container via Quarkus Dev Services, so **Docker must be running** for local backend runs and for the test suite; dev-minikube and prod use real PostgreSQL via Flyway migrations (`src/backend/implementation/src/main/resources/db/migration/V*.sql`).
 
 ## Architecture
 

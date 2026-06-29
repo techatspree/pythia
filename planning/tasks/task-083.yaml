@@ -1,0 +1,229 @@
+id: task-083
+phase: phase-10
+title: PostgreSQL everywhere — drop dev-local and H2
+depends_on: [task-079, task-082]
+description: |
+  "Option A": standardise the whole project on PostgreSQL and remove H2
+  entirely, so local development and tests run against the same database
+  engine as dev-minikube/prod. This trades the H2 convenience (Docker-free,
+  fast) for fidelity (no more "works on H2, breaks on PostgreSQL"
+  surprises) and removes the H2 compatibility hacks.
+
+  CURRENT STATE (verified against the working tree):
+    - Three dev-ish profiles exist in
+      `src/backend/implementation/src/main/resources/application.properties`:
+        * `%dev` — PostgreSQL via Quarkus **Dev Services** (a throwaway
+          Docker container; no JDBC URL configured), Hibernate
+          `drop-and-create`, no Flyway, OIDC disabled. This is the
+          DEFAULT profile of `./gradlew :backend:implementation:quarkusDev`
+          when no profile is set.
+        * `%dev-local` — H2 (now **file** mode
+          `jdbc:h2:file:~/DEV/estimation;MODE=PostgreSQL;NON_KEYWORDS=VALUE`,
+          `schema-management.strategy=update`), Dev Services disabled,
+          OIDC disabled. The Docker-free local path.
+        * `%dev-minikube` — real PostgreSQL on minikube + Flyway + Entra.
+    - `%test` uses H2 in-memory
+      (`jdbc:h2:mem:…;MODE=PostgreSQL;NON_KEYWORDS=VALUE`),
+      `drop-and-create`, `devservices.enabled=false`, OIDC disabled — so
+      the `@QuarkusTest` suite runs Docker-free today.
+    - The backend declares `io.quarkus:quarkus-jdbc-h2` in
+      `src/backend/implementation/build.gradle.kts`.
+    - `scripts/dev-local.sh` and `scripts/dev-local-strict.sh` export
+      `QUARKUS_PROFILE=dev-local` (H2). The `dev` profile is never used
+      by the scripts.
+    - `AuthProviderProfileTest` (task-079) asserts the profile→provider
+      mapping for `dev-minikube`, `prod`, `dev-local`, `test`.
+    - `CLAUDE.md`, `docs/development.md`, and `docs/authentication.md`
+      document the `dev-local` profile / scripts and the H2/no-Docker
+      story.
+
+  TARGET STATE:
+    - The `dev-local` profile is GONE. The canonical local profile is
+      `dev` (PostgreSQL via Dev Services, Docker required). Bare
+      `quarkusDev` already defaults to it, so no default-profile repoint
+      is needed.
+    - `%test` runs against PostgreSQL via Dev Services / Testcontainers
+      (Docker required) instead of H2, keeping the same Hibernate
+      `drop-and-create` schema strategy so existing test semantics are
+      unchanged apart from the engine.
+    - H2 is removed entirely: no `quarkus-jdbc-h2` dependency, no
+      `jdbc:h2:` URLs, no `MODE=PostgreSQL;NON_KEYWORDS=VALUE` hacks.
+    - Dev Services PostgreSQL image pinned to `postgres:16` (matching
+      dev-minikube/prod) for `dev` and `test`.
+    - The local-run scripts are renamed `dev-local.sh → dev.sh` and
+      `dev-local-strict.sh → dev-strict.sh`, run the `dev` profile, and
+      note that Docker is now required.
+    - Docs reflect PostgreSQL-everywhere and Docker-as-prerequisite.
+
+  KEY DECISIONS / CONSEQUENCES (leave no ambiguity):
+    - **Docker becomes a hard prerequisite** for all local backend work
+      AND for the test suite. The `@QuarkusTest` ITs that ran Docker-free
+      on H2 will now require a running Docker daemon (Dev Services starts
+      a PostgreSQL container). This is the accepted cost of option A.
+    - Moving the tests from H2 to PostgreSQL may surface real PostgreSQL
+      behaviour that H2 was masking (the repo's H2 URL hacks exist for
+      exactly this reason). If a test fails ONLY because it now runs on
+      real PostgreSQL, fix the underlying code/mapping — that is the
+      point of this task — rather than reintroducing H2.
+    - Tests keep Hibernate `drop-and-create` (NOT Flyway). Running the
+      Flyway migrations in tests would be higher fidelity but is a larger
+      change and is explicitly OUT OF SCOPE here (note it as a possible
+      follow-up).
+    - The user's `dev-local` H2-file convenience (IDEA browsing the DB
+      while the server is stopped) is intentionally dropped; the `dev`
+      Dev Services container is ephemeral.
+    - No new backend service, REST endpoint, domain operation, or
+      frontend flow is added, so the CLAUDE.md "Logging" conventions
+      require no new log statements (config/build/docs/test only).
+
+  INTERACTION WITH OTHER PENDING TASKS (not a hard dependency, but the
+  implementer MUST reconcile whichever runs second):
+    - task-080 (remove the dev `default-user` fallback) also touches the
+      `app.auth.dev.default-user` block and plans to DELETE
+      `dev-local-strict.sh`. This task RENAMES that script to
+      `dev-strict.sh`. If task-080 has already run, the script may be
+      gone (skip the rename); if this task runs first, task-080 must
+      target `dev-strict.sh`.
+
+steps:
+  - |
+    Edit `src/backend/implementation/src/main/resources/application.properties`:
+      - DELETE every `%dev-local.*` line (the auth.provider override, the
+        default-user override, the H2 datasource block, the
+        schema-management, flyway, oidc, and devservices lines).
+      - Switch the `%test` datasource from H2 to PostgreSQL Dev Services:
+        remove `%test.quarkus.datasource.jdbc.url`,
+        `%test.quarkus.datasource.username`,
+        `%test.quarkus.datasource.password`, and the
+        `%test.quarkus.datasource.devservices.enabled=false` line; set
+        `%test.quarkus.datasource.db-kind=postgresql`. Keep
+        `%test.quarkus.hibernate-orm.database.generation=drop-and-create`,
+        `%test.quarkus.flyway.enabled=false`,
+        `%test.quarkus.oidc.enabled=false`, and the existing
+        `%test.app.auth.*` lines unchanged.
+      - Pin the Dev Services image for both profiles:
+        `%dev.quarkus.datasource.devservices.image-name=postgres:16` and
+        `%test.quarkus.datasource.devservices.image-name=postgres:16`.
+      - Update the now-stale comments: the "Dev module default-user
+        fallback" block (drop the `dev-local` sentence) and the
+        former dev-local / test section headers.
+
+  - |
+    Edit `src/backend/implementation/build.gradle.kts`: remove the
+    `implementation("io.quarkus:quarkus-jdbc-h2")` dependency (no profile
+    uses H2 anymore). Leave `quarkus-jdbc-postgresql` in place.
+
+  - |
+    Edit the regression-guard test
+    `src/backend/implementation/src/test/kotlin/io/github/theestimator/auth/AuthProviderProfileTest.kt`:
+    replace the `dev-local` assertion with a `dev` one — assert profile
+    `dev` resolves `app.auth.provider` to `dev` — and keep the
+    `dev-minikube` → `entra`, `prod` → `entra`, `test` → `dev` cases.
+
+  - |
+    Edit `src/backend/implementation/src/main/kotlin/io/github/theestimator/testdata/TestDataSeeder.kt`:
+    its `@IfBuildProfile(anyOf = ["dev", "dev-local"])` gate references the
+    removed profile — change it to `@IfBuildProfile("dev")` so the seeder
+    still runs under the (now canonical) `dev` local profile.
+
+  - |
+    Rename and repoint the scripts (use `git mv` to preserve history):
+      - `scripts/dev-local.sh` → `scripts/dev.sh`: change
+        `export QUARKUS_PROFILE=dev-local` to
+        `export QUARKUS_PROFILE=dev`; update the echo/comments
+        ("dev-local" → "dev"); add a note that Docker must be running
+        (Dev Services starts PostgreSQL).
+      - `scripts/dev-local-strict.sh` → `scripts/dev-strict.sh`: same
+        `QUARKUS_PROFILE=dev` change, keep the `:8081` port and the
+        `APP_AUTH_DEV_DEFAULT_USER=` strict override. (If task-080 has
+        already deleted this script, skip this rename.)
+
+  - |
+    Update documentation to PostgreSQL-everywhere / Docker-required:
+      - `CLAUDE.md`: in "Build & run" and the profile notes, state that
+        local dev and tests use PostgreSQL via Dev Services and need
+        Docker; remove the `dev-local`/H2 description; fix the `%test`
+        note (now Testcontainers PostgreSQL, Docker required).
+      - `docs/development.md`: mark Docker as required for backend/tests;
+        replace the "dev-local" profile section with a "dev" section
+        (`QUARKUS_PROFILE=dev ./gradlew :backend:implementation:quarkusDev`,
+        or just `./scripts/dev.sh`); remove the `dev-local` row from the
+        "Authentication per profile" table and add a `dev` row; update
+        any `dev-local`/H2 wording.
+      - `docs/authentication.md`: repoint `dev-local-strict.sh` references
+        to `dev-strict.sh`.
+      - `docs/architecture.md`: fix the Tech Stack table — `Database |
+        PostgreSQL 16 (H2 for dev-local)` becomes `PostgreSQL 16`.
+      - `docs/entra-setup.md`: update the `dev-local` references — the
+        `%dev-local`/`%dev`/`%test` OIDC sentence (drop `%dev-local`), the
+        `stop dev-local.sh` instruction (→ `dev.sh`), and the stale
+        `mvn quarkus:dev -Pdev-local` command (→
+        `QUARKUS_PROFILE=dev ./gradlew :backend:implementation:quarkusDev`).
+      - Sweep the repo for any other remaining `dev-local` references and
+        update them (the historical comment at
+        `EstimationVersionResourceIT.kt:299` is optional cleanup; the
+        `.claude/settings.local.json` permission entries are local and may
+        be left).
+
+  - |
+    Refresh the auto-memory this task invalidates: in
+    `project_gradle_build.md` change the "Tests use H2 (%test), no Docker"
+    statement to "tests run on PostgreSQL via Dev Services — Docker
+    required", and in `project_kmp_domain.md` drop the H2
+    `MODE=PostgreSQL;NON_KEYWORDS=VALUE` note (no longer applicable).
+    (These live under the auto-memory directory, not the repo.)
+
+  - |
+    Build + tests (Docker MUST be running — Dev Services starts a
+    PostgreSQL container for the test profile):
+      ./gradlew :backend:implementation:test
+    Then a full build:
+      ./gradlew build
+
+validation:
+  - |
+    H2 and the dev-local profile are gone:
+      ! grep -q "quarkus-jdbc-h2" src/backend/implementation/build.gradle.kts
+      ! grep -qE "^%dev-local\." src/backend/implementation/src/main/resources/application.properties
+      ! grep -q "jdbc:h2" src/backend/implementation/src/main/resources/application.properties
+      ! grep -q "NON_KEYWORDS" src/backend/implementation/src/main/resources/application.properties
+  - |
+    The test profile runs on PostgreSQL via Dev Services:
+      grep -q "%test.quarkus.datasource.db-kind=postgresql" src/backend/implementation/src/main/resources/application.properties
+      ! grep -q "%test.quarkus.datasource.devservices.enabled=false" src/backend/implementation/src/main/resources/application.properties
+      grep -q "%test.quarkus.datasource.devservices.image-name=postgres:16" src/backend/implementation/src/main/resources/application.properties
+  - |
+    Scripts renamed and repointed; profile guard test updated:
+      test -f scripts/dev.sh
+      ! test -f scripts/dev-local.sh
+      grep -q "QUARKUS_PROFILE=dev" scripts/dev.sh
+      ! grep -q "dev-local" src/backend/implementation/src/test/kotlin/io/github/theestimator/auth/AuthProviderProfileTest.kt
+      grep -q "dev-minikube" src/backend/implementation/src/test/kotlin/io/github/theestimator/auth/AuthProviderProfileTest.kt
+  - |
+    No dangling references to the removed profile remain in config,
+    docs, scripts, or backend main sources (the optional historical
+    comment in EstimationVersionResourceIT.kt and local
+    .claude/settings.local.json entries are excluded):
+      ! grep -rIq "dev-local" CLAUDE.md docs/ scripts/dev.sh \
+          src/backend/implementation/src/main/resources/application.properties \
+          src/backend/implementation/src/main/kotlin
+      grep -q "@IfBuildProfile(\"dev\")" src/backend/implementation/src/main/kotlin/io/github/theestimator/testdata/TestDataSeeder.kt
+  - |
+    Build + @QuarkusTest suite green on PostgreSQL (Docker required):
+      ./gradlew :backend:implementation:test
+      ./gradlew build
+
+outputs:
+  - modified: src/backend/implementation/src/main/resources/application.properties
+  - modified: src/backend/implementation/build.gradle.kts
+  - modified: src/backend/implementation/src/test/kotlin/io/github/theestimator/auth/AuthProviderProfileTest.kt
+  - modified: src/backend/implementation/src/main/kotlin/io/github/theestimator/testdata/TestDataSeeder.kt
+  - deleted: scripts/dev-local.sh
+  - created: scripts/dev.sh
+  - deleted: scripts/dev-local-strict.sh
+  - created: scripts/dev-strict.sh
+  - modified: CLAUDE.md
+  - modified: docs/development.md
+  - modified: docs/authentication.md
+  - modified: docs/architecture.md
+  - modified: docs/entra-setup.md

@@ -493,6 +493,12 @@
       "started_at": "2026-06-28T16:46:46+00:00",
       "completed_at": "2026-06-28T17:20:30+00:00",
       "notes": "Convert the hybrid Maven+Gradle build to a single Gradle-only multi-module build"
+    },
+    "task-083": {
+      "status": "done",
+      "started_at": "2026-06-29T12:24:09+00:00",
+      "completed_at": "2026-06-29T12:50:15+00:00",
+      "notes": "PostgreSQL everywhere: remove dev-local + H2, move tests to Testcontainers PG, make dev the canonical local profile"
     }
   }
 }

@@ -29,7 +29,7 @@ import jakarta.transaction.Transactional
 // suppressed for the whole class.
 @Suppress("MagicNumber")
 @ApplicationScoped
-@IfBuildProfile(anyOf = ["dev", "dev-local"])
+@IfBuildProfile("dev")
 class TestDataSeeder(
     private val projectService: ProjectService,
     private val estimationService: EstimationService,

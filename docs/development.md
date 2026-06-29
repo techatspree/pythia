@@ -4,7 +4,7 @@
 
 - Java 21 (managed via jenv)
 - Node.js (downloaded automatically by the Gradle build)
-- Docker (only for the minikube path; backend tests use H2 and need none)
+- Docker (required — local dev and the test suite start PostgreSQL via Quarkus Dev Services)
 - Minikube
 - kubectl
 
@@ -28,7 +28,7 @@ and frontend.
 # Domain (KMP) build + tests only
 ./gradlew :domain:build
 
-# Backend unit + @QuarkusTest (H2, no Docker)
+# Backend unit + @QuarkusTest (PostgreSQL via Dev Services — Docker required)
 ./gradlew :backend:implementation:test
 
 # Frontend type-check + ESLint
@@ -112,8 +112,7 @@ be set when the image is built, not just at runtime:
 
 | Profile          | Auth module        | `app.auth.provider` |
 |------------------|--------------------|---------------------|
-| `dev-local`      | dev (static users) | `dev`               |
-| `dev` (quarkusDev) | dev (static users) | `dev`             |
+| `dev` (local)    | dev (static users) | `dev`               |
 | `test`           | dev (static users) | `dev`               |
 | `dev-minikube`   | Entra (OIDC)       | `entra`             |
 | `prod`           | Entra (OIDC)       | `entra`             |
@@ -123,20 +122,22 @@ be set when the image is built, not just at runtime:
 build (`./gradlew :backend:implementation:imageBuild`). The mapping is
 regression-guarded by `AuthProviderProfileTest`.
 
-### dev-local — Local with H2 in-memory database
+### dev — Local with PostgreSQL via Dev Services
 
-Backend and frontend run locally on your machine. The backend uses an H2 in-memory database (no Docker or PostgreSQL needed).
+Backend and frontend run locally on your machine. The backend uses PostgreSQL
+started automatically as a throwaway container by Quarkus Dev Services, so
+**Docker must be running**.
 
 Quick start (runs both backend and frontend):
 ```bash
-./scripts/dev-local.sh
+./scripts/dev.sh
 ```
 
 Or start them individually:
 
 Start the backend:
 ```bash
-QUARKUS_PROFILE=dev-local ./gradlew :backend:implementation:quarkusDev
+QUARKUS_PROFILE=dev ./gradlew :backend:implementation:quarkusDev
 ```
 
 Start the frontend (in a second terminal):
