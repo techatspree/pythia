@@ -65,18 +65,17 @@ steps:
     where they are known. Each step should be independently
     completable and verifiable.>
   - |
-    <If the task touches the KMP domain, include a step to build
-    and publish the domain module:
-      ./mvnw -pl src/domain -am test
+    <If the task touches the KMP domain, include a step to build it:
+      ./gradlew :domain:build
     and (if the frontend uses the domain):
-      cd src/frontend && npm run check>
+      ./gradlew :frontend:check>
   - |
     <The final step must be the build/test command appropriate to
     the scope:
-    - Backend changes:  ./mvnw -pl src/backend/implementation -am test
-    - Domain changes:   ./mvnw -pl src/domain -am test
-    - Frontend changes: cd src/frontend && npm run check
-    - Full stack:       ./mvnw test (then npm run check)>
+    - Backend changes:  ./gradlew :backend:implementation:test
+    - Domain changes:   ./gradlew :domain:build
+    - Frontend changes: ./gradlew :frontend:check
+    - Full stack:       ./gradlew build>
 
 validation:
   - |
@@ -87,7 +86,7 @@ validation:
     Example:
       test -f src/backend/implementation/src/main/kotlin/.../Foo.kt
       grep -q "class Foo" src/backend/implementation/src/main/kotlin/.../Foo.kt
-      ./mvnw -pl src/backend/implementation -am test>
+      ./gradlew :backend:implementation:test>
 
 outputs:
   - <created|modified|deleted>: <path>

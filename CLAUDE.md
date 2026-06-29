@@ -8,15 +8,15 @@ TheEstimator is a project-effort estimation tool: PERT three-point estimates (op
 
 ## Build & run
 
-Top-level Maven reactor drives every module. **Use `./mvnw`** (Maven wrapper at the repo root — pins the Maven version, downloads it on first run so contributors don't need a system `mvn`). System `mvn` works too if the version matches, but `./mvnw` is the canonical entry point.
+A single **Gradle** multi-project build drives every module. **Use `./gradlew`** (Gradle wrapper at the repo root — pins the Gradle version, downloads it on first run so contributors don't need a system `gradle`). The Kotlin plugin is unified at one version across `:domain` and `:backend:implementation` (it is a single shared artifact); compilation runs in-process (`kotlin.compiler.execution.strategy=in-process` in `gradle.properties`) to avoid stale Kotlin-daemon version clashes.
 
 ```
-./mvnw clean install                       # full build, all tests (frontend + backend)
-./mvnw -DskipTests package                 # build everything, skip tests
-./mvnw verify                              # full build + static-analysis reports (informational)
-./mvnw -pl src/domain -am test             # domain (KMP) tests only
-./mvnw -pl src/backend/implementation -am test   # backend unit + IT (Testcontainers)
-cd src/frontend && npm run check           # TS/Svelte type-check
+./gradlew build                            # full build, all tests (domain + backend + frontend)
+./gradlew build -x test                    # build everything, skip tests
+./gradlew detekt                           # static-analysis reports (informational)
+./gradlew :domain:build                    # domain (KMP) build + tests only
+./gradlew :backend:implementation:test     # backend unit + @QuarkusTest (H2, no Docker)
+./gradlew :frontend:check                  # TS/Svelte type-check + ESLint
 cd src/frontend && npm run test:e2e        # Playwright
 
 ./scripts/dev-local.sh                     # H2 backend + Vite frontend, one command
@@ -24,16 +24,16 @@ cd src/frontend && npm run test:e2e        # Playwright
 ```
 
 Run one backend test class:
-`./mvnw -pl src/backend/implementation test -Dtest=EstimationVersionResourceIT`
+`./gradlew :backend:implementation:test --tests "io.github.theestimator.rest.EstimationVersionResourceIT"`
 
-The dev-local profile uses H2 in-memory; dev-minikube and prod use PostgreSQL 16 via Flyway migrations (`src/backend/implementation/src/main/resources/db/migration/V*.sql`). `%test` uses PostgreSQL Testcontainers automatically — integration tests need Docker running locally.
+The dev-local profile uses H2 in-memory; dev-minikube and prod use PostgreSQL 16 via Flyway migrations (`src/backend/implementation/src/main/resources/db/migration/V*.sql`). The `%test` profile also uses H2 in-memory with dev-services disabled, so backend tests need **no** Docker.
 
 ## Architecture
 
-Three Maven modules:
+A single Gradle build with these projects (`settings.gradle.kts`): `:domain`, `:backend:implementation`, `:backend:end2end`, `:frontend`.
 
-- **`src/domain`** — Kotlin Multiplatform (JVM + JS). Compiles to a JVM jar for the backend and to TypeScript + JS for the frontend (published as an npm package during the Maven build via Gradle: `compileKotlinJvm`, `jvmTest`, `packageTypescript`). **Holds all business logic** — PERT calculation, accumulation, the tree-shape domain model. The backend and frontend MUST NOT reimplement domain rules; they call into it.
-- **`src/backend/implementation`** — Quarkus 3 (Java 21, Kotlin), Hibernate ORM Panache, Flyway, Jib for container images. REST endpoints under `/api/`.
+- **`src/domain`** (`:domain`) — Kotlin Multiplatform (JVM + JS). Compiles to a JVM jar consumed by the backend via `project(":domain")` and to TypeScript + JS for the frontend (Gradle tasks `compileKotlinJvm`, `jvmTest`, `packageTypescript`); the packaged TS zip is exposed as a consumable `typescriptDist` configuration that `:frontend` unpacks into `src/lib/domain`. **Holds all business logic** — PERT calculation, accumulation, the tree-shape domain model. The backend and frontend MUST NOT reimplement domain rules; they call into it.
+- **`src/backend/implementation`** (`:backend:implementation`) — Quarkus 3 (Java 21, Kotlin) via the `io.quarkus` Gradle plugin, Hibernate ORM Panache, Flyway, Jib for container images. REST endpoints under `/api/`.
 - **`src/frontend`** — SvelteKit 5 (runes) + TypeScript + Tailwind 4, Vite, adapter-static (SPA). Talks to the backend via `$lib/api/client.ts` (openapi-fetch with types regenerated from the backend OpenAPI).
 
 ### Domain model: trees, not flat groups
@@ -65,7 +65,7 @@ Use `@SQLRestriction`, not the deprecated `@Where`, for filtered collections.
 
 ### Frontend ↔ domain bridge (`adapter.ts`)
 
-`src/frontend/src/lib/adapter.ts` computes the local calc map by calling into the Kotlin/JS-compiled domain (`createVersion(...).calculate()`) and then walking the result tree recursively. Both the wire DTOs (`EstimationVersionDto.roots`, `DraftUpdateDto.roots`) and the Kotlin/JS factories (`createVersion(roots: Array<EstimationNode>)`, `createGroup(children: Array<EstimationNode>) → EstimationGroup`) speak the canonical tree shape — no legacy `itemGroups` field anywhere. If you see a stale `.d.mts` (TypeScript picks `.d.mts` for `.mjs` imports), force a full rebuild: `rm src/domain/build/typescript-prep/domain.d.mts && ./mvnw -pl src/frontend -am clean package`.
+`src/frontend/src/lib/adapter.ts` computes the local calc map by calling into the Kotlin/JS-compiled domain (`createVersion(...).calculate()`) and then walking the result tree recursively. Both the wire DTOs (`EstimationVersionDto.roots`, `DraftUpdateDto.roots`) and the Kotlin/JS factories (`createVersion(roots: Array<EstimationNode>)`, `createGroup(children: Array<EstimationNode>) → EstimationGroup`) speak the canonical tree shape — no legacy `itemGroups` field anywhere. If you see a stale `.d.mts` (TypeScript picks `.d.mts` for `.mjs` imports), force a full rebuild: `./gradlew :domain:clean :frontend:clean :frontend:check`. (Kotlin 2.3.x emits `domain.d.mts` directly; `prepareTypescriptArtifacts` copies it through.)
 
 ### Kotlin/JS gotcha — super-property recursion
 
@@ -77,7 +77,7 @@ Use `@SQLRestriction`, not the deprecated `@Where`, for filtered collections.
 
 ### Reproducible Jib backend image
 
-`src/backend/implementation/pom.xml` configures Jib for byte-deterministic images. **Both** `quarkus.container-image.jib.use-current-timestamp` and `…use-current-timestamp-for-system-libraries` must be `false`. Setting only one yields non-reproducible builds.
+`src/backend/implementation/gradle.properties` configures Jib for byte-deterministic images. **Both** `quarkus.jib.use-current-timestamp` and `quarkus.jib.use-current-timestamp-file-modification` must be `false`. Setting only one yields non-reproducible builds.
 
 ## Conventions
 
@@ -124,7 +124,7 @@ This project uses a YAML-based task plan under `planning/`:
 - `planning/status.json` — mutable progress; updated via `./scripts/task.sh start|done|pending <task-id>` (requires `jq`).
 - `.claude/commands/` — slash commands `add-task`, `implement-task`, `improve-task` automate the lifecycle.
 
-When implementing a task, read its YAML in full, run `./scripts/task.sh start`, follow the steps, run **every** validation command, and only call `./scripts/task.sh done` after `./mvnw package` and `cd src/frontend && npm run check` are green. Older task YAMLs may reference bare `mvn …`; the wrapper `./mvnw` is now the canonical entry point — either form works at the same Maven version, but new task specs should prefer `./mvnw`.
+When implementing a task, read its YAML in full, run `./scripts/task.sh start`, follow the steps, run **every** validation command, and only call `./scripts/task.sh done` after `./gradlew build` and `./gradlew :frontend:check` are green. Older task YAMLs may reference `./mvnw …` / bare `mvn …` from before the Gradle migration (task-082); translate those to the equivalent `./gradlew …` invocation (`./gradlew build`, `./gradlew :backend:implementation:test`, `./gradlew :frontend:check`).
 
 ## REST API surface
 

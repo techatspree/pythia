@@ -1,12 +1,10 @@
-plugins {
-    kotlin("multiplatform") version "2.1.21"
-    kotlin("plugin.allopen") version "2.1.21"
-    id("maven-publish")
-    id("io.gitlab.arturbosch.detekt") version "1.23.8"
-}
+import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
-group = "io.github.theestimator"
-version = "1.0.0-SNAPSHOT"
+plugins {
+    kotlin("multiplatform")
+    kotlin("plugin.allopen")
+    id("io.gitlab.arturbosch.detekt")
+}
 
 repositories {
     mavenCentral()
@@ -14,8 +12,10 @@ repositories {
 
 kotlin {
     jvm {
-        compilations.all {
-            kotlinOptions.jvmTarget = "21"
+        // Kotlin 2.3.x removed the legacy `kotlinOptions` DSL in favour of
+        // the typed `compilerOptions`.
+        compilerOptions {
+            jvmTarget.set(JvmTarget.JVM_21)
         }
         testRuns["test"].executionTask.configure {
             useJUnitPlatform()
@@ -23,6 +23,11 @@ kotlin {
     }
 
     js {
+        // Pin the JS output module name to "domain" so the emitted files stay
+        // `domain.mjs` / `domain.d.mts` (adapter.ts + CLAUDE.md depend on this).
+        // Without this the KMP module name would inherit the root project name
+        // ("the-estimator-domain") now that domain is a subproject.
+        outputModuleName.set("domain")
         useEsModules()
         browser()
         generateTypeScriptDefinitions()
@@ -56,11 +61,12 @@ allOpen {
 }
 
 // Create .d.mts companions for .mjs files so TypeScript bundler mode resolves types correctly.
-// domain.mjs → domain.d.mts (copy of domain.d.ts); all other .mjs → empty stub.
+// Kotlin 2.3.x emits `.d.mts` directly (e.g. domain.d.mts); copy those through.
+// For any .mjs lacking a .d.mts (older-style .d.ts, or dependency stubs), derive one.
 val prepareTypescriptArtifacts by tasks.registering(Copy::class) {
     dependsOn("jsBrowserProductionLibraryDistribution")
     from(layout.buildDirectory.dir("dist/js/productionLibrary")) {
-        include("*.mjs", "*.d.ts", "*.js", "*.map", "package.json")
+        include("*.mjs", "*.d.ts", "*.d.mts", "*.js", "*.map", "package.json")
     }
     into(layout.buildDirectory.dir("typescript-prep"))
 
@@ -94,7 +100,7 @@ tasks.named("build") {
 // Reports are informational; `ignoreFailures = true` keeps the Gradle
 // build green so the Maven reactor stays green too.
 detekt {
-    config.setFrom(files("$rootDir/../../config/detekt/detekt.yml"))
+    config.setFrom(files("$rootDir/config/detekt/detekt.yml"))
     buildUponDefaultConfig = true
     ignoreFailures = true
     // KMP layout: point at the common source dir; `source.from(...)`
@@ -111,4 +117,16 @@ tasks.named<io.gitlab.arturbosch.detekt.Detekt>("detekt") {
         html.required.set(true)
         html.outputLocation.set(layout.buildDirectory.file("reports/detekt/detekt.html"))
     }
+}
+
+// Expose the packaged TypeScript library zip as a consumable configuration so
+// the :frontend project can depend on it directly (replaces the former Maven
+// `zip:typescript` classifier artifact + maven-dependency-plugin unpack).
+val typescriptDist by configurations.creating {
+    isCanBeResolved = false
+    isCanBeConsumed = true
+}
+
+artifacts {
+    add(typescriptDist.name, packageTypescript)
 }

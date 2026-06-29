@@ -2,9 +2,9 @@
   "name": "domain",
   "version": "1.0.0-SNAPSHOT",
   "main": "domain.mjs",
-  "types": "domain.d.ts",
+  "types": "domain.d.mts",
   "devDependencies": {
-    "typescript": "5.5.4"
+    "typescript": "5.9.3"
   },
   "dependencies": {
     "@js-joda/core": "3.2.0",

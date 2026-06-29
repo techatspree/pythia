@@ -27,72 +27,56 @@ planning/     — Project plan and task definitions
 The `domain` module is a Kotlin Multiplatform project that contains **all
 business logic and domain models** shared between frontend and backend.
 
-- **Backend** consumes it as a regular JVM dependency (compiled to a JAR via
-  the `domain-jvm` Gradle target).
+- **Backend** consumes it as a regular JVM dependency via
+  `implementation(project(":domain"))` (the KMP JVM target).
 - **Frontend** consumes it as TypeScript, compiled to JS/TS by the
-  Kotlin/JS compiler and published as an npm package during the Maven build.
+  Kotlin/JS compiler and unpacked into `src/lib/domain` from the domain's
+  `typescriptDist` Gradle configuration during the build.
 
 Domain logic (calculations, validation, data structures) must live in `domain`.
 Neither the Quarkus backend nor the SvelteKit frontend should duplicate or
 reimplement domain rules — they only call into the shared domain code.
 
-### Why `src/domain/` ships BOTH a `pom.xml` AND a `build.gradle.kts`
+### Single Gradle multi-project build
 
-The top-level build is **Maven** (`./mvnw install`, `./mvnw verify`, …) so
-the reactor drives the whole repo uniformly. The Maven wrapper at the repo
-root (`mvnw`, `mvnw.cmd`, `.mvn/wrapper/`) pins the Maven version, so
-contributors don't need a system `mvn`. For pure JVM Kotlin (the backend at
-`src/backend/implementation/`) the standard `kotlin-maven-plugin` is enough —
-there is no Gradle file there.
+The whole repo is one **Gradle** build (`./gradlew build`, `./gradlew detekt`,
+…). The Gradle wrapper at the repo root (`gradlew`, `gradlew.bat`,
+`gradle/wrapper/`) pins the Gradle version, so contributors don't need a
+system `gradle`. `settings.gradle.kts` includes four projects mapped onto the
+`src/` layout: `:domain`, `:backend:implementation`, `:backend:end2end`, and
+`:frontend`. Plugin versions are declared once in the root `build.gradle.kts`
+with `apply false` so every subproject applies the same version — in
+particular the Kotlin Gradle plugin, which is one shared artifact across
+`:domain` (multiplatform) and `:backend:implementation` (jvm) and must not
+diverge.
 
-`src/domain/` is the exception because it's a **Kotlin Multiplatform** module
-producing **two** artefacts from one source tree:
+`src/domain/` is the only Kotlin Multiplatform module, producing **two**
+artefacts from one source tree:
 
-1. a JVM jar consumed by the backend, and
-2. a TypeScript-typed JS library consumed by the frontend (via the `domain`
-   npm dependency).
+1. a JVM jar consumed by the backend via `implementation(project(":domain"))`,
+   and
+2. a TypeScript-typed JS library consumed by the frontend.
 
-The toolchain that does the second job — `kotlin("multiplatform")` +
-`binaries.library()` + `generateTypeScriptDefinitions()` + the
-`prepareTypescriptArtifacts` / `packageTypescript` Gradle tasks — is
-**Gradle-only**:
+The KMP toolchain — `kotlin("multiplatform")` + `binaries.library()` +
+`generateTypeScriptDefinitions()` + the `prepareTypescriptArtifacts` /
+`packageTypescript` tasks — produces `domain.mjs` / `domain.d.mts` and packages
+them into a zip. The domain exposes that zip as a consumable `typescriptDist`
+configuration; `:frontend` declares a dependency on it and a `Sync` task
+(`unpackDomainTypescript`) unpacks it into `src/lib/domain` before the
+SvelteKit build, so there is no published npm package or Maven classifier
+artifact in the loop.
 
-- The official `kotlin-maven-plugin` only compiles JVM Kotlin. It has no
-  `js()` target, no `commonMain` source-set graph, and no way to emit `.d.ts`
-  declaration files.
-- No community Maven plugin wires KMP's JS target end-to-end.
+The backend uses the `io.quarkus` Gradle plugin (dev mode: `quarkusDev`; image
+build: `imageBuild`). The frontend uses the Gradle Node plugin
+(`com.github.node-gradle.node`) to install Node/npm and run the `gen:api`,
+`build`, `check`, and `lint:report` npm scripts. detekt (Kotlin) and ESLint
+(TS/Svelte/HTML) run as Gradle tasks with informational reports.
 
-So `src/domain/` runs a "Maven outside, Gradle inside" sandwich:
-
-- `src/domain/pom.xml` is the Maven face of the module. Inside it,
-  `exec-maven-plugin` delegates the real work to `./gradlew`: there are
-  executions for `gradle-compile-jvm` (in the `compile` phase),
-  `gradle-test-jvm` (`test`), `gradle-package-typescript` (`package`), and
-  `gradle-detekt` (`verify`).
-- `src/domain/build.gradle.kts` is what Gradle reads to do that work.
-
-For everything else in the repo, `pom.xml` is the single build file — Gradle
-is contained inside `src/domain/` only.
-
-### Could we remove one of them?
-
-Three options if the dual build ever feels like too much:
-
-1. **Drop the KMP/TypeScript pipeline** and ship only a JVM jar. The
-   frontend would then have to re-implement domain calc in TypeScript —
-   which violates the single-source-of-truth rule above. Don't do this.
-2. **Hand-roll the JS target** with another tool (e.g. `kotlin2js` via
-   exec-maven-plugin, plus a separate Kotlin-to-TypeScript step). Doable
-   but fragile.
-3. **Switch the whole reactor to Gradle.** Cleanest end-state if you want a
-   single build tool — but it means redoing `quarkus-maven-plugin`,
-   `frontend-maven-plugin`, Jib, Flyway lifecycle wiring, and the
-   `detekt-maven-plugin` setup in Gradle equivalents.
-
-Option (3) is the right migration target if the duplication ever bites
-hard. Doing it piecemeal usually makes things worse — keep the current
-"Maven outside, Gradle inside `src/domain/`" pattern until you're ready to
-commit to a full switch.
+This replaced an earlier hybrid where a top-level Maven reactor delegated the
+KMP module to Gradle via `exec-maven-plugin` ("Maven outside, Gradle inside").
+That hybrid could not be synced by IntelliJ IDEA (the same `src/domain`
+directory was both a Maven module and a Gradle build); the single Gradle build
+removes that conflict.
 
 # Athentication
 

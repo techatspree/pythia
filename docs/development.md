@@ -3,58 +3,57 @@
 ## Prerequisites
 
 - Java 21 (managed via jenv)
-- Node.js (managed automatically by Maven for builds)
-- Docker
+- Node.js (downloaded automatically by the Gradle build)
+- Docker (only for the minikube path; backend tests use H2 and need none)
 - Minikube
 - kubectl
 
-Maven itself is **not** a prerequisite — the repo ships a Maven wrapper
-(`./mvnw` and `./mvnw.cmd` at the repo root, with the version pinned by
-`.mvn/wrapper/`). On first run `./mvnw` downloads the right Maven version
-into your local Maven cache; subsequent runs reuse it. If you already
-have a matching `mvn` on `PATH` it works too — but examples below use
-`./mvnw` so contributors get a consistent version regardless of their
-local setup.
+Gradle itself is **not** a prerequisite — the repo ships a Gradle wrapper
+(`./gradlew` and `./gradlew.bat` at the repo root, with the version pinned by
+`gradle/wrapper/gradle-wrapper.properties`). On first run `./gradlew`
+downloads the right Gradle version; subsequent runs reuse it.
 
 ## Building
 
-The project uses a top-level Maven reactor build that covers both frontend and backend.
+The project is a single Gradle multi-project build covering domain, backend,
+and frontend.
 
 ```bash
-# Full build (frontend + backend, all tests)
-./mvnw clean install
+# Full build (domain + backend + frontend, all tests)
+./gradlew build
 
-# Build with dev-local profile (H2, no container image)
-./mvnw clean install -Pdev-local
+# Build, skipping tests
+./gradlew build -x test
 
-# Build with dev-minikube profile (PostgreSQL, builds container image)
-./mvnw clean install -Pdev-minikube
+# Domain (KMP) build + tests only
+./gradlew :domain:build
 
-# Run all tests (backend unit tests + frontend type-check)
-./mvnw test
+# Backend unit + @QuarkusTest (H2, no Docker)
+./gradlew :backend:implementation:test
 
-# Skip frontend build (backend only)
-./mvnw clean install -Dskip.frontend=true
+# Frontend type-check + ESLint
+./gradlew :frontend:check
 
-# Run end-to-end tests (requires running backend)
-./mvnw verify -pl src/backend/end2end -DskipITs=false
+# Run end-to-end tests (requires a running backend)
+./gradlew :backend:end2end:e2eTest
 ```
 
 ## Static code analysis
 
-`./mvnw verify` runs static analysis across every source layer in
-addition to the regular tests. The reports are currently
-**informational** — the build stays green (exit code 0) regardless of
-how many findings each tool produces. A follow-up task can flip the
-gates to enforcing once the existing backlog has been triaged.
+`./gradlew detekt` (Kotlin) and `./gradlew :frontend:check` (ESLint, via the
+`lint:report` script) run static analysis across every source layer; both also
+run as part of `./gradlew build`. The reports are currently **informational**
+— the build stays green regardless of how many findings each tool produces. A
+follow-up task can flip the gates to enforcing once the existing backlog has
+been triaged.
 
 ### Tools and report locations
 
-| Layer              | Tool   | Phase    | Reports                                                       |
-|--------------------|--------|----------|---------------------------------------------------------------|
-| Kotlin — backend   | detekt | `verify` | `src/backend/implementation/target/detekt/detekt.{xml,html}`  |
-| Kotlin — domain    | detekt | `verify` | `src/domain/build/reports/detekt/detekt.{xml,html}`           |
-| TS / Svelte / HTML | ESLint | `verify` | `src/frontend/reports/eslint.{json,html}`                     |
+| Layer              | Tool   | Task                  | Reports                                                       |
+|--------------------|--------|-----------------------|---------------------------------------------------------------|
+| Kotlin — backend   | detekt | `:backend:implementation:detekt` | `src/backend/implementation/build/reports/detekt/detekt.{xml,html}` |
+| Kotlin — domain    | detekt | `:domain:detekt`      | `src/domain/build/reports/detekt/detekt.{xml,html}`           |
+| TS / Svelte / HTML | ESLint | `:frontend:npmLintReport` | `src/frontend/reports/eslint.{json,html}`                 |
 
 Both detekt scopes share `config/detekt/detekt.yml` (top-level config
 with `buildUponDefaultConfig: true`). The frontend's ESLint flat config
@@ -69,10 +68,10 @@ Fastest iteration loops during a focused fix:
 
 ```bash
 # Backend Kotlin only
-./mvnw -pl src/backend/implementation detekt:check
+./gradlew :backend:implementation:detekt
 
-# Domain Kotlin only (KMP via Gradle)
-cd src/domain && ./gradlew detekt
+# Domain Kotlin only
+./gradlew :domain:detekt
 
 # Frontend (TS + Svelte + HTML)
 cd src/frontend && npm run lint          # console output, exits non-zero on findings
@@ -81,10 +80,10 @@ cd src/frontend && npm run lint:report   # writes reports/eslint.{json,html}, al
 
 ### Skipping static analysis on quick runs
 
-The static-analysis suite adds a few seconds per layer to `./mvnw
-verify`. For most workflows this is fine; if you need a faster build
-(e.g. you're iterating on a single test and don't care about lint
-output), the per-tool commands above let you skip the full reactor.
+The static-analysis tasks add a few seconds per layer. For most workflows this
+is fine; if you need a faster loop (e.g. you're iterating on a single test and
+don't care about lint output), the per-tool tasks above let you run just what
+you need instead of the full `./gradlew build`.
 
 Several task validation blocks gate their heaviest checks behind the
 environment variable `staticCodeAnalysis`. Set it to `1` before
@@ -118,8 +117,7 @@ Or start them individually:
 
 Start the backend:
 ```bash
-cd src/backend/implementation
-../../../mvnw quarkus:dev -Pdev-local
+QUARKUS_PROFILE=dev-local ./gradlew :backend:implementation:quarkusDev
 ```
 
 Start the frontend (in a second terminal):

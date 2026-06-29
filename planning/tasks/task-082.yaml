@@ -1,0 +1,373 @@
+id: task-082
+phase: phase-10
+title: Migrate the whole build from hybrid Maven+Gradle to Gradle-only
+depends_on: [task-071]
+description: |
+  Replace the current "Maven outside, Gradle inside `src/domain`" hybrid
+  build with a SINGLE Gradle multi-project build. This is the migration
+  that `docs/architecture.md` already names as "option 3" — the clean
+  end-state that removes the dual-build friction (most visibly: IntelliJ
+  cannot sync the hybrid because the same `src/domain` directory is both
+  a Maven module and a Gradle build).
+
+  This is a large, cross-cutting build/tooling task with NO application
+  behaviour change: no REST endpoint, domain operation, or frontend flow
+  is added, so the CLAUDE.md "Logging" conventions impose no new log
+  statements. The risk is entirely in build-tool parity; sequence the
+  steps and verify each module builds before deleting its pom.
+
+  CURRENT STATE (verified against the working tree):
+    - Top-level Maven reactor: root `pom.xml` (packaging `pom`, modules
+      `src/domain`, `src/frontend`, `src/backend`), Maven wrapper
+      (`mvnw`, `mvnw.cmd`, `.mvn/`). Profiles `dev-local`, `dev-minikube`.
+    - `src/domain` — Kotlin Multiplatform (Kotlin Gradle plugin 2.1.21),
+      already a Gradle build (`build.gradle.kts`, its OWN
+      `settings.gradle.kts` = `rootProject.name = "domain"`, its own
+      `gradlew`/`gradle/`). Its `pom.xml` only delegates to `./gradlew`
+      via `exec-maven-plugin` (`compileKotlinJvm`→compile,
+      `jvmTest`→test, `packageTypescript`→package, `detekt`→verify),
+      points Maven `outputDirectory` at `build/classes/kotlin/jvm/main`,
+      jars that dir, and attaches `build/typescript/domain-<v>-typescript.zip`
+      as a `zip:typescript` classifier artifact. Produces TWO consumables:
+      a JVM jar (backend) and a TypeScript zip (frontend).
+    - `src/backend` — packaging `pom`, modules `implementation`, `end2end`.
+      * `implementation` — Quarkus 3.35.1 + Kotlin 2.3.21 via
+        `kotlin-maven-plugin` (all-open: jakarta.ws.rs.Path,
+        ApplicationScoped, RequestScoped, jakarta.persistence.Entity,
+        MappedSuperclass, io.quarkus.test.junit.QuarkusTest; no-arg:
+        Entity, MappedSuperclass), `quarkus-maven-plugin` (build,
+        generate-code, generate-code-tests), surefire (runs
+        `*Test`/`*IT` in the `test` phase), failsafe (integration-test/
+        verify, `skipITs=true` by default), `detekt-maven-plugin` in
+        `verify`, and Jib reproducible image (`quarkus-container-image-jib`,
+        BOTH `quarkus.jib.use-current-timestamp` and
+        `…use-current-timestamp-file-modification` = `false`, pinned
+        base image + `linux/amd64`). Depends on `domain` (jar) and
+        `io.github.oshai:kotlin-logging-jvm:7.0.7`. Container image:
+        group `theestimator`, name `estimation-backend`. Profiles:
+        `dev-local`, `dev-minikube`, `push`, `native`.
+      * `end2end` — JUnit5 + rest-assured (5.5.1) failsafe ITs only,
+        `skipITs=true`; a non-Quarkus module that hits a running backend.
+    - `src/frontend` — packaging `pom`, `frontend-maven-plugin` 1.15.1
+      installs Node `v22.14.0` / npm `10.9.2` into `src/frontend/node`,
+      runs `npm install --legacy-peer-deps` (initialize), `npm run gen:api`
+      (generate-sources), `npm run build` (compile), `npm run check`
+      (test), `npm run lint:report` (verify). Depends on the domain
+      `zip:typescript` artifact, unpacked via `maven-dependency-plugin`
+      into `src/lib/domain`. `mvn clean` wipes `.svelte-kit`, `build`,
+      `src/lib/domain`. A `dev-minikube` profile builds the frontend
+      Docker image (`docker build -t theestimator/estimation-frontend:<v> .`).
+    - Scripts call Maven: `scripts/dev-local.sh`
+      (`./mvnw quarkus:dev -Pdev-local`), `scripts/minikube-deploy.sh`
+      (`./mvnw package -Pdev-minikube -DskipTests`),
+      `scripts/dev-local-strict.sh`. There is NO CI workflow directory.
+    - Docs and the task-lifecycle skills reference `./mvnw` throughout
+      (`CLAUDE.md`, `docs/development.md`, `docs/architecture.md`,
+      `.claude/commands/{add-task,improve-task,implement-task}.md`).
+
+  TARGET STATE — one Gradle multi-project build:
+    - Root `settings.gradle.kts` (`rootProject.name`, `pluginManagement`,
+      and `include(":domain", ":backend:implementation",
+      ":backend:end2end", ":frontend")`), a root `gradle.properties` for
+      shared versions, and a single root Gradle wrapper
+      (`gradlew`/`gradlew.bat`/`gradle/wrapper/*`) pinned to a current
+      Gradle 8.x that supports the Quarkus 3.35 Gradle plugin and Kotlin
+      2.x. A root `build.gradle.kts` holds the shared configuration
+      (repositories, the detekt plugin version, Kotlin jvmTarget) via
+      `subprojects`/`allprojects` or convention plugins.
+    - `:domain` keeps its existing KMP `build.gradle.kts` (JVM + JS
+      targets, source sets on `src/main/kotlin` / `src/test/kotlin`,
+      `packageTypescript`, detekt) but as a SUBPROJECT — its standalone
+      `settings.gradle.kts` and its own wrapper are removed (root owns
+      them). Expose the TypeScript zip through a named Gradle
+      configuration/artifact so `:frontend` consumes it via a project
+      dependency / task wiring rather than an unpacked Maven artifact.
+    - `:backend:implementation` uses the Quarkus Gradle plugin
+      (`id("io.quarkus")`) with the enforced Quarkus platform BOM
+      (`io.quarkus.platform:quarkus-bom:3.35.1`), `kotlin("jvm")` +
+      `kotlin("plugin.allopen")` + `kotlin("plugin.noarg")` configured
+      with the SAME annotation lists as today, `jvmTarget=21`,
+      `javaParameters=true`, every dependency mapped 1:1 (see steps),
+      `dependencies { implementation(project(":domain")) }`, and the
+      reproducible-Jib settings preserved EXACTLY (both
+      `use-current-timestamp*` = false — this is a hard invariant, see
+      CLAUDE.md "Reproducible Jib backend image"). `@QuarkusTest` ITs
+      keep running in the standard `test` task (matching today's
+      surefire-runs-`*IT` behaviour); Docker is required for the
+      Testcontainers `%test` profile.
+    - `:backend:end2end` is a plain JVM test subproject (JUnit5 +
+      rest-assured) whose e2e/IT task is NOT run by the default build
+      (mirror today's `skipITs=true`).
+    - `:frontend` uses the Gradle Node plugin
+      (`com.github.node-gradle.node`) pinned to Node `v22.14.0` /
+      npm `10.9.2`, with tasks wrapping `npm install --legacy-peer-deps`,
+      `gen:api`, `build`, `check`, `lint:report`, and a `Sync` task
+      (depending on `:domain`'s TypeScript output) that populates
+      `src/lib/domain` before `gen:api`/`build`/`check`. `clean` removes
+      `.svelte-kit`, `build`, `src/lib/domain`. The frontend Docker image
+      build moves to a Gradle task used on the minikube path.
+    - The Maven `dev-local`/`dev-minikube`/`push`/`native` profiles
+      become Gradle project properties (e.g. `-Pdev-minikube`) and/or
+      rely on the Quarkus profile (`-Dquarkus.profile=…` /
+      `QUARKUS_PROFILE`); container-image building is gated on the
+      property exactly as the Maven profiles gated
+      `quarkus.container-image.build`.
+    - All `pom.xml` files, `mvnw`, `mvnw.cmd`, and `.mvn/` are deleted.
+    - Scripts, docs, and the three task-lifecycle skills are updated to
+      Gradle invocations and the new report locations
+      (detekt → `src/backend/implementation/build/reports/detekt/` and
+      `src/domain/build/reports/detekt/`; ESLint stays at
+      `src/frontend/reports/eslint.json`).
+
+  KEY DECISIONS / RISKS (resolve, don't leave ambiguous):
+    - Kotlin version: `:domain` uses the KMP plugin at 2.1.21, the
+      backend used `kotlin-maven-plugin` 2.3.21. Pick ONE Kotlin Gradle
+      plugin version that satisfies both the KMP `js()` target and the
+      Quarkus 3.35.1 Gradle plugin, declared once in
+      `settings.gradle.kts` `pluginManagement`. Prefer aligning upward
+      to what Quarkus 3.35 supports; if that breaks the KMP/JS compile,
+      keep `:domain` on its own 2.1.21 plugin version (Gradle allows a
+      per-subproject plugin version) and document why.
+    - Quarkus Gradle plugin parity: dev mode is `quarkusDev`, image build
+      is driven by `quarkus.container-image.build=true` on `quarkusBuild`
+      / the `imageBuild` task. Confirm `generate-code` equivalents (the
+      Gradle plugin runs code generation automatically) and that the
+      OpenAPI store still lands where `npm run gen:api` expects
+      (`gen:api` reads the committed `src/lib/api/openapi.json`; do not
+      change that contract).
+    - This task assumes the CURRENT coordinates (`io.github.theestimator`,
+      artifact `the-estimator`/`domain`/`implementation`, image
+      `estimation-backend`). If task-078 (BSCHAE rename) lands first,
+      carry its new group/artifact/image names into the Gradle scripts
+      instead.
+    - Memory/docs: the auto-memory note "Maven build pipeline"
+      (`project_maven_build.md`) and the `docs/architecture.md`
+      "Why `src/domain` ships BOTH a pom.xml AND a build.gradle.kts" /
+      "Could we remove one of them?" sections become obsolete and must
+      be rewritten for the Gradle-only reality.
+
+steps:
+  - |
+    Establish the root Gradle build. Create `settings.gradle.kts` at the
+    repo root with `rootProject.name = "the-estimator"`, a
+    `pluginManagement { repositories { gradlePluginPortal(); mavenCentral() } }`
+    block pinning the Kotlin, Quarkus, detekt, and node-gradle plugin
+    versions, and
+    `include(":domain", ":backend:implementation", ":backend:end2end", ":frontend")`
+    with `project(":domain").projectDir = file("src/domain")` etc. so the
+    logical paths map to the existing `src/` directories. Create a root
+    `build.gradle.kts` holding the shared configuration (repositories, the
+    detekt plugin version, the Kotlin `jvmTarget`) applied via
+    `subprojects`/`allprojects` or convention plugins — this file is a
+    definite deliverable, not optional. Add a root `gradle.properties`
+    (shared versions, `org.gradle.parallel=true`,
+    `kotlin.code.style=official`). Generate the root Gradle wrapper by
+    reusing the one currently under `src/domain` (copy `gradlew`,
+    `gradlew.bat`, and `gradle/wrapper/gradle-wrapper.{jar,properties}` to
+    the repo root) and set the wrapper distribution to a PINNED exact
+    Gradle version — use `8.14` (verify it supports the Quarkus 3.35.1
+    Gradle plugin and the Kotlin plugin version chosen below; bump to the
+    nearest 8.x that does if not) via
+    `./gradlew wrapper --gradle-version 8.14 --distribution-type bin`.
+
+  - |
+    Convert `:domain` to a subproject. Keep
+    `src/domain/build.gradle.kts` (KMP jvm+js, source sets on
+    `src/main/kotlin`/`src/test/kotlin`, `prepareTypescriptArtifacts`,
+    `packageTypescript`, detekt). Remove `src/domain/settings.gradle.kts`
+    and the module-local wrapper (`src/domain/gradlew`,
+    `src/domain/gradlew.bat`, `src/domain/gradle/`). Expose the
+    TypeScript zip for cross-project consumption: declare a named
+    consumable `Configuration` (e.g. `typescriptDist`) with an artifact
+    pointing at the `packageTypescript` zip output, so `:frontend` can
+    depend on it. Leave `group`/`version` as-is (or inherit from root).
+
+  - |
+    Create `src/backend/implementation/build.gradle.kts`. Apply
+    `kotlin("jvm")`, `kotlin("plugin.allopen")`, `kotlin("plugin.noarg")`,
+    and `id("io.quarkus")`. Enforce the platform:
+    `implementation(enforcedPlatform("io.quarkus.platform:quarkus-bom:3.35.1"))`.
+    Map every dependency from the old pom: quarkus-kotlin,
+    kotlin-stdlib, quarkus-hibernate-orm-panache-kotlin,
+    quarkus-smallrye-health, quarkus-flyway, quarkus-smallrye-openapi,
+    quarkus-jdbc-postgresql, quarkus-jdbc-h2,
+    quarkus-container-image-jib, quarkus-rest-jackson, quarkus-jackson,
+    com.fasterxml.jackson.module:jackson-module-kotlin, quarkus-oidc,
+    quarkus-micrometer-registry-prometheus, quarkus-hibernate-validator,
+    quarkus-logging-json, quarkus-arc,
+    org.apache.poi:poi-ooxml:5.4.1,
+    io.github.oshai:kotlin-logging-jvm:7.0.7, and
+    `implementation(project(":domain"))`; test deps:
+    io.quarkus:quarkus-junit5, io.rest-assured:rest-assured,
+    org.mockito.kotlin:mockito-kotlin:5.4.0. Configure `allOpen` with the
+    six annotations and `noArg` with Entity/MappedSuperclass (same as the
+    pom). Set `kotlin { compilerOptions { jvmTarget=JVM_21; javaParameters=true } }`.
+    Configure `tasks.test { useJUnitPlatform() }` so `*Test`/`*IT` run in
+    `test`. Set the reproducible-Jib + container-image properties
+    (group `theestimator`, name `estimation-backend`, pinned base image,
+    `linux/amd64`, and BOTH `quarkus.container-image.jib.use-current-timestamp`
+    and `…use-current-timestamp-for-system-libraries` = `false`) via
+    `gradle.properties`/`application.properties` as the Quarkus Gradle
+    plugin expects. Gate container-image build on a `dev-minikube`/`push`
+    project property.
+
+  - |
+    Create `src/backend/end2end/build.gradle.kts`: `kotlin("jvm")` (or
+    plain `java`), `testImplementation` org.junit.jupiter:junit-jupiter:5.11.4
+    and io.rest-assured:rest-assured:5.5.1, `tasks.test { useJUnitPlatform() }`.
+    Put the e2e/IT cases in a task that is NOT wired into the default
+    `build`/`check` (mirror today's `skipITs=true`) — e.g. a dedicated
+    `e2eTest` task or a tag-filtered test task disabled by default.
+
+  - |
+    Create `src/frontend/build.gradle.kts` applying
+    `id("com.github.node-gradle.node")`. Configure
+    `node { version = "22.14.0"; npmVersion = "10.9.2"; download = true;
+    nodeProjectDir = file(".") }`. Register tasks:
+    `npmInstall` args `["--legacy-peer-deps"]`; `NpmTask`s for
+    `run gen:api`, `run build`, `run check`, `run lint:report`; and a
+    `Sync` task `unpackDomainTypescript` that consumes `:domain`'s
+    `typescriptDist` configuration and writes into `src/lib/domain`,
+    wired as a dependency of `gen:api`/`build`/`check`. Make the Gradle
+    `check` task depend on the npm `check` (+ `lint:report`) and `build`
+    on the npm `build`. Configure `clean` to delete `.svelte-kit`,
+    `build`, and `src/lib/domain`. Move the frontend Docker image build
+    (`docker build -t theestimator/estimation-frontend:<version> .`) into a
+    Gradle `Exec` task used on the minikube path.
+
+  - |
+    Update the scripts to Gradle:
+      - `scripts/dev-local.sh`: replace `./mvnw quarkus:dev -Pdev-local`
+        with `./gradlew :backend:implementation:quarkusDev`, passing the
+        profile via the `QUARKUS_PROFILE=dev-local` environment variable
+        (NOT a bare `-Dquarkus.profile=…`: Gradle does not forward `-D`
+        system properties to the dev-mode JVM by default; either export
+        `QUARKUS_PROFILE` or use the plugin's `quarkusDev { ... }` /
+        `-Dquarkus.args`/`systemProperty` wiring). Keep the frontend
+        `npm run dev`; fix the Kotlin-daemon-cleanup
+        comments that mention `./mvnw quarkus:dev`.
+      - `scripts/minikube-deploy.sh`: replace
+        `./mvnw package -Pdev-minikube -DskipTests` with the Gradle
+        equivalents — build the backend image
+        (`./gradlew :backend:implementation:build -Pdev-minikube -x test`
+        with container-image build enabled, or the `imageBuild` task) and
+        run the frontend Docker-image task — keeping the subsequent
+        `minikube image load` / `kubectl apply` steps.
+      - `scripts/dev-local-strict.sh`: same `quarkusDev` swap, keeping the
+        `:8081` port + empty `APP_AUTH_DEV_DEFAULT_USER`. (If task-080 has
+        already deleted this script, skip it.)
+
+  - |
+    Delete Maven entirely once every module builds under Gradle: remove
+    `pom.xml`, `src/domain/pom.xml`, `src/backend/pom.xml`,
+    `src/backend/implementation/pom.xml`, `src/backend/end2end/pom.xml`,
+    `src/frontend/pom.xml`, and the Maven wrapper `mvnw`, `mvnw.cmd`,
+    `.mvn/`.
+
+  - |
+    Update documentation and the task-lifecycle skills to Gradle:
+      - `CLAUDE.md`: rewrite "Build & run" (every `./mvnw …` → `./gradlew …`),
+        the three-module "Architecture" descriptions, and the
+        "Reproducible Jib backend image" note (still both flags false,
+        now set in Gradle). Remove statements implying a Maven reactor.
+      - `docs/architecture.md`: rewrite the "Why `src/domain` ships BOTH
+        a pom.xml AND a build.gradle.kts" and "Could we remove one of
+        them?" sections to describe the completed single-Gradle build.
+        Update the build commands.
+      - `docs/development.md`: replace all `./mvnw` commands and the
+        per-tool static-analysis commands with Gradle equivalents
+        (`./gradlew build`, `./gradlew :backend:implementation:test`,
+        `./gradlew :domain:jvmTest`, `./gradlew :frontend:check`,
+        `./gradlew detekt`), and refresh the report-location table.
+      - `.claude/commands/add-task.md`,
+        `.claude/commands/improve-task.md`,
+        `.claude/commands/implement-task.md`: replace every `./mvnw`
+        build/validation form and the static-analysis report paths with
+        the Gradle equivalents (build check → `./gradlew build` or the
+        per-module task; static-analysis gate → `./gradlew detekt` and
+        the `build/reports/detekt/` paths).
+
+  - |
+    Refresh the auto-memory that this migration invalidates. The
+    "Maven build pipeline" memory (`project_maven_build.md`) describes a
+    Maven-reactor world that no longer exists — rewrite it to document
+    the single Gradle multi-project build (module graph, the
+    `:domain` KMP → `:frontend` TypeScript wiring, the Quarkus Gradle
+    plugin, Docker-for-Testcontainers), and update `MEMORY.md`'s
+    one-line pointer accordingly. Re-check the "Jib reproducible image"
+    and "KMP domain integration" memories and adjust any Maven-specific
+    wording. (These live under the auto-memory directory, not the repo.)
+
+  - |
+    Full Gradle build + checks (Docker required for the backend
+    Testcontainers `@QuarkusTest` ITs):
+      ./gradlew build
+      ./gradlew :frontend:check
+
+validation:
+  - |
+    Gradle is the single build and Maven is gone:
+      test -f settings.gradle.kts
+      test -f gradlew
+      test -f gradle/wrapper/gradle-wrapper.properties
+      ! test -f mvnw
+      ! test -d .mvn
+      [ -z "$(find . -name pom.xml -not -path '*/node_modules/*' -not -path '*/build/*' -not -path '*/target/*')" ]
+  - |
+    Each module has a Gradle build script with the right plugin:
+      test -f src/backend/implementation/build.gradle.kts
+      grep -q 'id("io.quarkus")' src/backend/implementation/build.gradle.kts
+      test -f src/frontend/build.gradle.kts
+      grep -q "node-gradle" src/frontend/build.gradle.kts
+      test -f src/backend/end2end/build.gradle.kts
+      grep -q 'include(":domain"' settings.gradle.kts
+  - |
+    The reproducible-Jib invariant survives the migration (both flags
+    false — see CLAUDE.md):
+      grep -q "use-current-timestamp" src/backend/implementation/build.gradle.kts || grep -rq "use-current-timestamp" src/backend/implementation/gradle.properties src/backend/implementation/src/main/resources/application.properties
+  - |
+    Scripts, docs, and skills no longer call Maven:
+      grep -q "gradlew" scripts/dev-local.sh
+      ! grep -q "mvnw" scripts/minikube-deploy.sh
+      grep -q "gradlew" CLAUDE.md
+      ! grep -q "./mvnw" .claude/commands/implement-task.md
+  - |
+    The whole project builds and type-checks under Gradle:
+      ./gradlew build
+      ./gradlew :frontend:check
+
+outputs:
+  - created: settings.gradle.kts
+  - created: build.gradle.kts
+  - created: gradle.properties
+  - created: gradlew
+  - created: gradlew.bat
+  - created: gradle/wrapper/gradle-wrapper.jar
+  - created: gradle/wrapper/gradle-wrapper.properties
+  - created: src/backend/implementation/build.gradle.kts
+  - created: src/backend/end2end/build.gradle.kts
+  - created: src/frontend/build.gradle.kts
+  - modified: src/domain/build.gradle.kts
+  - modified: scripts/dev-local.sh
+  - modified: scripts/minikube-deploy.sh
+  - modified: scripts/dev-local-strict.sh
+  - modified: CLAUDE.md
+  - modified: docs/architecture.md
+  - modified: docs/development.md
+  - modified: .claude/commands/add-task.md
+  - modified: .claude/commands/improve-task.md
+  - modified: .claude/commands/implement-task.md
+  - deleted: pom.xml
+  - deleted: src/domain/pom.xml
+  - deleted: src/domain/settings.gradle.kts
+  - deleted: src/domain/gradlew
+  - deleted: src/domain/gradlew.bat
+  - deleted: src/domain/gradle/wrapper/gradle-wrapper.jar
+  - deleted: src/domain/gradle/wrapper/gradle-wrapper.properties
+  - deleted: src/backend/pom.xml
+  - deleted: src/backend/implementation/pom.xml
+  - deleted: src/backend/end2end/pom.xml
+  - deleted: src/frontend/pom.xml
+  - deleted: mvnw
+  - deleted: mvnw.cmd
+  - deleted: .mvn/wrapper/maven-wrapper.properties

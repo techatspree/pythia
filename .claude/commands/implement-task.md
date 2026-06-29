@@ -13,15 +13,15 @@ Implement the planning task whose ID is given in $ARGUMENTS (e.g. `task-041`).
 5. **Run the validation checks** listed in the `validation` section of the task. Each check is a shell command or a structural assertion. Run the shell commands with Bash. For structural assertions (e.g. "all four call sites accept EstimationVersion") inspect the relevant files and confirm. All checks must pass.
 
 6. **MANDATORY BUILD CHECK** — this step is non-negotiable and must not be skipped:
-   - The task's last `steps` entry is typically the build/test command (e.g. `./mvnw test -pl src/backend/implementation`). Run it exactly as written.
+   - The task's last `steps` entry is typically the build/test command (e.g. `./gradlew :backend:implementation:test`). Run it exactly as written.
    - If the task covers frontend-only changes, run `npm run check` inside `src/frontend`.
    - If the task covers both backend and frontend, run both.
    - **Do not mark the task done until the build passes with zero failures.** If the build fails, diagnose and fix the root cause, then re-run. Never skip or work around the build step.
 
-7. **STATIC-ANALYSIS GATE** — non-negotiable, like the build check. The reactor runs detekt (Kotlin: domain + backend) and ESLint (TypeScript / Svelte / HTML) in the `verify` phase, but the reports are *informational*: `./mvnw verify` stays green even when there are findings (see task-056). A passing build therefore does NOT prove the code is clean — check explicitly, scoped to what this task changed:
-   - Regenerate the reports for the affected module(s): `./mvnw -pl src/backend/implementation verify` and/or `./mvnw -pl src/domain verify`; for frontend, `cd src/frontend && npm run lint:report`.
+7. **STATIC-ANALYSIS GATE** — non-negotiable, like the build check. The Gradle build runs detekt (Kotlin: domain + backend) and ESLint (TypeScript / Svelte / HTML), but the reports are *informational*: the build stays green even when there are findings (see task-056). A passing build therefore does NOT prove the code is clean — check explicitly, scoped to what this task changed:
+   - Regenerate the reports for the affected module(s): `./gradlew :backend:implementation:detekt` and/or `./gradlew :domain:detekt`; for frontend, `./gradlew :frontend:npmLintReport`.
    - For every **source** file in the task's `outputs` (its `.kt`, `.kts`, `.ts`, `.svelte`, `.html` paths), confirm it introduces no new findings:
-     - Kotlin — the path must NOT appear in `src/backend/implementation/target/detekt/detekt.xml` or `src/domain/build/reports/detekt/detekt.xml` (detekt's checkstyle XML emits a `<file>` block only for files that have findings).
+     - Kotlin — the path must NOT appear in `src/backend/implementation/build/reports/detekt/detekt.xml` or `src/domain/build/reports/detekt/detekt.xml` (detekt's checkstyle XML emits a `<file>` block only for files that have findings).
      - Frontend — the file's entry in `src/frontend/reports/eslint.json` must show `errorCount` and `warningCount` of `0`, e.g. `! jq -e '.[] | select(.filePath | endswith("Foo.svelte")) | select(.errorCount > 0 or .warningCount > 0)' src/frontend/reports/eslint.json > /dev/null`.
    - Do NOT gate on the whole repo — the legacy baseline already has findings; only the files this task touched must be clean. Fix any new finding on a touched file before marking done. If a touched file carries a pre-existing finding unrelated to this change, leave it and note it in the report rather than expanding the task's scope.
 

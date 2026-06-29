@@ -487,6 +487,12 @@
       "started_at": "2026-06-28T12:10:17+00:00",
       "completed_at": "2026-06-28T12:27:25+00:00",
       "notes": "Refactor frontend editor components to idiomatic Svelte 5 $bindable state management"
+    },
+    "task-082": {
+      "status": "done",
+      "started_at": "2026-06-28T16:46:46+00:00",
+      "completed_at": "2026-06-28T17:20:30+00:00",
+      "notes": "Convert the hybrid Maven+Gradle build to a single Gradle-only multi-module build"
     }
   }
 }

@@ -13,6 +13,7 @@ BACKEND_DIR="$PROJECT_ROOT/src/backend/implementation"
 export APP_AUTH_PROVIDER=dev
 export APP_AUTH_DEV_DEFAULT_USER=
 export QUARKUS_HTTP_PORT=8081
+export QUARKUS_PROFILE=dev-local
 
 # Snapshot Kotlin daemons that already exist before we spawn ours, so
 # cleanup only kills the daemon THIS script started — NOT the one the
@@ -24,10 +25,9 @@ cleanup() {
     kill $BACKEND_PID 2>/dev/null
     wait $BACKEND_PID 2>/dev/null
     # Sweep only Kotlin daemons that appeared after this script started.
-    # `./mvnw quarkus:dev` detaches its daemon with -Dkotlin.environment.keepalive,
-    # so it would otherwise outlive the kill above and accumulate across
-    # sessions (symptom: subsequent builds fail with "Failed connecting
-    # to the daemon in 4 retries").
+    # Quarkus dev mode can leave a detached Kotlin daemon behind, so it would
+    # otherwise outlive the kill above and accumulate across sessions (symptom:
+    # subsequent builds fail with "Failed connecting to the daemon in 4 retries").
     KOTLIN_DAEMONS_NOW=$(pgrep -u "$USER" -f KotlinCompileDaemon 2>/dev/null || true)
     for pid in $KOTLIN_DAEMONS_NOW; do
         case " $KOTLIN_DAEMONS_BEFORE " in
@@ -40,8 +40,10 @@ cleanup() {
 trap cleanup EXIT INT TERM
 
 echo "Starting strict backend on :8081 (dev-local profile, fallback disabled)..."
-cd "$BACKEND_DIR"
-"$PROJECT_ROOT/mvnw" quarkus:dev -Pdev-local &
+cd "$PROJECT_ROOT"
+# stdin from /dev/null + plain console: Quarkus dev mode's interactive console
+# reads stdin, and a backgrounded process reading the TTY is SIGTTIN-suspended.
+"$PROJECT_ROOT/gradlew" --console=plain :backend:implementation:quarkusDev < /dev/null &
 BACKEND_PID=$!
 
 echo "Waiting for strict backend to be ready..."

@@ -21,7 +21,12 @@ done
 
 echo "Building backend and frontend container images..."
 cd "$PROJECT_ROOT"
-"$PROJECT_ROOT/mvnw" package -Pdev-minikube -DskipTests
+# Backend image via Quarkus/Jib (container-image build enabled); frontend image
+# via the Gradle Docker task. Tests are skipped for the deploy build.
+"$PROJECT_ROOT/gradlew" \
+    :backend:implementation:imageBuild -Dquarkus.container-image.build=true \
+    :frontend:dockerBuildImage \
+    -x test
 
 echo "Loading images into Minikube..."
 minikube image load theestimator/estimation-backend:1.0.0-SNAPSHOT

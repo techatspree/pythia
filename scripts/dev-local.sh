@@ -12,6 +12,10 @@ FRONTEND_DIR="$PROJECT_ROOT/src/frontend"
 export APP_AUTH_PROVIDER=dev
 export VITE_AUTH_PROVIDER=dev
 
+# Quarkus run profile. Gradle does not forward -Dquarkus.profile to the
+# dev-mode JVM, so pass the profile via the environment.
+export QUARKUS_PROFILE=dev-local
+
 # Snapshot Kotlin daemons that already exist before we spawn ours, so
 # cleanup only kills the daemon THIS script started — NOT IntelliJ's
 # and NOT the strict backend's (scripts/dev-local-strict.sh) if you're
@@ -23,10 +27,9 @@ cleanup() {
     kill $BACKEND_PID $FRONTEND_PID 2>/dev/null
     wait $BACKEND_PID $FRONTEND_PID 2>/dev/null
     # Sweep only Kotlin daemons that appeared after this script started.
-    # `./mvnw quarkus:dev` detaches its daemon with -Dkotlin.environment.keepalive,
-    # so it would otherwise outlive the kill above and accumulate across
-    # sessions (symptom: subsequent builds fail with "Failed connecting
-    # to the daemon in 4 retries").
+    # Quarkus dev mode can leave a detached Kotlin daemon behind, so it would
+    # otherwise outlive the kill above and accumulate across sessions (symptom:
+    # subsequent builds fail with "Failed connecting to the daemon in 4 retries").
     KOTLIN_DAEMONS_NOW=$(pgrep -u "$USER" -f KotlinCompileDaemon 2>/dev/null || true)
     for pid in $KOTLIN_DAEMONS_NOW; do
         case " $KOTLIN_DAEMONS_BEFORE " in
@@ -39,8 +42,13 @@ cleanup() {
 trap cleanup EXIT INT TERM
 
 echo "Starting backend (dev-local)..."
-cd "$BACKEND_DIR"
-"$PROJECT_ROOT/mvnw" quarkus:dev -Pdev-local &
+cd "$PROJECT_ROOT"
+# Redirect stdin from /dev/null: Quarkus dev mode runs an interactive console
+# that reads stdin, and a backgrounded process reading the controlling terminal
+# is suspended with SIGTTIN — which would freeze the backend (and hang the
+# health-check loop below, so the frontend never starts). --console=plain stops
+# Gradle from driving the TTY too.
+"$PROJECT_ROOT/gradlew" --console=plain :backend:implementation:quarkusDev < /dev/null &
 BACKEND_PID=$!
 
 echo "Waiting for backend to be ready..."
@@ -51,7 +59,7 @@ echo "Backend ready at http://localhost:8080"
 
 echo "Starting frontend..."
 cd "$FRONTEND_DIR"
-npm run dev &
+npm run dev < /dev/null &
 FRONTEND_PID=$!
 
 echo "Frontend starting at http://localhost:5173"

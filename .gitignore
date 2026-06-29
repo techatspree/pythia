@@ -5,6 +5,8 @@ node_modules/
 target/
 dist/
 build/
+.gradle/
+*.hprof
 
 # IDE
 .idea/

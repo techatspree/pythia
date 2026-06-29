@@ -34,10 +34,10 @@ Check structural conventions shared across all tasks:
 
 - `status.json` must have an entry for `$ARGUMENTS`. If it is missing, that is a FAIL — the entry must be added before the task can be executed.
 - The last step or the validation section must include a build/test command. Accepted forms:
-  - `./mvnw test` (or `mvn test`) for backend-only changes
-  - `npm run check` inside `src/frontend` for frontend-only
-  - Both, for cross-module tasks
-  - The KMP build (`./gradlew jvmJar publishToMavenLocal`) for domain changes
+  - `./gradlew :backend:implementation:test` for backend-only changes
+  - `./gradlew :frontend:check` for frontend-only
+  - `./gradlew build` for cross-module / full-stack tasks
+  - `./gradlew :domain:build` for domain (KMP) changes
   If none of these is present, flag it.
 - `validation` must contain at least one assertion that can be run as a shell command (not just "visual inspection"). If all validation items are prose-only, flag it.
 - The `depends_on` list must be consistent with the phase ordering in `plan.yaml`. A task in an earlier phase should not depend on a task in a later phase.
