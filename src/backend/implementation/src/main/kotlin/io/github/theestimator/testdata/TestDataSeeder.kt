@@ -39,6 +39,9 @@ class TestDataSeeder(
     private val entityManager: EntityManager
 ) {
 
+    // `event` is the CDI observed event — required by @Observes for the
+    // observer signature even though the body does not read it.
+    @Suppress("UnusedParameter")
     @Transactional
     fun seed(@Observes @Priority(1) event: StartupEvent) {
         if (projectRepository.count() > 0L) return

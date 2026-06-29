@@ -11,6 +11,7 @@ import io.github.theestimator.domain.draft.DraftFixedItemNode
 import io.github.theestimator.domain.draft.DraftGroupNode
 import io.github.theestimator.domain.draft.DraftProjectPhase
 import io.github.theestimator.domain.draft.DraftTimeRelativeItemNode
+import io.quarkus.logging.Log
 import jakarta.enterprise.context.ApplicationScoped
 import org.apache.poi.ss.usermodel.Row
 import org.apache.poi.ss.usermodel.Sheet
@@ -188,7 +189,7 @@ class ExcelImporter {
         return try {
             cell.stringCellValue.takeIf { it.isNotBlank() }
         } catch (e: Exception) {
-            e.printStackTrace()
+            Log.debug("Failed to read cell value during Excel import", e)
             null
         }
     }
@@ -198,7 +199,7 @@ class ExcelImporter {
         return try {
             cell.numericCellValue.takeIf { !it.isNaN() }
         } catch (e: Exception) {
-            e.printStackTrace()
+            Log.debug("Failed to read cell value during Excel import", e)
             null
         }
     }

@@ -15,7 +15,7 @@ Path: `planning/cleanup-state.json`. It is the single source of truth for what i
 ```json
 {
   "generated_at": "<ISO-8601 UTC>",
-  "validation_commands": ["./mvnw verify", "cd src/frontend && npm run check"],
+  "validation_commands": ["./gradlew detekt", "./gradlew :frontend:check"],
   "findings": [
     {
       "id": "f001",
@@ -39,13 +39,15 @@ The first time you create the state file, ensure it is not committed: if `planni
 This command may only run against a project whose tests all pass. Before doing anything else (on a fresh run **and** on resume), confirm the test suites are green:
 
 ```bash
-./mvnw test                        # domain + backend unit + integration tests
+./gradlew test                        # domain + backend unit + @QuarkusTest (Docker required)
 cd src/frontend && npm run test:e2e   # only if the frontend was likely affected / on request
 ```
 
+**Docker must be running** — the backend tests start a throwaway PostgreSQL container via Quarkus Dev Services. If Docker is down, the precondition cannot be checked: report that and stop.
+
 If any test fails, **abort immediately**: report the failing tests and tell the user to fix them first. Do not collect findings, do not modify the state file, do not fix anything. Cleaning up static-analysis findings on top of a broken build is out of scope for this command.
 
-(A fresh `./mvnw verify` in step 2 runs the tests anyway and produces the analysis reports in one pass — you may use a single `./mvnw verify` to satisfy both this precondition and step 2 on a fresh run. On resume, run `./mvnw test` to re-confirm the precondition before continuing the fix loop.)
+(Unlike a single Maven `verify`, the Gradle build separates concerns: `./gradlew test` is the precondition, and `./gradlew detekt :frontend:check` in step 2 regenerates the analysis reports. `./gradlew build` runs both at once but is heavier; either approach is fine.)
 
 ## Protocol
 
@@ -59,15 +61,20 @@ If any test fails, **abort immediately**: report the failing tests and tell the 
 Run the static analysis from the repo root and capture all output. These commands are informational here — let them run to completion even if they report findings; do not stop on the first warning:
 
 ```bash
-./mvnw verify                      # also runs detekt (domain + backend) + eslint, and the tests (precondition)
-cd src/frontend && npm run check   # svelte-check type errors
+./gradlew detekt           # detekt over every Kotlin module (domain + backend)
+./gradlew :frontend:check  # svelte-check (type errors) + ESLint report
 ```
 
-`./mvnw verify` writes machine-readable reports — parse these rather than scraping console text where possible:
+These write machine-readable reports — parse these rather than scraping console text where possible:
 
 - Domain detekt:  `src/domain/build/reports/detekt/detekt.xml`
-- Backend detekt: `src/backend/implementation/target/detekt/detekt.xml`
-- Frontend eslint: `src/frontend/reports/eslint.json` (produced by the `lint:report` npm script the frontend pom binds into `verify`)
+- Backend detekt: `src/backend/implementation/build/reports/detekt/detekt.xml`
+  (use the Gradle `build/reports/` path — a stale Maven-era `target/detekt/`
+  report may still exist; ignore it. Glob `**/build/reports/detekt/detekt.xml`
+  to catch any other module, e.g. `:backend:end2end`.)
+- Frontend eslint: `src/frontend/reports/eslint.json` (produced by the `lint:report` npm script the `:frontend:check` Gradle task runs)
+
+`:frontend:check` runs svelte-check too; its warnings/errors are in the Gradle console output. To capture them cleanly for parsing, run `cd src/frontend && npm run check` directly.
 
 Collect **static-analysis** findings from, in this order:
 
@@ -86,13 +93,13 @@ Assign sequential ids (`f001`, `f002`, …). Write all collected findings with `
 Process `pending` findings one after another (lowest id first). For each:
 
 1. Read the target file around the reported line and understand the finding in context.
-2. Apply the smallest correct fix that resolves the finding **without changing behaviour**. Follow the conventions in `CLAUDE.md` — especially: business logic stays in `src/domain/`; the Kotlin/JS super-property and secondary-constructor pitfalls; the frontend error-surfacing rule and `log` (never bare `console.*`); the `$state` snapshot idiom.
+2. Apply the smallest correct fix that resolves the finding **without changing behaviour**. Follow the conventions in `CLAUDE.md` — especially: business logic stays in `src/domain/`; the Kotlin/JS super-property and secondary-constructor pitfalls; the frontend error-surfacing rule and `log` (never bare `console.*`); the `$bindable` two-way-binding convention for editor components.
 3. If a finding is a genuine false positive or intentionally allowed, set its `status` to `skipped` with a one-line `message` note explaining why (prefer the tool's documented suppression mechanism — e.g. a detekt `@Suppress`, an eslint disable comment with justification — over editing the shared config) instead of `fixed`.
-4. **Confirm no test fails because of the fix.** Run the tests for the module(s) the fix touched before marking it done:
-   - domain change → `./mvnw -pl src/domain -am test`
-   - backend change → `./mvnw -pl src/backend/implementation -am test`
+4. **Confirm no test fails because of the fix.** Run the tests for the module(s) the fix touched before marking it done (Docker must be running for the backend/domain test tasks):
+   - domain change → `./gradlew :domain:test`
+   - backend change → `./gradlew :backend:implementation:test`
    - frontend change → `cd src/frontend && npm run check` (and `npm run test:e2e` if behaviour-adjacent)
-   - a change spanning modules, or any doubt → `./mvnw test`
+   - a change spanning modules, or any doubt → `./gradlew test`
 
    If a test fails, the fix is wrong: revert or correct it until the relevant tests are green again. Do **not** mark the finding `fixed` while any test is failing.
 5. Once tests are green, mark the finding `fixed` (or `skipped`) and **immediately rewrite `planning/cleanup-state.json`**. Do not move on until the file is saved — this is the interrupt-safety guarantee.
@@ -101,11 +108,11 @@ Do not re-run the full analysis inside the loop. The per-fix test run above is t
 
 ### 5. Final verification
 
-When no `pending` findings remain, re-run the full static analysis and the tests (step 2 commands — `./mvnw verify` covers both, plus `npm run check`).
+When no `pending` findings remain, re-run the full static analysis and the tests: `./gradlew detekt :frontend:check` (regenerates the reports) and `./gradlew test` (Docker required). `./gradlew build` runs all of it in one pass if you prefer.
 
 - If it surfaces **new** static-analysis findings (e.g. a fix introduced a different warning), append them to the state file as fresh `pending` entries and return to step 4.
 - If any **test** fails at this point, stop and report it — the run is not clean.
-- When everything is clean — `./mvnw verify` succeeds (tests green, no detekt/eslint findings) and `npm run check` is green — delete `planning/cleanup-state.json` and report.
+- When everything is clean — `./gradlew test` passes and `./gradlew detekt :frontend:check` reports no findings — delete `planning/cleanup-state.json` and report.
 
 ### 6. Report
 

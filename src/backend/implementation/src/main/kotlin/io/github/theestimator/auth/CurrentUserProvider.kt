@@ -7,7 +7,5 @@ class CurrentUserProvider {
     var current: CurrentUser? = null
 
     fun get(): CurrentUser =
-        current ?: throw IllegalStateException(
-            "No AuthModule populated CurrentUser for this request"
-        )
+        current ?: error("No AuthModule populated CurrentUser for this request")
 }
