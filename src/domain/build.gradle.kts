@@ -12,7 +12,7 @@ repositories {
 
 kotlin {
     jvm {
-        // Kotlin 2.3.x removed the legacy `kotlinOptions` DSL in favour of
+        // Kotlin 2.3.x removed the legacy `kotlinOptions` DSL in favor of
         // the typed `compilerOptions`.
         compilerOptions {
             jvmTarget.set(JvmTarget.JVM_21)
