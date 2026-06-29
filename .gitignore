@@ -49,3 +49,4 @@ src/frontend/reports/
 
 # clean-up-project resumable state
 planning/cleanup-state.json
+/.kotlin/metadata/kotlinTransformedMetadataLibraries/
