@@ -104,6 +104,25 @@ validation blocks of any task whose work spans the lint pipeline.
 
 ## Development Profiles
 
+### Authentication per profile
+
+Each profile runs one auth module, selected at **build time** by the
+`app.auth.provider` property (Quarkus `@IfBuildProperty`) — so the value must
+be set when the image is built, not just at runtime:
+
+| Profile          | Auth module        | `app.auth.provider` |
+|------------------|--------------------|---------------------|
+| `dev-local`      | dev (static users) | `dev`               |
+| `dev` (quarkusDev) | dev (static users) | `dev`             |
+| `test`           | dev (static users) | `dev`               |
+| `dev-minikube`   | Entra (OIDC)       | `entra`             |
+| `prod`           | Entra (OIDC)       | `entra`             |
+
+`scripts/minikube-deploy.sh` selects Entra by exporting
+`APP_AUTH_PROVIDER=entra` / `VITE_AUTH_PROVIDER=entra` before the Gradle image
+build (`./gradlew :backend:implementation:imageBuild`). The mapping is
+regression-guarded by `AuthProviderProfileTest`.
+
 ### dev-local — Local with H2 in-memory database
 
 Backend and frontend run locally on your machine. The backend uses an H2 in-memory database (no Docker or PostgreSQL needed).
@@ -135,6 +154,12 @@ The authentication is done using a static authentication provider described in [
 ### dev-minikube — Full stack on Minikube
 
 Backend, frontend, and PostgreSQL run as pods on your local Minikube cluster.
+
+Authentication uses the **Entra** module here (production-like), not the dev
+static provider. Export `ENTRA_TENANT_ID`, `ENTRA_API_CLIENT_ID`, and
+`ENTRA_SPA_CLIENT_ID` before `./scripts/minikube-deploy.sh` — it fails fast if
+any is missing. See [entra-setup.md](./entra-setup.md) for how to obtain the
+values and [authentication.md](./authentication.md) for module behaviour.
 
 Quick start (setup, build, and deploy):
 ```bash

@@ -1,7 +1,7 @@
 id: task-079
 phase: phase-2
 title: Verify and document dev-minikube uses the Entra auth module
-depends_on: [task-007]
+depends_on: [task-007, task-082]
 description: |
   Make it provably true — and clearly documented — that the
   `dev-minikube` profile runs the **Entra** authentication module
@@ -17,8 +17,8 @@ description: |
       / `ENTRA_API_CLIENT_ID`), and leaves the dev default-user empty
       (`%dev-minikube.app.auth.dev.default-user=`, i.e. strict).
     - `scripts/minikube-deploy.sh` builds the images with
-      `./mvnw package -Pdev-minikube` (the `dev-minikube` Maven
-      profile sets `quarkus.profile=dev-minikube`), exports
+      `./gradlew :backend:implementation:imageBuild -Dquarkus.container-image.build=true`
+      (Gradle build since task-082; there is no Maven profile), exports
       `APP_AUTH_PROVIDER=entra` and `VITE_AUTH_PROVIDER=entra`, and
       fails fast if `ENTRA_TENANT_ID`, `ENTRA_API_CLIENT_ID`, or
       `ENTRA_SPA_CLIENT_ID` is unset.
@@ -27,11 +27,13 @@ description: |
       (`EntraAuthModule`/`EntraAuthFilter`/`EntraSecurityIdentityAugmentor`
       carry `stringValue = "entra"`; the dev trio carries `"dev"`).
       Because `@IfBuildProperty` is resolved at augmentation time, the
-      property's value **under the active build profile** is what
-      decides which beans are baked into the image — so the
-      `%dev-minikube.app.auth.provider=entra` override (applied when
-      the image is built with `-Pdev-minikube`) is exactly what makes
-      the Entra beans win.
+      property's value **at build time** is what decides which beans are
+      baked into the image — and `minikube-deploy.sh` exports
+      `APP_AUTH_PROVIDER=entra` (which Quarkus maps to
+      `app.auth.provider=entra`, profile-independently) before the
+      Gradle image build, so the Entra beans win. The
+      `%dev-minikube.app.auth.provider=entra` profile override is the
+      belt-and-suspenders runtime default for that profile.
 
   The two real gaps:
     1. There is NO automated regression guard. If someone changed or
@@ -95,6 +97,11 @@ steps:
         test or one assertion per profile is fine. Name the
         dev-minikube case explicitly (e.g.
         `dev-minikube profile resolves auth provider to entra`).
+      - `io.smallrye.config:smallrye-config` is normally present
+        transitively via Quarkus; if the `SmallRyeConfigBuilder` /
+        `PropertiesConfigSource` imports do not resolve in the test
+        source set, add `testImplementation("io.smallrye.config:smallrye-config")`
+        to `src/backend/implementation/build.gradle.kts`.
 
   - |
     Edit `docs/development.md`:
@@ -113,17 +120,16 @@ steps:
           dev-local → dev (static users) ; dev (quarkus:dev) → dev ;
           test → dev ; dev-minikube → entra ; prod → entra.
         Explain that the module is selected at BUILD time via the
-        `app.auth.provider` property (`@IfBuildProperty`), so the image
-        must be built under the matching profile, and that
-        `minikube-deploy.sh` does this by building with `-Pdev-minikube`
-        and exporting `APP_AUTH_PROVIDER=entra` / `VITE_AUTH_PROVIDER=entra`.
+        `app.auth.provider` property (`@IfBuildProperty`), so the value
+        must be set when the image is built, and that
+        `minikube-deploy.sh` does this by exporting
+        `APP_AUTH_PROVIDER=entra` / `VITE_AUTH_PROVIDER=entra` before the
+        Gradle image build (`./gradlew :backend:implementation:imageBuild`).
 
   - |
-    Build + run the unit test (the new test is a `*Test.kt` unit test
-    run by surefire in the `test` phase — no Docker needed; the
-    Testcontainers `*IT.kt` cases run later under failsafe and are not
-    triggered by this command):
-      ./mvnw -pl src/backend/implementation -am test
+    Build + run the test (the Gradle `test` task runs both `*Test` and
+    `*IT` via JUnit Platform; this new pure-unit test needs no Docker):
+      ./gradlew :backend:implementation:test
 
 validation:
   - |
@@ -131,7 +137,7 @@ validation:
     mapping via the profile API:
       test -f src/backend/implementation/src/test/kotlin/io/github/theestimator/auth/AuthProviderProfileTest.kt
       grep -q "SmallRyeConfigBuilder" src/backend/implementation/src/test/kotlin/io/github/theestimator/auth/AuthProviderProfileTest.kt
-      grep -q "withProfile(\"dev-minikube\")" src/backend/implementation/src/test/kotlin/io/github/theestimator/auth/AuthProviderProfileTest.kt
+      grep -q "dev-minikube" src/backend/implementation/src/test/kotlin/io/github/theestimator/auth/AuthProviderProfileTest.kt
       grep -q "entra" src/backend/implementation/src/test/kotlin/io/github/theestimator/auth/AuthProviderProfileTest.kt
   - |
     The verified-but-unchanged wiring is still in place (guards against
@@ -148,7 +154,7 @@ validation:
       grep -q "ENTRA_TENANT_ID" docs/development.md
   - |
     Build is green and the new unit test passes:
-      ./mvnw -pl src/backend/implementation -am test
+      ./gradlew :backend:implementation:test
 
 outputs:
   - created: src/backend/implementation/src/test/kotlin/io/github/theestimator/auth/AuthProviderProfileTest.kt
