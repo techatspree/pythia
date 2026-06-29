@@ -14,25 +14,17 @@ import io.smallrye.mutiny.Uni
 import io.vertx.ext.web.RoutingContext
 import jakarta.enterprise.context.ApplicationScoped
 import jakarta.ws.rs.core.Response
-import org.eclipse.microprofile.config.inject.ConfigProperty
-import java.util.Optional
 
 @ApplicationScoped
 @IfBuildProperty(name = "app.auth.provider", stringValue = "dev")
-class DevHttpAuthMechanism(
-    @ConfigProperty(name = "app.auth.dev.default-user")
-    private val defaultUserConfig: Optional<String>
-) : HttpAuthenticationMechanism {
-
-    private val defaultUser: String
-        get() = defaultUserConfig.orElse("").trim()
+class DevHttpAuthMechanism : HttpAuthenticationMechanism {
 
     override fun authenticate(
         context: RoutingContext,
         identityProviderManager: IdentityProviderManager
     ): Uni<SecurityIdentity> {
         val header = context.request().getHeader("Authorization")
-        return when (val result = resolveDevUser(header, defaultUser)) {
+        return when (val result = resolveDevUser(header)) {
             is DevAuthResult.Authenticated -> {
                 val identity = QuarkusSecurityIdentity.builder()
                     .setPrincipal(QuarkusPrincipal(result.user.subjectId))

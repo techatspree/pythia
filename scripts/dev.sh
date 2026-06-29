@@ -18,9 +18,7 @@ export VITE_AUTH_PROVIDER=dev
 export QUARKUS_PROFILE=dev
 
 # Snapshot Kotlin daemons that already exist before we spawn ours, so
-# cleanup only kills the daemon THIS script started — NOT IntelliJ's
-# and NOT the strict backend's (scripts/dev-strict.sh) if you're
-# running them in parallel.
+# cleanup only kills the daemon THIS script started — NOT IntelliJ's.
 KOTLIN_DAEMONS_BEFORE=$(pgrep -u "$USER" -f KotlinCompileDaemon 2>/dev/null | sort -n | xargs || true)
 
 cleanup() {

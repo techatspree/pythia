@@ -2,13 +2,10 @@ import { test, expect, request as playwrightRequest } from '@playwright/test';
 
 const API = 'http://localhost:8080';
 
-test('unauthenticated /api/auth/me is honoured under default-user fallback (dev-admin)', async () => {
+test('unauthenticated /api/auth/me is rejected with 401 (strict dev module)', async () => {
 	const ctx = await playwrightRequest.newContext({ baseURL: API });
 	const res = await ctx.get('/api/auth/me');
-	expect(res.status()).toBe(200);
-	const body = await res.json();
-	expect(body.subjectId).toBe('dev-admin');
-	expect(body.providerName).toBe('dev');
+	expect(res.status()).toBe(401);
 	await ctx.dispose();
 });
 

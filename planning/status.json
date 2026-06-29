@@ -477,9 +477,9 @@
       "notes": "Ensure dev-minikube profile uses the Entra authentication module; document in development.md"
     },
     "task-080": {
-      "status": "pending",
-      "started_at": null,
-      "completed_at": null,
+      "status": "done",
+      "started_at": "2026-06-29T13:31:10+00:00",
+      "completed_at": "2026-06-29T13:42:57+00:00",
       "notes": "Fully remove the dev auth default-user fallback; make strict authentication the only behavior"
     },
     "task-081": {

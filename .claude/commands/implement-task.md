@@ -14,9 +14,10 @@ Implement the planning task whose ID is given in $ARGUMENTS (e.g. `task-041`).
 
 6. **MANDATORY BUILD CHECK** — this step is non-negotiable and must not be skipped:
    - The task's last `steps` entry is typically the build/test command (e.g. `./gradlew :backend:implementation:test`). Run it exactly as written.
-   - If the task covers frontend-only changes, run `npm run check` inside `src/frontend`.
+   - If the task covers frontend-only changes, run `./gradlew :frontend:check` (or `npm run check` inside `src/frontend`).
    - If the task covers both backend and frontend, run both.
-   - **Do not mark the task done until the build passes with zero failures.** If the build fails, diagnose and fix the root cause, then re-run. Never skip or work around the build step.
+   - **Run the full Playwright e2e suite** — `cd src/frontend && npm run test:e2e` — and confirm all e2e tests pass. The suite needs the dev stack running (start it with `./scripts/dev.sh`, Docker up, so the `dev` backend on :8080 and the Vite frontend on :5173 are reachable). This is required even when the task only edits e2e specs or backend/auth behaviour the specs exercise — unit/IT green does NOT substitute for e2e. If you genuinely cannot start the stack in this environment, do NOT mark the task done: stop and report the e2e run as the outstanding gate (per the hard rule on unfixable build steps).
+   - **Do not mark the task done until the build passes with zero failures and the e2e suite passes.** If anything fails, diagnose and fix the root cause, then re-run. Never skip or work around the build step.
 
 7. **STATIC-ANALYSIS GATE** — non-negotiable, like the build check. The Gradle build runs detekt (Kotlin: domain + backend) and ESLint (TypeScript / Svelte / HTML), but the reports are *informational*: the build stays green even when there are findings (see task-056). A passing build therefore does NOT prove the code is clean — check explicitly, scoped to what this task changed:
    - Regenerate the reports for the affected module(s): `./gradlew :backend:implementation:detekt` and/or `./gradlew :domain:detekt`; for frontend, `./gradlew :frontend:npmLintReport`.

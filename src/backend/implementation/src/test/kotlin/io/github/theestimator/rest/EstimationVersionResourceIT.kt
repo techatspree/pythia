@@ -3,8 +3,10 @@ package io.github.theestimator.rest
 import io.github.theestimator.domain.Estimation
 import io.github.theestimator.domain.Project
 import io.github.theestimator.repository.EstimationRepository
+import io.github.theestimator.auth.DevAdminAuth
 import io.github.theestimator.repository.ProjectRepository
 import io.quarkus.test.junit.QuarkusTest
+import org.junit.jupiter.api.extension.ExtendWith
 import io.restassured.RestAssured.given
 import io.restassured.http.ContentType
 import jakarta.inject.Inject
@@ -15,6 +17,7 @@ import org.junit.jupiter.api.Test
 import java.util.UUID
 
 @QuarkusTest
+@ExtendWith(DevAdminAuth::class)
 class EstimationVersionResourceIT {
 
     @Inject

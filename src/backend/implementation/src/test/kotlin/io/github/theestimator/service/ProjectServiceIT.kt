@@ -1,7 +1,9 @@
 package io.github.theestimator.service
 
+import io.github.theestimator.auth.DevAdminAuth
 import io.github.theestimator.domain.ProjectStatus
 import io.quarkus.test.junit.QuarkusTest
+import org.junit.jupiter.api.extension.ExtendWith
 import jakarta.inject.Inject
 import jakarta.transaction.Transactional
 import org.junit.jupiter.api.Assertions.*
@@ -9,6 +11,7 @@ import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
 
 @QuarkusTest
+@ExtendWith(DevAdminAuth::class)
 @Transactional
 class ProjectServiceIT {
 

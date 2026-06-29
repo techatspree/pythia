@@ -1,8 +1,9 @@
 import { test, expect, request as playwrightRequest } from '@playwright/test';
 
-const STRICT = process.env.STRICT_BACKEND_URL;
-const SKIP_MSG =
-	'set STRICT_BACKEND_URL to run the strict-backend auth tests (e.g. http://localhost:8081)';
+// The dev module is strict (no default-user fallback), so the dev backend on
+// :8080 rejects unauthenticated/invalid requests itself — no separate strict
+// backend needed.
+const API = 'http://localhost:8080';
 
 test.describe('unauthenticated SPA gate', () => {
 	// Override the globally pre-seeded dev-admin localStorage so this
@@ -22,18 +23,16 @@ test.describe('unauthenticated SPA gate', () => {
 	});
 });
 
-test('strict backend rejects a request with NO Authorization header (401)', async () => {
-	test.skip(!STRICT, SKIP_MSG);
-	const ctx = await playwrightRequest.newContext({ baseURL: STRICT });
+test('dev backend rejects a request with NO Authorization header (401)', async () => {
+	const ctx = await playwrightRequest.newContext({ baseURL: API });
 	const res = await ctx.get('/api/projects');
 	expect(res.status()).toBe(401);
 	await ctx.dispose();
 });
 
-test('strict backend rejects `Authorization: Dev not-a-real-user` (401)', async () => {
-	test.skip(!STRICT, SKIP_MSG);
+test('dev backend rejects `Authorization: Dev not-a-real-user` (401)', async () => {
 	const ctx = await playwrightRequest.newContext({
-		baseURL: STRICT,
+		baseURL: API,
 		extraHTTPHeaders: { Authorization: 'Dev not-a-real-user' }
 	});
 	const res = await ctx.get('/api/projects');
@@ -41,10 +40,9 @@ test('strict backend rejects `Authorization: Dev not-a-real-user` (401)', async 
 	await ctx.dispose();
 });
 
-test('strict backend rejects a `Bearer` token (wrong scheme for the dev module, 401)', async () => {
-	test.skip(!STRICT, SKIP_MSG);
+test('dev backend rejects a `Bearer` token (wrong scheme for the dev module, 401)', async () => {
 	const ctx = await playwrightRequest.newContext({
-		baseURL: STRICT,
+		baseURL: API,
 		extraHTTPHeaders: { Authorization: 'Bearer eyJhbGciOiJIUzI1NiJ9.dummy.signature' }
 	});
 	const res = await ctx.get('/api/projects');
