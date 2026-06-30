@@ -22,6 +22,56 @@ scripts/      — Helper scripts for local development
 planning/     — Project plan and task definitions
 ```
 
+# Distributed components
+
+At runtime the system is a small distributed system of four components, plus
+one external dependency. These component names — **Browser**, **Frontend**,
+**Backend**, **Database** — are the canonical vocabulary used throughout this
+documentation, and each maps directly onto a Kubernetes resource.
+
+| Component    | What it is                                                | Kubernetes resource(s)                                                              | Port |
+|--------------|-----------------------------------------------------------|-------------------------------------------------------------------------------------|------|
+| **Browser**  | The end user's web browser running the SPA (the client)   | — (not deployed)                                                                    | —    |
+| **Frontend** | nginx serving the SvelteKit SPA and proxying `/api`        | `frontend` Deployment + Service                                                     | 80   |
+| **Backend**  | Quarkus REST API under `/api/…`                            | `backend` Deployment + Service, `backend-config` ConfigMap, `backend` HPA           | 8080 |
+| **Database** | PostgreSQL 16                                              | `postgres` StatefulSet + Service, `postgres-credentials` Secret, `postgres-data` PVC | 5432 |
+
+The external **Identity Provider** (Microsoft Entra ID) is not deployed by this
+project: the Browser obtains tokens from it (MSAL) and the Backend validates
+them (OIDC). In the `dev` profile it is replaced by the static dev auth module —
+see [authentication.md](./authentication.md).
+
+```
+┌─────────┐   HTTP(S)   ┌──────────┐   /api/* (proxy)   ┌──────────┐   JDBC   ┌──────────┐
+│ Browser │ ──────────▶ │ Frontend │ ─────────────────▶ │ Backend  │ ───────▶ │ Database │
+│  (SPA)  │             │ (nginx)  │                    │ (Quarkus)│          │(Postgres)│
+└─────────┘             └──────────┘                    └──────────┘          └──────────┘
+     │                                                        ▲
+     │ login: obtain token (MSAL)        validate token (OIDC)│
+     └────────────────▶  Identity Provider (Microsoft Entra ID)  ◀───────────┘
+```
+
+The Browser loads the SPA from the Frontend; the SPA's API calls hit the
+Frontend's `/api` path, which nginx proxies to the Backend Service on `:8080`;
+the Backend persists to the Database on `:5432`. Every API call carries an
+`Authorization` header — a `Bearer` token under Entra, or `Dev <subjectId>`
+under the dev module.
+
+## Kubernetes as the component model
+
+Kubernetes is the deployment and component model: each component above is one
+Kubernetes workload — a Deployment for the stateless Frontend and Backend, a
+StatefulSet for the stateful Database — fronted by a Service, all in the
+`estimation` namespace, with a single Ingress (`estimation.local`) routing
+external traffic to the Frontend. Manifests live under `k8s/` and are composed
+with Kustomize: a `base/` plus overlays (`overlays/minikube` for local,
+`overlays/production` which adds Backend OIDC config and a TLS Ingress). The
+Backend scales via a HorizontalPodAutoscaler; the Database keeps a persistent
+volume. The Backend and Frontend container images
+(`theestimator/estimation-backend`, `theestimator/estimation-frontend`) are produced by
+the Gradle build (Jib for the Backend) and deployed locally with
+`./scripts/minikube-deploy.sh`.
+
 # Domain module: single source of truth
 
 The `domain` module is a Kotlin Multiplatform project that contains **all
@@ -78,7 +128,7 @@ That hybrid could not be synced by IntelliJ IDEA (the same `src/domain`
 directory was both a Maven module and a Gradle build); the single Gradle build
 removes that conflict.
 
-# Athentication
+# Authentication
 
 This application uses a modular approach for authentication. For easy development there is a module with static authentication.
 

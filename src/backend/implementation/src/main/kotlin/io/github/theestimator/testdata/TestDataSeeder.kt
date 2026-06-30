@@ -25,9 +25,11 @@ import jakarta.transaction.Transactional
 
 // This dev-only seeder is a wall of illustrative demo data — effort estimates,
 // prices, durations, week counts. Those literals ARE the data; extracting each
-// into a named constant would obscure rather than clarify, so MagicNumber is
-// suppressed for the whole class.
-@Suppress("MagicNumber")
+// into a named constant would obscure rather than clarify (MagicNumber). For the
+// same reason the seed methods are intentionally long, flat fixture builders
+// (LongMethod / CyclomaticComplexMethod) and the leaf-builder helpers take the
+// fields positionally (LongParameterList) — all suppressed for this fixture class.
+@Suppress("MagicNumber", "LongMethod", "CyclomaticComplexMethod", "LongParameterList")
 @ApplicationScoped
 @IfBuildProfile("dev")
 class TestDataSeeder(

@@ -21,9 +21,17 @@ import java.io.InputStream
 import java.util.UUID
 
 // The integer literals here are POI spreadsheet column indices — the physical
-// layout of the imported sheet. Naming a constant per column would obscure the
-// layout rather than clarify it, so MagicNumber is suppressed for this class.
-@Suppress("MagicNumber")
+// layout of the imported sheet (MagicNumber). Robust spreadsheet parsing is
+// inherently branchy: row/cell scans use multiple break/continue
+// (LoopWithTooManyJumpStatements), the import methods cover many optional
+// columns (CyclomaticComplexMethod), and per-cell reads catch a broad
+// Exception to fall back gracefully on malformed cells (TooGenericExceptionCaught).
+@Suppress(
+    "MagicNumber",
+    "CyclomaticComplexMethod",
+    "LoopWithTooManyJumpStatements",
+    "TooGenericExceptionCaught"
+)
 @ApplicationScoped
 class ExcelImporter {
 

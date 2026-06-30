@@ -63,12 +63,20 @@ class DraftVersionMapper {
     )
 
     private fun DraftEstimationNode.toDomain(phaseMap: Map<String, ProjectPhase>): EstimationNode = when (this) {
-        is DraftGroupNode -> EstimationGroup(
-            title = title ?: "",
-            children = children.map { it.toDomain(phaseMap) },
-            _logicalId = logicalId.toString()
-        )
-        is DraftTimeRelativeItemNode -> TimeRelativeEstimationItem(
+        is DraftGroupNode -> toDomainGroup(phaseMap)
+        is DraftTimeRelativeItemNode -> toDomainTimeRelative(phaseMap)
+        is DraftFixedItemNode -> toDomainFixed(phaseMap)
+        else -> error("Unknown node type: ${this::class.simpleName}")
+    }
+
+    private fun DraftGroupNode.toDomainGroup(phaseMap: Map<String, ProjectPhase>) = EstimationGroup(
+        title = title ?: "",
+        children = children.map { it.toDomain(phaseMap) },
+        _logicalId = logicalId.toString()
+    )
+
+    private fun DraftTimeRelativeItemNode.toDomainTimeRelative(phaseMap: Map<String, ProjectPhase>) =
+        TimeRelativeEstimationItem(
             unit = unit ?: "h/Woche",
             _description = description ?: "",
             _code = code ?: "",
@@ -79,16 +87,15 @@ class DraftVersionMapper {
             _phase = phase?.abbreviation?.let { phaseMap[it] },
             _logicalId = logicalId.toString()
         )
-        is DraftFixedItemNode -> FixedEstimationItem(
-            _description = description ?: "",
-            _code = code ?: "",
-            _minEffort = minEffort ?: 0.0,
-            _expectedEffort = expectedEffort ?: 0.0,
-            _maxEffort = maxEffort ?: 0.0,
-            _assumptions = assumptions ?: "",
-            _phase = phase?.abbreviation?.let { phaseMap[it] },
-            _logicalId = logicalId.toString()
-        )
-        else -> error("Unknown node type: ${this::class.simpleName}")
-    }
+
+    private fun DraftFixedItemNode.toDomainFixed(phaseMap: Map<String, ProjectPhase>) = FixedEstimationItem(
+        _description = description ?: "",
+        _code = code ?: "",
+        _minEffort = minEffort ?: 0.0,
+        _expectedEffort = expectedEffort ?: 0.0,
+        _maxEffort = maxEffort ?: 0.0,
+        _assumptions = assumptions ?: "",
+        _phase = phase?.abbreviation?.let { phaseMap[it] },
+        _logicalId = logicalId.toString()
+    )
 }

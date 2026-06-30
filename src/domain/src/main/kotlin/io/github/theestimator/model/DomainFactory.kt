@@ -1,4 +1,8 @@
 @file:OptIn(ExperimentalJsExport::class)
+// These are @JsExport factory functions consumed by the frontend (adapter.ts).
+// Their parameter lists mirror the domain entities' fields; collapsing them into
+// a params object would change the public Kotlin/JS API the frontend binds to.
+@file:Suppress("LongParameterList")
 
 package io.github.theestimator.model
 

@@ -1,3 +1,8 @@
+// A cohesive entity↔DTO mapper: one small extension function per type. Keeping
+// these mappings together in one file is clearer than splitting them, so the
+// file-level function count (TooManyFunctions) is intentional.
+@file:Suppress("TooManyFunctions")
+
 package io.github.theestimator.rest.dto
 
 import io.github.theestimator.domain.draft.DraftAdditionalCost

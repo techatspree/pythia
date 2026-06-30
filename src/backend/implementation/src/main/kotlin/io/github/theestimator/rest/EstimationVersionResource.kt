@@ -11,9 +11,13 @@ import io.github.theestimator.domain.draft.DraftProjectPhase
 import io.github.theestimator.domain.draft.DraftTimeRelativeItemNode
 import io.github.theestimator.domain.submitted.SubmittedEstimationVersion
 import io.github.theestimator.repository.EstimationRepository
+import io.github.theestimator.rest.dto.AdditionalCostUpdateDto
 import io.github.theestimator.rest.dto.DraftUpdateDto
+import io.github.theestimator.rest.dto.EffortDriverDto
 import io.github.theestimator.rest.dto.EstimationNodeUpdateDto
+import io.github.theestimator.rest.dto.EstimationParameterDto
 import io.github.theestimator.rest.dto.EstimationVersionSummaryDto
+import io.github.theestimator.rest.dto.PhaseUpdateDto
 import io.github.theestimator.rest.dto.toDto
 import io.github.theestimator.rest.dto.toSummaryDto
 import io.github.theestimator.service.CsvExporter
@@ -39,6 +43,10 @@ import jakarta.ws.rs.core.Response
 import jakarta.ws.rs.core.StreamingOutput
 import java.util.UUID
 
+// updateDraft's per-collection apply logic is split into focused private
+// helpers to keep each method simple; that deliberately raises this resource's
+// function count past the TooManyFunctions threshold for one cohesive endpoint.
+@Suppress("TooManyFunctions")
 @Path("/api/estimations/{estimationId}/versions")
 @ApplicationScoped
 @Produces(MediaType.APPLICATION_JSON)
@@ -99,115 +107,122 @@ class EstimationVersionResource(
 
         update.notes?.let { draft.notes = it }
 
-        update.parameters?.let { params ->
-            draft.parameters.clear()
-            params.forEach { dto ->
-                draft.parameters.add(DraftEstimationParameter().apply {
-                    name = dto.name
-                    value = dto.value
-                    comment = dto.comment
-                    version = draft
-                })
-            }
-        }
-
-        update.effortDrivers?.let { drivers ->
-            draft.effortDrivers.clear()
-            drivers.forEach { dto ->
-                draft.effortDrivers.add(DraftEffortDriver().apply {
-                    description = dto.description
-                    factor = dto.factor
-                    comment = dto.comment
-                    version = draft
-                })
-            }
-        }
-
-        update.phases?.let { phaseDtos ->
-            // Upsert by abbreviation rather than clear-and-rebuild: persistent
-            // DraftEstimationNode rows hold Java references to phase entities
-            // by object identity, so orphan-removing them would leave dangling
-            // references that fail Hibernate's pre-flush transient-reference
-            // check (see EstimationVersionResourceIT "PUT replacing only phases
-            // while persistent nodes reference them …").
-            val keptAbbreviations = phaseDtos.map { it.abbreviation }.toSet()
-            draft.phases.removeAll { it.abbreviation !in keptAbbreviations }
-            val byAbbr = draft.phases.associateBy { it.abbreviation }
-            phaseDtos.forEach { dto ->
-                val existing = byAbbr[dto.abbreviation]
-                if (existing != null) {
-                    existing.name = dto.name
-                    existing.durationWeeks = dto.durationWeeks
-                } else {
-                    draft.phases.add(DraftProjectPhase().apply {
-                        name = dto.name
-                        abbreviation = dto.abbreviation
-                        durationWeeks = dto.durationWeeks
-                        version = draft
-                    })
-                }
-            }
-        }
-
-        update.roots?.let { rootDtos ->
-            fun buildNode(
-                dto: EstimationNodeUpdateDto,
-                parentNode: DraftEstimationNode?,
-                pos: Int
-            ): DraftEstimationNode {
-                val node: DraftEstimationNode = when (dto.type) {
-                    "GROUP" -> DraftGroupNode().apply { title = dto.title }
-                    "TIME_RELATIVE" -> DraftTimeRelativeItemNode().apply { unit = dto.unit ?: "h/Woche" }
-                    else -> DraftFixedItemNode()
-                }
-                node.apply {
-                    logicalId = dto.logicalId ?: UUID.randomUUID()
-                    position = pos
-                    version = draft
-                    parent = parentNode
-                    if (dto.type != "GROUP") {
-                        description = dto.description
-                        code = dto.code
-                        minEffort = dto.minEffort
-                        expectedEffort = dto.expectedEffort
-                        maxEffort = dto.maxEffort
-                        assumptions = dto.assumptions
-                        phase = dto.phaseAbbreviation?.let { abbr ->
-                            draft.phases.find { it.abbreviation == abbr }
-                        }
-                    }
-                }
-                dto.children.forEachIndexed { idx, childDto ->
-                    node.children.add(buildNode(childDto, node, idx))
-                }
-                return node
-            }
-
-            draft.roots.clear()
-            rootDtos.forEachIndexed { idx, dto ->
-                draft.roots.add(buildNode(dto, null, idx))
-            }
-        }
-
-        update.additionalCosts?.let { costDtos ->
-            draft.additionalCosts.clear()
-            costDtos.forEach { dto ->
-                val costPhase = dto.phaseAbbreviation?.let { abbr ->
-                    draft.phases.find { it.abbreviation == abbr }
-                }
-                draft.additionalCosts.add(DraftAdditionalCost().apply {
-                    description = dto.description
-                    amount = dto.amount
-                    type = dto.type
-                    amountPerWeek = dto.amountPerWeek
-                    phase = costPhase
-                    version = draft
-                })
-            }
-        }
+        update.parameters?.let { applyParameters(draft, it) }
+        update.effortDrivers?.let { applyEffortDrivers(draft, it) }
+        update.phases?.let { applyPhases(draft, it) }
+        update.roots?.let { applyRoots(draft, it) }
+        update.additionalCosts?.let { applyAdditionalCosts(draft, it) }
 
         val result = versionService.calculateDraft(draft)
         return Response.ok(draft.toDto(result)).build()
+    }
+
+    private fun applyParameters(draft: DraftEstimationVersion, params: List<EstimationParameterDto>) {
+        draft.parameters.clear()
+        params.forEach { dto ->
+            draft.parameters.add(DraftEstimationParameter().apply {
+                name = dto.name
+                value = dto.value
+                comment = dto.comment
+                version = draft
+            })
+        }
+    }
+
+    private fun applyEffortDrivers(draft: DraftEstimationVersion, drivers: List<EffortDriverDto>) {
+        draft.effortDrivers.clear()
+        drivers.forEach { dto ->
+            draft.effortDrivers.add(DraftEffortDriver().apply {
+                description = dto.description
+                factor = dto.factor
+                comment = dto.comment
+                version = draft
+            })
+        }
+    }
+
+    private fun applyPhases(draft: DraftEstimationVersion, phaseDtos: List<PhaseUpdateDto>) {
+        // Upsert by abbreviation rather than clear-and-rebuild: persistent
+        // DraftEstimationNode rows hold Java references to phase entities
+        // by object identity, so orphan-removing them would leave dangling
+        // references that fail Hibernate's pre-flush transient-reference
+        // check (see EstimationVersionResourceIT "PUT replacing only phases
+        // while persistent nodes reference them …").
+        val keptAbbreviations = phaseDtos.map { it.abbreviation }.toSet()
+        draft.phases.removeAll { it.abbreviation !in keptAbbreviations }
+        val byAbbr = draft.phases.associateBy { it.abbreviation }
+        phaseDtos.forEach { dto ->
+            val existing = byAbbr[dto.abbreviation]
+            if (existing != null) {
+                existing.name = dto.name
+                existing.durationWeeks = dto.durationWeeks
+            } else {
+                draft.phases.add(DraftProjectPhase().apply {
+                    name = dto.name
+                    abbreviation = dto.abbreviation
+                    durationWeeks = dto.durationWeeks
+                    version = draft
+                })
+            }
+        }
+    }
+
+    private fun applyRoots(draft: DraftEstimationVersion, rootDtos: List<EstimationNodeUpdateDto>) {
+        draft.roots.clear()
+        rootDtos.forEachIndexed { idx, dto ->
+            draft.roots.add(buildDraftNode(draft, dto, null, idx))
+        }
+    }
+
+    private fun buildDraftNode(
+        draft: DraftEstimationVersion,
+        dto: EstimationNodeUpdateDto,
+        parentNode: DraftEstimationNode?,
+        pos: Int
+    ): DraftEstimationNode {
+        val node: DraftEstimationNode = when (dto.type) {
+            "GROUP" -> DraftGroupNode().apply { title = dto.title }
+            "TIME_RELATIVE" -> DraftTimeRelativeItemNode().apply { unit = dto.unit ?: "h/Woche" }
+            else -> DraftFixedItemNode()
+        }
+        node.apply {
+            logicalId = dto.logicalId ?: UUID.randomUUID()
+            position = pos
+            version = draft
+            parent = parentNode
+            if (dto.type != "GROUP") {
+                description = dto.description
+                code = dto.code
+                minEffort = dto.minEffort
+                expectedEffort = dto.expectedEffort
+                maxEffort = dto.maxEffort
+                assumptions = dto.assumptions
+                phase = dto.phaseAbbreviation?.let { abbr ->
+                    draft.phases.find { it.abbreviation == abbr }
+                }
+            }
+        }
+        dto.children.forEachIndexed { idx, childDto ->
+            node.children.add(buildDraftNode(draft, childDto, node, idx))
+        }
+        return node
+    }
+
+    private fun applyAdditionalCosts(draft: DraftEstimationVersion, costDtos: List<AdditionalCostUpdateDto>) {
+        draft.additionalCosts.clear()
+        costDtos.forEach { dto ->
+            val costPhase = dto.phaseAbbreviation?.let { abbr ->
+                draft.phases.find { it.abbreviation == abbr }
+            }
+            draft.additionalCosts.add(DraftAdditionalCost().apply {
+                description = dto.description
+                amount = dto.amount
+                type = dto.type
+                amountPerWeek = dto.amountPerWeek
+                phase = costPhase
+                version = draft
+            })
+        }
     }
 
     @POST
@@ -248,18 +263,8 @@ class EstimationVersionResource(
         @PathParam("versionB") versionB: String
     ): Response {
         ensureEstimationExists(estimationId)
-        fun resolve(ref: String): SubmittedEstimationVersion {
-            if (ref == "draft")
-                return versionService.findDraft(estimationId)
-                    ?.let { versionService.snapshotDraft(it) }
-                    ?: throw NotFoundException("No draft found")
-            val n = ref.toIntOrNull()
-                ?: throw NotFoundException("Version $ref not found")
-            return versionService.findSubmittedVersion(estimationId, n)
-                ?: throw NotFoundException("Version $ref not found")
-        }
-        val a = resolve(versionA)
-        val b = resolve(versionB)
+        val a = resolveVersion(estimationId, versionA)
+        val b = resolveVersion(estimationId, versionB)
         return Response.ok(comparisonService.compare(a, b)).build()
     }
 
@@ -272,17 +277,7 @@ class EstimationVersionResource(
         @QueryParam("format") @DefaultValue("xlsx") format: String
     ): Response {
         ensureEstimationExists(estimationId)
-        val version =
-            if (versionNumber == "draft")
-                versionService.findDraft(estimationId)
-                    ?.let { versionService.snapshotDraft(it) }
-                    ?: throw NotFoundException("No draft found")
-            else
-                versionService.findSubmittedVersion(
-                    estimationId,
-                    versionNumber.toIntOrNull()
-                        ?: throw NotFoundException("Version $versionNumber not found")
-                ) ?: throw NotFoundException("Version $versionNumber not found")
+        val version = resolveVersion(estimationId, versionNumber)
 
         val label = if (versionNumber == "draft") "draft" else "v$versionNumber"
         return when (format) {
@@ -296,6 +291,18 @@ class EstimationVersionResource(
                 .build()
             else -> throw BadRequestException("Unsupported format: $format (use xlsx or csv)")
         }
+    }
+
+    // Resolve a version ref ("draft" or a number) to a submitted snapshot, or
+    // 404. Shared by compare and export; kept to <=2 throws.
+    private fun resolveVersion(estimationId: UUID, ref: String): SubmittedEstimationVersion {
+        if (ref == "draft") {
+            return versionService.findDraft(estimationId)
+                ?.let { versionService.snapshotDraft(it) }
+                ?: throw NotFoundException("No draft found")
+        }
+        val version = ref.toIntOrNull()?.let { versionService.findSubmittedVersion(estimationId, it) }
+        return version ?: throw NotFoundException("Version $ref not found")
     }
 
     private fun ensureEstimationExists(estimationId: UUID) {

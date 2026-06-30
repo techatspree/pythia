@@ -5,6 +5,9 @@ package io.github.theestimator.model
 import kotlin.js.ExperimentalJsExport
 import kotlin.js.JsExport
 
+// The constructor parameters are the leaf entity's fields; this is an
+// @JsExport @DomainEntity whose shape is part of the public domain API.
+@Suppress("LongParameterList")
 @JsExport
 @DomainEntity
 sealed class EstimationItem(

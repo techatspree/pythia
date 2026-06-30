@@ -14,8 +14,10 @@ import java.io.OutputStream
 // The integer literals throughout are POI spreadsheet column/row indices — the
 // physical layout of each exported sheet. Naming a constant per column across
 // the five differently-shaped sheets would obscure the layout rather than
-// clarify it, so MagicNumber is suppressed for this layout-only class.
-@Suppress("MagicNumber")
+// clarify it (MagicNumber). writeNode emits a different cell set per node type,
+// which is inherently branchy (CyclomaticComplexMethod). Both suppressed for
+// this layout-only class.
+@Suppress("MagicNumber", "CyclomaticComplexMethod")
 @ApplicationScoped
 class ExcelExporter {
 

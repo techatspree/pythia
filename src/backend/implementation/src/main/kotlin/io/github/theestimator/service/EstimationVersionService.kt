@@ -35,6 +35,10 @@ import jakarta.ws.rs.core.Response
 import java.time.Instant
 import java.util.UUID
 
+// The snapshot/clone tree builders are split into focused private helpers to
+// keep each method's complexity low; that deliberately raises the class's
+// function count past the TooManyFunctions threshold for one cohesive service.
+@Suppress("TooManyFunctions")
 @ApplicationScoped
 class EstimationVersionService(
     private val draftRepository: DraftEstimationVersionRepository,
@@ -174,57 +178,9 @@ class EstimationVersionService(
         // values. The DraftEstimationNode tree gives us per-leaf phase
         // abbreviations and per-leaf descriptions; the domain tree gives us
         // the calculated numbers.
-        val draftNodesById = mutableMapOf<String, DraftEstimationNode>()
-        fun indexDraft(node: DraftEstimationNode) {
-            draftNodesById[node.logicalId.toString()] = node
-            node.children.forEach(::indexDraft)
-        }
-        draft.roots.forEach(::indexDraft)
-
-        fun buildSubmitted(
-            domainNode: EstimationNode,
-            parentNode: SubmittedEstimationNode?,
-            pos: Int
-        ): SubmittedEstimationNode {
-            val draftNode = draftNodesById[domainNode.logicalId]
-            val node: SubmittedEstimationNode = when (domainNode) {
-                is EstimationGroup -> SubmittedGroupNode().apply { title = domainNode.title }
-                is TimeRelativeEstimationItem -> SubmittedTimeRelativeItemNode().apply { unit = domainNode.unit }
-                is FixedEstimationItem -> SubmittedFixedItemNode()
-            }
-            node.apply {
-                logicalId = UUID.fromString(domainNode.logicalId)
-                position = pos
-                version = submitted
-                parent = parentNode
-                mean = domainNode.mean
-                variance = domainNode.variance
-                riskSurcharge = domainNode.riskSurcharge
-                driverSurcharge = domainNode.driverSurcharge
-                offerPT = domainNode.offerPT
-                cost = domainNode.cost
-                offerPrice = domainNode.offerPrice
-                if (domainNode is EstimationItem) {
-                    description = domainNode.description
-                    code = domainNode.code
-                    minEffort = domainNode.minEffort
-                    expectedEffort = domainNode.expectedEffort
-                    maxEffort = domainNode.maxEffort
-                    assumptions = domainNode.assumptions
-                    phaseAbbreviation = domainNode.phase?.abbreviation
-                        ?: draftNode?.phase?.abbreviation
-                }
-            }
-            if (domainNode is EstimationGroup) {
-                domainNode.children.forEachIndexed { idx, child ->
-                    node.children.add(buildSubmitted(child, node, idx))
-                }
-            }
-            return node
-        }
-
+        val draftNodesById = indexDraftNodes(draft.roots)
         calculated.roots.forEachIndexed { idx, root ->
-            submitted.roots.add(buildSubmitted(root, null, idx))
+            submitted.roots.add(buildSubmittedNode(submitted, draftNodesById, root, null, idx))
         }
 
         draft.additionalCosts.forEach { c ->
@@ -239,6 +195,60 @@ class EstimationVersionService(
         }
 
         return submitted
+    }
+
+    private fun indexDraftNodes(roots: List<DraftEstimationNode>): Map<String, DraftEstimationNode> {
+        val byId = mutableMapOf<String, DraftEstimationNode>()
+        fun index(node: DraftEstimationNode) {
+            byId[node.logicalId.toString()] = node
+            node.children.forEach(::index)
+        }
+        roots.forEach(::index)
+        return byId
+    }
+
+    private fun buildSubmittedNode(
+        submitted: SubmittedEstimationVersion,
+        draftNodesById: Map<String, DraftEstimationNode>,
+        domainNode: EstimationNode,
+        parentNode: SubmittedEstimationNode?,
+        pos: Int
+    ): SubmittedEstimationNode {
+        val draftNode = draftNodesById[domainNode.logicalId]
+        val node: SubmittedEstimationNode = when (domainNode) {
+            is EstimationGroup -> SubmittedGroupNode().apply { title = domainNode.title }
+            is TimeRelativeEstimationItem -> SubmittedTimeRelativeItemNode().apply { unit = domainNode.unit }
+            is FixedEstimationItem -> SubmittedFixedItemNode()
+        }
+        node.apply {
+            logicalId = UUID.fromString(domainNode.logicalId)
+            position = pos
+            version = submitted
+            parent = parentNode
+            mean = domainNode.mean
+            variance = domainNode.variance
+            riskSurcharge = domainNode.riskSurcharge
+            driverSurcharge = domainNode.driverSurcharge
+            offerPT = domainNode.offerPT
+            cost = domainNode.cost
+            offerPrice = domainNode.offerPrice
+            if (domainNode is EstimationItem) {
+                description = domainNode.description
+                code = domainNode.code
+                minEffort = domainNode.minEffort
+                expectedEffort = domainNode.expectedEffort
+                maxEffort = domainNode.maxEffort
+                assumptions = domainNode.assumptions
+                phaseAbbreviation = domainNode.phase?.abbreviation
+                    ?: draftNode?.phase?.abbreviation
+            }
+        }
+        if (domainNode is EstimationGroup) {
+            domainNode.children.forEachIndexed { idx, child ->
+                node.children.add(buildSubmittedNode(submitted, draftNodesById, child, node, idx))
+            }
+        }
+        return node
     }
 
     @Transactional
@@ -283,40 +293,8 @@ class EstimationVersionService(
             target.phases.add(draftPhase)
         }
 
-        fun cloneNode(
-            submittedNode: SubmittedEstimationNode,
-            parentDraft: DraftEstimationNode?,
-            pos: Int
-        ): DraftEstimationNode {
-            val draftNode: DraftEstimationNode = when (submittedNode) {
-                is SubmittedGroupNode -> DraftGroupNode().apply { title = submittedNode.title }
-                is SubmittedTimeRelativeItemNode -> DraftTimeRelativeItemNode().apply { unit = submittedNode.unit }
-                is SubmittedFixedItemNode -> DraftFixedItemNode()
-                else -> error("Unknown submitted node type: ${submittedNode::class.simpleName}")
-            }
-            draftNode.apply {
-                logicalId = submittedNode.logicalId
-                position = pos
-                version = target
-                parent = parentDraft
-                if (submittedNode !is SubmittedGroupNode) {
-                    description = submittedNode.description
-                    code = submittedNode.code
-                    minEffort = submittedNode.minEffort
-                    expectedEffort = submittedNode.expectedEffort
-                    maxEffort = submittedNode.maxEffort
-                    assumptions = submittedNode.assumptions
-                    phase = submittedNode.phaseAbbreviation?.let { phaseMapping[it] }
-                }
-            }
-            submittedNode.children.forEachIndexed { idx, child ->
-                draftNode.children.add(cloneNode(child, draftNode, idx))
-            }
-            return draftNode
-        }
-
         source.roots.forEachIndexed { idx, root ->
-            target.roots.add(cloneNode(root, null, idx))
+            target.roots.add(cloneSubmittedNode(target, phaseMapping, root, null, idx))
         }
 
         source.additionalCosts.forEach { c ->
@@ -329,5 +307,39 @@ class EstimationVersionService(
                 version = target
             })
         }
+    }
+
+    private fun cloneSubmittedNode(
+        target: DraftEstimationVersion,
+        phaseMapping: Map<String, DraftProjectPhase>,
+        submittedNode: SubmittedEstimationNode,
+        parentDraft: DraftEstimationNode?,
+        pos: Int
+    ): DraftEstimationNode {
+        val draftNode: DraftEstimationNode = when (submittedNode) {
+            is SubmittedGroupNode -> DraftGroupNode().apply { title = submittedNode.title }
+            is SubmittedTimeRelativeItemNode -> DraftTimeRelativeItemNode().apply { unit = submittedNode.unit }
+            is SubmittedFixedItemNode -> DraftFixedItemNode()
+            else -> error("Unknown submitted node type: ${submittedNode::class.simpleName}")
+        }
+        draftNode.apply {
+            logicalId = submittedNode.logicalId
+            position = pos
+            version = target
+            parent = parentDraft
+            if (submittedNode !is SubmittedGroupNode) {
+                description = submittedNode.description
+                code = submittedNode.code
+                minEffort = submittedNode.minEffort
+                expectedEffort = submittedNode.expectedEffort
+                maxEffort = submittedNode.maxEffort
+                assumptions = submittedNode.assumptions
+                phase = submittedNode.phaseAbbreviation?.let { phaseMapping[it] }
+            }
+        }
+        submittedNode.children.forEachIndexed { idx, child ->
+            draftNode.children.add(cloneSubmittedNode(target, phaseMapping, child, draftNode, idx))
+        }
+        return draftNode
     }
 }
