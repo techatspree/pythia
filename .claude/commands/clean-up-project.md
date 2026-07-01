@@ -15,7 +15,7 @@ Path: `planning/cleanup-state.json`. It is the single source of truth for what i
 ```json
 {
   "generated_at": "<ISO-8601 UTC>",
-  "validation_commands": ["./gradlew detekt", "./gradlew :frontend:check"],
+  "validation_commands": ["./gradlew staticAnalysis"],
   "findings": [
     {
       "id": "f001",
@@ -47,7 +47,7 @@ cd src/frontend && npm run test:e2e   # only if the frontend was likely affected
 
 If any test fails, **abort immediately**: report the failing tests and tell the user to fix them first. Do not collect findings, do not modify the state file, do not fix anything. Cleaning up static-analysis findings on top of a broken build is out of scope for this command.
 
-(Unlike a single Maven `verify`, the Gradle build separates concerns: `./gradlew test` is the precondition, and `./gradlew detekt :frontend:check` in step 2 regenerates the analysis reports. `./gradlew build` runs both at once but is heavier; either approach is fine.)
+(Unlike a single Maven `verify`, the Gradle build separates concerns: `./gradlew test` is the precondition, and `./gradlew staticAnalysis` in step 2 regenerates all the analysis reports. `./gradlew build` runs both at once but is heavier; either approach is fine.)
 
 ## Protocol
 
@@ -61,8 +61,7 @@ If any test fails, **abort immediately**: report the failing tests and tell the 
 Run the static analysis from the repo root and capture all output. These commands are informational here — let them run to completion even if they report findings; do not stop on the first warning:
 
 ```bash
-./gradlew detekt           # detekt over every Kotlin module (domain + backend)
-./gradlew :frontend:check  # svelte-check (type errors) + ESLint report
+./gradlew staticAnalysis   # one goal: detekt (domain + backend) + frontend svelte-check + ESLint report
 ```
 
 These write machine-readable reports — parse these rather than scraping console text where possible:
@@ -74,7 +73,7 @@ These write machine-readable reports — parse these rather than scraping consol
   to catch any other module, e.g. `:backend:end2end`.)
 - Frontend eslint: `src/frontend/reports/eslint.json` (produced by the `lint:report` npm script the `:frontend:check` Gradle task runs)
 
-`:frontend:check` runs svelte-check too; its warnings/errors are in the Gradle console output. To capture them cleanly for parsing, run `cd src/frontend && npm run check` directly.
+`staticAnalysis` runs svelte-check too (via the frontend `npmCheck` task); its warnings/errors are in the Gradle console output. To capture them cleanly for parsing, run `cd src/frontend && npm run check` directly.
 
 Collect **static-analysis** findings from, in this order:
 
@@ -108,11 +107,11 @@ Do not re-run the full analysis inside the loop. The per-fix test run above is t
 
 ### 5. Final verification
 
-When no `pending` findings remain, re-run the full static analysis and the tests: `./gradlew detekt :frontend:check` (regenerates the reports) and `./gradlew test` (Docker required). `./gradlew build` runs all of it in one pass if you prefer.
+When no `pending` findings remain, re-run the full static analysis and the tests: `./gradlew staticAnalysis` (regenerates all the reports) and `./gradlew test` (Docker required). `./gradlew build` runs all of it in one pass if you prefer.
 
 - If it surfaces **new** static-analysis findings (e.g. a fix introduced a different warning), append them to the state file as fresh `pending` entries and return to step 4.
 - If any **test** fails at this point, stop and report it — the run is not clean.
-- When everything is clean — `./gradlew test` passes and `./gradlew detekt :frontend:check` reports no findings — delete `planning/cleanup-state.json` and report.
+- When everything is clean — `./gradlew test` passes and `./gradlew staticAnalysis` reports no findings — delete `planning/cleanup-state.json` and report.
 
 ### 6. Report
 

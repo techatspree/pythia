@@ -21,3 +21,19 @@ allprojects {
     group = "io.github.theestimator"
     version = "1.0.0-SNAPSHOT"
 }
+
+// Single entry point for every static-analysis tool across all modules: detekt
+// over the Kotlin modules plus svelte-check and ESLint over the frontend. It
+// runs no tests and needs no Docker — that keeps it a fast, standalone lint
+// pass (the full test suite stays separate via `./gradlew test`).
+tasks.register("staticAnalysis") {
+    group = "verification"
+    description = "Runs all static analysis: detekt over the Kotlin modules " +
+        "plus svelte-check and ESLint over the frontend. No tests, no Docker."
+    dependsOn(
+        ":domain:detekt",
+        ":backend:implementation:detekt",
+        ":frontend:npmCheck",
+        ":frontend:npmLintReport"
+    )
+}

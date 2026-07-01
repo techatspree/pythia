@@ -1,0 +1,152 @@
+id: task-084
+phase: phase-10
+title: Single Gradle goal for all static analysis
+depends_on: [task-082]
+description: |
+  There is no single Gradle goal that runs every static-analysis tool across
+  all modules. Today a full static-analysis pass requires two invocations:
+    - `./gradlew detekt` — runs the detekt task in each Kotlin module that
+      applies the plugin (`:domain`, `:backend:implementation`), and
+    - `./gradlew :frontend:check` — runs the frontend's svelte-check
+      (`npmCheck`) plus ESLint (`npmLintReport`).
+  Neither command covers the other layer, so contributors (and the
+  `clean-up-project` command) must remember to run both. Running the full
+  `./gradlew build` does run all of them but also compiles and runs the entire
+  test suite (which needs Docker for PostgreSQL Dev Services) — too heavy when
+  you only want the lint/type-check picture.
+
+  Target state: one aggregate Gradle task — `staticAnalysis` — registered in the
+  root `build.gradle.kts`, in the `verification` group, that runs ALL static
+  analysis and nothing else (no compilation-gated tests):
+    - every module's `detekt` task (`:domain:detekt`,
+      `:backend:implementation:detekt`), and
+    - the frontend's `svelte-check` and ESLint report tasks
+      (`:frontend:npmCheck` and `:frontend:npmLintReport`).
+  After this, `./gradlew staticAnalysis` is the one command that produces every
+  report (`src/domain/build/reports/detekt/detekt.xml`,
+  `src/backend/implementation/build/reports/detekt/detekt.xml`,
+  `src/frontend/reports/eslint.json`) and surfaces svelte-check type errors,
+  with no PostgreSQL/Docker requirement.
+
+  Design decisions (no ambiguity for the implementer):
+  - Depend on the two frontend npm tasks (`npmCheck`, `npmLintReport`)
+    directly rather than `:frontend:check`, so the goal stays static-analysis
+    only and never pulls in test/lifecycle work. This mirrors how
+    `clean-up-project` deliberately separates the static-analysis run from the
+    (Docker-backed) test precondition.
+  - Detekt is applied only in `:domain` and `:backend:implementation`
+    (`:backend:end2end` and `:frontend` do not apply it); list those two
+    explicitly. The reports stay informational (the existing
+    `config/detekt/detekt.yml` `maxIssues: -1` is unchanged — this task does
+    NOT flip any gate to enforcing).
+  - Name the task `staticAnalysis`. Note the existing, unrelated
+    `staticCodeAnalysis` *environment variable* documented in
+    `docs/development.md` gates per-task validation blocks — keep the names
+    distinct; do not repurpose the env var.
+
+  Two consumers must be updated to use the new goal:
+  - `docs/development.md` "## Static code analysis" section, which currently
+    tells contributors to run `./gradlew detekt` and `./gradlew :frontend:check`
+    separately.
+  - `.claude/commands/clean-up-project.md`, whose step 2, `validation_commands`
+    example, and final-verification step run the two commands separately.
+
+  This is a build-tooling + documentation change only: no backend service, REST
+  endpoint, domain operation, or frontend flow is added, so the CLAUDE.md
+  logging conventions do not apply.
+
+steps:
+  - |
+    Start the task:
+      ./scripts/task.sh start task-084
+
+  - |
+    In the root `build.gradle.kts`, register an aggregate task. Add (after the
+    `allprojects { … }` block):
+      tasks.register("staticAnalysis") {
+          group = "verification"
+          description = "Runs all static analysis: detekt over the Kotlin " +
+              "modules plus svelte-check and ESLint over the frontend. " +
+              "No tests, no Docker."
+          dependsOn(
+              ":domain:detekt",
+              ":backend:implementation:detekt",
+              ":frontend:npmCheck",
+              ":frontend:npmLintReport"
+          )
+      }
+    Use the exact frontend task names already registered in
+    `src/frontend/build.gradle.kts` (`npmCheck`, `npmLintReport`). Do not add a
+    dependency on `:frontend:check` or any `test` task.
+
+  - |
+    Update `docs/development.md`, "## Static code analysis" section: lead with
+    the single goal as the canonical way to run everything —
+    `./gradlew staticAnalysis` runs detekt (domain + backend) plus the
+    frontend svelte-check and ESLint in one invocation, with no Docker/Postgres
+    needed, and still informational. Keep the existing "Tools and report
+    locations" table and the "Running a single tool in isolation" subsection
+    (the per-tool commands remain valid for focused loops); just reframe the
+    intro so the aggregate goal is the default and the separate
+    `./gradlew detekt` / `./gradlew :frontend:check` commands are presented as
+    the per-layer alternatives.
+
+  - |
+    Update `CLAUDE.md`, "Build & run" section: the static-analysis line currently
+    reads `./gradlew detekt   # static-analysis reports (informational)`. Add (or
+    adjust) it so the single aggregate goal is the canonical entry point —
+    e.g. `./gradlew staticAnalysis   # all static analysis (detekt + frontend
+    svelte-check & ESLint), informational`. Keep `./gradlew detekt` available as
+    the Kotlin-only alternative if it is mentioned elsewhere; do not rewrite
+    unrelated build commands.
+
+  - |
+    Update `.claude/commands/clean-up-project.md` to use the single goal:
+      - The `validation_commands` example in the state-file schema → replace the
+        two-entry list with `["./gradlew staticAnalysis"]` (plus the test
+        command note that already exists).
+      - Step 2 "Run the static analysis" → replace the two-command block
+        (`./gradlew detekt` and `./gradlew :frontend:check`) with the single
+        `./gradlew staticAnalysis`, keeping the existing note that
+        `cd src/frontend && npm run check` can be used to capture svelte-check
+        output cleanly for parsing, and keeping the report-path list unchanged.
+      - Step 5 "Final verification" → use `./gradlew staticAnalysis` for the
+        re-run of analysis (tests remain a separate `./gradlew test`).
+    Leave the test precondition (Docker + `./gradlew test`) and all other
+    content intact.
+
+  - |
+    Validate the single goal works end to end:
+      ./gradlew staticAnalysis
+    Confirm it regenerates every report (detekt xml for domain + backend, and
+    `src/frontend/reports/eslint.json`) and runs svelte-check. Then finish:
+      ./scripts/task.sh done task-084
+
+validation:
+  - |
+    The aggregate task is registered and wired to all four sub-tasks:
+      grep -q 'tasks.register("staticAnalysis")' build.gradle.kts
+      ./gradlew staticAnalysis --dry-run 2>&1 | grep -q ':domain:detekt'
+      ./gradlew staticAnalysis --dry-run 2>&1 | grep -q ':backend:implementation:detekt'
+      ./gradlew staticAnalysis --dry-run 2>&1 | grep -q ':frontend:npmCheck'
+      ./gradlew staticAnalysis --dry-run 2>&1 | grep -q ':frontend:npmLintReport'
+  - |
+    The single goal must NOT drag in tests (it is static-analysis only):
+      ! ( ./gradlew staticAnalysis --dry-run 2>&1 | grep -qE ':(backend:implementation|domain):test( |$)' )
+  - |
+    Running the goal produces every static-analysis report:
+      ./gradlew staticAnalysis
+      test -f src/domain/build/reports/detekt/detekt.xml
+      test -f src/backend/implementation/build/reports/detekt/detekt.xml
+      test -f src/frontend/reports/eslint.json
+  - |
+    All three docs reference the new goal:
+      grep -q "staticAnalysis" CLAUDE.md
+      grep -q "staticAnalysis" docs/development.md
+      grep -q "staticAnalysis" .claude/commands/clean-up-project.md
+
+outputs:
+  - modified: build.gradle.kts
+  - modified: CLAUDE.md
+  - modified: docs/development.md
+  - modified: .claude/commands/clean-up-project.md

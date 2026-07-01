@@ -40,12 +40,17 @@ and frontend.
 
 ## Static code analysis
 
-`./gradlew detekt` (Kotlin) and `./gradlew :frontend:check` (ESLint, via the
-`lint:report` script) run static analysis across every source layer; both also
-run as part of `./gradlew build`. The reports are currently **informational**
-— the build stays green regardless of how many findings each tool produces. A
-follow-up task can flip the gates to enforcing once the existing backlog has
-been triaged.
+`./gradlew staticAnalysis` is the single goal that runs **every** static-analysis
+tool across all modules in one invocation: detekt over the Kotlin modules
+(`:domain`, `:backend:implementation`) plus svelte-check and ESLint over the
+frontend (via the `lint:report` script). It runs no tests and needs no Docker.
+
+As per-layer alternatives, `./gradlew detekt` (Kotlin only) and
+`./gradlew :frontend:check` (frontend svelte-check + ESLint) cover one layer
+each; all of these also run as part of `./gradlew build`. The reports are
+currently **informational** — the build stays green regardless of how many
+findings each tool produces. A follow-up task can flip the gates to enforcing
+once the existing backlog has been triaged.
 
 ### Tools and report locations
 

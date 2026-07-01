@@ -499,6 +499,12 @@
       "started_at": "2026-06-29T12:24:09+00:00",
       "completed_at": "2026-06-29T12:50:15+00:00",
       "notes": "PostgreSQL everywhere: remove dev-local + H2, move tests to Testcontainers PG, make dev the canonical local profile"
+    },
+    "task-084": {
+      "status": "done",
+      "started_at": "2026-06-30T14:54:45+00:00",
+      "completed_at": "2026-06-30T14:58:48+00:00",
+      "notes": "Add a single Gradle goal to run static analysis (detekt + frontend check) across all modules"
     }
   }
 }
