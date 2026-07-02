@@ -41,6 +41,23 @@ description: |
       baseline in step 1 finds a deprecation that DOES trace to a
       `*.gradle.kts` here, fix that too.
 
+  COMPLETION CONTRACT (the deprecation fixes are upstream-gated, so be
+  explicit about "done"):
+    - The zero-deprecation gate (`--warning-mode fail`) is only reachable
+      once detekt, Quarkus, and the Kotlin/KMP plugin have all shipped
+      Gradle-10-ready releases. This task is therefore **best-effort**:
+      "done" means EVERY offending plugin has been upgraded to its latest
+      available release, our own scripts are deprecation-free, and any
+      deprecation that STILL remains is one with no upstream fix yet and
+      is recorded in a "Known upstream deprecations (Gradle 10)" note.
+    - If, after upgrading, the gate passes, great — the build is fully
+      Gradle-10-ready and the wrapper may be advanced. If a documented
+      upstream deprecation remains, the task is still "done" in the
+      best-effort sense (plugins at latest + residual documented), but
+      the Gradle-10 wrapper bump is deferred until the note is empty.
+      Do NOT hand-patch or suppress a plugin-internal deprecation to make
+      the gate pass.
+
   KEY DECISIONS / CONSTRAINTS (leave no ambiguity):
     - This is a plugin-upgrade-and-verify task, and its success is gated
       on upstream: each deprecation clears only when the plugin ships a
@@ -126,6 +143,14 @@ steps:
     silent gap.
 
   - |
+    Refresh the auto-memory that records build versions. The
+    `project_gradle_build.md` memory states "Kotlin unified at 2.3.21 to
+    match the Quarkus 3.35.1 BOM" and the Gradle wrapper version — update
+    those to the versions this task lands on, and add a one-line note of
+    any documented residual upstream deprecation. (This lives under the
+    auto-memory directory, not the repo.)
+
+  - |
     Validate. Deprecation gate (no Docker needed):
       ./gradlew build -x test --warning-mode fail
     Then prove the plugin upgrades did not break the build/tests
@@ -145,9 +170,19 @@ validation:
     syntax (regression guard):
       ! grep -rInE "\bby (getting|registering|creating|project)\b|\bby (tasks\.registering|configurations\.creating)\b" --include=*.gradle.kts .
   - |
-    No Gradle deprecation warnings remain — the build fails the moment any
-    are emitted (Docker NOT required for this gate):
+    Zero-deprecation gate (Docker NOT required) — the fully-Gradle-10-ready
+    end state. This passes only once every offending plugin has a
+    Gradle-10-ready release:
       ./gradlew build -x test --warning-mode fail
+  - |
+    Best-effort acceptance when the gate above cannot yet pass (upstream
+    not ready): every offending plugin is on its latest release AND each
+    residual deprecation is recorded in a "Known upstream deprecations"
+    note. Prove the note exists and enumerate what remains:
+      grep -qi "Known upstream deprecations" docs/development.md
+      ./gradlew build -x test --warning-mode all -Dorg.gradle.deprecation.trace=true 2>&1 | grep -iE "has been deprecated" | sort -u
+    (Either this OR the zero-deprecation gate constitutes "done"; do not
+    suppress a plugin-internal deprecation to force the gate.)
   - |
     The upgraded stack still builds and the backend tests pass on
     PostgreSQL (Docker required):
@@ -158,9 +193,9 @@ outputs:
   - modified: build.gradle.kts
   - modified: src/backend/implementation/gradle.properties
   - modified: gradle/wrapper/gradle-wrapper.properties
-  - modified: gradle/wrapper/gradle-wrapper.jar
   - modified: gradlew
   - modified: gradlew.bat
-  - modified: kotlin-js-store/yarn.lock
+  - modified (if the wrapper jar changes for the chosen version): gradle/wrapper/gradle-wrapper.jar
+  - modified (if the Kotlin bump changes the JS toolchain): kotlin-js-store/yarn.lock
   - modified: docs/development.md
   - modified: CLAUDE.md
