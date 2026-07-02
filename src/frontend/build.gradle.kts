@@ -15,7 +15,7 @@ node {
 
 // Consume the :domain project's packaged TypeScript library (the KMP/JS
 // output + .d.ts), replacing the former Maven `zip:typescript` artifact.
-val domainTypescript by configurations.creating {
+val domainTypescript = configurations.create("domainTypescript") {
     isCanBeConsumed = false
     isCanBeResolved = true
 }
@@ -27,7 +27,7 @@ dependencies {
 // Unpack the domain TypeScript zip into src/lib/domain so the SvelteKit app
 // can import it (adapter.ts). Lazy `from` keeps the dependency on
 // :domain:packageTypescript via the resolved configuration.
-val unpackDomainTypescript by tasks.registering(Sync::class) {
+val unpackDomainTypescript = tasks.register<Sync>("unpackDomainTypescript") {
     from(domainTypescript.elements.map { locs -> locs.map { zipTree(it.asFile) } })
     into(layout.projectDirectory.dir("src/lib/domain"))
 }
@@ -36,31 +36,31 @@ tasks.npmInstall {
     args.set(listOf("--legacy-peer-deps"))
 }
 
-val genApi by tasks.registering(NpmTask::class) {
+val genApi = tasks.register<NpmTask>("genApi") {
     dependsOn(tasks.npmInstall)
     args.set(listOf("run", "gen:api"))
 }
 
-val npmBuild by tasks.registering(NpmTask::class) {
+val npmBuild = tasks.register<NpmTask>("npmBuild") {
     dependsOn(tasks.npmInstall, unpackDomainTypescript, genApi)
     args.set(listOf("run", "build"))
 }
 
-val npmCheck by tasks.registering(NpmTask::class) {
+val npmCheck = tasks.register<NpmTask>("npmCheck") {
     dependsOn(tasks.npmInstall, unpackDomainTypescript, genApi)
     args.set(listOf("run", "check"))
 }
 
 // Static analysis: ESLint over ts/svelte/html. `lint:report` always exits 0,
 // so the build stays green regardless of findings (informational).
-val npmLintReport by tasks.registering(NpmTask::class) {
+val npmLintReport = tasks.register<NpmTask>("npmLintReport") {
     dependsOn(tasks.npmInstall)
     args.set(listOf("run", "lint:report"))
 }
 
 // Consolidate detekt (Kotlin) + ESLint (frontend) reports into one HTML plus a
 // merged SARIF, via a dependency-free Node script run through the managed Node.
-val sarifHtmlReport by tasks.registering(NodeTask::class) {
+val sarifHtmlReport = tasks.register<NodeTask>("sarifHtmlReport") {
     dependsOn(":domain:detekt", ":backend:implementation:detekt", npmLintReport)
     script.set(rootProject.file("scripts/sarif-to-html.mjs"))
     val outDir = rootProject.layout.buildDirectory.dir("reports/static-analysis")

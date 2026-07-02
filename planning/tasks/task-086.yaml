@@ -1,0 +1,166 @@
+id: task-086
+phase: phase-10
+title: Prepare the Gradle build for Gradle 10 (clear deprecations)
+depends_on: [task-084, task-085]
+description: |
+  Get the build to zero Gradle deprecation warnings so it will keep
+  working when Gradle 10 turns those warnings into hard errors.
+
+  CURRENT STATE (verified against the working tree; wrapper is Gradle
+  9.6.1):
+    - Our OWN build scripts are already deprecation-clean. The former
+      Kotlin-DSL delegated-property usage (`val x by getting` /
+      `by tasks.registering` / `by configurations.creating` /
+      `val x: String by project`) was replaced with the non-deprecated
+      forms (`getByName`, `tasks.register<T>(name)`,
+      `configurations.create(name)`, `project.property(name)`), so no
+      `*.gradle.kts` in this repo emits a deprecation.
+    - `./gradlew build -x test --warning-mode all
+      -Dorg.gradle.deprecation.trace=true` still reports deprecations,
+      and every one traces into a THIRD-PARTY PLUGIN, not our scripts:
+        1. `ReportingExtension.file(String)` — emitted by the **detekt**
+           plugin (`io.gitlab.arturbosch.detekt` 1.23.8,
+           `DetektPlugin.apply`).
+        2. `Project.getProperties` (will FAIL in Gradle 10) — emitted by
+           the **Quarkus** Gradle plugin (`io.quarkus` 3.35.1,
+           `ApplicationDeploymentClasspathBuilder`).
+        3. `Configuration.getTaskDependencyFromProjectDependency` —
+           emitted by the **Kotlin Multiplatform** plugin (Kotlin
+           2.3.21, `addDependsOnTaskInOtherProjects`).
+    - Plugin versions live in the root `build.gradle.kts` `plugins { … }`
+      block (Kotlin 2.3.21, `io.quarkus` 3.35.1, detekt 1.23.8,
+      `com.github.node-gradle.node` 7.1.0); the Quarkus platform BOM
+      version is `quarkusPlatformVersion` in
+      `src/backend/implementation/gradle.properties`.
+
+  TARGET STATE:
+    - `./gradlew build -x test --warning-mode fail` passes — i.e. the
+      build emits ZERO deprecation warnings — achieved by upgrading the
+      offending plugins to Gradle-10-ready releases. No changes to our
+      own build scripts are expected (they are already clean); if the
+      baseline in step 1 finds a deprecation that DOES trace to a
+      `*.gradle.kts` here, fix that too.
+
+  KEY DECISIONS / CONSTRAINTS (leave no ambiguity):
+    - This is a plugin-upgrade-and-verify task, and its success is gated
+      on upstream: each deprecation clears only when the plugin ships a
+      Gradle-10-ready version. If, at implementation time, a plugin's
+      latest release STILL emits its deprecation, do NOT fake success —
+      upgrade to the latest available, document the residual as a known
+      upstream blocker (see step 7), and stop per the implement-task
+      hard rule rather than marking done. Gradle 10 itself must NOT be
+      adopted (wrapper bump) until the build is deprecation-free on 9.x.
+    - Kotlin and Quarkus are coupled: the Quarkus platform BOM pins
+      `kotlin-stdlib`, and the Kotlin Gradle plugin is one shared
+      artifact across `:domain` (multiplatform) and
+      `:backend:implementation` (jvm). They MUST be bumped in lockstep
+      and to compatible versions — a compiler older than the stdlib
+      metadata causes an ICE (the lesson from task-082). Keep the single
+      Kotlin plugin version in the root `build.gradle.kts` equal to what
+      the chosen Quarkus BOM expects.
+    - No application code changes; this is config/build only, so the
+      CLAUDE.md "Logging" conventions add nothing here.
+    - Docker is required to validate the upgrades safely: the backend
+      `@QuarkusTest` suite runs on PostgreSQL via Dev Services. (The
+      deprecation gate `build -x test --warning-mode fail` itself needs
+      no Docker, but proving the Quarkus/Kotlin bump didn't break
+      anything does.)
+
+steps:
+  - |
+    Baseline the deprecations. Run
+    `./gradlew build -x test --warning-mode all -Dorg.gradle.deprecation.trace=true`
+    and list each unique deprecation with the plugin it traces to. Confirm
+    none originate in a `*.gradle.kts` in this repo (if one does, fix that
+    script directly using the non-deprecated API the warning names).
+
+  - |
+    Upgrade detekt. In the root `build.gradle.kts` `plugins { … }` block,
+    bump `id("io.gitlab.arturbosch.detekt")` from `1.23.8` to the latest
+    release compatible with Kotlin 2.3.x and Gradle 9.6+. Keep
+    `config/detekt/detekt.yml` and the per-module detekt config working
+    (`buildUponDefaultConfig`, `ignoreFailures`, xml/html/sarif reports).
+    Re-run `./gradlew :domain:detekt :backend:implementation:detekt
+    --warning-mode all` and confirm the `ReportingExtension.file`
+    deprecation is gone.
+
+  - |
+    Upgrade Quarkus + Kotlin in lockstep. Bump `id("io.quarkus") version`
+    in the root `build.gradle.kts` and `quarkusPlatformVersion` in
+    `src/backend/implementation/gradle.properties` to the latest Quarkus
+    3.x whose Gradle plugin no longer calls `Project.getProperties`, and
+    set the four `kotlin("…") version` entries in the root
+    `build.gradle.kts` to the Kotlin version that Quarkus BOM ships
+    (so the compiler matches the `kotlin-stdlib` metadata). Re-run and
+    confirm both the Quarkus `Project.getProperties` and the KMP
+    `Configuration.getTaskDependencyFromProjectDependency` deprecations
+    are gone (the latter clears with the newer Kotlin plugin).
+
+  - |
+    Upgrade the Gradle Node plugin. Bump
+    `id("com.github.node-gradle.node")` from `7.1.0` to the latest
+    release and re-run `./gradlew :frontend:check --warning-mode all` to
+    confirm no node-plugin deprecation appears.
+
+  - |
+    If the Kotlin bump changed the JS toolchain, actualise the KMP yarn
+    lock (`./gradlew kotlinUpgradeYarnLock`) and force-refresh the domain
+    TypeScript outputs (`./gradlew :domain:clean :frontend:clean
+    :frontend:check`) so `src/lib/domain` is regenerated cleanly.
+
+  - |
+    Bump the Gradle wrapper to the latest release that is still 9.x
+    (currently 9.6.1) — or to Gradle 10 GA only if every plugin above is
+    confirmed deprecation-free — via
+    `./gradlew wrapper --gradle-version <version> --distribution-type bin`,
+    then re-run the wrapper task once so `gradle-wrapper.properties`,
+    `gradlew`, and `gradlew.bat` are consistent.
+
+  - |
+    Documentation. Update `docs/development.md` (and `CLAUDE.md` if it
+    names versions) to record the new Gradle/plugin versions and the
+    deprecation-free status. If any deprecation could NOT be cleared
+    because no upstream fix exists yet, add a short "Known upstream
+    deprecations (Gradle 10)" note naming the plugin, the deprecated API,
+    and the tracking issue, so it is a documented blocker rather than a
+    silent gap.
+
+  - |
+    Validate. Deprecation gate (no Docker needed):
+      ./gradlew build -x test --warning-mode fail
+    Then prove the plugin upgrades did not break the build/tests
+    (Docker running for the PostgreSQL Dev Services):
+      ./gradlew build
+      ./gradlew :backend:implementation:test
+
+validation:
+  - |
+    The offending plugins were actually upgraded (versions changed from
+    the deprecated baseline):
+      ! grep -q 'io.gitlab.arturbosch.detekt") version "1.23.8"' build.gradle.kts
+      ! grep -q 'io.quarkus") version "3.35.1"' build.gradle.kts
+      ! grep -q "quarkusPlatformVersion=3.35.1" src/backend/implementation/gradle.properties
+  - |
+    Our own build scripts remain free of the deprecated delegated-property
+    syntax (regression guard):
+      ! grep -rInE "\bby (getting|registering|creating|project)\b|\bby (tasks\.registering|configurations\.creating)\b" --include=*.gradle.kts .
+  - |
+    No Gradle deprecation warnings remain — the build fails the moment any
+    are emitted (Docker NOT required for this gate):
+      ./gradlew build -x test --warning-mode fail
+  - |
+    The upgraded stack still builds and the backend tests pass on
+    PostgreSQL (Docker required):
+      ./gradlew build
+      ./gradlew :backend:implementation:test
+
+outputs:
+  - modified: build.gradle.kts
+  - modified: src/backend/implementation/gradle.properties
+  - modified: gradle/wrapper/gradle-wrapper.properties
+  - modified: gradle/wrapper/gradle-wrapper.jar
+  - modified: gradlew
+  - modified: gradlew.bat
+  - modified: kotlin-js-store/yarn.lock
+  - modified: docs/development.md
+  - modified: CLAUDE.md

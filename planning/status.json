@@ -511,6 +511,12 @@
       "started_at": "2026-07-01T14:26:23+00:00",
       "completed_at": "2026-07-01T14:41:52+00:00",
       "notes": "Consolidate static-analysis reports into one project-wide HTML via SARIF"
+    },
+    "task-086": {
+      "status": "pending",
+      "started_at": null,
+      "completed_at": null,
+      "notes": "Prepare the Gradle build for Gradle 10 — remove all remaining deprecated build features"
     }
   }
 }

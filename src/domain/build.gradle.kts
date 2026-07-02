@@ -35,14 +35,14 @@ kotlin {
     }
 
     sourceSets {
-        val commonMain by getting {
+        getByName("commonMain") {
             kotlin.srcDir("src/main/kotlin")
             dependencies {
                 implementation("org.jetbrains.kotlinx:kotlinx-datetime:0.6.2")
                 implementation("io.github.oshai:kotlin-logging:7.0.7")
             }
         }
-        val jvmTest by getting {
+        getByName("jvmTest") {
             kotlin.srcDir("src/test/kotlin")
             dependencies {
                 implementation(kotlin("test-junit5"))
@@ -63,7 +63,8 @@ allOpen {
 // Create .d.mts companions for .mjs files so TypeScript bundler mode resolves types correctly.
 // Kotlin 2.3.x emits `.d.mts` directly (e.g. domain.d.mts); copy those through.
 // For any .mjs lacking a .d.mts (older-style .d.ts, or dependency stubs), derive one.
-val prepareTypescriptArtifacts by tasks.registering(Copy::class) {
+val prepareTypescriptArtifacts = tasks.register<Copy>("prepareTypescriptArtifacts") {
+    description = "prepare TS artifacts for KMP"
     dependsOn("jsBrowserProductionLibraryDistribution")
     from(layout.buildDirectory.dir("dist/js/productionLibrary")) {
         include("*.mjs", "*.d.ts", "*.d.mts", "*.js", "*.map", "package.json")
@@ -84,8 +85,9 @@ val prepareTypescriptArtifacts by tasks.registering(Copy::class) {
     }
 }
 
-// Package the JS production library as a zip for Maven consumption
-val packageTypescript by tasks.registering(Zip::class) {
+// Package the JS production library as a zip
+val packageTypescript = tasks.register<Zip>("packageTypescript") {
+    description = "package TS code for KMP"
     dependsOn(prepareTypescriptArtifacts)
     from(layout.buildDirectory.dir("typescript-prep"))
     archiveFileName.set("domain-${version}-typescript.zip")
@@ -124,7 +126,7 @@ tasks.named<io.gitlab.arturbosch.detekt.Detekt>("detekt") {
 // Expose the packaged TypeScript library zip as a consumable configuration so
 // the :frontend project can depend on it directly (replaces the former Maven
 // `zip:typescript` classifier artifact + maven-dependency-plugin unpack).
-val typescriptDist by configurations.creating {
+val typescriptDist = configurations.create("typescriptDist") {
     isCanBeResolved = false
     isCanBeConsumed = true
 }

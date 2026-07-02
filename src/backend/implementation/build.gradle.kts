@@ -13,9 +13,9 @@ repositories {
     mavenLocal()
 }
 
-val quarkusPlatformGroupId: String by project
-val quarkusPlatformArtifactId: String by project
-val quarkusPlatformVersion: String by project
+val quarkusPlatformGroupId = project.property("quarkusPlatformGroupId") as String
+val quarkusPlatformArtifactId = project.property("quarkusPlatformArtifactId") as String
+val quarkusPlatformVersion = project.property("quarkusPlatformVersion") as String
 
 dependencies {
     implementation(enforcedPlatform("$quarkusPlatformGroupId:$quarkusPlatformArtifactId:$quarkusPlatformVersion"))
