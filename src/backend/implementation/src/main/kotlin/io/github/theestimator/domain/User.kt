@@ -9,6 +9,7 @@ import jakarta.validation.constraints.NotBlank
 @Table(name = "users")
 class User : BaseEntity() {
 
+    // TODO: this bounds the user to EntraID. But, the authentication is encapsulated in modules. This need to be adapted.
     @Column(name = "entra_subject_id", unique = true)
     var entraSubjectId: String? = null
 
