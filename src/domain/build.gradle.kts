@@ -116,6 +116,8 @@ tasks.named<io.gitlab.arturbosch.detekt.Detekt>("detekt") {
         xml.outputLocation.set(layout.buildDirectory.file("reports/detekt/detekt.xml"))
         html.required.set(true)
         html.outputLocation.set(layout.buildDirectory.file("reports/detekt/detekt.html"))
+        sarif.required.set(true)
+        sarif.outputLocation.set(layout.buildDirectory.file("reports/detekt/detekt.sarif"))
     }
 }
 

@@ -45,6 +45,14 @@ tool across all modules in one invocation: detekt over the Kotlin modules
 (`:domain`, `:backend:implementation`) plus svelte-check and ESLint over the
 frontend (via the `lint:report` script). It runs no tests and needs no Docker.
 
+It also produces a **consolidated, project-wide report** at
+`build/reports/static-analysis/static-analysis.html` (plus a merged
+`static-analysis.sarif`) covering detekt and ESLint together. This is generated
+by a dependency-free Node script (`scripts/sarif-to-html.mjs`) run through the
+gradle-node plugin's managed Node — so it needs no extra install (no Python, no
+Docker). `svelte-check` has no machine-readable report and stays a console-only
+gate, so it is not part of the consolidated report.
+
 As per-layer alternatives, `./gradlew detekt` (Kotlin only) and
 `./gradlew :frontend:check` (frontend svelte-check + ESLint) cover one layer
 each; all of these also run as part of `./gradlew build`. The reports are
@@ -59,6 +67,7 @@ once the existing backlog has been triaged.
 | Kotlin — backend   | detekt | `:backend:implementation:detekt` | `src/backend/implementation/build/reports/detekt/detekt.{xml,html}` |
 | Kotlin — domain    | detekt | `:domain:detekt`      | `src/domain/build/reports/detekt/detekt.{xml,html}`           |
 | TS / Svelte / HTML | ESLint | `:frontend:npmLintReport` | `src/frontend/reports/eslint.{json,html}`                 |
+| All (consolidated) | Node   | `:frontend:sarifHtmlReport` | `build/reports/static-analysis/static-analysis.{html,sarif}` |
 
 Both detekt scopes share `config/detekt/detekt.yml` (top-level config
 with `buildUponDefaultConfig: true`). The frontend's ESLint flat config

@@ -505,6 +505,12 @@
       "started_at": "2026-06-30T14:54:45+00:00",
       "completed_at": "2026-06-30T14:58:48+00:00",
       "notes": "Add a single Gradle goal to run static analysis (detekt + frontend check) across all modules"
+    },
+    "task-085": {
+      "status": "done",
+      "started_at": "2026-07-01T14:26:23+00:00",
+      "completed_at": "2026-07-01T14:41:52+00:00",
+      "notes": "Consolidate static-analysis reports into one project-wide HTML via SARIF"
     }
   }
 }

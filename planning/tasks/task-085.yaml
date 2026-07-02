@@ -1,0 +1,173 @@
+id: task-085
+phase: phase-10
+title: Consolidated project-wide static-analysis HTML report
+depends_on: [task-084]
+description: |
+  Static analysis currently produces three separate, per-tool reports in
+  different formats and locations:
+    - detekt (domain):  src/domain/build/reports/detekt/detekt.{xml,html}
+    - detekt (backend): src/backend/implementation/build/reports/detekt/detekt.{xml,html}
+    - ESLint (frontend): src/frontend/reports/eslint.{json,html}
+  There is no single project-wide report. The `staticAnalysis` Gradle goal
+  (task-084) runs all the tools but still leaves three artifacts to open
+  separately.
+
+  Target state: `./gradlew staticAnalysis` additionally produces ONE
+  consolidated, human-readable HTML report — plus one merged SARIF file — at
+  `build/reports/static-analysis/` covering detekt (both Kotlin modules) and
+  ESLint (frontend).
+
+  Key design decision — ZERO new external dependency:
+  - The consolidation is done by a small, committed, dependency-free Node
+    script (`scripts/sarif-to-html.mjs`, Node built-ins only: `fs`, `path`,
+    `process`). It is run through the gradle-node plugin's **managed** Node
+    (already used by `:frontend`), so it needs no host Node, no Python
+    (`sarif-tools`), and no Docker — deliberately keeping `staticAnalysis` the
+    fast, dependency-light pass that task-084 established.
+  - detekt emits its native SARIF (an existing detekt report format — just
+    turned on) alongside the current XML/HTML in both modules.
+  - ESLint findings are read from the **existing** `eslint.json` report (no new
+    ESLint SARIF formatter dependency is added). The Node script normalises
+    both the detekt SARIF results and the ESLint JSON results into one HTML
+    table and writes a merged `static-analysis.sarif` (ESLint results emitted
+    as an additional SARIF run) so there is also a single machine-readable
+    artifact (e.g. for future GitHub Code Scanning).
+  - The renderer is best-effort about inputs: if any input report is missing or
+    empty it is skipped and the report is still produced from what exists.
+  - svelte-check has no machine-readable report and stays a console-only gate —
+    it is NOT part of the consolidated report (note this in the docs).
+  - Keep every existing per-tool report (XML/HTML/JSON) exactly as is; this task
+    only ADDS the detekt SARIF outputs, the Node renderer, and the consolidated
+    outputs. detekt/ESLint stay informational (ignoreFailures / `|| true`); no
+    detekt config gate is flipped.
+
+  This is a build-tooling + documentation change only — no backend service,
+  REST endpoint, domain operation, or frontend flow — so the CLAUDE.md logging
+  conventions do not apply.
+
+steps:
+  - |
+    Start the task:
+      ./scripts/task.sh start task-085
+
+  - |
+    Add SARIF output to detekt in BOTH Kotlin modules, alongside the existing
+    xml/html, without changing the existing outputs:
+      - src/backend/implementation/build.gradle.kts — in the
+        `tasks.withType<io.gitlab.arturbosch.detekt.Detekt>().configureEach { reports { … } }`
+        block add:
+          sarif.required.set(true)
+          sarif.outputLocation.set(layout.buildDirectory.file("reports/detekt/detekt.sarif"))
+      - src/domain/build.gradle.kts — in the
+        `tasks.named<io.gitlab.arturbosch.detekt.Detekt>("detekt") { reports { … } }`
+        block add the same two `sarif.*` lines.
+
+  - |
+    Create the dependency-free Node renderer `scripts/sarif-to-html.mjs`
+    (repo-root `scripts/` so the frontend ESLint run does not lint it). It uses
+    only Node built-ins (`fs`, `path`, `process`) — no npm imports. Contract:
+      - CLI: `node sarif-to-html.mjs --out <html> --sarif <mergedSarif>
+        --detekt <file.sarif>... --eslint <eslint.json>...`
+        (or an equivalent simple argv scheme — accept multiple detekt SARIF
+        inputs and multiple ESLint JSON inputs, plus the two output paths).
+      - For each detekt SARIF input that exists: parse JSON, take its `runs`.
+      - For each ESLint JSON input that exists: parse it and build an
+        equivalent SARIF `run` (tool driver name "ESLint"; one `result` per
+        message with `ruleId`, `level` from severity 2→"error"/1→"warning",
+        the file path, and `region.startLine`).
+      - Write the merged SARIF (`{ version: "2.1.0", $schema: …, runs: [...] }`)
+        to `--sarif`, and a single self-contained HTML page to `--out` with a
+        findings table (columns: Tool, Rule, Level, File, Line, Message) plus a
+        per-tool/per-severity count summary. `mkdir -p` the output directory.
+      - Missing/empty/unparseable inputs are skipped (log a note to stderr),
+        never fatal.
+
+  - |
+    Register a Gradle task that runs the renderer via the managed Node and wire
+    it into the aggregate goal:
+      - In src/frontend/build.gradle.kts register a
+        `com.github.gradle.node.task.NodeTask` named `sarifHtmlReport` that:
+          * `dependsOn(":domain:detekt", ":backend:implementation:detekt", npmLintReport)`
+            (so the detekt SARIFs and `eslint.json` exist first),
+          * `script.set(rootProject.file("scripts/sarif-to-html.mjs"))`,
+          * passes, via `args`, the two detekt SARIF paths
+            (`src/domain/build/reports/detekt/detekt.sarif`,
+            `src/backend/implementation/build/reports/detekt/detekt.sarif`), the
+            ESLint JSON path (`src/frontend/reports/eslint.json`), and the two
+            output paths under
+            `rootProject.layout.buildDirectory.dir("reports/static-analysis")`
+            (`static-analysis.html`, `static-analysis.sarif`) — all as absolute
+            paths so the working directory is irrelevant.
+      - In the root build.gradle.kts, add `":frontend:sarifHtmlReport"` to the
+        existing `staticAnalysis` task's `dependsOn(...)`. `staticAnalysis` must
+        still run no tests and need no Docker.
+
+  - |
+    Update docs/development.md, "## Static code analysis" section: document that
+    `./gradlew staticAnalysis` now also produces a single consolidated report at
+    build/reports/static-analysis/static-analysis.html (+ a merged
+    static-analysis.sarif) covering detekt + ESLint, generated by a
+    dependency-free Node renderer run through the managed Node — no Python, no
+    Docker, no extra install. Note svelte-check is a console-only gate and not
+    part of the consolidated report. Add the consolidated outputs to the "Tools
+    and report locations" table.
+
+  - |
+    Update CLAUDE.md, "Build & run" section: on/after the
+    `./gradlew staticAnalysis` line, note that it also produces the consolidated
+    HTML report at build/reports/static-analysis/static-analysis.html (no extra
+    dependency). Keep it to a one-line note.
+
+  - |
+    Update .claude/commands/clean-up-project.md: mention the consolidated HTML
+    (build/reports/static-analysis/static-analysis.html) as the human-readable
+    overview produced by `./gradlew staticAnalysis`, while keeping the existing
+    per-tool machine-readable reports (detekt xml, eslint.json) as the parse
+    sources for the fix loop. Do not otherwise change the protocol.
+
+  - |
+    Validate and finish:
+      ./gradlew staticAnalysis
+      test -f build/reports/static-analysis/static-analysis.html
+      ./scripts/task.sh done task-085
+
+validation:
+  - |
+    detekt emits SARIF in both Kotlin modules:
+      grep -q "sarif.required.set(true)" src/domain/build.gradle.kts
+      grep -q "sarif.required.set(true)" src/backend/implementation/build.gradle.kts
+  - |
+    The dependency-free Node renderer exists and imports no npm packages
+      (only `node:` built-ins and relative imports are allowed):
+      test -f scripts/sarif-to-html.mjs
+      ! grep -oE "from '[^']+'" scripts/sarif-to-html.mjs | grep -vqE "'(node:|\\.)"
+  - |
+    The renderer is wired into the aggregate goal via the managed Node:
+      grep -q "sarifHtmlReport" src/frontend/build.gradle.kts
+      grep -q "sarifHtmlReport" build.gradle.kts
+      ./gradlew staticAnalysis --dry-run 2>&1 | grep -q ':frontend:sarifHtmlReport'
+  - |
+    No Python/Docker dependency was introduced for the report:
+      ! grep -q "sarif-tools" build.gradle.kts src/frontend/build.gradle.kts scripts/sarif-to-html.mjs
+  - |
+    Running the goal produces the detekt SARIFs and the consolidated outputs:
+      ./gradlew staticAnalysis
+      test -f src/domain/build/reports/detekt/detekt.sarif
+      test -f src/backend/implementation/build/reports/detekt/detekt.sarif
+      test -f build/reports/static-analysis/static-analysis.html
+      test -f build/reports/static-analysis/static-analysis.sarif
+  - |
+    Docs and the cleanup command reference the consolidated report:
+      grep -q "static-analysis.html" docs/development.md
+      grep -q "static-analysis.html" CLAUDE.md
+      grep -q "static-analysis.html" .claude/commands/clean-up-project.md
+
+outputs:
+  - modified: build.gradle.kts
+  - modified: src/domain/build.gradle.kts
+  - modified: src/backend/implementation/build.gradle.kts
+  - modified: src/frontend/build.gradle.kts
+  - created: scripts/sarif-to-html.mjs
+  - modified: CLAUDE.md
+  - modified: docs/development.md
+  - modified: .claude/commands/clean-up-project.md

@@ -13,7 +13,7 @@ A single **Gradle** multi-project build drives every module. **Use `./gradlew`**
 ```
 ./gradlew build                            # full build, all tests (domain + backend + frontend)
 ./gradlew build -x test                    # build everything, skip tests
-./gradlew staticAnalysis                   # ALL static analysis: detekt + frontend svelte-check & ESLint (informational, no Docker)
+./gradlew staticAnalysis                   # ALL static analysis: detekt + frontend svelte-check & ESLint (informational, no Docker); also writes a consolidated build/reports/static-analysis/static-analysis.html
 ./gradlew detekt                           # Kotlin-only static analysis (detekt reports)
 ./gradlew :domain:build                    # domain (KMP) build + tests only
 ./gradlew :backend:implementation:test     # backend unit + @QuarkusTest (PostgreSQL via Dev Services — Docker required)

@@ -1,4 +1,5 @@
 import com.github.gradle.node.npm.task.NpmTask
+import com.github.gradle.node.task.NodeTask
 
 plugins {
     base
@@ -55,6 +56,23 @@ val npmCheck by tasks.registering(NpmTask::class) {
 val npmLintReport by tasks.registering(NpmTask::class) {
     dependsOn(tasks.npmInstall)
     args.set(listOf("run", "lint:report"))
+}
+
+// Consolidate detekt (Kotlin) + ESLint (frontend) reports into one HTML plus a
+// merged SARIF, via a dependency-free Node script run through the managed Node.
+val sarifHtmlReport by tasks.registering(NodeTask::class) {
+    dependsOn(":domain:detekt", ":backend:implementation:detekt", npmLintReport)
+    script.set(rootProject.file("scripts/sarif-to-html.mjs"))
+    val outDir = rootProject.layout.buildDirectory.dir("reports/static-analysis")
+    args.set(
+        listOf(
+            "--out", outDir.get().file("static-analysis.html").asFile.absolutePath,
+            "--sarif", outDir.get().file("static-analysis.sarif").asFile.absolutePath,
+            "--detekt", rootProject.file("src/domain/build/reports/detekt/detekt.sarif").absolutePath,
+            "--detekt", rootProject.file("src/backend/implementation/build/reports/detekt/detekt.sarif").absolutePath,
+            "--eslint", rootProject.file("src/frontend/reports/eslint.json").absolutePath
+        )
+    )
 }
 
 tasks.named("assemble") {

@@ -34,6 +34,8 @@ tasks.register("staticAnalysis") {
         ":domain:detekt",
         ":backend:implementation:detekt",
         ":frontend:npmCheck",
-        ":frontend:npmLintReport"
+        ":frontend:npmLintReport",
+        // Consolidated HTML + merged SARIF over all of the above.
+        ":frontend:sarifHtmlReport"
     )
 }

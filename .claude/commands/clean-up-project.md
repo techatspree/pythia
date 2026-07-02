@@ -73,6 +73,8 @@ These write machine-readable reports — parse these rather than scraping consol
   to catch any other module, e.g. `:backend:end2end`.)
 - Frontend eslint: `src/frontend/reports/eslint.json` (produced by the `lint:report` npm script the `:frontend:check` Gradle task runs)
 
+`staticAnalysis` also writes a **consolidated, human-readable overview** at `build/reports/static-analysis/static-analysis.html` (detekt + ESLint in one page, plus a merged `static-analysis.sarif`). Use it to eyeball the whole backlog at a glance, but keep parsing the per-tool machine-readable reports above (detekt XML, `eslint.json`) as the authoritative source for building the findings list.
+
 `staticAnalysis` runs svelte-check too (via the frontend `npmCheck` task); its warnings/errors are in the Gradle console output. To capture them cleanly for parsing, run `cd src/frontend && npm run check` directly.
 
 Collect **static-analysis** findings from, in this order:
