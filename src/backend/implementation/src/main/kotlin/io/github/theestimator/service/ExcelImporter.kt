@@ -115,7 +115,7 @@ class ExcelImporter {
         for (rowIdx in 1..sheet.lastRowNum) {
             val row = sheet.getRow(rowIdx) ?: continue
             val nodeType = row.cellStringValue(16) ?: continue
-            val level = (row as XSSFRow).outlineLevel.toInt()
+            val level = (row as XSSFRow).outlineLevel
             val label = row.cellStringValue(0)?.trimStart() ?: ""
 
             val node: DraftEstimationNode = when (nodeType) {

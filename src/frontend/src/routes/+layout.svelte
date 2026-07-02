@@ -25,12 +25,12 @@
 			<picture>
 				<source srcset="/estimator_logo.webp" type="image/webp" />
 				<img
-					src="/estimator_logo.png"
+					src="/estimator_logo_w120.png"
 					alt="The Estimator"
 					width="120"
 					height="88"
 					loading="eager"
-					class="w-[120px] h-auto"
+					class="w-30 h-auto"
 				/>
 			</picture>
 		</a>
