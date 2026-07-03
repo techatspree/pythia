@@ -140,6 +140,9 @@ class SubmissionTreeIT {
     fun nodeRowsForVersion(versionId: UUID): List<NodeRow> {
         // UUID columns are cast to text on read for easy mapping; the WHERE
         // parameter is bound as a UUID (PostgreSQL rejects uuid = varchar).
+        // Claude thinks that using native queries here is a good thing, because
+        // a) it is only in test code
+        // b) it checks the JPA layer too
         @Suppress("UNCHECKED_CAST")
         val raw = entityManager.createNativeQuery(
             "SELECT CAST(id AS VARCHAR), CAST(parent_id AS VARCHAR), node_type, position, title, description, offer_pt " +

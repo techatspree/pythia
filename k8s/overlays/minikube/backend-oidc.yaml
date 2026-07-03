@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: backend-config
+data:
+  # Minikube runs the Entra (OIDC) auth module. The ${ENTRA_*} placeholders are
+  # substituted with the exported values at deploy time (scripts/minikube-deploy.sh
+  # pipes the rendered manifests through envsubst) — kustomize can't do env
+  # substitution itself, and these tenant ids are per-user secrets not committed here.
+  # These runtime env vars override the empty base values AND the image's baked
+  # %prod OIDC properties, so every ${ENTRA_*}-bearing property resolves.
+  QUARKUS_OIDC_ENABLED: "true"
+  QUARKUS_OIDC_AUTH_SERVER_URL: "https://login.microsoftonline.com/${ENTRA_TENANT_ID}/v2.0"
+  QUARKUS_OIDC_CLIENT_ID: "${ENTRA_API_CLIENT_ID}"
+  QUARKUS_OIDC_TOKEN_AUDIENCE: "api://${ENTRA_API_CLIENT_ID}"

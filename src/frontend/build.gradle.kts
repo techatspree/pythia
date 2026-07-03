@@ -98,5 +98,23 @@ tasks.register<Exec>("dockerBuildImage") {
     description = "Builds the frontend Docker image."
     dependsOn(npmBuild)
     workingDir = projectDir
-    commandLine("docker", "build", "-t", "theestimator/estimation-frontend:${project.version}", ".")
+    // VITE_* are build-time (Vite inlines them), so forward them from the
+    // invoking shell into the Docker build. `providers.environmentVariable`
+    // reads the client environment (not a stale Gradle daemon snapshot).
+    val viteVarNames = listOf(
+        "VITE_AUTH_PROVIDER",
+        "VITE_ENTRA_TENANT_ID",
+        "VITE_ENTRA_SPA_CLIENT_ID",
+        "VITE_ENTRA_API_CLIENT_ID",
+        "VITE_ENTRA_REDIRECT_URI"
+    )
+    val viteVars = viteVarNames.associateWith { providers.environmentVariable(it) }
+    val imageTag = "theestimator/estimation-frontend:${project.version}"
+    doFirst {
+        val buildArgs = viteVars.flatMap { (name, provider) ->
+            val value = provider.getOrElse("")
+            if (value.isNotEmpty()) listOf("--build-arg", "$name=$value") else emptyList()
+        }
+        commandLine(listOf("docker", "build") + buildArgs + listOf("-t", imageTag, "."))
+    }
 }

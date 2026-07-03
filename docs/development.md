@@ -38,6 +38,29 @@ and frontend.
 ./gradlew :backend:end2end:e2eTest
 ```
 
+## Gradle 10 readiness
+
+The build runs on the Gradle **9.6.1** wrapper. Our own build scripts are
+deprecation-free (`./gradlew build -x test --warning-mode all` reports nothing
+from any `*.gradle.kts` in this repo). The wrapper is intentionally **not**
+advanced to Gradle 10 yet, because three deprecations remain — all emitted
+**inside third-party plugins**, none of which has a released version that fixes
+them (verified 2026-07; Gradle 10 turns these into hard errors):
+
+### Known upstream deprecations (Gradle 10)
+
+| Deprecated API | Emitted by | Status |
+|----------------|-----------|--------|
+| `ReportingExtension.file(String)` | detekt (`io.gitlab.arturbosch.detekt`) `DetektPlugin.apply` | **1.23.8 is the latest release** and still calls it; no fix available. detekt 1.23.8 also caps the supported Kotlin version, so it constrains any Kotlin/Quarkus bump. |
+| `Project.getProperties` (will *error* in Gradle 10) | Quarkus Gradle plugin (`io.quarkus`) `ApplicationDeploymentClasspathBuilder` | The latest Quarkus (**3.37.1**, tested) still calls it; bumping from 3.35.1 gives no benefit, so we stay on the validated 3.35.1. |
+| `Configuration.getTaskDependencyFromProjectDependency` | Kotlin Multiplatform plugin (`addDependsOnTaskInOtherProjects`) | From the Kotlin Gradle plugin (2.3.21); no compatible fixed release (the latest stable is beta-adjacent and would break detekt 1.23.8). |
+
+**When to revisit:** once detekt ships a Gradle-10-compatible release (that also
+supports a newer Kotlin) and Quarkus/KMP clear their calls, bump those plugins
+(Kotlin + Quarkus BOM in lockstep — see the ICE note in the Gradle-build memory),
+run `./gradlew build -x test --warning-mode fail` to confirm zero deprecations,
+then advance the wrapper to Gradle 10.
+
 ## Static code analysis
 
 `./gradlew staticAnalysis` is the single goal that runs **every** static-analysis

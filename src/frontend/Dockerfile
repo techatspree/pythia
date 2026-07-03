@@ -4,6 +4,20 @@ WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci --legacy-peer-deps
 COPY . .
+# Vite inlines VITE_* into the SPA bundle at build time, so the auth provider
+# and Entra config must be present for `npm run build`. Passed via --build-arg
+# (see scripts/minikube-deploy.sh); a plain `docker build` defaults to the dev
+# auth module.
+ARG VITE_AUTH_PROVIDER=dev
+ARG VITE_ENTRA_TENANT_ID=
+ARG VITE_ENTRA_SPA_CLIENT_ID=
+ARG VITE_ENTRA_API_CLIENT_ID=
+ARG VITE_ENTRA_REDIRECT_URI=
+ENV VITE_AUTH_PROVIDER=$VITE_AUTH_PROVIDER \
+    VITE_ENTRA_TENANT_ID=$VITE_ENTRA_TENANT_ID \
+    VITE_ENTRA_SPA_CLIENT_ID=$VITE_ENTRA_SPA_CLIENT_ID \
+    VITE_ENTRA_API_CLIENT_ID=$VITE_ENTRA_API_CLIENT_ID \
+    VITE_ENTRA_REDIRECT_URI=$VITE_ENTRA_REDIRECT_URI
 RUN npm run build
 
 FROM nginx:1.27-alpine

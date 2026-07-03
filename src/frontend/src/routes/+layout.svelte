@@ -1,18 +1,38 @@
 <script lang="ts">
 	import '../app.css';
+	import { onMount } from 'svelte';
 	import favicon from '$lib/assets/favicon.svg';
 	import RequireAuth from '$lib/auth/RequireAuth.svelte';
 	import UserMenu from '$lib/components/UserMenu.svelte';
+	import ErrorBanner from '$lib/components/ErrorBanner.svelte';
 	import { getAuthProvider } from '$lib/auth';
+	import type { AuthAccount } from '$lib/auth/AuthProvider';
 	import { resolve } from '$app/paths';
 
 	let { children } = $props();
 
-	let account = $state(getAuthProvider().getAccount());
+	const provider = getAuthProvider();
+	let account = $state<AuthAccount | null>(null);
+	let ready = $state(false);
+	let initError = $state<string | null>(null);
 
 	function refresh() {
-		account = getAuthProvider().getAccount();
+		account = provider.getAccount();
 	}
+
+	onMount(async () => {
+		try {
+			// Entra/MSAL must be initialized before reading the account (init()
+			// also processes the post-login redirect); the dev module's init() is
+			// a no-op. Runs client-side only (ssr is disabled for this layout).
+			await provider.init();
+			account = provider.getAccount();
+		} catch (e) {
+			initError = e instanceof Error ? e.message : String(e);
+		} finally {
+			ready = true;
+		}
+	});
 </script>
 
 <svelte:head>
@@ -41,9 +61,17 @@
 			</div>
 		{/if}
 	</div>
-	<div class="h-[3px]" style="background: var(--gradient-brand)"></div>
+	<div class="h-0.75" style="background: var(--gradient-brand)"></div>
 </header>
 
 <main>
-	<RequireAuth {account} {refresh} {children} />
+	{#if initError}
+		<div class="p-6">
+			<ErrorBanner message={initError} ondismiss={() => (initError = null)} />
+		</div>
+	{:else if ready}
+		<RequireAuth {account} {refresh} {children} />
+	{:else}
+		<p class="p-6 text-sm text-gray-600">Loading…</p>
+	{/if}
 </main>

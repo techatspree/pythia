@@ -124,7 +124,8 @@ class TestDataSeeder(
             this.versionNumber = 1
         }
 
-        draft1.parameters.addAll(listOf(
+        draft1.parameters.addAll(
+            listOf(
             DraftEstimationParameter().apply { name = "Tagessatz"; value = 900.0; version = draft1 },
             DraftEstimationParameter().apply { name = "Standardabweichungsfaktor"; value = 2.0; version = draft1 },
             DraftEstimationParameter().apply { name = "Vertriebszuschlag"; value = 0.12; version = draft1 }
@@ -157,36 +158,50 @@ class TestDataSeeder(
         }
         draft1.phases.addAll(listOf(phaseKO, phaseUM, phaseAB))
 
-        addRoots(draft1, listOf(
-            group(draft1, "U01: Konzeption", listOf(
-                fixedLeaf(draft1, "Anforderungsworkshop & Kickoff", 1.0, 2.0, 3.0, phaseKO),
-                fixedLeaf(draft1, "Systemarchitektur & Tech-Stack-Entscheidung", 2.0, 3.0, 5.0, phaseKO),
-                fixedLeaf(draft1, "Datenbankdesign & ER-Modell", 1.0, 2.0, 4.0, phaseKO),
-                timeRelativeLeaf(draft1, "Projektbegleitung", "h/Woche", 2.0, 4.0, 8.0, phaseKO)
-            )),
-            group(draft1, "U02: Frontend Redesign", listOf(
-                fixedLeaf(draft1, "Produktlisting & Suchfunktion", 3.0, 5.0, 8.0, phaseUM),
-                fixedLeaf(draft1, "Warenkorb & Checkout-Prozess", 5.0, 8.0, 12.0, phaseUM),
-                fixedLeaf(draft1, "Benutzerkonto & Login", 2.0, 4.0, 6.0, phaseUM),
-                fixedLeaf(draft1, "Responsive Design & Mobile Optimierung", 2.0, 3.0, 5.0, phaseUM)
-            )),
-            group(draft1, "U03: Backend & Datenbank", listOf(
-                fixedLeaf(draft1, "REST API Endpoints (CRUD)", 4.0, 6.0, 9.0, phaseUM),
-                group(draft1, "Authentifizierung", listOf(
-                    fixedLeaf(draft1, "Login & Session-Verwaltung", 2.0, 3.0, 5.0, phaseUM),
-                    fixedLeaf(draft1, "OAuth2-Anbindung (Google, GitHub)", 2.0, 3.0, 5.0, phaseUM)
-                )),
-                fixedLeaf(draft1, "Datenbankmigrationen & Seeding", 1.0, 2.0, 3.0, phaseUM),
-                fixedLeaf(draft1, "Payment-Integration (Stripe)", 3.0, 5.0, 8.0, phaseUM)
-            )),
-            group(draft1, "U04: Abnahme & Go-live", listOf(
-                fixedLeaf(draft1, "Integrationstests & E2E-Tests", 2.0, 3.0, 5.0, phaseAB),
-                fixedLeaf(draft1, "User Acceptance Testing (UAT)", 1.0, 2.0, 3.0, phaseAB),
-                fixedLeaf(draft1, "Go-live, Deployment & Monitoring-Setup", 1.0, 2.0, 3.0, phaseAB)
-            ))
-        ))
+        addRoots(
+            draft1, listOf(
+                group(
+                    draft1, "U01: Konzeption", listOf(
+                        fixedLeaf(draft1, "Anforderungsworkshop & Kickoff", 1.0, 2.0, 3.0, phaseKO),
+                        fixedLeaf(draft1, "Systemarchitektur & Tech-Stack-Entscheidung", 2.0, 3.0, 5.0, phaseKO),
+                        fixedLeaf(draft1, "Datenbankdesign & ER-Modell", 1.0, 2.0, 4.0, phaseKO),
+                        timeRelativeLeaf(draft1, "Projektbegleitung", "h/Woche", 2.0, 4.0, 8.0, phaseKO)
+                    )
+                ),
+                group(
+                    draft1, "U02: Frontend Redesign", listOf(
+                        fixedLeaf(draft1, "Produktlisting & Suchfunktion", 3.0, 5.0, 8.0, phaseUM),
+                        fixedLeaf(draft1, "Warenkorb & Checkout-Prozess", 5.0, 8.0, 12.0, phaseUM),
+                        fixedLeaf(draft1, "Benutzerkonto & Login", 2.0, 4.0, 6.0, phaseUM),
+                        fixedLeaf(draft1, "Responsive Design & Mobile Optimierung", 2.0, 3.0, 5.0, phaseUM),
+                        timeRelativeLeaf(draft1, "UX-Begleitung", "h/Woche", 4.0, 5.0, 16.0, phaseKO)
+                    )
+                ),
+                group(
+                    draft1, "U03: Backend & Datenbank", listOf(
+                        fixedLeaf(draft1, "REST API Endpoints (CRUD)", 4.0, 6.0, 9.0, phaseUM),
+                        group(
+                            draft1, "Authentifizierung", listOf(
+                                fixedLeaf(draft1, "Login & Session-Verwaltung", 2.0, 3.0, 5.0, phaseUM),
+                                fixedLeaf(draft1, "OAuth2-Anbindung (Google, GitHub)", 2.0, 3.0, 5.0, phaseUM)
+                            )
+                        ),
+                        fixedLeaf(draft1, "Datenbankmigrationen & Seeding", 1.0, 2.0, 3.0, phaseUM),
+                        fixedLeaf(draft1, "Payment-Integration (Stripe)", 3.0, 5.0, 8.0, phaseUM)
+                    )
+                ),
+                group(
+                    draft1, "U04: Abnahme & Go-live", listOf(
+                        fixedLeaf(draft1, "Integrationstests & E2E-Tests", 2.0, 3.0, 5.0, phaseAB),
+                        fixedLeaf(draft1, "User Acceptance Testing (UAT)", 1.0, 2.0, 3.0, phaseAB),
+                        fixedLeaf(draft1, "Go-live, Deployment & Monitoring-Setup", 1.0, 2.0, 3.0, phaseAB)
+                    )
+                )
+            )
+        )
 
-        draft1.additionalCosts.addAll(listOf(
+        draft1.additionalCosts.addAll(
+            listOf(
             DraftAdditionalCost().apply {
                 description = "Software-Lizenzen (Figma, JIRA)"
                 amount = 3500.0
@@ -220,13 +235,15 @@ class TestDataSeeder(
             this.notes = "Scope nach Kunden-Feedback angepasst — Mobile-Optimierung ersetzt durch UX-Konzept"
         }
 
-        draft2.parameters.addAll(listOf(
+        draft2.parameters.addAll(
+            listOf(
             DraftEstimationParameter().apply { name = "Tagessatz"; value = 900.0; version = draft2 },
             DraftEstimationParameter().apply { name = "Standardabweichungsfaktor"; value = 2.0; version = draft2 },
             DraftEstimationParameter().apply { name = "Vertriebszuschlag"; value = 0.12; version = draft2 }
         ))
 
-        draft2.effortDrivers.addAll(listOf(
+        draft2.effortDrivers.addAll(
+            listOf(
             DraftEffortDriver().apply {
                 description = "Qualitätssicherung (QA)"
                 factor = 0.15
@@ -261,38 +278,51 @@ class TestDataSeeder(
         }
         draft2.phases.addAll(listOf(phase2KO, phase2UM, phase2AB))
 
-        addRoots(draft2, listOf(
-            group(draft2, "U01: Konzeption", listOf(
-                fixedLeaf(draft2, "Anforderungsworkshop & Kickoff", 1.0, 2.0, 4.0, phase2KO),
-                fixedLeaf(draft2, "Systemarchitektur & Tech-Stack-Entscheidung", 3.0, 4.0, 6.0, phase2KO),
-                fixedLeaf(draft2, "Datenbankdesign & ER-Modell", 1.0, 2.0, 3.0, phase2KO),
-                fixedLeaf(draft2, "UX-Konzept & Wireframes", 3.0, 5.0, 8.0, phase2KO),
-                timeRelativeLeaf(draft2, "Projektbegleitung", "h/Woche", 2.0, 4.0, 8.0, phase2KO)
-            )),
-            group(draft2, "U02: Frontend Redesign", listOf(
-                fixedLeaf(draft2, "Produktlisting & Suchfunktion", 3.0, 5.0, 7.0, phase2UM),
-                fixedLeaf(draft2, "Warenkorb & Checkout-Prozess", 5.0, 8.0, 13.0, phase2UM),
-                fixedLeaf(draft2, "Benutzerkonto & Login (OAuth2)", 2.0, 4.0, 6.0, phase2UM),
-                fixedLeaf(draft2, "Produkt-Detailseite & Bildergalerie", 1.0, 2.0, 4.0, phase2UM)
-            )),
-            group(draft2, "U03: Backend & Datenbank", listOf(
-                fixedLeaf(draft2, "REST API Endpoints (CRUD)", 4.0, 6.0, 9.0, phase2UM),
-                fixedLeaf(draft2, "Authentifizierung & Autorisierung", 2.0, 3.0, 5.0, phase2UM),
-                fixedLeaf(draft2, "Datenbankmigrationen & Seeding", 1.0, 2.0, 3.0, phase2UM),
-                group(draft2, "Bezahlung", listOf(
-                    fixedLeaf(draft2, "Stripe-Integration", 2.0, 4.0, 6.0, phase2UM),
-                    fixedLeaf(draft2, "Sepa-Lastschrift", 1.0, 2.0, 4.0, phase2UM)
-                )),
-                fixedLeaf(draft2, "E-Mail-Benachrichtigungen (Bestellung/Versand)", 1.0, 2.0, 4.0, phase2UM)
-            )),
-            group(draft2, "U04: Abnahme & Go-live", listOf(
-                fixedLeaf(draft2, "Integrationstests & E2E-Tests", 2.0, 3.0, 5.0, phase2AB),
-                fixedLeaf(draft2, "User Acceptance Testing (UAT)", 2.0, 3.0, 4.0, phase2AB),
-                fixedLeaf(draft2, "Go-live, Deployment & Monitoring-Setup", 1.0, 2.0, 3.0, phase2AB)
-            ))
-        ))
+        addRoots(
+            draft2, listOf(
+                group(
+                    draft2, "U01: Konzeption", listOf(
+                        fixedLeaf(draft2, "Anforderungsworkshop & Kickoff", 1.0, 2.0, 4.0, phase2KO),
+                        fixedLeaf(draft2, "Systemarchitektur & Tech-Stack-Entscheidung", 3.0, 4.0, 6.0, phase2KO),
+                        fixedLeaf(draft2, "Datenbankdesign & ER-Modell", 1.0, 2.0, 3.0, phase2KO),
+                        fixedLeaf(draft2, "UX-Konzept & Wireframes", 3.0, 5.0, 8.0, phase2KO),
+                        timeRelativeLeaf(draft2, "Projektbegleitung", "h/Woche", 2.0, 4.0, 8.0, phase2KO)
+                    )
+                ),
+                group(
+                    draft2, "U02: Frontend Redesign", listOf(
+                        fixedLeaf(draft2, "Produktlisting & Suchfunktion", 3.0, 5.0, 7.0, phase2UM),
+                        fixedLeaf(draft2, "Warenkorb & Checkout-Prozess", 5.0, 8.0, 13.0, phase2UM),
+                        fixedLeaf(draft2, "Benutzerkonto & Login (OAuth2)", 2.0, 4.0, 6.0, phase2UM),
+                        fixedLeaf(draft2, "Produkt-Detailseite & Bildergalerie", 1.0, 2.0, 4.0, phase2UM)
+                    )
+                ),
+                group(
+                    draft2, "U03: Backend & Datenbank", listOf(
+                        fixedLeaf(draft2, "REST API Endpoints (CRUD)", 4.0, 6.0, 9.0, phase2UM),
+                        fixedLeaf(draft2, "Authentifizierung & Autorisierung", 2.0, 3.0, 5.0, phase2UM),
+                        fixedLeaf(draft2, "Datenbankmigrationen & Seeding", 1.0, 2.0, 3.0, phase2UM),
+                        group(
+                            draft2, "Bezahlung", listOf(
+                                fixedLeaf(draft2, "Stripe-Integration", 2.0, 4.0, 6.0, phase2UM),
+                                fixedLeaf(draft2, "Sepa-Lastschrift", 1.0, 2.0, 4.0, phase2UM)
+                            )
+                        ),
+                        fixedLeaf(draft2, "E-Mail-Benachrichtigungen (Bestellung/Versand)", 1.0, 2.0, 4.0, phase2UM)
+                    )
+                ),
+                group(
+                    draft2, "U04: Abnahme & Go-live", listOf(
+                        fixedLeaf(draft2, "Integrationstests & E2E-Tests", 2.0, 3.0, 5.0, phase2AB),
+                        fixedLeaf(draft2, "User Acceptance Testing (UAT)", 2.0, 3.0, 4.0, phase2AB),
+                        fixedLeaf(draft2, "Go-live, Deployment & Monitoring-Setup", 1.0, 2.0, 3.0, phase2AB)
+                    )
+                )
+            )
+        )
 
-        draft2.additionalCosts.addAll(listOf(
+        draft2.additionalCosts.addAll(
+            listOf(
             DraftAdditionalCost().apply {
                 description = "Software-Lizenzen (Figma, JIRA, Confluence)"
                 amount = 2500.0
@@ -330,7 +360,8 @@ class TestDataSeeder(
             this.versionNumber = 1
         }
 
-        draft.parameters.addAll(listOf(
+        draft.parameters.addAll(
+            listOf(
             DraftEstimationParameter().apply {
                 name = "Tagessatz"
                 value = 950.0
@@ -374,34 +405,46 @@ class TestDataSeeder(
         }
         draft.phases.addAll(listOf(phaseKD, phaseS1, phaseS2, phaseAS))
 
-        addRoots(draft, listOf(
-            group(draft, "M01: Konzeption & UX", listOf(
-                fixedLeaf(draft, "UX Research & Nutzerinterviews", 2.0, 3.0, 5.0, phaseKD),
-                fixedLeaf(draft, "UI-Design & Designsystem", 5.0, 8.0, 12.0, phaseKD),
-                fixedLeaf(draft, "App-Architektur & Projektsetup", 2.0, 3.0, 4.0, phaseKD)
-            )),
-            group(draft, "M02: App Features", listOf(
-                fixedLeaf(draft, "Authentifizierung (Biometrie, PIN)", 3.0, 5.0, 8.0, phaseS1),
-                fixedLeaf(draft, "Dashboard & Kontoübersicht", 3.0, 5.0, 8.0, phaseS1),
-                fixedLeaf(draft, "Push-Benachrichtigungen", 2.0, 3.0, 5.0, phaseS1),
-                fixedLeaf(draft, "Transaktionshistorie & Filter", 3.0, 5.0, 7.0, phaseS2),
-                fixedLeaf(draft, "Profil & Einstellungen", 2.0, 3.0, 4.0, phaseS2),
-                group(draft, "Offline-Modus", listOf(
-                    fixedLeaf(draft, "Datensynchronisation", 3.0, 5.0, 8.0, phaseS2),
-                    fixedLeaf(draft, "Konfliktauflösung", 2.0, 3.0, 5.0, phaseS2)
-                ))
-            )),
-            group(draft, "M03: Backend & API", listOf(
-                fixedLeaf(draft, "REST API Design & Dokumentation", 2.0, 3.0, 4.0, phaseS1),
-                fixedLeaf(draft, "Auth & JWT-Token-Service", 2.0, 3.0, 5.0, phaseS1),
-                fixedLeaf(draft, "Daten-API & Business Logic", 4.0, 6.0, 9.0, phaseS2)
-            )),
-            group(draft, "M04: Release & QA", listOf(
-                fixedLeaf(draft, "App Store Einreichung (iOS & Android)", 2.0, 3.0, 5.0, phaseAS),
-                fixedLeaf(draft, "Regression-Tests & Bugfixing", 3.0, 4.0, 6.0, phaseAS),
-                fixedLeaf(draft, "Beta-Test & Feedback-Implementierung", 2.0, 3.0, 5.0, phaseAS)
-            ))
-        ))
+        addRoots(
+            draft, listOf(
+                group(
+                    draft, "M01: Konzeption & UX", listOf(
+                        fixedLeaf(draft, "UX Research & Nutzerinterviews", 2.0, 3.0, 5.0, phaseKD),
+                        fixedLeaf(draft, "UI-Design & Designsystem", 5.0, 8.0, 12.0, phaseKD),
+                        fixedLeaf(draft, "App-Architektur & Projektsetup", 2.0, 3.0, 4.0, phaseKD)
+                    )
+                ),
+                group(
+                    draft, "M02: App Features", listOf(
+                        fixedLeaf(draft, "Authentifizierung (Biometrie, PIN)", 3.0, 5.0, 8.0, phaseS1),
+                        fixedLeaf(draft, "Dashboard & Kontoübersicht", 3.0, 5.0, 8.0, phaseS1),
+                        fixedLeaf(draft, "Push-Benachrichtigungen", 2.0, 3.0, 5.0, phaseS1),
+                        fixedLeaf(draft, "Transaktionshistorie & Filter", 3.0, 5.0, 7.0, phaseS2),
+                        fixedLeaf(draft, "Profil & Einstellungen", 2.0, 3.0, 4.0, phaseS2),
+                        group(
+                            draft, "Offline-Modus", listOf(
+                                fixedLeaf(draft, "Datensynchronisation", 3.0, 5.0, 8.0, phaseS2),
+                                fixedLeaf(draft, "Konfliktauflösung", 2.0, 3.0, 5.0, phaseS2)
+                            )
+                        )
+                    )
+                ),
+                group(
+                    draft, "M03: Backend & API", listOf(
+                        fixedLeaf(draft, "REST API Design & Dokumentation", 2.0, 3.0, 4.0, phaseS1),
+                        fixedLeaf(draft, "Auth & JWT-Token-Service", 2.0, 3.0, 5.0, phaseS1),
+                        fixedLeaf(draft, "Daten-API & Business Logic", 4.0, 6.0, 9.0, phaseS2)
+                    )
+                ),
+                group(
+                    draft, "M04: Release & QA", listOf(
+                        fixedLeaf(draft, "App Store Einreichung (iOS & Android)", 2.0, 3.0, 5.0, phaseAS),
+                        fixedLeaf(draft, "Regression-Tests & Bugfixing", 3.0, 4.0, 6.0, phaseAS),
+                        fixedLeaf(draft, "Beta-Test & Feedback-Implementierung", 2.0, 3.0, 5.0, phaseAS)
+                    )
+                )
+            )
+        )
 
         addMobileAppCosts(draft, phaseS1, phaseAS)
 
@@ -415,7 +458,8 @@ class TestDataSeeder(
         phaseS1: DraftProjectPhase,
         phaseAS: DraftProjectPhase
     ) {
-        draft.additionalCosts.addAll(listOf(
+        draft.additionalCosts.addAll(
+            listOf(
             DraftAdditionalCost().apply {
                 description = "Apple Developer Program"
                 amount = 99.0

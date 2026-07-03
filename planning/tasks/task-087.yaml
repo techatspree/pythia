@@ -1,0 +1,166 @@
+id: task-087
+phase: phase-10
+title: Read-only minikube smoke-test suite (explicitly triggered)
+depends_on: [task-082, task-083]
+description: |
+  Add a **read-only smoke-test suite** that runs against the live local
+  minikube deployment to confirm the stack is up and wired correctly —
+  without mutating any data, and WITHOUT being part of the normal build.
+  It must be triggered explicitly.
+
+  CURRENT STATE:
+    - The `:backend:end2end` Gradle module (created in task-082) already
+      hosts JVM tests that run against a RUNNING system via rest-assured.
+      Its default `test` task is disabled; an explicit `e2eTest` task runs
+      the suite. The only test today is `HealthEndpointIT` (GET `/q/health`
+      against `System.getProperty("backend.url", "http://localhost:8080")`).
+    - There is no suite aimed specifically at the minikube deployment, and
+      no runner that reaches the in-cluster services.
+    - Minikube specifics that constrain the suite:
+        * Auth is **Entra** (OIDC): every `/api/*` endpoint requires a valid
+          Bearer token, so an unauthenticated call returns **401**. The
+          Quarkus health (`/q/health*`) and OpenAPI/Swagger (`/q/openapi`,
+          `/q/swagger-ui`) endpoints are open (no token).
+        * There is **no seed data** — `TestDataSeeder` is
+          `@IfBuildProfile("dev")` only, and minikube runs the prod-style
+          profile — so the DB may be empty. Smoke assertions MUST NOT
+          assume any project/estimation exists.
+        * Services are reached via `kubectl port-forward` (backend
+          `svc/backend` :8080, frontend `svc/frontend` :80).
+
+  TARGET STATE:
+    - A JUnit5 + rest-assured smoke suite tagged `@Tag("smoke")` in the
+      `:backend:end2end` module, containing ONLY read-only (GET) checks
+      that never change data and never assume seeded data:
+        * `GET /q/health`, `/q/health/ready`, `/q/health/live` → 200 (+ UP)
+          — proves the backend booted and its DB/OIDC wiring is healthy.
+        * `GET /q/openapi` (or `/q/swagger-ui`) → 200 — API surface served.
+        * `GET /api/projects` with NO `Authorization` header → **401** —
+          proves the Entra auth gate is enforced (read-only, no token, no
+          data change).
+        * Frontend root `GET /` → 200 and returns HTML (the SPA is served).
+        * OPTIONAL authenticated read: if a `SMOKE_BEARER_TOKEN` env var is
+          present, `GET /api/projects` with that Bearer token → 200 and a
+          JSON array (which may be empty). If the env var is absent, the
+          test self-skips via a JUnit `Assumptions.assumeTrue(...)`. Still
+          read-only.
+    - A dedicated Gradle task `:backend:end2end:smokeTest` that runs ONLY
+      the `@Tag("smoke")` tests, is NOT wired into `build`/`check`, and
+      reads `backend.url` / `frontend.url` from system properties and
+      `SMOKE_BEARER_TOKEN` from the environment.
+    - A convenience runner `scripts/minikube-smoke.sh` that port-forwards
+      the backend and frontend services, waits for them, runs the smoke
+      task against those URLs, and always tears the port-forwards down.
+    - Docs describing how to run it.
+
+  KEY DECISIONS (leave no ambiguity):
+    - Read-only ONLY: no POST/PUT/DELETE anywhere in the suite; no reliance
+      on pre-existing data. This is the core invariant — a smoke run against
+      a production-like cluster must be safe and idempotent.
+    - Explicitly triggered, never in the default build: the task is
+      standalone (like `e2eTest`); `./gradlew build` must not run it.
+    - Token-free by default so the suite is runnable without obtaining an
+      Entra token; the authenticated read is strictly optional and skips
+      cleanly when no token is provided.
+    - This is test + script + docs only — no backend service, REST
+      endpoint, domain operation, or frontend flow is added, so the
+      CLAUDE.md "Logging" conventions add nothing here.
+
+steps:
+  - |
+    Create the smoke suite
+    `src/backend/end2end/src/test/java/io/github/theestimator/e2e/smoke/MinikubeSmokeIT.java`
+    (package `io.github.theestimator.e2e.smoke`). Annotate the class with
+    `@org.junit.jupiter.api.Tag("smoke")`. In `@BeforeAll`, set the backend
+    base URI from `System.getProperty("backend.url", "http://localhost:8080")`.
+    Read the frontend base URL from `System.getProperty("frontend.url",
+    "http://localhost:8081")` and the optional token from
+    `System.getenv("SMOKE_BEARER_TOKEN")`. Add ONLY read-only tests:
+      - health / ready / live each return 200 (and `/q/health` body
+        `status == "UP"`);
+      - `GET /q/openapi` returns 200;
+      - unauthenticated `GET /api/projects` returns 401;
+      - `GET <frontend.url>/` returns 200 with `Content-Type` text/html;
+      - an authenticated `GET /api/projects` (Bearer `SMOKE_BEARER_TOKEN`)
+        returning 200 + a JSON array, guarded by
+        `org.junit.jupiter.api.Assumptions.assumeTrue(token != null && !token.isBlank())`
+        so it self-skips without a token.
+    Use no POST/PUT/DELETE and assert nothing that requires seeded data.
+
+  - |
+    In `src/backend/end2end/build.gradle.kts`, register a task
+    `smokeTest` of type `Test` that runs only the tagged smoke tests and is
+    NOT wired into `build`/`check`:
+      - `useJUnitPlatform { includeTags("smoke") }`
+      - `testClassesDirs = sourceSets.test.get().output.classesDirs`,
+        `classpath = sourceSets.test.get().runtimeClasspath`
+      - forward the targeting inputs:
+        `systemProperty("backend.url", providers.systemProperty("backend.url").getOrElse("http://localhost:8080"))`,
+        the same for `frontend.url` (default `http://localhost:8081`), and
+        pass `SMOKE_BEARER_TOKEN` through via
+        `environment("SMOKE_BEARER_TOKEN", providers.environmentVariable("SMOKE_BEARER_TOKEN").getOrElse(""))`
+      - `group = "verification"`, a clear `description`, and
+        `outputs.upToDateWhen { false }` so it always re-runs.
+    Leave the existing disabled `test` task and the `e2eTest` task untouched.
+
+  - |
+    Create `scripts/minikube-smoke.sh` (executable, `set -euo pipefail`):
+      - `kubectl -n estimation port-forward svc/backend 8080:8080 &` and
+        `kubectl -n estimation port-forward svc/frontend 8081:80 &`, tracking
+        both PIDs and killing them in a `trap ... EXIT`.
+      - Poll `http://localhost:8080/q/health` and `http://localhost:8081/`
+        until reachable (bounded retries).
+      - Run `"$PROJECT_ROOT/gradlew" :backend:end2end:smokeTest
+        -Dbackend.url=http://localhost:8080 -Dfrontend.url=http://localhost:8081`
+        (SMOKE_BEARER_TOKEN is inherited from the environment if the user
+        exported one).
+      - Echo that the run is READ-ONLY and print the smoke result.
+
+  - |
+    Document the suite: add a "Smoke tests (minikube)" subsection to
+    `docs/development.md` explaining it is read-only, explicitly triggered
+    (`./scripts/minikube-smoke.sh`, or `./gradlew :backend:end2end:smokeTest`
+    with `-Dbackend.url`/`-Dfrontend.url`), never part of `./gradlew build`,
+    and how to supply an optional `SMOKE_BEARER_TOKEN` for the authenticated
+    read. Add a one-line pointer in `CLAUDE.md`'s "Build & run" block.
+
+  - |
+    Build check — the suite must COMPILE and the task must exist, but it is
+    NOT run here (it needs a live minikube). Compile the module and confirm
+    the task is registered:
+      ./gradlew :backend:end2end:build
+      ./gradlew :backend:end2end:smokeTest --dry-run
+
+validation:
+  - |
+    Smoke suite exists, is tagged, and is strictly read-only:
+      test -f src/backend/end2end/src/test/java/io/github/theestimator/e2e/smoke/MinikubeSmokeIT.java
+      grep -q '@Tag("smoke")' src/backend/end2end/src/test/java/io/github/theestimator/e2e/smoke/MinikubeSmokeIT.java
+      grep -q "statusCode(401)" src/backend/end2end/src/test/java/io/github/theestimator/e2e/smoke/MinikubeSmokeIT.java
+      ! grep -qE "\.(post|put|delete|patch)\(" src/backend/end2end/src/test/java/io/github/theestimator/e2e/smoke/MinikubeSmokeIT.java
+  - |
+    Dedicated task exists, filters to the smoke tag, and is NOT in the
+    default build:
+      grep -q 'register<Test>("smokeTest")' src/backend/end2end/build.gradle.kts
+      grep -q 'includeTags("smoke")' src/backend/end2end/build.gradle.kts
+      ! grep -qE 'tasks.named\("(build|check)"\)\s*\{[^}]*smokeTest' src/backend/end2end/build.gradle.kts
+  - |
+    Runner script exists and is executable:
+      test -x scripts/minikube-smoke.sh
+      grep -q "port-forward svc/backend" scripts/minikube-smoke.sh
+      grep -q ":backend:end2end:smokeTest" scripts/minikube-smoke.sh
+  - |
+    Docs mention the smoke suite:
+      grep -qi "smoke" docs/development.md
+  - |
+    The module compiles and the task is registered (NOT run — needs live
+    minikube):
+      ./gradlew :backend:end2end:build
+      ./gradlew :backend:end2end:smokeTest --dry-run
+
+outputs:
+  - created: src/backend/end2end/src/test/java/io/github/theestimator/e2e/smoke/MinikubeSmokeIT.java
+  - modified: src/backend/end2end/build.gradle.kts
+  - created: scripts/minikube-smoke.sh
+  - modified: docs/development.md
+  - modified: CLAUDE.md

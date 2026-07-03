@@ -115,11 +115,12 @@ Flow:
 | `APP_AUTH_PROVIDER`          | backend  | `entra` to activate this module                        |
 | `ENTRA_TENANT_ID`            | backend  | resolves `${ENTRA_TENANT_ID}` in application.properties|
 | `ENTRA_API_CLIENT_ID`        | backend  | API app's client id; drives `client-id` + audience     |
+| `ENTRA_SPA_CLIENT_ID`        | deploy   | SPA app's client id; prechecked by `minikube-deploy.sh` and used to source `VITE_ENTRA_SPA_CLIENT_ID` — not read by the backend at runtime |
 | `VITE_AUTH_PROVIDER`         | frontend | `entra` to activate this module                        |
 | `VITE_ENTRA_TENANT_ID`       | frontend | mirrors the backend tenant id                          |
 | `VITE_ENTRA_SPA_CLIENT_ID`   | frontend | SPA app's client id (MSAL `clientId`)                  |
 | `VITE_ENTRA_API_CLIENT_ID`   | frontend | API app's client id (used to derive the access scope)  |
-| `VITE_ENTRA_REDIRECT_URI`    | frontend | redirect URI (default `http://localhost:5173`)         |
+| `VITE_ENTRA_REDIRECT_URI`    | frontend | redirect URI — **optional**, default `http://localhost:5173` |
 
 `ENTRA_SPA_CLIENT_ID` is also enforced by `scripts/minikube-deploy.sh`
 as a precheck so deploys cannot silently ship unresolved placeholders.
@@ -127,7 +128,8 @@ as a precheck so deploys cannot silently ship unresolved placeholders.
 ## Running Entra locally (optional)
 
 To test the Entra wiring against a real tenant from a local checkout
-(no minikube), stop `dev.sh`, export the eight variables above,
+(no minikube), stop `dev.sh`, export the variables above (all except the
+optional `VITE_ENTRA_REDIRECT_URI`, which defaults to `http://localhost:5173`),
 and start Quarkus + Vite manually:
 
 ```bash
@@ -152,7 +154,11 @@ cd src/frontend && npm run dev
 
 `scripts/minikube-deploy.sh` exports `APP_AUTH_PROVIDER=entra`,
 `VITE_AUTH_PROVIDER=entra`, and prechecks the three `ENTRA_*` ids before
-invoking `mvn package -Pdev-minikube` and `kubectl apply -k`. The Pod
+building the backend and frontend container images with Gradle
+(`./gradlew :backend:implementation:imageBuild -Dquarkus.container-image.build=true
+:frontend:dockerBuildImage -x test` — backend image via Quarkus/Jib, frontend
+via the Gradle Docker task), loading them into minikube (`minikube image load`),
+and applying the Kustomize overlay (`kubectl apply -k`). The Pod
 inherits these env vars via the existing Deployment manifest's `env:`
 forwarding (no manifest edits required); Quarkus resolves
 `${ENTRA_TENANT_ID}` etc. in `application.properties` at startup from
