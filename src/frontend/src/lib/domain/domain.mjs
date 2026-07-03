@@ -52,6 +52,8 @@ initMetadataForClass(ProjectPhase, 'ProjectPhase', VOID, BaseDomain);
 initMetadataForClass(ProjectStatus, 'ProjectStatus', VOID, Enum);
 initMetadataForClass(TimeRelativeEstimationItem, 'TimeRelativeEstimationItem', VOID, EstimationItem);
 initMetadataForClass(User, 'User', User, BaseDomain);
+initMetadataForClass(DraftMutation, 'DraftMutation');
+initMetadataForClass(ReplaceWholeDraft, 'ReplaceWholeDraft', VOID, DraftMutation);
 initMetadataForCompanion(Companion);
 initMetadataForClass(EstimationCalculator, 'EstimationCalculator', EstimationCalculator);
 initMetadataForClass(InvariantResult, 'InvariantResult');
@@ -1654,8 +1656,64 @@ protoOf(User).equals = function (other) {
     return false;
   return true;
 };
+function DraftMutation() {
+}
+function ReplaceWholeDraft(before, after) {
+  DraftMutation.call(this);
+  this.eg_1 = before;
+  this.fg_1 = after;
+  this.gg_1 = 'REPLACE_WHOLE_DRAFT';
+}
+protoOf(ReplaceWholeDraft).hg = function () {
+  return this.eg_1;
+};
+protoOf(ReplaceWholeDraft).ig = function () {
+  return this.fg_1;
+};
+protoOf(ReplaceWholeDraft).dg = function () {
+  return this.gg_1;
+};
+protoOf(ReplaceWholeDraft).apply = function (current) {
+  return this.after;
+};
+protoOf(ReplaceWholeDraft).inverse = function () {
+  return new ReplaceWholeDraft(this.after, this.before);
+};
+protoOf(ReplaceWholeDraft).d5 = function () {
+  return this.before;
+};
+protoOf(ReplaceWholeDraft).e5 = function () {
+  return this.after;
+};
+protoOf(ReplaceWholeDraft).jg = function (before, after) {
+  return new ReplaceWholeDraft(before, after);
+};
+protoOf(ReplaceWholeDraft).copy = function (before, after, $super) {
+  before = before === VOID ? this.before : before;
+  after = after === VOID ? this.after : after;
+  return $super === VOID ? this.jg(before, after) : $super.jg.call(this, before, after);
+};
+protoOf(ReplaceWholeDraft).toString = function () {
+  return 'ReplaceWholeDraft(before=' + this.before.toString() + ', after=' + this.after.toString() + ')';
+};
+protoOf(ReplaceWholeDraft).hashCode = function () {
+  var result = this.before.hashCode();
+  result = imul(result, 31) + this.after.hashCode() | 0;
+  return result;
+};
+protoOf(ReplaceWholeDraft).equals = function (other) {
+  if (this === other)
+    return true;
+  if (!(other instanceof ReplaceWholeDraft))
+    return false;
+  if (!this.before.equals(other.before))
+    return false;
+  if (!this.after.equals(other.after))
+    return false;
+  return true;
+};
 function Companion() {
-  this.dg_1 = 0.2;
+  this.kg_1 = 0.2;
 }
 var Companion_instance;
 function Companion_getInstance_0() {
@@ -1767,13 +1825,13 @@ function InvariantResult(description, difference, tolerance) {
 protoOf(InvariantResult).i7 = function () {
   return this.description;
 };
-protoOf(InvariantResult).eg = function () {
+protoOf(InvariantResult).lg = function () {
   return this.difference;
 };
-protoOf(InvariantResult).fg = function () {
+protoOf(InvariantResult).mg = function () {
   return this.tolerance;
 };
-protoOf(InvariantResult).gg = function () {
+protoOf(InvariantResult).ng = function () {
   // Inline function 'kotlin.math.abs' call
   var x = this.difference;
   return Math.abs(x) <= this.tolerance;
@@ -1787,14 +1845,14 @@ protoOf(InvariantResult).e5 = function () {
 protoOf(InvariantResult).n7 = function () {
   return this.tolerance;
 };
-protoOf(InvariantResult).hg = function (description, difference, tolerance) {
+protoOf(InvariantResult).og = function (description, difference, tolerance) {
   return new InvariantResult(description, difference, tolerance);
 };
 protoOf(InvariantResult).copy = function (description, difference, tolerance, $super) {
   description = description === VOID ? this.description : description;
   difference = difference === VOID ? this.difference : difference;
   tolerance = tolerance === VOID ? this.tolerance : tolerance;
-  return $super === VOID ? this.hg(description, difference, tolerance) : $super.hg.call(this, description, difference, tolerance);
+  return $super === VOID ? this.og(description, difference, tolerance) : $super.og.call(this, description, difference, tolerance);
 };
 protoOf(InvariantResult).toString = function () {
   return 'InvariantResult(description=' + this.description + ', difference=' + this.difference + ', tolerance=' + this.tolerance + ')';
@@ -1996,7 +2054,16 @@ defineProp(protoOf(User), 'entraSubjectId', function () {
 defineProp(protoOf(User), 'displayName', function () {
   return this.bg();
 });
-defineProp(protoOf(InvariantResult), 'passed', protoOf(InvariantResult).gg);
+defineProp(protoOf(DraftMutation), 'kind', function () {
+  return this.dg();
+});
+defineProp(protoOf(ReplaceWholeDraft), 'before', function () {
+  return this.hg();
+});
+defineProp(protoOf(ReplaceWholeDraft), 'after', function () {
+  return this.ig();
+});
+defineProp(protoOf(InvariantResult), 'passed', protoOf(InvariantResult).ng);
 //endregion
 //region block: init
 PertCalculation_instance = new PertCalculation();
@@ -2040,6 +2107,8 @@ export {
   ProjectStatus as ProjectStatus,
   TimeRelativeEstimationItem as TimeRelativeEstimationItem,
   User as User,
+  DraftMutation as DraftMutation,
+  ReplaceWholeDraft as ReplaceWholeDraft,
   EstimationCalculator as EstimationCalculator,
   InvariantResult as InvariantResult,
 };

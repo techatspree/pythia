@@ -25,9 +25,21 @@ Two app registrations under the same Entra tenant:
      assigned to the roles via the Enterprise Application page).
 
 2. **`estimation-spa`** — the SvelteKit SPA.
-   - Platform type: **Single-page application**.
-   - Redirect URIs:
+   - Platform type: **Single-page application**. This is critical:
+     browser MSAL redeems the auth code for a token via a *cross-origin*
+     (CORS) call, which Entra permits ONLY for redirect URIs registered
+     under the **Single-page application** platform. Registering the same
+     URI under the **Web** platform instead yields, at token redemption:
+     `AADSTS9002326: Cross-origin token redemption is permitted only for
+     the 'Single-Page Application' client-type`. If you hit that, remove
+     the URI from the Web platform and re-add it under Single-page
+     application.
+   - Redirect URIs (all under the Single-page application platform):
      - `http://localhost:5173` (local Entra mode + smoke runs)
+     - `http://localhost:8080` (minikube — the default port-forward URL
+       `minikube-deploy.sh` bakes in as `VITE_ENTRA_REDIRECT_URI`; if you
+       access the SPA via the Ingress host or a different port, register
+       and export that URL instead)
      - `https://estimation.<your-domain>` (production)
    - **API permissions** → Add → My APIs → `estimation-api` →
      Delegated `access`. Grant admin consent.

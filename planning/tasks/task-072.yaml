@@ -47,7 +47,8 @@ description: |
      children — verify in tests.
 
   3. Tests in
-     `src/domain/src/jvmTest/kotlin/io/github/theestimator/model/mutation/`:
+     `src/domain/src/test/kotlin/io/github/theestimator/model/mutation/`
+     (the `jvmTest` source set's physical srcDir):
        - `apply` of a `ReplaceWholeDraft` returns its `after`.
        - `inverse().apply(after) == before`.
        - `inverse().inverse() == original`.
@@ -89,32 +90,46 @@ steps:
     otherwise a `ReplaceWholeDraft(this, other)`.
 
   - |
-    Add unit tests under
-    `src/domain/src/jvmTest/kotlin/io/github/theestimator/model/mutation/DraftMutationTest.kt`
-    covering the five assertions in the description.
+    Add a domain-logging observation per the CLAUDE.md domain logging
+    convention: declare `private val logger = KotlinLogging.logger {}`
+    (from `io.github.oshai.kotlinlogging`) in `Diff.kt` and emit one
+    lambda-form debug line in `diff` recording whether the two versions
+    were structurally equal (→ `null`) or produced a `ReplaceWholeDraft`.
+    Observation only — never gate behaviour on it.
 
   - |
-    Build domain + verify the TypeScript stub still compiles cleanly so
-    later frontend tasks can rely on it:
-      ./mvnw -pl src/domain -am test
-      cd src/frontend && npm run check
+    Add unit tests under
+    `src/domain/src/test/kotlin/io/github/theestimator/model/mutation/DraftMutationTest.kt`
+    (the domain's `jvmTest` source set is remapped to `src/test/kotlin`
+    in `src/domain/build.gradle.kts` — that is the physical directory,
+    not `src/jvmTest`) covering the five assertions in the description.
+
+  - |
+    Build domain + verify the TypeScript stub still regenerates and
+    compiles cleanly so later frontend tasks can rely on it. Run the
+    frontend check through Gradle so the domain's `typescriptDist` (the
+    new `@JsExport` bindings) is regenerated rather than validated against
+    a stale `domain.d.mts`:
+      ./gradlew :domain:jvmTest
+      ./gradlew :frontend:check
 
 validation:
   - |
     Structural checks for the new files:
       test -f src/domain/src/main/kotlin/io/github/theestimator/model/mutation/DraftMutation.kt
       test -f src/domain/src/main/kotlin/io/github/theestimator/model/mutation/Diff.kt
-      test -f src/domain/src/jvmTest/kotlin/io/github/theestimator/model/mutation/DraftMutationTest.kt
+      test -f src/domain/src/test/kotlin/io/github/theestimator/model/mutation/DraftMutationTest.kt
       grep -q "sealed class DraftMutation" src/domain/src/main/kotlin/io/github/theestimator/model/mutation/DraftMutation.kt
       grep -q "class ReplaceWholeDraft" src/domain/src/main/kotlin/io/github/theestimator/model/mutation/DraftMutation.kt
       grep -q "fun EstimationVersion.diff" src/domain/src/main/kotlin/io/github/theestimator/model/mutation/Diff.kt
+      grep -q "logger\." src/domain/src/main/kotlin/io/github/theestimator/model/mutation/Diff.kt
 
   - |
     Build and tests pass:
-      ./mvnw -pl src/domain -am test
-      cd src/frontend && npm run check
+      ./gradlew :domain:jvmTest
+      ./gradlew :frontend:check
 
 outputs:
   - created: src/domain/src/main/kotlin/io/github/theestimator/model/mutation/DraftMutation.kt
   - created: src/domain/src/main/kotlin/io/github/theestimator/model/mutation/Diff.kt
-  - created: src/domain/src/jvmTest/kotlin/io/github/theestimator/model/mutation/DraftMutationTest.kt
+  - created: src/domain/src/test/kotlin/io/github/theestimator/model/mutation/DraftMutationTest.kt

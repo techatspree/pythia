@@ -361,6 +361,36 @@ export declare namespace User {
         const constructor: abstract new () => User;
     }
 }
+export declare abstract class DraftMutation {
+    private constructor();
+    abstract get kind(): string;
+    abstract apply(current: EstimationVersion): EstimationVersion;
+    abstract inverse(): DraftMutation;
+}
+export declare namespace DraftMutation {
+    /** @deprecated $metadata$ is used for internal purposes, please don't use it in your code, because it can be removed at any moment */
+    namespace $metadata$ {
+        const constructor: abstract new () => DraftMutation;
+    }
+}
+export declare class ReplaceWholeDraft extends DraftMutation.$metadata$.constructor {
+    constructor(before: EstimationVersion, after: EstimationVersion);
+    get before(): EstimationVersion;
+    get after(): EstimationVersion;
+    get kind(): string;
+    apply(current: EstimationVersion): EstimationVersion;
+    inverse(): DraftMutation;
+    copy(before?: EstimationVersion, after?: EstimationVersion): ReplaceWholeDraft;
+    toString(): string;
+    hashCode(): number;
+    equals(other: Nullable<any>): boolean;
+}
+export declare namespace ReplaceWholeDraft {
+    /** @deprecated $metadata$ is used for internal purposes, please don't use it in your code, because it can be removed at any moment */
+    namespace $metadata$ {
+        const constructor: abstract new () => ReplaceWholeDraft;
+    }
+}
 export declare class EstimationCalculator {
     constructor();
     calculate(version: EstimationVersion): EstimationVersion;
