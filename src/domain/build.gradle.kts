@@ -82,6 +82,22 @@ val prepareTypescriptArtifacts = tasks.register<Copy>("prepareTypescriptArtifact
                 else dmts.writeText("export {};\n")
             }
         }
+        // The Kotlin/JS toolchain pins its own `typescript` devDependency (e.g.
+        // 5.9.3) into the emitted package.json. The frontend consumes the .mjs /
+        // .d.mts files directly with its OWN TypeScript, so that pin is unused
+        // here and only trips IDE "version doesn't match" warnings against the
+        // frontend's typescript. Strip it so the generated manifest carries no
+        // conflicting version.
+        val pkg = File(prepDir, "package.json")
+        if (pkg.exists()) {
+            @Suppress("UNCHECKED_CAST")
+            val json = groovy.json.JsonSlurper().parse(pkg) as MutableMap<String, Any?>
+            (json["devDependencies"] as? MutableMap<String, Any?>)?.let { dev ->
+                dev.remove("typescript")
+                if (dev.isEmpty()) json.remove("devDependencies")
+            }
+            pkg.writeText(groovy.json.JsonOutput.prettyPrint(groovy.json.JsonOutput.toJson(json)))
+        }
     }
 }
 

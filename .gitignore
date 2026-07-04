@@ -37,8 +37,12 @@ yarn-error.log*
 # frontend-maven-plugin managed Node installation
 src/frontend/node/
 
-# Generated TypeScript types from domain module
+# OpenAPI-generated TypeScript types
 src/frontend/src/lib/types/generated/
+# KMP domain TypeScript, unpacked by :frontend:unpackDomainTypescript from
+# :domain:packageTypescript. Build output — regenerated on every build; must
+# not be committed (lives under src/lib only because that is SvelteKit's $lib).
+src/frontend/src/lib/domain/
 /docs/InfosNotForGit.txt
 /src/frontend/test-results/
 
