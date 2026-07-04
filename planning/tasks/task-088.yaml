@@ -1,0 +1,153 @@
+id: task-088
+phase: phase-12
+title: Backend — shared DraftUpdateApplier + draft snapshot mapper
+depends_on: [task-073]
+description: |
+  Preparation for the Undo service (task-074). Undo/redo must restore a
+  previously-captured draft state back into the draft entity, but the
+  only code that can rebuild a draft entity from data today is a set of
+  PRIVATE methods inside `EstimationVersionResource`
+  (`applyParameters` / `applyEffortDrivers` / `applyPhases` /
+  `applyRoots` / `buildDraftNode` / `applyAdditionalCosts`, plus the
+  `notes` assignment). And there is no way to CAPTURE a draft's current
+  state as a serialisable snapshot.
+
+  Two facts learned while starting task-074 drive this split:
+    - The KMP domain types cannot be round-tripped through Jackson
+      losslessly: leaf items take constructor params `_minEffort` /
+      `_expectedEffort` / … but expose getters `minEffort` / … , so a
+      serialise→deserialise cycle silently drops the effort values.
+      Therefore the undo log must snapshot the Jackson-clean **wire
+      DTOs** (`DraftUpdateDto` and friends), not the raw domain tree.
+    - Restoring a `DraftUpdateDto` into the draft entity needs the exact
+      clear-and-rebuild logic that currently lives, private, in the
+      resource.
+
+  This task does two things, both behaviour-preserving:
+
+  1. Extract the update-apply logic into a new `@ApplicationScoped`
+     `DraftUpdateApplier` (in `service/`) exposing a single public
+     `fun apply(draft: DraftEstimationVersion, update: DraftUpdateDto)`
+     that performs exactly what `EstimationVersionResource.updateDraft`
+     does today (the `notes` guard + the five `update.field?.let { … }`
+     clear-and-rebuild calls, including the deliberate phase UPSERT
+     behaviour and its transient-reference comment). `updateDraft`
+     then delegates to it. No behaviour changes — the existing
+     `EstimationVersionResourceIT` suite is the guard.
+
+  2. Add the inverse — `fun DraftEstimationVersion.toUpdateDto(): DraftUpdateDto`
+     in a new `DraftSnapshotMapper.kt` (in `service/`) that captures the
+     full current draft state (notes, parameters, effortDrivers, phases,
+     roots recursively, additionalCosts) as a `DraftUpdateDto` using the
+     wire DTO types. Invariant: `applier.apply(draft, draft.toUpdateDto())`
+     leaves the draft's domain projection unchanged — i.e. capture then
+     restore is an identity on state. task-074 will use `toUpdateDto()`
+     to snapshot before/after and `applier.apply(...)` to restore on
+     undo/redo.
+
+  Scope: backend only, no new endpoints, no domain changes, no
+  migration. Pure mechanical mapping (no business logic, no logging —
+  the applier and snapshot mapper are peers of `DraftVersionMapper`).
+
+steps:
+  - |
+    Start:
+      ./scripts/task.sh start task-088
+
+  - |
+    Create `DraftUpdateApplier.kt` under
+    src/backend/implementation/src/main/kotlin/io/github/theestimator/service/
+    as an `@ApplicationScoped class DraftUpdateApplier` with a public
+    `fun apply(draft: DraftEstimationVersion, update: DraftUpdateDto)` whose
+    body is exactly today's `updateDraft` mutation block:
+      update.notes?.let { draft.notes = it }
+      update.parameters?.let { applyParameters(draft, it) }
+      update.effortDrivers?.let { applyEffortDrivers(draft, it) }
+      update.phases?.let { applyPhases(draft, it) }
+      update.roots?.let { applyRoots(draft, it) }
+      update.additionalCosts?.let { applyAdditionalCosts(draft, it) }
+    Move the six private helpers (`applyParameters`, `applyEffortDrivers`,
+    `applyPhases`, `applyRoots`, `buildDraftNode`, `applyAdditionalCosts`)
+    from `EstimationVersionResource` into this class VERBATIM (keep the
+    phase-upsert comment). They stay `private`.
+
+  - |
+    Modify `EstimationVersionResource`: inject `DraftUpdateApplier`,
+    replace the inline notes+apply block in `updateDraft` with a single
+    `draftUpdateApplier.apply(draft, update)` call, and delete the six
+    now-moved private methods. Remove imports that are now unused in the
+    resource (the `Draft*` node entities and the per-collection DTO types
+    that only the moved helpers referenced); the resource keeps only what
+    its remaining methods use. Also drop the now-stale
+    `@Suppress("TooManyFunctions")` annotation and its explanatory comment
+    (the comment justifies the suppression by the apply helpers that no
+    longer live here) — unless the resource still trips the threshold, in
+    which case re-justify the comment to match reality. Behaviour is
+    unchanged.
+
+  - |
+    Create `DraftSnapshotMapper.kt` under the same `service/` package with
+    `fun DraftEstimationVersion.toUpdateDto(): DraftUpdateDto` capturing:
+      - notes,
+      - parameters -> EstimationParameterDto(name, value, comment),
+      - effortDrivers -> EffortDriverDto(description, factor, comment),
+      - phases -> PhaseUpdateDto(name, abbreviation, durationWeeks),
+      - roots -> EstimationNodeUpdateDto (recursively; a private
+        `DraftEstimationNode.toUpdateDto()` that sets `type` from the
+        entity subclass GROUP/TIME_RELATIVE/FIXED, `logicalId`, `title`,
+        `unit`, `description`, `code`, `minEffort`, `expectedEffort`,
+        `maxEffort`, `assumptions`, `phaseAbbreviation = phase?.abbreviation`,
+        and `children` recursively),
+      - additionalCosts -> AdditionalCostUpdateDto(description, amount,
+        type, amountPerWeek, phaseAbbreviation = phase?.abbreviation).
+    Match the exact DTO field names in
+    `rest/dto/EstimationVersionDtos.kt`.
+
+  - |
+    Add `DraftSnapshotRoundTripIT.kt` under
+    src/backend/implementation/src/test/kotlin/io/github/theestimator/service/:
+    persist a draft with a multi-level tree (a group containing a fixed
+    item and a nested group with a time-relative item), plus parameters /
+    a phase / an additional cost. Capture `snapshot = draft.toUpdateDto()`
+    and `before = draftVersionMapper.toDomain(draft)`, then
+    `draftUpdateApplier.apply(draft, snapshot)`, and assert BOTH:
+      - `draftVersionMapper.toDomain(draft) == before` (identity on the
+        domain projection), AND
+      - `draft.toUpdateDto() == snapshot` (structural DTO equality — a
+        re-capture after restore reproduces the same snapshot).
+
+    Update CLAUDE.md's "Backend run-of-the-mill patterns" note: the
+    clear-and-rebuild `dto.field?.let { … list.clear(); list.add(…) }`
+    shape now lives in `DraftUpdateApplier` (not inline in the REST PUT);
+    mention `DraftSnapshotMapper` / `DraftEstimationVersion.toUpdateDto()`
+    as the entity→DTO capture counterpart.
+
+  - |
+    Build (existing EstimationVersionResourceIT must stay green):
+      ./gradlew :backend:implementation:test
+
+validation:
+  - |
+    New files exist with the expected surface:
+      test -f src/backend/implementation/src/main/kotlin/io/github/theestimator/service/DraftUpdateApplier.kt
+      test -f src/backend/implementation/src/main/kotlin/io/github/theestimator/service/DraftSnapshotMapper.kt
+      grep -q "class DraftUpdateApplier" src/backend/implementation/src/main/kotlin/io/github/theestimator/service/DraftUpdateApplier.kt
+      grep -q "fun apply" src/backend/implementation/src/main/kotlin/io/github/theestimator/service/DraftUpdateApplier.kt
+      grep -q "fun DraftEstimationVersion.toUpdateDto" src/backend/implementation/src/main/kotlin/io/github/theestimator/service/DraftSnapshotMapper.kt
+  - |
+    The resource now delegates and no longer defines the apply helpers:
+      grep -q "draftUpdateApplier.apply" src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/EstimationVersionResource.kt
+      ! grep -q "private fun applyParameters" src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/EstimationVersionResource.kt
+  - |
+    CLAUDE.md documents the shared applier:
+      grep -q "DraftUpdateApplier" CLAUDE.md
+  - |
+    Full backend suite passes (existing resource ITs guard the refactor):
+      ./gradlew :backend:implementation:test
+
+outputs:
+  - created: src/backend/implementation/src/main/kotlin/io/github/theestimator/service/DraftUpdateApplier.kt
+  - created: src/backend/implementation/src/main/kotlin/io/github/theestimator/service/DraftSnapshotMapper.kt
+  - modified: src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/EstimationVersionResource.kt
+  - modified: CLAUDE.md
+  - created: src/backend/implementation/src/test/kotlin/io/github/theestimator/service/DraftSnapshotRoundTripIT.kt

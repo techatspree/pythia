@@ -1,7 +1,7 @@
 id: task-074
 phase: phase-12
 title: Backend service — record, undo, redo, conflict detection
-depends_on: [task-072, task-073]
+depends_on: [task-072, task-073, task-088]
 description: |
   Wire the DraftMutation model (task-072) and the mutation log
   (task-073) into the existing draft-edit flow.
@@ -37,12 +37,12 @@ description: |
          Meaning: another user (or this user later) made a change on
          top of the one we're trying to undo, so undoing it would
          corrupt their work.
-      4. Otherwise: deserialise the `inverse_payload` to a
-         `DraftMutation`, call `mutation.apply(currentDomainVersion)`,
-         map the resulting `EstimationVersion` back into the draft
-         entity via `DraftVersionMapper`, mark the log entry UNDONE
-         with `undone_at = now()`, increment `revision`, stamp
-         `lastModifiedBy/At`. Return the new domain `EstimationVersion`.
+      4. Otherwise: deserialise `inverse_payload` to a `StoredMutation`
+         and restore its `after` snapshot into the draft entity via
+         `draftUpdateApplier.apply(draft, stored.after)` (task-088); mark
+         the log entry UNDONE with `undone_at = now()`, increment
+         `revision`, stamp `lastModifiedBy/At`. Return
+         `draftVersionMapper.toDomain(draft)`.
 
   Redo:
     `redoLastForUser(estimationId)` (currentUserId resolved internally):
@@ -52,8 +52,10 @@ description: |
          `sequence_number > undone_entry.sequence_number`, throw
          `UndoConflictException` — a newer ACTIVE change has
          supplanted the redo target.
-      3. Otherwise: replay `payload` (the forward mutation), mark
-         entry ACTIVE again, clear `undone_at`, bump revision, stamp.
+      3. Otherwise: deserialise `payload` to a `StoredMutation` and
+         restore its `after` snapshot via
+         `draftUpdateApplier.apply(draft, stored.after)`; mark the entry
+         ACTIVE again, clear `undone_at`, bump revision, stamp.
 
   Submit:
     On `submitDraft`, after the draft is removed/transformed into a
@@ -71,22 +73,19 @@ description: |
       `DraftEstimationVersionRepository`,
       `DraftMutationLogRepository`, `DraftVersionMapper`,
       `CurrentUserProvider`, `UserRepository`, and `AuditLogService`.
-    - JSON serialisation of `DraftMutation` and its `EstimationVersion`
-      payloads: use the **injected** Jackson `ObjectMapper` Quarkus
-      provides (a freshly constructed mapper would miss the Kotlin
-      module). In `DraftMutationJackson.kt` next to the service, register
-      polymorphic subtypes for BOTH sealed hierarchies that appear in the
-      payload: `DraftMutation` (currently only `ReplaceWholeDraft`, keyed
-      by `kind`) AND the `EstimationNode` tree nested in every
-      `EstimationVersion` (`EstimationGroup`, `FixedEstimationItem`,
-      `TimeRelativeEstimationItem`). Because the domain types expose
-      computed `get()` properties (mean, variance, offerPT, …) that are
-      not constructor args, deserialisation must tolerate them — disable
-      `FAIL_ON_UNKNOWN_PROPERTIES` on the mapper copy used here (or use
-      `@JsonIgnoreProperties(ignoreUnknown = true)` mix-ins). A test must
-      prove a full write→read round-trip of a multi-level tree. (If this
-      proves brittle, the fallback is to serialise the existing wire DTOs
-      instead of the raw domain types.)
+    - Serialisation uses the Jackson-clean **wire DTOs**, NOT the raw
+      domain types (those lose data through Jackson — see task-088). Each
+      log entry stores a `StoredMutation(kind, before, after)` where
+      `before`/`after` are `DraftUpdateDto` snapshots: `payload` =
+      `StoredMutation(kind, beforeDto, afterDto)`, `inverse_payload` =
+      `StoredMutation(kind, afterDto, beforeDto)`. Define `StoredMutation`
+      and the JSON helpers in `DraftMutationJackson.kt` using the injected
+      Quarkus `ObjectMapper` (plain data classes; no polymorphism or
+      unknown-property config needed). Snapshots are captured with
+      `draft.toUpdateDto()` and restored with `draftUpdateApplier.apply(...)`
+      (both from task-088). The domain `EstimationVersion.diff` is used
+      purely to decide whether anything changed (the no-op gate) and to
+      source the `kind` string.
     - `UndoConflictException` is a regular Kotlin exception (carries
       the blocking entry) — task-075 maps it to a `409 Conflict` with
       a `ConflictDetailsDto`.
@@ -103,12 +102,10 @@ steps:
   - |
     Add `UndoConflictException.kt` and `DraftMutationJackson.kt` under
     src/backend/implementation/src/main/kotlin/io/github/theestimator/service/.
-    `DraftMutationJackson.kt` registers polymorphic subtypes for BOTH
-    `DraftMutation` (the `kind` discriminator) and the `EstimationNode`
-    sealed tree, and disables `FAIL_ON_UNKNOWN_PROPERTIES` (domain
-    computed getters), so an injected `ObjectMapper` can round-trip a
-    `DraftMutation` — with its nested `EstimationVersion` trees — via
-    `writeValueAsString` / `readValue`.
+    `DraftMutationJackson.kt` defines `StoredMutation(kind: String,
+    before: DraftUpdateDto, after: DraftUpdateDto)` and small `toJson` /
+    `fromJson` helpers over the injected Quarkus `ObjectMapper` (plain
+    DTOs — no polymorphism or unknown-property config needed).
 
   - |
     Add a `findAllByDraftIdOrderBySequence(draftId: UUID): List<DraftMutationLogEntry>`
@@ -119,25 +116,25 @@ steps:
   - |
     Add `UndoService.kt` under the same package with the three public
     methods described:
-      fun recordMutation(draft: DraftEstimationVersion, before: EstimationVersion, after: EstimationVersion, userId: UUID)
+      fun recordMutation(draft: DraftEstimationVersion, before: EstimationVersion, after: EstimationVersion, beforeDto: DraftUpdateDto, afterDto: DraftUpdateDto)
       fun undoLastForUser(estimationId: UUID): EstimationVersion
       fun redoLastForUser(estimationId: UUID): EstimationVersion
       fun historyFor(estimationId: UUID): List<DraftMutationLogEntry>
 
-    Modify `EstimationVersionResource.updateDraft` (the REST resource
-    where the clear-and-rebuild `applyParameters/…/applyRoots` helpers
-    live) so that:
-      - `UndoService` and `DraftVersionMapper` are injected into the
-        resource.
-      - It captures `before = draftVersionMapper.toDomain(draft)` BEFORE
-        the apply block.
-      - After the apply block, it computes
-        `after = draftVersionMapper.toDomain(draft)` and calls
-        `undoService.recordMutation(draft, before, after, userId)` — which
-        no-ops when `before.diff(after)` is `null`, otherwise inserts the
-        log entry, bumps `draft.revision` and sets
-        `lastModifiedBy`/`lastModifiedAt`. Keep all existing behaviour
-        (`calculateDraft`, `toDto`, audit logging) untouched.
+    Modify `EstimationVersionResource.updateDraft` (which, after task-088,
+    delegates the apply to `draftUpdateApplier.apply(draft, update)`) so
+    that:
+      - `UndoService` is injected into the resource.
+      - BEFORE the apply call it captures `beforeDto = draft.toUpdateDto()`
+        (task-088) and `before = draftVersionMapper.toDomain(draft)`.
+      - AFTER the apply call it captures `afterDto = draft.toUpdateDto()`
+        and `after = draftVersionMapper.toDomain(draft)`, then calls
+        `undoService.recordMutation(draft, before, after, beforeDto, afterDto)`
+        — which no-ops when `before.diff(after)` is `null`, otherwise
+        inserts the log entry (a `StoredMutation` of the DTO snapshots),
+        bumps `draft.revision`, and stamps `lastModifiedBy`/`lastModifiedAt`
+        (current user resolved inside the service). Keep all existing
+        behaviour (`calculateDraft`, `toDto`, audit logging) untouched.
 
   - |
     Verify `submitDraft` cleans up: because `draft_mutation_log` has

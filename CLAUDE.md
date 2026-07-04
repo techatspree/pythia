@@ -90,8 +90,8 @@ Anything you'd want to call "business logic" (PERT, accumulation, risk surcharge
 
 ### Backend run-of-the-mill patterns
 
-- Domain → entity mapping in `…/service/DraftVersionMapper.kt`; entity → DTO mapping in `…/rest/dto/EstimationVersionMapper.kt`.
-- REST PUT (e.g. `updateDraft`) follows a `dto.field?.let { … list.clear(); list.add(…) }` shape for each collection — clear-and-rebuild rather than diffing.
+- Domain → entity mapping in `…/service/DraftVersionMapper.kt`; entity → DTO mapping in `…/rest/dto/EstimationVersionMapper.kt`; entity → `DraftUpdateDto` snapshot in `…/service/DraftSnapshotMapper.kt` (`DraftEstimationVersion.toUpdateDto()`).
+- Writing a `DraftUpdateDto` into a draft entity is centralised in `…/service/DraftUpdateApplier.kt` (`apply(draft, update)`) — the `dto.field?.let { … list.clear(); list.add(…) }` clear-and-rebuild shape (rather than diffing). Both the REST PUT `updateDraft` and the Undo service call it; `toUpdateDto()` is its inverse (capture), so `apply(draft, draft.toUpdateDto())` is a no-op on state.
 - Repositories are Panache (`PanacheRepository<T>`). Add finders as extension methods on the repository class.
 
 ### Frontend — error surfacing rule
