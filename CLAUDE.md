@@ -62,6 +62,8 @@ Single self-referential table per side, JPA `SINGLE_TABLE` inheritance with a `n
 - **Draft** side: `draft_estimation_nodes` (V6 migration); JPA entity `DraftEstimationNode` with three `@DiscriminatorValue` subclasses (`DraftGroupNode`, `DraftFixedItemNode`, `DraftTimeRelativeItemNode`). Mutable, edited via the REST PUT endpoint.
 - **Submitted** side: `submitted_estimation_nodes` (V7 migration); mirrors the draft shape with `SubmittedEstimationNode` + `SubmittedGroupNode`/`SubmittedFixedItemNode`/`SubmittedTimeRelativeItemNode`. **Submitted entities are immutable snapshots** that store the calculated values directly on every row (mean, offerPT, cost, …); group rows store accumulated values for their subtree. The backend never recomputes on read.
 
+**Undo log** (V8 migration): `draft_estimation_versions` gains a `revision` counter plus `last_modified_by` / `last_modified_at` audit columns, and a new append-only `draft_mutation_log` table records one row per applied `DraftMutation` (`DraftMutationLogEntry`): monotonic `sequence_number` per draft, `revision_before`/`revision_after`, `kind` discriminator, `payload` + `inverse_payload` (`jsonb`, mapped `String` via `@JdbcTypeCode(SqlTypes.JSON)`), and an `ACTIVE`/`UNDONE` status. Finders live on `DraftMutationLogRepository`. The service that records/applies mutations lands in task-074.
+
 Use `@SQLRestriction`, not the deprecated `@Where`, for filtered collections.
 
 ### Frontend ↔ domain bridge (`adapter.ts`)

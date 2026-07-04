@@ -435,9 +435,9 @@
       "notes": ""
     },
     "task-073": {
-      "status": "pending",
-      "started_at": null,
-      "completed_at": null,
+      "status": "done",
+      "started_at": "2026-07-03T09:36:03+00:00",
+      "completed_at": "2026-07-03T09:42:38+00:00",
       "notes": ""
     },
     "task-074": {

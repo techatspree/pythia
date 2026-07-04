@@ -2,16 +2,19 @@ package io.github.theestimator.domain.draft
 
 import io.github.theestimator.domain.BaseEntity
 import io.github.theestimator.domain.Estimation
+import io.github.theestimator.domain.User
 import jakarta.persistence.CascadeType
 import jakarta.persistence.Column
 import jakarta.persistence.Entity
 import jakarta.persistence.FetchType
 import jakarta.persistence.JoinColumn
+import jakarta.persistence.ManyToOne
 import jakarta.persistence.OneToMany
 import jakarta.persistence.OneToOne
 import jakarta.persistence.OrderColumn
 import jakarta.persistence.Table
 import org.hibernate.annotations.SQLRestriction
+import java.time.Instant
 
 @Entity
 @Table(name = "draft_estimation_versions")
@@ -42,6 +45,16 @@ class DraftEstimationVersion : BaseEntity() {
 
     @OneToMany(mappedBy = "version", cascade = [CascadeType.ALL], orphanRemoval = true)
     var additionalCosts: MutableList<DraftAdditionalCost> = mutableListOf()
+
+    @Column(nullable = false)
+    var revision: Long = 0
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "last_modified_by")
+    var lastModifiedBy: User? = null
+
+    @Column(name = "last_modified_at")
+    var lastModifiedAt: Instant? = null
 
     fun parameterValue(name: String): Double? =
         parameters.find { it.name == name }?.value

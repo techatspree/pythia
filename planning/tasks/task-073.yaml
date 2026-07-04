@@ -18,7 +18,7 @@ description: |
      increments this counter atomically.
      Add column `last_modified_by UUID NULL REFERENCES users(id)` so
      conflict reporting can name the other user.
-     Add column `last_modified_at TIMESTAMPTZ NULL`.
+     Add column `last_modified_at TIMESTAMP NULL`.
 
   2. New table `draft_mutation_log`:
         id                UUID PRIMARY KEY
@@ -31,8 +31,9 @@ description: |
         payload           JSONB NOT NULL           -- forward mutation (before/after snapshots etc.)
         inverse_payload   JSONB NOT NULL           -- DraftMutation.inverse() serialised
         status            VARCHAR(16) NOT NULL     -- ACTIVE | UNDONE
-        created_at        TIMESTAMPTZ NOT NULL DEFAULT now()
-        undone_at         TIMESTAMPTZ NULL
+        created_at        TIMESTAMP NOT NULL       -- BaseEntity (set in @PrePersist)
+        updated_at        TIMESTAMP NULL           -- BaseEntity requires this column
+        undone_at         TIMESTAMP NULL
      Unique constraint `(draft_version_id, sequence_number)`.
      Index `(draft_version_id, status, sequence_number DESC)` for the
      "find latest undoable for this draft" query.
@@ -42,12 +43,12 @@ description: |
   3. New JPA entity in
      `src/backend/implementation/src/main/kotlin/io/github/theestimator/domain/draft/`:
      `DraftMutationLogEntry` (BaseEntity-derived), enum
-     `DraftMutationStatus { ACTIVE, UNDONE }`. JSONB columns mapped as
-     `String` (the service serialises to JSON; see task-074) and
-     declared with `@JdbcTypeCode(SqlTypes.JSON)` consistent with how
-     other JSONB columns are mapped in the codebase (verify by
-     grepping for `SqlTypes.JSON`; if no precedent exists, use
-     `columnDefinition = "jsonb"`).
+     `DraftMutationStatus { ACTIVE, UNDONE }`. There is no JSONB
+     precedent in the codebase, so map the two JSONB columns as `String`
+     (the service serialises to JSON; see task-074) annotated with
+     `@JdbcTypeCode(SqlTypes.JSON)` — the Hibernate 6 idiom already on the
+     stack (`import org.hibernate.annotations.JdbcTypeCode` +
+     `org.hibernate.type.SqlTypes`).
 
   4. Two new fields on `DraftEstimationVersion`:
         var revision: Long = 0
@@ -76,6 +77,13 @@ description: |
       there; no H2 dialect workaround is needed for tests.
     - Hibernate `validate` runs in dev-minikube/prod — the entity and
       the migration must match exactly. Mismatches will fail startup.
+    - `DraftMutationLogEntry` extends `BaseEntity`, which maps `id`,
+      `createdAt`→`created_at` (NOT NULL) and `updatedAt`→`updated_at`
+      (nullable); the table MUST include BOTH `created_at` and
+      `updated_at`, or `validate` fails at boot.
+    - All timestamp columns use `TIMESTAMP` (never `TIMESTAMPTZ`) — that
+      is the uniform convention across every existing table (V1/V3/V6)
+      and matches the `Instant` mappings that already pass `validate`.
 
 steps:
   - |
@@ -83,8 +91,11 @@ steps:
     with:
       - ALTER TABLE draft_estimation_versions ADD COLUMN revision BIGINT NOT NULL DEFAULT 0;
       - ALTER TABLE draft_estimation_versions ADD COLUMN last_modified_by UUID NULL REFERENCES users(id);
-      - ALTER TABLE draft_estimation_versions ADD COLUMN last_modified_at TIMESTAMPTZ NULL;
-      - CREATE TABLE draft_mutation_log (…) with the columns described above.
+      - ALTER TABLE draft_estimation_versions ADD COLUMN last_modified_at TIMESTAMP NULL;
+      - CREATE TABLE draft_mutation_log (…) with the columns described
+        above, including BOTH `created_at TIMESTAMP NOT NULL` and
+        `updated_at TIMESTAMP NULL` (required by BaseEntity). Use
+        `TIMESTAMP`, never `TIMESTAMPTZ`.
       - The two indices and the unique constraint.
 
   - |
@@ -94,16 +105,19 @@ steps:
 
   - |
     Add `DraftMutationStatus.kt` (enum) and `DraftMutationLogEntry.kt`
-    (entity) under the same package. Use `@Enumerated(EnumType.STRING)`
-    for the status column and map the two JSONB columns consistent with
-    the codebase convention (`@JdbcTypeCode(SqlTypes.JSON)` if precedent
-    exists, otherwise `columnDefinition = "jsonb"` with `String`).
+    (entity, extending `BaseEntity`) under the same package. Use
+    `@Enumerated(EnumType.STRING)` for the status column and map the two
+    JSONB columns as `String` annotated with `@JdbcTypeCode(SqlTypes.JSON)`
+    (there is no JSONB precedent to mirror; this is the Hibernate 6 idiom).
 
   - |
     Add `DraftMutationLogRepository.kt` under
     src/backend/implementation/src/main/kotlin/io/github/theestimator/repository/
-    with the five finder methods listed in the description. Follow the
-    Panache extension-method style already used by sibling repositories.
+    with the five finder methods listed in the description, as an
+    `@ApplicationScoped class DraftMutationLogRepository :
+    PanacheRepositoryBase<DraftMutationLogEntry, UUID>` with member
+    finder methods — mirroring sibling repositories such as
+    `DraftEstimationVersionRepository`.
 
   - |
     Repository smoke IT under
@@ -115,8 +129,14 @@ steps:
         findLatestUndoneForDraft == sequence 2.
 
   - |
+    Update the "Persistence shape" section of `CLAUDE.md` to mention the
+    new `draft_mutation_log` table (V8) and the `revision` /
+    `last_modified_by` / `last_modified_at` columns added to
+    `draft_estimation_versions`, so the documented schema stays current.
+
+  - |
     Build:
-      ./mvnw -pl src/backend/implementation -am test
+      ./gradlew :backend:implementation:test
 
 validation:
   - |
@@ -124,13 +144,16 @@ validation:
       test -f src/backend/implementation/src/main/resources/db/migration/V8__undo_log.sql
       grep -q "draft_mutation_log" src/backend/implementation/src/main/resources/db/migration/V8__undo_log.sql
       grep -q "revision BIGINT" src/backend/implementation/src/main/resources/db/migration/V8__undo_log.sql
+      grep -q "updated_at TIMESTAMP" src/backend/implementation/src/main/resources/db/migration/V8__undo_log.sql
+      ! grep -qi "timestamptz" src/backend/implementation/src/main/resources/db/migration/V8__undo_log.sql
+      grep -q "draft_mutation_log" CLAUDE.md
       test -f src/backend/implementation/src/main/kotlin/io/github/theestimator/domain/draft/DraftMutationLogEntry.kt
       test -f src/backend/implementation/src/main/kotlin/io/github/theestimator/domain/draft/DraftMutationStatus.kt
       test -f src/backend/implementation/src/main/kotlin/io/github/theestimator/repository/DraftMutationLogRepository.kt
       grep -q "var revision" src/backend/implementation/src/main/kotlin/io/github/theestimator/domain/draft/DraftEstimationVersion.kt
   - |
     Tests pass (uses Testcontainers PostgreSQL; Docker must be running):
-      ./mvnw -pl src/backend/implementation -am test
+      ./gradlew :backend:implementation:test
 
 outputs:
   - created: src/backend/implementation/src/main/resources/db/migration/V8__undo_log.sql
@@ -139,3 +162,4 @@ outputs:
   - created: src/backend/implementation/src/main/kotlin/io/github/theestimator/repository/DraftMutationLogRepository.kt
   - created: src/backend/implementation/src/test/kotlin/io/github/theestimator/repository/DraftMutationLogRepositoryIT.kt
   - modified: src/backend/implementation/src/main/kotlin/io/github/theestimator/domain/draft/DraftEstimationVersion.kt
+  - modified: CLAUDE.md
