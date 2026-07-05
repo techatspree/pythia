@@ -1,0 +1,132 @@
+id: task-094
+phase: phase-8
+title: Full OpenAPI schema coverage — typed responses everywhere
+depends_on: [task-075]
+description: |
+  The OpenAPI document is only half-complete. Every JAX-RS method returns
+  the untyped `jakarta.ws.rs.core.Response`, so SmallRye OpenAPI cannot
+  infer response bodies — the generated schema
+  (`target/openapi/openapi.json`) documents **request** DTOs (they are
+  typed method parameters) but NOT a single **response** DTO. Confirmed
+  present today: `DraftUpdateDto`, `ProjectCreateDto`, `ProjectUpdateDto`,
+  `EstimationCreateDto`, the node/parameter/driver/phase/cost update DTOs,
+  the enums, `PingDto` (the one typed return), `UUID`. Missing entirely:
+  `ProjectSummaryDto`, `ProjectDetailDto`, `EstimationSummaryDto`,
+  `EstimationDetailDto`, `EstimationVersionDto`,
+  `EstimationVersionSummaryDto`, `EstimationNodeDto` (nested),
+  `VersionComparisonDto`, `ConflictDetailsDto`, `MutationLogEntryDto`,
+  `CurrentUserDto`. As a result the frontend hand-maintains its API types
+  in `src/frontend/src/lib/api/types.ts` instead of generating them.
+
+  Target state: EVERY endpoint documents its response body schema(s) and
+  status codes, so the OpenAPI document is a complete contract and the
+  frontend's generated `schema.d.ts` contains every request AND response
+  type. Then the generated openapi artifacts are refreshed so the types
+  are available.
+
+  Key design decisions:
+    - Keep the `Response` return type on every method — do NOT change
+      signatures or behaviour. Add MicroProfile OpenAPI annotations
+      instead (`org.eclipse.microprofile.openapi.annotations.*`, already
+      on the classpath): `@APIResponse(responseCode, description, content =
+      [Content(schema = Schema(implementation = Dto::class))])` for object
+      bodies; `Schema(type = SchemaType.ARRAY, implementation = Dto::class)`
+      for list bodies; `@APIResponseSchema(Dto::class)` is an acceptable
+      shorthand for a single 200/201 object body. Document the real error
+      codes too (401 / 403 / 404 / 409 / 204) so the contract is honest.
+    - Referencing a top-level DTO via `@Schema(implementation = …)` pulls
+      its nested DTOs into `components/schemas` automatically, so
+      `EstimationNodeDto` (inside `EstimationVersionDto.roots`) needs no
+      separate annotation.
+    - `exportVersion` returns a binary stream — document it as
+      `application/octet-stream` + `text/csv` with no JSON schema.
+    - This is a documentation/contract change only: no new service, domain
+      operation, or frontend flow, so the CLAUDE.md logging conventions do
+      not apply.
+    - OUT OF SCOPE (leave for a follow-up): migrating the frontend's
+      component code off the hand-written `$lib/api/types.ts` onto the
+      generated `schema.d.ts`. This task only makes the complete generated
+      types available; rewiring every `.svelte`/`.ts` consumer is a large,
+      separate mechanical refactor.
+
+steps:
+  - |
+    Annotate every JSON endpoint in `ProjectResource.kt` with response
+    schema + status codes:
+      - `listProjects` → 200, ARRAY of `ProjectSummaryDto`.
+      - `createProject` → 201 `ProjectSummaryDto`.
+      - `getProject` → 200 `ProjectDetailDto`; 404.
+      - `updateProject` → 200 `ProjectSummaryDto`; 404.
+      - `createEstimation` → 201 `EstimationSummaryDto`; 404.
+      - `archiveProject` → 200 `ProjectSummaryDto`; 404.
+      (Verify the exact success-DTO type from each `.toXxxDto()` call.)
+
+  - |
+    Annotate `EstimationResource.getEstimation` → 200 `EstimationDetailDto`;
+    404.
+
+  - |
+    Annotate every endpoint in `EstimationVersionResource.kt`:
+      - `listVersions` → 200, ARRAY of `EstimationVersionSummaryDto`.
+      - `createDraft` → 201 `EstimationVersionDto`; 409 (duplicate draft).
+      - `getDraft` → 200 `EstimationVersionDto`; 404.
+      - `updateDraft` → 200 `EstimationVersionDto`; 404.
+      - `submitDraft` → 200 `EstimationVersionDto`; 404.
+      - `undoDraft` / `redoDraft` → 200 `EstimationVersionDto`; 404;
+        409 with `ConflictDetailsDto`.
+      - `draftHistory` → 200, ARRAY of `MutationLogEntryDto`.
+      - `deleteDraft` → 204 (no content).
+      - `getSubmittedVersion` → 200 `EstimationVersionDto`; 404.
+      - `compareVersions` → 200 `VersionComparisonDto`; 404.
+      - `exportVersion` → 200 `application/octet-stream` + `text/csv`
+        (binary, no JSON schema); 400 for an unsupported format.
+
+  - |
+    Annotate `MeResource.me` → 200 `CurrentUserDto`; 401. Confirm
+    `AdminPingResource.ping` already exposes `PingDto` (typed return) and
+    add a 403 `@APIResponse` for the wrong-role case.
+
+  - |
+    Regenerate and sync the OpenAPI artifacts:
+      - Build the backend so `target/openapi/openapi.json` regenerates.
+      - Copy it to the frontend's committed
+        `src/frontend/src/lib/api/openapi.json`.
+      - Regenerate the typed client: `cd src/frontend && npm run gen:api`
+        (writes `src/lib/api/schema.d.ts`).
+
+  - |
+    Update CLAUDE.md's "REST API surface" section: note that every
+    endpoint now documents its request/response schemas and status codes
+    in the OpenAPI document, and that `src/frontend/src/lib/api/schema.d.ts`
+    is generated from it via `npm run gen:api`.
+
+  - |
+    Build backend + frontend:
+      ./gradlew :backend:implementation:test
+      cd src/frontend && npm run check
+
+validation:
+  - |
+    All response DTOs now appear in the generated OpenAPI components:
+      for dto in ProjectSummaryDto ProjectDetailDto EstimationSummaryDto EstimationDetailDto EstimationVersionDto EstimationVersionSummaryDto VersionComparisonDto ConflictDetailsDto MutationLogEntryDto CurrentUserDto EstimationNodeDto; do grep -q "\"$dto\"" src/backend/implementation/target/openapi/openapi.json || { echo "MISSING $dto"; exit 1; }; done
+  - |
+    Error status codes are documented (spot-check undo's 409 + a 404):
+      grep -q '"409"' src/backend/implementation/target/openapi/openapi.json
+      grep -q '"404"' src/backend/implementation/target/openapi/openapi.json
+  - |
+    The frontend generated client is refreshed and type-checks:
+      grep -q "EstimationVersionDto\|ConflictDetailsDto" src/frontend/src/lib/api/schema.d.ts
+      cd src/frontend && npm run check
+  - |
+    Backend suite still green:
+      ./gradlew :backend:implementation:test
+
+outputs:
+  - modified: src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/ProjectResource.kt
+  - modified: src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/EstimationResource.kt
+  - modified: src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/EstimationVersionResource.kt
+  - modified: src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/MeResource.kt
+  - modified: src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/AdminPingResource.kt
+  - modified: src/frontend/src/lib/api/openapi.json
+  - modified: src/frontend/src/lib/api/schema.d.ts
+  - modified: CLAUDE.md
