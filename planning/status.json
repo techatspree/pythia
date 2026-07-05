@@ -447,9 +447,9 @@
       "notes": ""
     },
     "task-075": {
-      "status": "pending",
-      "started_at": null,
-      "completed_at": null,
+      "status": "done",
+      "started_at": "2026-07-05T14:51:32+00:00",
+      "completed_at": "2026-07-05T14:57:43+00:00",
       "notes": ""
     },
     "task-076": {
@@ -559,6 +559,12 @@
       "started_at": null,
       "completed_at": null,
       "notes": "Show a meaningful, user-facing error when an operation is denied for lack of authorization (403), instead of a generic error"
+    },
+    "task-094": {
+      "status": "pending",
+      "started_at": null,
+      "completed_at": null,
+      "notes": "Full OpenAPI schema coverage — typed responses for all endpoints"
     }
   }
 }

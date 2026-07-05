@@ -11,7 +11,8 @@ description: |
   Endpoints:
 
     POST /api/estimations/{eid}/versions/draft/undo
-        Auth: @RolesAllowed("ESTIMATOR", "ADMIN")
+        Auth: @RolesAllowed("ESTIMATOR")  (a write; admin already has
+              ESTIMATOR — matches updateDraft, task-091)
         Body: none
         200 → EstimationVersionDto         (the draft after undo, with
                                             on-the-fly calculated values
@@ -25,7 +26,8 @@ description: |
         newer ACTIVE mutation supplants the redo target.
 
     GET  /api/estimations/{eid}/versions/draft/history
-        Auth: @RolesAllowed("VIEWER", "ESTIMATOR", "ADMIN")
+        Auth: covered by the class-level @RolesAllowed("VIEWER") — a read,
+              so no method-level annotation needed (task-091)
         200 → List<MutationLogEntryDto>
         Ordered by sequence_number ASC; both ACTIVE and UNDONE entries
         included so the GUI can render the timeline.
@@ -64,13 +66,26 @@ description: |
     serialises `UndoConflictException` → HTTP 409 with a
     `ConflictDetailsDto` body. Place it under
     src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/.
+    IMPORTANT: an `ExceptionMapper` runs AFTER the resource method, so the
+    `@Transactional` scope has already ended (the service threw, the tx
+    rolled back). `blockingEntry.user` and `blockingEntry.draftVersion`
+    are `@ManyToOne(LAZY)`, so reading `user.displayName` /
+    `draftVersion.revision` in the mapper would throw
+    `LazyInitializationException`. Build the `ConflictDetailsDto` inside a
+    FRESH transaction that re-loads the entry by id and reads the fields
+    while attached — inject `DraftMutationLogRepository` and wrap the read
+    in `QuarkusTransaction.requiringNew().call { … }` (or `.requiringNew`
+    with an explicit fetch). `currentDraftRevision` comes from the
+    re-loaded `blockingEntry.draftVersion.revision`.
 
   OpenAPI:
-    The Quarkus build regenerates the OpenAPI document; verify the new
-    paths and DTOs appear in
-    `src/backend/implementation/target/generated/openapi.json` after
-    the build. The frontend openapi-fetch types regenerate from this
-    file via the existing pipeline — task-076 will consume them.
+    The Quarkus build regenerates the OpenAPI document to
+    `src/backend/implementation/target/openapi/openapi.json` (via
+    `quarkus.smallrye-openapi.store-schema-directory=target/openapi`);
+    verify the new paths and DTOs appear there after the build. Copying
+    that into the frontend's committed `src/frontend/src/lib/api/openapi.json`
+    and regenerating the openapi-fetch types (`npm run gen:api`) is
+    task-076's job — task-075 only ensures the backend document is correct.
 
   Tests:
     REST IT under
@@ -91,16 +106,30 @@ steps:
         repository to populate display names)
 
   - |
-    Add `UndoConflictExceptionMapper.kt` under rest/. Map the
-    exception's `blockingEntry` plus the current draft's revision into
-    a `ConflictDetailsDto` and return `Response.status(409).entity(...)`.
+    Add `UndoConflictExceptionMapper.kt` under rest/. Re-load the
+    `blockingEntry` by id in a fresh transaction
+    (`QuarkusTransaction.requiringNew().call { … }`, injecting
+    `DraftMutationLogRepository`) so the `@ManyToOne(LAZY)` `user` and
+    `draftVersion` can be read while attached; map them (+
+    `draftVersion.revision` as `currentDraftRevision`) into a
+    `ConflictDetailsDto` and return `Response.status(409).entity(...)`.
 
   - |
-    Extend `EstimationVersionResource.kt` with three new methods
-    annotated with the appropriate `@POST` / `@GET`, `@Path`, and
-    `@RolesAllowed`. They delegate to `UndoService` and, for undo/redo,
-    return the recalculated `EstimationVersionDto` via the existing
-    `EstimationVersionMapper`.
+    Extend `EstimationVersionResource.kt` with three new methods, all
+    `@Transactional` (so entities stay attached — needed for the history
+    mapping and to run the undo/redo mutation):
+      - `undo` / `redo`: `@POST` + `@Path("/draft/undo" | "/draft/redo")`
+        + `@RolesAllowed("ESTIMATOR")`. Resolve the actor as `updateDraft`
+        does (`currentUserService.ensureUser(currentUserProvider.get())`),
+        call `undoService.undoLastForUser(eid, user)` /
+        `redoLastForUser(...)` (which mutate the draft entity), then build
+        the response exactly like `updateDraft` does — re-fetch the draft
+        and `draft.toDto(versionService.calculateDraft(draft))` (NOT map
+        the domain `EstimationVersion` the service returns; `toDto` maps
+        the entity + calc result).
+      - `history`: `@GET` + `@Path("/draft/history")`; no method-level
+        role (class-level `@RolesAllowed("VIEWER")` covers it). Delegate
+        to `undoService.historyFor(eid)` and map via `MutationLogMapper`.
 
   - |
     REST IT under
@@ -110,11 +139,17 @@ steps:
     from `EstimationVersionResourceIT`) for setup.
 
   - |
+    Update CLAUDE.md's "REST API surface" section to list the three new
+    endpoints under `EstimationVersionResource`: `POST …/draft/undo`,
+    `POST …/draft/redo` (both `409` on `UndoConflictException`), and
+    `GET …/draft/history`.
+
+  - |
     Build + verify OpenAPI is updated:
-      ./mvnw -pl src/backend/implementation -am test
-      grep -q "/versions/draft/undo" src/backend/implementation/target/generated/openapi.json
-      grep -q "/versions/draft/redo" src/backend/implementation/target/generated/openapi.json
-      grep -q "ConflictDetailsDto" src/backend/implementation/target/generated/openapi.json
+      ./gradlew :backend:implementation:test
+      grep -q "/versions/draft/undo" src/backend/implementation/target/openapi/openapi.json
+      grep -q "/versions/draft/redo" src/backend/implementation/target/openapi/openapi.json
+      grep -q "ConflictDetailsDto" src/backend/implementation/target/openapi/openapi.json
 
 validation:
   - |
@@ -125,11 +160,12 @@ validation:
       test -f src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/dto/ConflictDetailsDto.kt
       test -f src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/dto/MutationLogEntryDto.kt
       test -f src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/UndoConflictExceptionMapper.kt
+      grep -q "/draft/undo" CLAUDE.md
   - |
     Tests pass and OpenAPI is updated:
-      ./mvnw -pl src/backend/implementation -am test
-      grep -q "/versions/draft/undo" src/backend/implementation/target/generated/openapi.json
-      grep -q "/versions/draft/redo" src/backend/implementation/target/generated/openapi.json
+      ./gradlew :backend:implementation:test
+      grep -q "/versions/draft/undo" src/backend/implementation/target/openapi/openapi.json
+      grep -q "/versions/draft/redo" src/backend/implementation/target/openapi/openapi.json
 
 outputs:
   - created: src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/dto/ConflictDetailsDto.kt
@@ -137,4 +173,5 @@ outputs:
   - created: src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/dto/MutationLogMapper.kt
   - created: src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/UndoConflictExceptionMapper.kt
   - modified: src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/EstimationVersionResource.kt
+  - modified: CLAUDE.md
   - created: src/backend/implementation/src/test/kotlin/io/github/theestimator/rest/UndoEndpointsIT.kt

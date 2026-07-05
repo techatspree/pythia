@@ -6,6 +6,7 @@ import io.github.theestimator.repository.EstimationRepository
 import io.github.theestimator.rest.dto.DraftUpdateDto
 import io.github.theestimator.rest.dto.EstimationVersionSummaryDto
 import io.github.theestimator.rest.dto.toDto
+import io.github.theestimator.rest.dto.toLogDto
 import io.github.theestimator.rest.dto.toSummaryDto
 import io.github.theestimator.service.CsvExporter
 import io.github.theestimator.service.CurrentUserService
@@ -127,6 +128,44 @@ class EstimationVersionResource(
         ensureEstimationExists(estimationId)
         val submitted = versionService.submitDraft(estimationId)
         return Response.ok(submitted.toDto()).build()
+    }
+
+    @POST
+    @Path("/draft/undo")
+    @Transactional
+    @RolesAllowed("ESTIMATOR")
+    fun undoDraft(@PathParam("estimationId") estimationId: UUID): Response {
+        ensureEstimationExists(estimationId)
+        val user = currentUserService.ensureUser(currentUserProvider.get())
+        undoService.undoLastForUser(estimationId, user)
+        return recalculatedDraftResponse(estimationId)
+    }
+
+    @POST
+    @Path("/draft/redo")
+    @Transactional
+    @RolesAllowed("ESTIMATOR")
+    fun redoDraft(@PathParam("estimationId") estimationId: UUID): Response {
+        ensureEstimationExists(estimationId)
+        val user = currentUserService.ensureUser(currentUserProvider.get())
+        undoService.redoLastForUser(estimationId, user)
+        return recalculatedDraftResponse(estimationId)
+    }
+
+    @GET
+    @Path("/draft/history")
+    @Transactional
+    fun draftHistory(@PathParam("estimationId") estimationId: UUID): Response {
+        ensureEstimationExists(estimationId)
+        return Response.ok(undoService.historyFor(estimationId).map { it.toLogDto() }).build()
+    }
+
+    // The undo/redo mutation happens on the draft entity; re-read it and return
+    // the recalculated DTO exactly as updateDraft does.
+    private fun recalculatedDraftResponse(estimationId: UUID): Response {
+        val draft = versionService.findDraft(estimationId)
+            ?: throw NotFoundException("No draft found for estimation $estimationId")
+        return Response.ok(draft.toDto(versionService.calculateDraft(draft))).build()
     }
 
     @DELETE

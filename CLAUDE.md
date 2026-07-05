@@ -140,6 +140,9 @@ Base path `/api/`. Key endpoints under `EstimationVersionResource`:
 - `GET  /api/estimations/{eid}/versions/draft` — returns the draft with **on-the-fly calculated** values
 - `PUT  /api/estimations/{eid}/versions/draft` — body is `DraftUpdateDto`; replaces collections wholesale
 - `POST /api/estimations/{eid}/versions/draft/submit` — snapshot draft → SubmittedEstimationVersion
+- `POST /api/estimations/{eid}/versions/draft/undo` — undo this user's last mutation → recalculated draft; `409` (`ConflictDetailsDto`) if a newer change blocks it (task-075)
+- `POST /api/estimations/{eid}/versions/draft/redo` — redo the last undone mutation → recalculated draft; `409` on conflict
+- `GET  /api/estimations/{eid}/versions/draft/history` — the draft's mutation log (`List<MutationLogEntryDto>`, ACTIVE + UNDONE, ordered by sequence)
 - `GET  /api/estimations/{eid}/versions/{n}` — read a submitted version (stored calc values)
 - `GET  /api/estimations/{eid}/versions/{a}/compare/{b}` — diff (use `draft` for the live draft)
 - `GET  /api/estimations/{eid}/versions/{n}/export?format=xlsx|csv` — exports
