@@ -441,9 +441,9 @@
       "notes": ""
     },
     "task-074": {
-      "status": "pending",
-      "started_at": null,
-      "completed_at": null,
+      "status": "done",
+      "started_at": "2026-07-05T13:33:41+00:00",
+      "completed_at": "2026-07-05T13:47:52+00:00",
       "notes": ""
     },
     "task-075": {
@@ -549,10 +549,16 @@
       "notes": "Protect REST endpoints with @RolesAllowed + auth tests"
     },
     "task-092": {
+      "status": "done",
+      "started_at": "2026-07-05T09:05:54+00:00",
+      "completed_at": "2026-07-05T09:08:30+00:00",
+      "notes": "Harden auth: fail-closed default + no dev module in prod"
+    },
+    "task-093": {
       "status": "pending",
       "started_at": null,
       "completed_at": null,
-      "notes": "Harden auth: fail-closed default + no dev module in prod"
+      "notes": "Show a meaningful, user-facing error when an operation is denied for lack of authorization (403), instead of a generic error"
     }
   }
 }

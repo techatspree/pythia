@@ -37,6 +37,14 @@ calls, no tokens. It is the only module needed to run the application
 locally (`./scripts/dev.sh`), to execute the Playwright e2e
 suite, and for outside contributors who don't have an Entra tenant.
 
+**The `Authorization: Dev <subjectId>` header is forgeable** — it carries no
+signature or token, so anyone can claim any subject/role. It is therefore
+blocked outside dev/test, fail-closed: `app.auth.provider` has no default
+value (a profile that fails to set it will not start), and `AuthProviderGuard`
+refuses to boot when the `dev` provider is active under a `NORMAL` (production)
+launch. Production uses the `entra` module with signed OIDC Bearer tokens
+validated by `quarkus-oidc`.
+
 ## Hard-wired users
 
 | subjectId       | display name   | roles                              |

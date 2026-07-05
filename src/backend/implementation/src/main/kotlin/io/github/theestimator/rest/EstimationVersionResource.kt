@@ -1,5 +1,6 @@
 package io.github.theestimator.rest
 
+import io.github.theestimator.auth.CurrentUserProvider
 import io.github.theestimator.domain.submitted.SubmittedEstimationVersion
 import io.github.theestimator.repository.EstimationRepository
 import io.github.theestimator.rest.dto.DraftUpdateDto
@@ -7,10 +8,14 @@ import io.github.theestimator.rest.dto.EstimationVersionSummaryDto
 import io.github.theestimator.rest.dto.toDto
 import io.github.theestimator.rest.dto.toSummaryDto
 import io.github.theestimator.service.CsvExporter
+import io.github.theestimator.service.CurrentUserService
 import io.github.theestimator.service.DraftUpdateApplier
+import io.github.theestimator.service.DraftVersionMapper
 import io.github.theestimator.service.EstimationVersionService
 import io.github.theestimator.service.ExcelExporter
+import io.github.theestimator.service.UndoService
 import io.github.theestimator.service.VersionComparisonService
+import io.github.theestimator.service.toUpdateDto
 import jakarta.annotation.security.RolesAllowed
 import jakarta.enterprise.context.ApplicationScoped
 import jakarta.transaction.Transactional
@@ -41,7 +46,11 @@ class EstimationVersionResource(
     private val estimationRepository: EstimationRepository,
     private val excelExporter: ExcelExporter,
     private val csvExporter: CsvExporter,
-    private val draftUpdateApplier: DraftUpdateApplier
+    private val draftUpdateApplier: DraftUpdateApplier,
+    private val undoService: UndoService,
+    private val draftVersionMapper: DraftVersionMapper,
+    private val currentUserService: CurrentUserService,
+    private val currentUserProvider: CurrentUserProvider
 ) {
 
     @GET
@@ -93,7 +102,18 @@ class EstimationVersionResource(
         val draft = versionService.findDraft(estimationId)
             ?: throw NotFoundException("No draft found for estimation $estimationId")
 
+        // @RolesAllowed guarantees an authenticated request, so `current` is
+        // never null; UserProvisioningFilter has already provisioned the row,
+        // so this just fetches the User entity to attribute the mutation to.
+        val user = currentUserService.ensureUser(currentUserProvider.get())
+        val beforeDto = draft.toUpdateDto()
+        val before = draftVersionMapper.toDomain(draft)
+
         draftUpdateApplier.apply(draft, update)
+
+        val afterDto = draft.toUpdateDto()
+        val after = draftVersionMapper.toDomain(draft)
+        undoService.recordMutation(draft, before, after, beforeDto, afterDto, user)
 
         val result = versionService.calculateDraft(draft)
         return Response.ok(draft.toDto(result)).build()

@@ -15,7 +15,10 @@ import io.github.theestimator.rest.dto.PhaseUpdateDto
 // the inverse of DraftUpdateApplier. `apply(draft, draft.toUpdateDto())` is an
 // identity on state; the Undo service uses this to snapshot before/after.
 fun DraftEstimationVersion.toUpdateDto(): DraftUpdateDto = DraftUpdateDto(
-    notes = notes,
+    // Non-null so a snapshot is a FULL state: DraftUpdateApplier treats a null
+    // field as "leave unchanged" (wire-PUT semantics), which would make undo
+    // unable to clear notes. Every list field below is likewise always present.
+    notes = notes ?: "",
     parameters = parameters.map {
         EstimationParameterDto(name = it.name, value = it.value, comment = it.comment)
     },

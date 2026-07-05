@@ -16,6 +16,9 @@ class DraftMutationLogRepository : PanacheRepositoryBase<DraftMutationLogEntry, 
             DraftMutationStatus.ACTIVE
         )
 
+    fun findAllByDraftIdOrderBySequence(draftId: UUID): List<DraftMutationLogEntry> =
+        list("draftVersion.id = ?1 order by sequenceNumber asc", draftId)
+
     fun findLatestActiveForDraft(draftId: UUID): DraftMutationLogEntry? =
         find(
             "draftVersion.id = ?1 and status = ?2 order by sequenceNumber desc",

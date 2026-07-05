@@ -1,0 +1,202 @@
+id: task-093
+phase: phase-2
+title: Meaningful error message on authorization failure (401/403)
+depends_on: [task-008]
+description: |
+  CURRENT STATE
+    When a backend call fails because the user is not authorized, the UI
+    shows a generic message. The frontend surfaces failures through the
+    shared `ErrorBanner`, but the ~10 call sites that talk to the backend
+    do so with hard-coded generic text, e.g.
+      `if (!res.ok) throw new Error('Failed to load projects');`
+      `if (!res.ok) throw new Error(`Failed to load version (${res.status})`);`
+      `if (!res.ok) throw new Error('Save failed');`
+    so a 403 (authenticated but lacking the required role — e.g. a VIEWER
+    trying to create/save/submit, which needs ESTIMATOR) and a 401
+    (session expired / not signed in) both render the same unhelpful
+    string. The user cannot tell "you are not allowed to do this" from
+    "something went wrong".
+    On the backend, `@RolesAllowed` denials propagate as Quarkus'
+    `io.quarkus.security.ForbiddenException` (→ 403) and
+    `io.quarkus.security.UnauthorizedException` (→ 401). There is NO
+    JAX-RS `ExceptionMapper` in the codebase, so these responses carry no
+    structured body the frontend could read.
+
+  TARGET STATE
+    - The backend returns a small JSON error body for authorization
+      failures — `{ "message": "...", "status": 403 }` — via two JAX-RS
+      `ExceptionMapper` providers, so the denial reason is authoritative
+      and machine-readable. Each mapper logs the denial (WARN for 403,
+      INFO for 401) with the request path per the CLAUDE.md logging
+      convention.
+    - The frontend gains ONE shared helper that maps a failed `Response`
+      to a meaningful, user-facing message — preferring a `message` field
+      from the JSON body when present, otherwise falling back to a
+      status-specific default:
+        * 401 → "Your session has expired or you are not signed in. Please sign in again."
+        * 403 → "You are not authorized to perform this action. Ask an administrator if you need access."
+        * 404 → the caller's contextual fallback (e.g. "Project not found").
+        * other → the caller's contextual fallback, else a generic
+          "The request failed (HTTP <status>)."
+      Every generic `if (!res.ok) throw new Error('…')` call site is
+      routed through this helper, so a 403 anywhere in the app now yields
+      the meaningful authorization message in the existing `ErrorBanner`.
+      The version-submit path (which currently ignores a non-OK response
+      entirely) is fixed to surface the error too.
+
+  KEY DECISIONS (leave no ambiguity)
+    - User-facing strings stay in ENGLISH, matching the existing UI chrome
+      and error strings (the German vocabulary in this project is the
+      estimation domain terms — Aufwand, Risiko — not the app chrome).
+    - The message-mapping logic lives in exactly one place
+      (`src/frontend/src/lib/api/errors.ts`); do NOT scatter status
+      checks across pages. This is the frontend's single seam for turning
+      HTTP failures into human text, complementing the existing single
+      request seam `src/lib/api/fetch.ts` (`apiFetch`).
+    - The CLAUDE.md error-surfacing rule still holds: failures surface via
+      `ErrorBanner` (they already do at every touched call site); the new
+      helper only improves the message. Keep every `log.error(...)` that
+      is already at the call sites; never introduce bare `console.*`.
+    - No new REST endpoint, no schema change, no `schema.d.ts`
+      regeneration: the mappers only change the body of existing error
+      responses, which are not part of the typed openapi paths.
+    - Map Quarkus' security exceptions
+      (`io.quarkus.security.ForbiddenException`,
+      `io.quarkus.security.UnauthorizedException`), NOT the JAX-RS
+      `jakarta.ws.rs.*` variants — the former are what `@RolesAllowed`
+      denials actually throw. A user `ExceptionMapper` takes priority over
+      Quarkus' built-in defaults.
+
+steps:
+  - |
+    Backend — add the JSON error mappers. Create
+    `src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/error/AuthorizationExceptionMappers.kt`
+    (package `io.github.theestimator.rest.error`) containing:
+      - a small serializable payload
+        `data class ApiError(val message: String, val status: Int)`;
+      - `@Provider class ForbiddenExceptionMapper : ExceptionMapper<io.quarkus.security.ForbiddenException>`
+        whose `toResponse(e)` logs
+        `Log.warn("Access denied (403) …")` (include the request path —
+        inject `@Context uriInfo: UriInfo` and use `uriInfo.path`) and
+        returns `Response.status(403).entity(ApiError("You are not
+        authorized to perform this action.", 403))
+        .type(MediaType.APPLICATION_JSON).build()`;
+      - `@Provider class UnauthorizedExceptionMapper : ExceptionMapper<io.quarkus.security.UnauthorizedException>`
+        that logs `Log.info("Unauthenticated request (401) …")` and
+        returns a 401 `ApiError("Authentication required.", 401)` as JSON.
+    Use the static `io.quarkus.logging.Log` API (no per-class logger).
+  - |
+    Frontend — add the shared error-message helper
+    `src/frontend/src/lib/api/errors.ts` exporting:
+      - `interface ApiErrorBody { message?: string; status?: number }`
+      - `messageForStatus(status: number, fallback?: string): string`
+        implementing the 401 / 403 / 404 / default mapping from the
+        description (401 and 403 return their fixed authorization
+        messages; 404 and default return `fallback` when provided).
+      - `async function assertOk(res: Response, fallback?: string): Promise<void>`
+        that returns immediately when `res.ok`; otherwise tries
+        `await res.clone().json()` and, if the parsed body has a non-empty
+        string `message`, throws `new Error(body.message)`; on any parse
+        failure or missing message, throws
+        `new Error(messageForStatus(res.status, fallback))`.
+        (Use `res.clone()` so a caller that still wants the body is
+        unaffected. Wrap the JSON parse in try/catch; do not use
+        `console.*` — this helper does no logging, the call sites do.)
+  - |
+    Frontend — route every generic non-OK throw through `assertOk`,
+    importing it from `$lib/api/errors`. Replace the
+    `if (!res.ok) throw new Error('…')` lines with
+    `await assertOk(res, '<contextual fallback>')` in:
+      - `src/frontend/src/routes/projects/+page.svelte` (load list →
+        fallback 'Failed to load projects')
+      - `src/frontend/src/routes/projects/[id]/+page.svelte` (fallback
+        'Project not found')
+      - `src/frontend/src/routes/estimations/[id]/+page.svelte` (three
+        sites: load 'Estimation not found', create-version 'Failed to
+        create version', submit 'Failed to submit version')
+      - `src/frontend/src/routes/estimations/[id]/versions/[versionNumber]/+page.svelte`
+        (load 'Failed to load version'; save 'Save failed'; AND fix the
+        submit call that currently does `if (res.ok) goto(...)` with no
+        else — add `else await assertOk(res, 'Failed to submit version')`
+        or equivalent so a denied submit surfaces the message)
+      - `src/frontend/src/routes/estimations/[id]/compare/+page.svelte`
+        (the three `Failed to load … (${res.status})` sites → pass a
+        contextual fallback, let 401/403 override)
+      - `src/frontend/src/lib/components/CreateProjectDialog.svelte`
+        (fallback 'Failed to create project')
+    Keep the surrounding `try/catch` + `bannerMessage = e.message` +
+    `log.error(...)` intact so the message still reaches `ErrorBanner`.
+  - |
+    Backend test — create
+    `src/backend/implementation/src/test/kotlin/io/github/theestimator/rest/AuthorizationErrorIT.kt`
+    as a `@QuarkusTest` using rest-assured. Assert:
+      - a VIEWER write is denied with a JSON body: `given().header(
+        "Authorization", "Dev dev-viewer").post("/api/projects")` →
+        `statusCode(403)`, `contentType(ContentType.JSON)`, body
+        `"message"` not blank and `"status"` == 403;
+      - an anonymous request → `statusCode(401)` with a JSON `"message"`.
+    (dev-viewer / anonymous behaviour already exists per
+    `e2e/endpoint-authorization.test.ts`; this test pins the new JSON
+    body shape.)
+  - |
+    Frontend e2e — add
+    `src/frontend/e2e/authorization-error.test.ts` (Playwright) that logs
+    in through the UI as `dev-viewer` via the `loginAsDev` helper
+    (`./e2e/helpers.ts`), triggers a write a VIEWER may not perform (open
+    the create-project dialog on `/projects` and submit, which POSTs and
+    gets 403), and asserts the `ErrorBanner` (`role="alert"`) becomes
+    visible with text matching /not authorized/i — i.e. the meaningful
+    message, not a generic one. Mirror the storageState/login setup used
+    in `endpoint-authorization.test.ts`.
+  - |
+    Build & verify (full stack): run
+      ./gradlew build
+      ./gradlew :frontend:check
+    then run the Playwright e2e suite against the running dev stack
+    (`./scripts/dev.sh`, Docker up):
+      cd src/frontend && npm run test:e2e
+    All must pass.
+
+validation:
+  - |
+    Backend mappers exist, map the Quarkus security exceptions, return
+    JSON, and log:
+      test -f src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/error/AuthorizationExceptionMappers.kt
+      grep -q "ExceptionMapper<io.quarkus.security.ForbiddenException>" src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/error/AuthorizationExceptionMappers.kt
+      grep -q "ExceptionMapper<io.quarkus.security.UnauthorizedException>" src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/error/AuthorizationExceptionMappers.kt
+      grep -q "Log\." src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/error/AuthorizationExceptionMappers.kt
+  - |
+    Frontend helper exists, maps 401/403, and uses no bare console:
+      test -f src/frontend/src/lib/api/errors.ts
+      grep -q "messageForStatus" src/frontend/src/lib/api/errors.ts
+      grep -q "assertOk" src/frontend/src/lib/api/errors.ts
+      grep -q "not authorized" src/frontend/src/lib/api/errors.ts
+      ! grep -q "console\." src/frontend/src/lib/api/errors.ts
+  - |
+    Generic throws are replaced by the shared helper at the call sites
+    (spot-check the two representative pages):
+      grep -q "assertOk" src/frontend/src/routes/projects/+page.svelte
+      grep -q "assertOk" "src/frontend/src/routes/estimations/[id]/versions/[versionNumber]/+page.svelte"
+      ! grep -q "throw new Error('Failed to load projects')" src/frontend/src/routes/projects/+page.svelte
+  - |
+    Tests exist:
+      test -f src/backend/implementation/src/test/kotlin/io/github/theestimator/rest/AuthorizationErrorIT.kt
+      grep -q "statusCode(403)" src/backend/implementation/src/test/kotlin/io/github/theestimator/rest/AuthorizationErrorIT.kt
+      test -f src/frontend/e2e/authorization-error.test.ts
+      grep -qi "not authorized" src/frontend/e2e/authorization-error.test.ts
+  - |
+    Full build and frontend check are green:
+      ./gradlew build
+      ./gradlew :frontend:check
+
+outputs:
+  - created: src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/error/AuthorizationExceptionMappers.kt
+  - created: src/backend/implementation/src/test/kotlin/io/github/theestimator/rest/AuthorizationErrorIT.kt
+  - created: src/frontend/src/lib/api/errors.ts
+  - created: src/frontend/e2e/authorization-error.test.ts
+  - modified: src/frontend/src/routes/projects/+page.svelte
+  - modified: src/frontend/src/routes/projects/[id]/+page.svelte
+  - modified: src/frontend/src/routes/estimations/[id]/+page.svelte
+  - modified: src/frontend/src/routes/estimations/[id]/versions/[versionNumber]/+page.svelte
+  - modified: src/frontend/src/routes/estimations/[id]/compare/+page.svelte
+  - modified: src/frontend/src/lib/components/CreateProjectDialog.svelte

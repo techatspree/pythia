@@ -9,9 +9,10 @@ description: |
   Recording rule:
     Every draft-changing `updateDraft` inserts exactly one
     `DraftMutationLogEntry`. The update flow lives in
-    `EstimationVersionResource.updateDraft` (the clear-and-rebuild
-    `applyParameters/…/applyRoots` helpers) — that is the natural
-    boundary: capture the pre-state, apply the update as today, capture
+    `EstimationVersionResource.updateDraft`, which (since task-088)
+    delegates the clear-and-rebuild to `draftUpdateApplier.apply(draft,
+    update)` — that call is the natural boundary: capture the pre-state,
+    apply the update as today, capture
     the post-state, compute the `DraftMutation` via the domain extension
     `EstimationVersion.diff(other)`. If `diff` returns `null` (the PUT
     changed nothing) skip everything — no log entry, no revision bump.
@@ -135,10 +136,19 @@ steps:
     Modify `EstimationVersionResource.updateDraft` (which, after task-088,
     delegates the apply to `draftUpdateApplier.apply(draft, update)`) so
     that:
+      - PRESERVE the existing `@RolesAllowed("ESTIMATOR")` on
+        `updateDraft` (added by task-091) — do not drop it when editing
+        the method; removing it reopens the security hole task-091 closed.
       - `UndoService`, `DraftVersionMapper`, `CurrentUserService`, and
         `CurrentUserProvider` are added to the resource's constructor
         injection (it currently injects none of them). Resolve the actor
         once: `val user = currentUserService.ensureUser(currentUserProvider.get())`.
+        Because `updateDraft` is `@RolesAllowed`, the request is always
+        authenticated, so `currentUserProvider.get()` is never null here
+        (no null-handling needed); and task-091's `UserProvisioningFilter`
+        has already provisioned the `User`, so this `ensureUser` call just
+        finds the existing row (it's the clean way to obtain the `User`
+        entity to pass to `recordMutation`).
       - BEFORE the apply call it captures `beforeDto = draft.toUpdateDto()`
         (task-088) and `before = draftVersionMapper.toDomain(draft)`.
       - AFTER the apply call it captures `afterDto = draft.toUpdateDto()`
@@ -195,8 +205,10 @@ validation:
       grep -q "fun redoLastForUser" src/backend/implementation/src/main/kotlin/io/github/theestimator/service/UndoService.kt
       grep -q "fun recordMutation" src/backend/implementation/src/main/kotlin/io/github/theestimator/service/UndoService.kt
   - |
-    Recording is wired into the update flow (in the REST resource):
+    Recording is wired into the update flow (in the REST resource), and
+    the task-091 authorization annotation is preserved:
       grep -q "recordMutation" src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/EstimationVersionResource.kt
+      grep -q "@RolesAllowed(\"ESTIMATOR\")" src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/EstimationVersionResource.kt
   - |
     UndoService logs via the Quarkus Log API, and the history finder exists:
       grep -q "Log\." src/backend/implementation/src/main/kotlin/io/github/theestimator/service/UndoService.kt

@@ -1,0 +1,130 @@
+id: task-092
+phase: phase-2
+title: Harden auth — fail-closed default + no dev auth in prod
+depends_on: [task-091]
+description: |
+  The dev auth module accepts a plain, forgeable `Authorization: Dev
+  <subjectId>` header with NO cryptographic verification (it just looks
+  the subject up in the hard-wired `DEV_USERS` map). That is fine for
+  `%dev`/`%test`, but two things make its selection fail-OPEN:
+
+  1. `application.properties` line 21 sets an UNPROFILED base default
+     `app.auth.provider=dev`. All four real profiles override it
+     (`%dev`/`%test` → dev, `%prod`/`%dev-minikube` → entra), and a
+     standard prod build runs the `prod` profile so `@IfBuildProperty`
+     excludes the dev beans — but the base default still means "if a
+     profile forgets to set it, silently use the forgeable module."
+  2. There is no runtime guard that refuses to run the dev (forgeable)
+     provider under a production-like launch. If a build/deploy ever
+     selected `dev` outside dev/test, anonymous callers could mint any
+     identity/role.
+
+  Target state — fail CLOSED:
+    - Remove the unprofiled `app.auth.provider=dev` default so the
+      property is REQUIRED. `AuthConfig`'s
+      `@ConfigProperty(name = "app.auth.provider")` has no `defaultValue`,
+      so a profile that doesn't set it fails to start (missing required
+      config) rather than defaulting to the forgeable module. All four
+      existing profiles set it explicitly, so nothing regresses.
+    - Add a startup guard bean that observes `StartupEvent` and REFUSES
+      TO START (throws, after an ERROR log) when the active provider is
+      `dev` but the launch mode is `NORMAL` (production-like). Under
+      `DEVELOPMENT` (quarkusDev) or `TEST` launch, `dev` is allowed; the
+      `entra` provider is always allowed. This turns "forgeable auth in
+      prod" from a silent security hole into a hard boot failure. Log the
+      active provider at INFO on normal startup.
+    - Document the invariant (dev module is forgeable; never runs outside
+      dev/test; enforced by the guard + required config) in
+      `docs/authentication.md` and CLAUDE.md.
+
+  Key design decisions:
+    - Use `io.quarkus.runtime.LaunchMode.current()` (NORMAL /
+      DEVELOPMENT / TEST) as the "is this a real deployment" signal —
+      `%dev-minikube` runs as `NORMAL` but selects `entra`, so it is
+      unaffected; only `dev` + `NORMAL` trips the guard.
+    - Extract the decision into a pure, testable function
+      `fun devProviderAllowed(provider: String, launchMode: LaunchMode): Boolean`
+      (returns `false` only for `dev` + `NORMAL`) so it can be unit-tested
+      without booting Quarkus.
+    - Backend-only; no domain, frontend, schema, or migration changes.
+
+steps:
+  - |
+    Start:
+      ./scripts/task.sh start task-092
+
+  - |
+    In src/backend/implementation/src/main/resources/application.properties
+    remove the unprofiled base line `app.auth.provider=dev` (currently
+    line 21). Leave the four profile-specific lines intact
+    (`%dev`/`%test` → dev, `%prod`/`%dev-minikube` → entra). This makes
+    `app.auth.provider` required — `AuthConfig`'s `@ConfigProperty` has no
+    `defaultValue`, so any profile lacking the property now fails startup
+    (fail-closed) instead of silently using the dev module. Confirm
+    `AuthConfig.kt` still declares NO `defaultValue` on that
+    `@ConfigProperty` — the entire fail-closed guarantee depends on it —
+    and do not add one.
+
+  - |
+    Add `AuthProviderGuard.kt` under
+    src/backend/implementation/src/main/kotlin/io/github/theestimator/auth/
+    as an `@ApplicationScoped` bean:
+      - Inject `AuthConfig` (for `activeProvider`).
+      - A pure function
+        `fun devProviderAllowed(provider: String, launchMode: LaunchMode): Boolean =`
+        `provider != "dev" || launchMode != LaunchMode.NORMAL`.
+      - `fun onStart(@Observes ev: io.quarkus.runtime.StartupEvent)` that
+        reads `LaunchMode.current()`, and if
+        `!devProviderAllowed(authConfig.activeProvider, launchMode)`:
+        `Log.error(...)` a clear, ACTIONABLE message (name the fix — set
+        `app.auth.provider=entra` for production) and throw
+        `IllegalStateException("Refusing to start: the forgeable 'dev' auth provider is active under a NORMAL (production) launch — set app.auth.provider=entra")`.
+        Otherwise `Log.info("Auth provider: <activeProvider>")`.
+      Use the static `io.quarkus.logging.Log` API (no per-class logger),
+      per the CLAUDE.md backend logging conventions.
+
+  - |
+    Add unit test `AuthProviderGuardTest.kt` under
+    src/backend/implementation/src/test/kotlin/io/github/theestimator/auth/
+    (plain JUnit 5, no `@QuarkusTest` needed — call the pure function):
+      - `devProviderAllowed("dev", LaunchMode.NORMAL)` is false.
+      - `devProviderAllowed("dev", LaunchMode.DEVELOPMENT)` is true.
+      - `devProviderAllowed("dev", LaunchMode.TEST)` is true.
+      - `devProviderAllowed("entra", LaunchMode.NORMAL)` is true.
+
+  - |
+    Update docs: add to `docs/authentication.md` (in the dev-module
+    section) and CLAUDE.md's auth section that the dev module's
+    `Authorization: Dev <subjectId>` header is forgeable and is BLOCKED
+    outside dev/test — `app.auth.provider` is required (no fail-open
+    default) and `AuthProviderGuard` refuses to boot the dev provider
+    under a `NORMAL` launch.
+
+  - |
+    Build:
+      ./gradlew :backend:implementation:test
+
+validation:
+  - |
+    The fail-open default is gone but the profile-specific values remain:
+      ! grep -qE "^app.auth.provider=dev" src/backend/implementation/src/main/resources/application.properties
+      grep -q "%prod.app.auth.provider=entra" src/backend/implementation/src/main/resources/application.properties
+      grep -q "%dev.app.auth.provider=dev" src/backend/implementation/src/main/resources/application.properties
+      ! grep -q "defaultValue" src/backend/implementation/src/main/kotlin/io/github/theestimator/auth/AuthConfig.kt
+  - |
+    The guard exists, observes startup, logs, and can throw:
+      test -f src/backend/implementation/src/main/kotlin/io/github/theestimator/auth/AuthProviderGuard.kt
+      grep -q "StartupEvent" src/backend/implementation/src/main/kotlin/io/github/theestimator/auth/AuthProviderGuard.kt
+      grep -q "devProviderAllowed" src/backend/implementation/src/main/kotlin/io/github/theestimator/auth/AuthProviderGuard.kt
+      grep -q "Log\." src/backend/implementation/src/main/kotlin/io/github/theestimator/auth/AuthProviderGuard.kt
+      test -f src/backend/implementation/src/test/kotlin/io/github/theestimator/auth/AuthProviderGuardTest.kt
+  - |
+    Backend suite passes (app still boots under %test = dev + TEST launch):
+      ./gradlew :backend:implementation:test
+
+outputs:
+  - modified: src/backend/implementation/src/main/resources/application.properties
+  - created: src/backend/implementation/src/main/kotlin/io/github/theestimator/auth/AuthProviderGuard.kt
+  - created: src/backend/implementation/src/test/kotlin/io/github/theestimator/auth/AuthProviderGuardTest.kt
+  - modified: docs/authentication.md
+  - modified: CLAUDE.md

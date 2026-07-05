@@ -11,6 +11,8 @@ import jakarta.persistence.JoinColumn
 import jakarta.persistence.ManyToOne
 import jakarta.persistence.Table
 import org.hibernate.annotations.JdbcTypeCode
+import org.hibernate.annotations.OnDelete
+import org.hibernate.annotations.OnDeleteAction
 import org.hibernate.type.SqlTypes
 import java.time.Instant
 
@@ -18,8 +20,12 @@ import java.time.Instant
 @Table(name = "draft_mutation_log")
 class DraftMutationLogEntry : BaseEntity() {
 
+    // @OnDelete → Hibernate emits the FK with ON DELETE CASCADE (matching the
+    // V8 migration), so deleting the draft (on submit/delete) removes its log
+    // entries at the DB in BOTH the Flyway and Hibernate drop-and-create schemas.
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "draft_version_id", nullable = false)
+    @OnDelete(action = OnDeleteAction.CASCADE)
     var draftVersion: DraftEstimationVersion? = null
 
     @ManyToOne(fetch = FetchType.LAZY)
