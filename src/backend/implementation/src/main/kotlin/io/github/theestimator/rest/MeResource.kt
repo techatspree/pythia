@@ -2,6 +2,7 @@ package io.github.theestimator.rest
 
 import io.github.theestimator.auth.CurrentUserProvider
 import io.github.theestimator.auth.Role
+import io.github.theestimator.service.CurrentUserService
 import jakarta.enterprise.context.ApplicationScoped
 import jakarta.ws.rs.GET
 import jakarta.ws.rs.Path
@@ -19,7 +20,10 @@ data class CurrentUserDto(
 
 @ApplicationScoped
 @Path("/api/auth")
-class MeResource(private val currentUserProvider: CurrentUserProvider) {
+class MeResource(
+    private val currentUserProvider: CurrentUserProvider,
+    private val currentUserService: CurrentUserService
+) {
 
     @GET
     @Path("/me")
@@ -27,6 +31,7 @@ class MeResource(private val currentUserProvider: CurrentUserProvider) {
     fun me(): Response {
         val u = currentUserProvider.current
             ?: return Response.status(Response.Status.UNAUTHORIZED).build()
+        currentUserService.ensureUser(u)
         return Response.ok(
             CurrentUserDto(
                 subjectId = u.subjectId,

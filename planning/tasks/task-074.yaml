@@ -1,7 +1,7 @@
 id: task-074
 phase: phase-12
 title: Backend service — record, undo, redo, conflict detection
-depends_on: [task-072, task-073, task-088]
+depends_on: [task-072, task-073, task-088, task-089]
 description: |
   Wire the DraftMutation model (task-072) and the mutation log
   (task-073) into the existing draft-edit flow.
@@ -16,20 +16,22 @@ description: |
     `EstimationVersion.diff(other)`. If `diff` returns `null` (the PUT
     changed nothing) skip everything — no log entry, no revision bump.
     Otherwise persist the log entry, increment the draft's `revision`
-    counter and stamp `lastModifiedBy` / `lastModifiedAt`. The current
-    user's UUID is resolved via `CurrentUserProvider.get().subjectId` →
-    `UserRepository.findByEntraSubjectId(subjectId)` → `User.id`.
+    counter and stamp `lastModifiedBy` / `lastModifiedAt`. The actor is a
+    persisted `User` resolved at the request edge via
+    `currentUserService.ensureUser(currentUserProvider.get())` (task-089)
+    and passed into the service — the service methods take the `User`, so
+    they stay pure (and unit-testable without a request context).
 
   The same rule applies to `createDraft` (no pre-state — skip
   logging) but NOT to `submitDraft` (a snapshot, not a mutation; the
   log is cleared on submit because the draft is gone — handled below).
 
   Undo:
-    `undoLastForUser(estimationId)` (currentUserId resolved internally
-    from `CurrentUserProvider`, as above):
+    `undoLastForUser(estimationId, user: User)` (the actor is passed in,
+    resolved at the request edge via task-089):
       1. Resolve the draft for `estimationId`. If none, 404.
       2. Find latest ACTIVE entry on this draft via
-         `findLatestActiveForUserOnDraft(draft.id, currentUserId)`.
+         `findLatestActiveForUserOnDraft(draft.id, user.id)`.
          If null → 404 "Nothing to undo".
       3. Conflict check: also fetch `findLatestActiveForDraft(draft.id)`.
          If that entry's id != the user's-latest entry id, throw
@@ -45,7 +47,7 @@ description: |
          `draftVersionMapper.toDomain(draft)`.
 
   Redo:
-    `redoLastForUser(estimationId)` (currentUserId resolved internally):
+    `redoLastForUser(estimationId, user: User)`:
       1. Find the latest UNDONE entry for this draft via
          `findLatestUndoneForDraft`. If null → 404.
       2. Conflict check: if the latest ACTIVE entry's
@@ -65,14 +67,17 @@ description: |
 
   History:
     `historyFor(estimationId): List<DraftMutationLogEntry>` for the
-    REST endpoint (task-075). Returns entries ordered by
-    `sequence_number ASC`, both ACTIVE and UNDONE.
+    REST endpoint (task-075). Resolve the draft for `estimationId`; if
+    none, 404 (consistent with undo/redo). Otherwise return the entries
+    from `findAllByDraftIdOrderBySequence(draft.id)` — both ACTIVE and
+    UNDONE, ordered by `sequence_number ASC` (may be empty).
 
   Implementation notes:
     - New service `UndoService` under `service/`. Inject
-      `DraftEstimationVersionRepository`,
-      `DraftMutationLogRepository`, `DraftVersionMapper`,
-      `CurrentUserProvider`, `UserRepository`, and `AuditLogService`.
+      `DraftEstimationVersionRepository`, `DraftMutationLogRepository`,
+      `DraftVersionMapper`, the `ObjectMapper` (via `DraftMutationJackson`),
+      and `AuditLogService`. It does NOT resolve the current user itself —
+      every method takes the resolved `User` (see task-089).
     - Serialisation uses the Jackson-clean **wire DTOs**, NOT the raw
       domain types (those lose data through Jackson — see task-088). Each
       log entry stores a `StoredMutation(kind, before, after)` where
@@ -92,6 +97,12 @@ description: |
     - All three methods are `@Transactional`. Log at INFO on success
       (estimation id, kind, user) and ERROR on caught failures, per
       the task-071 conventions.
+    - `undoLastForUser` and `redoLastForUser` each write an audit entry
+      via `AuditLogService.log(user.id, "DraftEstimationVersion",
+      draft.id, "UNDO" / "REDO", "revision=<after>")` — consistent with
+      how create / submit / delete already audit. (This is what the
+      injected `AuditLogService` is for; `recordMutation` does not audit —
+      the log entry itself is the record.)
 
   Out of scope:
     - REST endpoints (task-075).
@@ -116,25 +127,28 @@ steps:
   - |
     Add `UndoService.kt` under the same package with the three public
     methods described:
-      fun recordMutation(draft: DraftEstimationVersion, before: EstimationVersion, after: EstimationVersion, beforeDto: DraftUpdateDto, afterDto: DraftUpdateDto)
-      fun undoLastForUser(estimationId: UUID): EstimationVersion
-      fun redoLastForUser(estimationId: UUID): EstimationVersion
+      fun recordMutation(draft: DraftEstimationVersion, before: EstimationVersion, after: EstimationVersion, beforeDto: DraftUpdateDto, afterDto: DraftUpdateDto, user: User)
+      fun undoLastForUser(estimationId: UUID, user: User): EstimationVersion
+      fun redoLastForUser(estimationId: UUID, user: User): EstimationVersion
       fun historyFor(estimationId: UUID): List<DraftMutationLogEntry>
 
     Modify `EstimationVersionResource.updateDraft` (which, after task-088,
     delegates the apply to `draftUpdateApplier.apply(draft, update)`) so
     that:
-      - `UndoService` is injected into the resource.
+      - `UndoService`, `DraftVersionMapper`, `CurrentUserService`, and
+        `CurrentUserProvider` are added to the resource's constructor
+        injection (it currently injects none of them). Resolve the actor
+        once: `val user = currentUserService.ensureUser(currentUserProvider.get())`.
       - BEFORE the apply call it captures `beforeDto = draft.toUpdateDto()`
         (task-088) and `before = draftVersionMapper.toDomain(draft)`.
       - AFTER the apply call it captures `afterDto = draft.toUpdateDto()`
         and `after = draftVersionMapper.toDomain(draft)`, then calls
-        `undoService.recordMutation(draft, before, after, beforeDto, afterDto)`
+        `undoService.recordMutation(draft, before, after, beforeDto, afterDto, user)`
         — which no-ops when `before.diff(after)` is `null`, otherwise
         inserts the log entry (a `StoredMutation` of the DTO snapshots),
-        bumps `draft.revision`, and stamps `lastModifiedBy`/`lastModifiedAt`
-        (current user resolved inside the service). Keep all existing
-        behaviour (`calculateDraft`, `toDto`, audit logging) untouched.
+        bumps `draft.revision`, and stamps `lastModifiedBy`/`lastModifiedAt`.
+        Keep all existing behaviour (`calculateDraft`, `toDto`, audit
+        logging) untouched.
 
   - |
     Verify `submitDraft` cleans up: because `draft_mutation_log` has
@@ -146,13 +160,18 @@ steps:
   - |
     Unit + integration tests under
     src/backend/implementation/src/test/kotlin/io/github/theestimator/service/:
-      - UndoServiceIT: updateDraft → undo → state equals pre-update;
-        redo → state equals post-update; double-undo fails with 404
-        when nothing left.
-      - UndoConflictIT: simulate user A's update, then user B's
-        update (via two different SecurityIdentity setups), then A's
-        undo attempt → expect `UndoConflictException` carrying B's
-        entry as the blocker.
+      - UndoServiceIT: persist a `User`, then drive recording by calling
+        `undoService.recordMutation(...)` directly with that user and
+        captured before/after snapshots (no REST/request context needed);
+        `undoLastForUser(eid, user)` → draft state equals pre-update;
+        `redoLastForUser(eid, user)` → equals post-update; a further undo
+        with nothing left → 404.
+      - UndoConflictIT: persist two `User` rows (userA, userB). Record
+        userA's mutation passing userA, then userB's mutation passing
+        userB, then `undoLastForUser(eid, userA)` → expect
+        `UndoConflictException` carrying userB's entry as the blocker.
+        Pure service-level — the methods take the `User`, so no request
+        context or auth header is needed.
       - UndoServiceSubmitClearsLogIT (above).
 
   - |

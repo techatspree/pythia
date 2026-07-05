@@ -4,6 +4,7 @@
 	import { onMount } from 'svelte';
 	import ProjectDetail from '$lib/components/ProjectDetail.svelte';
 	import ErrorBanner from '$lib/components/ErrorBanner.svelte';
+	import { apiFetch } from '$lib/api/fetch';
 
 	let project = $state<any | null>(null);
 	let loading = $state(true);
@@ -12,7 +13,7 @@
 	onMount(async () => {
 		const id = page.params.id;
 		try {
-			const res = await fetch(`/api/projects/${id}`);
+			const res = await apiFetch(`/api/projects/${id}`);
 			if (!res.ok) throw new Error('Project not found');
 			project = await res.json();
 		} catch (e: any) {

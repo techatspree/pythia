@@ -2,6 +2,12 @@ import { test, expect, type Page, type Locator } from '@playwright/test';
 
 const API = 'http://localhost:8080';
 
+// The API endpoints are role-protected (task-091). Raw `page.request` calls
+// bypass the frontend's apiFetch, so authenticate the request context as
+// dev-admin (all roles) — the UI navigations already run as dev-admin via the
+// global storageState.
+test.use({ extraHTTPHeaders: { Authorization: 'Dev dev-admin' } });
+
 /** Minimal shape of an estimation node as returned by the REST API, used to
     type the JSON traversal in assertions below. */
 type FetchedNode = {

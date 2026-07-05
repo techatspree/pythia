@@ -7,6 +7,23 @@ STATUS_FILE="$PROJECT_ROOT/planning/status.json"
 TASKS_DIR="$PROJECT_ROOT/planning/tasks"
 PLAN_FILE="$PROJECT_ROOT/planning/plan.yaml"
 
+# Only list tasks that are still pending (neither done nor in progress).
+PENDING_ONLY=false
+for arg in "$@"; do
+  case "$arg" in
+    --pending) PENDING_ONLY=true ;;
+    -h|--help)
+      echo "Usage: $(basename "$0") [--pending]"
+      echo "  --pending   Only list tasks that are still pending."
+      exit 0
+      ;;
+    *)
+      echo "Error: unknown option '$arg' (try --help)" >&2
+      exit 1
+      ;;
+  esac
+done
+
 if ! command -v jq &>/dev/null; then
   echo "Error: jq is required. Install with: brew install jq" >&2
   exit 1
@@ -72,11 +89,19 @@ render_phase() {
   pdone=$(printf '%s\n' "$rows" | awk -F'\t' '$3 == "done"' | wc -l | tr -d ' ')
   if [[ "$ptotal" -gt 0 ]]; then ppct=$((pdone * 100 / ptotal)); else ppct=0; fi
 
+  # In --pending mode, list only pending rows (counts above stay full so the
+  # per-phase progress remains truthful). Skip the phase entirely if none pend.
+  local display_rows="$rows"
+  if [[ "$PENDING_ONLY" == true ]]; then
+    display_rows=$(printf '%s\n' "$rows" | awk -F'\t' '$3 != "done" && $3 != "in_progress"')
+    [[ -z "$display_rows" ]] && return 1
+  fi
+
   phase_num="${pid#phase-}"
   printf "\n  \033[1;36m▌ Phase %s — %s\033[0m  \033[90m(%s/%s done, %s%%)\033[0m\n" \
     "$phase_num" "$pname" "$pdone" "$ptotal" "$ppct"
 
-  printf '%s\n' "$rows" | sort | while IFS=$'\t' read -r _ task_id status title deps; do
+  printf '%s\n' "$display_rows" | sort | while IFS=$'\t' read -r _ task_id status title deps; do
     local icon status_col pad
     case "$status" in
       done)        icon="\033[32m✓\033[0m"; status_col="\033[32m$status\033[0m" ;;

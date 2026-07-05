@@ -1,0 +1,118 @@
+id: task-089
+phase: phase-12
+title: Backend — just-in-time User provisioning from the auth principal
+depends_on: []
+description: |
+  The auth modules (dev, entra) populate an in-memory `CurrentUser`
+  principal on each authenticated request but NEVER persist a `User`
+  entity — `UserRepository` is only ever read, never written, and the
+  app has coped because the only existing `User` FK (`Project.owner`) is
+  nullable. The Undo / audit log (task-073/074) changes that: it needs a
+  persisted `User` per actor (`draft_mutation_log.user_id NOT NULL`,
+  `draft_estimation_versions.last_modified_by`). Today
+  `UserRepository.findByEntraSubjectId(subjectId)` returns `null` for
+  every authenticated principal, so those FKs cannot be satisfied.
+
+  Target: just-in-time user provisioning. A provider-agnostic
+  `@ApplicationScoped CurrentUserService` exposes
+  `@Transactional fun ensureUser(principal: CurrentUser): User` that
+  find-or-creates a `User` keyed by the unique `entraSubjectId`,
+  persisting the display name on creation and refreshing it if the
+  principal's name changed. Users are thus created on first sighting and
+  reused thereafter.
+
+  Key design decisions:
+    - Key on `entraSubjectId` (UNIQUE in the V1 schema); the User entity
+      already carries `entraSubjectId` + `displayName`, so NO migration
+      is needed. (Email is out of scope — the entity has no email column;
+      add it in a later task if audit needs it.)
+    - `ensureUser` takes the `CurrentUser` **as a parameter** rather than
+      reading the request-scoped `CurrentUserProvider` itself. That keeps
+      it pure to unit-test (hand it a `CurrentUser`) AND avoids DB writes
+      on the Vert.x event loop — the pitfall the Entra augmentor comment
+      warns about. Callers at the request edge pass
+      `currentUserProvider.get()`.
+    - Provision on login by calling `ensureUser` from `GET /api/auth/me`
+      (the frontend hits it on load), so a row exists as soon as the user
+      is seen — and lazily anywhere else a persisted user is needed
+      (task-074's record/undo/redo). Idempotent either way.
+    - This is a foundational auth capability, not undo-specific; task-074
+      depends on it.
+
+steps:
+  - |
+    Start:
+      ./scripts/task.sh start task-089
+
+  - |
+    Add `CurrentUserService.kt` under
+    src/backend/implementation/src/main/kotlin/io/github/theestimator/service/
+    as an `@ApplicationScoped class CurrentUserService(private val userRepository: UserRepository)`
+    with:
+      @Transactional
+      fun ensureUser(principal: CurrentUser): User =
+        userRepository.findByEntraSubjectId(principal.subjectId)?.also { existing ->
+          if (existing.displayName != principal.displayName) existing.displayName = principal.displayName
+        } ?: User().apply {
+          entraSubjectId = principal.subjectId
+          displayName = principal.displayName
+        }.also { userRepository.persist(it) }
+    Log at INFO when a new user is provisioned (the subjectId), per the
+    CLAUDE.md backend logging conventions (`io.quarkus.logging.Log`).
+
+  - |
+    Hook login-time provisioning into `MeResource.me()`: inject
+    `CurrentUserService`, and after resolving the current `CurrentUser`
+    (`u`), call `currentUserService.ensureUser(u)` before building the
+    response. The `/api/auth/me` response shape is unchanged.
+
+  - |
+    Add `CurrentUserProvisioningIT.kt` under
+    src/backend/implementation/src/test/kotlin/io/github/theestimator/service/
+    (a `@QuarkusTest @Transactional` service-level IT, mirroring
+    `ProjectServiceIT`, so the Panache reads/writes run in a session —
+    pass a `CurrentUser` directly, no request context needed):
+      - `ensureUser` on a fresh subject creates a `User` row
+        (findByEntraSubjectId now non-null, displayName set, id assigned).
+      - Calling it again with the same subject returns the SAME id (no
+        duplicate row).
+      - Calling it with a changed displayName updates the existing row.
+
+  - |
+    Document the new invariant that authenticated principals are
+    persisted as `User` rows (just-in-time provisioning):
+      - `docs/architecture.md`, the `# Authentication` section: add that
+        each authenticated principal is provisioned into the `users`
+        table on first sighting via `CurrentUserService.ensureUser`
+        (keyed by `entraSubjectId`), so `User` FKs (audit / ownership /
+        the undo log) always resolve.
+      - `CLAUDE.md`, the "Modular authentication and authorization"
+        section: add the same one-line note.
+
+  - |
+    Build:
+      ./gradlew :backend:implementation:test
+
+validation:
+  - |
+    Service exists with the provisioning method:
+      test -f src/backend/implementation/src/main/kotlin/io/github/theestimator/service/CurrentUserService.kt
+      grep -q "fun ensureUser" src/backend/implementation/src/main/kotlin/io/github/theestimator/service/CurrentUserService.kt
+      grep -q "Log\." src/backend/implementation/src/main/kotlin/io/github/theestimator/service/CurrentUserService.kt
+  - |
+    Login provisions the user:
+      grep -q "ensureUser" src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/MeResource.kt
+  - |
+    The provisioning invariant is documented:
+      grep -q "CurrentUserService" docs/architecture.md
+      grep -q "CurrentUserService" CLAUDE.md
+  - |
+    Tests pass:
+      ./gradlew :backend:implementation:test
+
+outputs:
+  - created: src/backend/implementation/src/main/kotlin/io/github/theestimator/service/CurrentUserService.kt
+  - modified: src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/MeResource.kt
+  - modified: docs/architecture.md
+  - modified: CLAUDE.md
+  - created: src/backend/implementation/src/test/kotlin/io/github/theestimator/service/CurrentUserProvisioningIT.kt

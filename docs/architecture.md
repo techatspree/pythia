@@ -132,6 +132,8 @@ removes that conflict.
 
 This application uses a modular approach for authentication. For easy development there is a module with static authentication.
 
+Authenticated principals are provisioned into the `users` table just-in-time: `UserProvisioningFilter` — a provider-agnostic `@Blocking` request filter — calls `CurrentUserService.ensureUser(principal)` on every authenticated mutating request (POST/PUT/PATCH/DELETE), find-or-creating a `User` keyed by the unique `entraSubjectId` (`GET /api/auth/me` also provisions). This guarantees that `User` foreign keys (audit, ownership, the undo/mutation log) always resolve, even though the auth modules themselves only expose an in-memory `CurrentUser`. (The frontend builds its account client-side and does not call `/api/auth/me`, so the filter is the trigger that matters in normal use.)
+
 More details are described in [authentication.md](./authentication.md).
 
 # Frontend conventions

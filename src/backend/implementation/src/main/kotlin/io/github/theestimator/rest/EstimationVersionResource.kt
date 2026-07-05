@@ -11,6 +11,7 @@ import io.github.theestimator.service.DraftUpdateApplier
 import io.github.theestimator.service.EstimationVersionService
 import io.github.theestimator.service.ExcelExporter
 import io.github.theestimator.service.VersionComparisonService
+import jakarta.annotation.security.RolesAllowed
 import jakarta.enterprise.context.ApplicationScoped
 import jakarta.transaction.Transactional
 import jakarta.ws.rs.BadRequestException
@@ -33,6 +34,7 @@ import java.util.UUID
 @Path("/api/estimations/{estimationId}/versions")
 @ApplicationScoped
 @Produces(MediaType.APPLICATION_JSON)
+@RolesAllowed("VIEWER")
 class EstimationVersionResource(
     private val versionService: EstimationVersionService,
     private val comparisonService: VersionComparisonService,
@@ -60,6 +62,7 @@ class EstimationVersionResource(
 
     @POST
     @Transactional
+    @RolesAllowed("ESTIMATOR")
     fun createDraft(@PathParam("estimationId") estimationId: UUID): Response {
         ensureEstimationExists(estimationId)
         val draft = versionService.createDraft(estimationId)
@@ -81,6 +84,7 @@ class EstimationVersionResource(
     @Path("/draft")
     @Consumes(MediaType.APPLICATION_JSON)
     @Transactional
+    @RolesAllowed("ESTIMATOR")
     fun updateDraft(
         @PathParam("estimationId") estimationId: UUID,
         update: DraftUpdateDto
@@ -98,6 +102,7 @@ class EstimationVersionResource(
     @POST
     @Path("/draft/submit")
     @Transactional
+    @RolesAllowed("ESTIMATOR")
     fun submitDraft(@PathParam("estimationId") estimationId: UUID): Response {
         ensureEstimationExists(estimationId)
         val submitted = versionService.submitDraft(estimationId)
@@ -107,6 +112,7 @@ class EstimationVersionResource(
     @DELETE
     @Path("/draft")
     @Transactional
+    @RolesAllowed("ESTIMATOR")
     fun deleteDraft(@PathParam("estimationId") estimationId: UUID): Response {
         ensureEstimationExists(estimationId)
         versionService.deleteDraft(estimationId)

@@ -1,0 +1,173 @@
+id: task-091
+phase: phase-2
+title: Protect REST endpoints with @RolesAllowed + auth tests
+depends_on: [task-006]
+description: |
+  Security gap + the reason a whole class of bugs stayed invisible. Today
+  the ONLY authorization annotation in the REST layer is
+  `@RolesAllowed("ADMIN")` on `AdminPingResource`. Every real endpoint
+  (`ProjectResource`, `EstimationResource`, `EstimationVersionResource`)
+  is completely open: with no `@RolesAllowed` and no global HTTP auth
+  policy, an unauthenticated request succeeds and mutates data
+  anonymously (`CurrentUserProvider.current == null`). That is both a real
+  security hole (anyone can create/read/edit/submit without signing in)
+  AND what silently hid the "frontend wasn't sending the Authorization
+  header, so no user was provisioned" bug — because an anonymous request
+  was treated as valid, nothing ever failed, and no backend integration
+  test could catch it (they all authenticate via the `DevAdminAuth`
+  extension, so they only exercise the already-authenticated path).
+
+  Target state:
+    - Reads and writes require authentication, and writes require an
+      author role. Concretely, using the existing dev role assignments
+      (`dev-viewer` = {VIEWER}, `dev-estimator` = {VIEWER, ESTIMATOR},
+      `dev-admin` = {VIEWER, ESTIMATOR, ADMIN}):
+        * GET / read endpoints → `@RolesAllowed("VIEWER")` (every signed-in
+          user has VIEWER).
+        * POST / PUT / DELETE / write endpoints → `@RolesAllowed("ESTIMATOR")`
+          (estimator + admin have it; viewer gets 403).
+      Anonymous requests to any of these → 401. `@RolesAllowed` already
+      works under the dev module (task-006: roles are populated by
+      `DevHttpAuthMechanism`; the Entra augmentor populates them too), so
+      no auth-infrastructure change is needed. The IT's "authenticated
+      request also provisions the user" assertion relies on task-089
+      (just-in-time provisioning, already done).
+    - A missing/incorrect auth header now FAILS LOUDLY (401/403) instead of
+      silently succeeding — turning the whole bug class into something a
+      test and a user can see.
+
+  Key design decisions:
+    - Put a class-level `@RolesAllowed("VIEWER")` on each of the three
+      resources (baseline: authenticated), and override each MUTATING
+      method (POST/PUT/DELETE) with `@RolesAllowed("ESTIMATOR")`
+      (method-level overrides class-level in Quarkus). The `export` GET on
+      `EstimationVersionResource` stays a read (VIEWER).
+    - `MeResource` already returns 401 when `current` is null — leave its
+      manual check; do not add a role (it must be reachable by any
+      authenticated principal to provision them). `AdminPingResource`
+      already carries `@RolesAllowed("ADMIN")` — leave it.
+    - This is authorization annotations + tests only; Quarkus produces the
+      401/403 responses, so no new logging or error-handling code is
+      needed (CLAUDE.md logging conventions do not apply).
+
+  Cross-cutting test impact (must be handled, or the build breaks):
+    - Existing backend ITs authenticate via `@ExtendWith(DevAdminAuth)`
+      (`Authorization: Dev dev-admin`, all roles) so they keep passing —
+      but any request an IT makes WITHOUT auth will now 401. Run the full
+      suite and fix any such call site.
+    - Existing Playwright specs that navigate to data pages (which now call
+      protected endpoints) must authenticate first via
+      `loginAsDev(page, '<subject>')` (`e2e/helpers.ts`), or the page's
+      `apiFetch` calls 401. Add `loginAsDev` where missing.
+
+steps:
+  - |
+    Add authorization to `ProjectResource`, `EstimationResource`, and
+    `EstimationVersionResource` under
+    src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/:
+      - class-level `@RolesAllowed("VIEWER")` on ALL three (import
+        `jakarta.annotation.security.RolesAllowed`, mirroring
+        `AdminPingResource`). This is the baseline for every read/GET.
+      - method-level `@RolesAllowed("ESTIMATOR")` override on every
+        MUTATING method:
+          * `ProjectResource`: `createProject` (POST), `updateProject`
+            (PUT), `createEstimation` (POST), `archiveProject` (POST) —
+            and any other POST/PUT/DELETE present (e.g. an activate).
+          * `EstimationVersionResource`: `createDraft`, `updateDraft`,
+            `submitDraft`, `deleteDraft`. Its GET reads — `listVersions`,
+            `getDraft`, `getSubmittedVersion`, `compareVersions`,
+            `exportVersion` (`export`) — stay VIEWER via the class-level
+            annotation.
+          * `EstimationResource` is READ-ONLY (only `getEstimation` GET),
+            so it gets the class-level `@RolesAllowed("VIEWER")` and NO
+            method override.
+      Leave `MeResource` as is — it keeps its manual 401 and must stay
+      reachable by any authenticated principal so it can provision them
+      (do NOT add a role that would block provisioning). `AdminPingResource`
+      keeps `@RolesAllowed("ADMIN")`.
+
+  - |
+    Add backend IT
+    `src/backend/implementation/src/test/kotlin/io/github/theestimator/rest/EndpointAuthorizationIT.kt`
+    (a `@QuarkusTest`; do NOT use the `DevAdminAuth` extension so each
+    request controls its own header via
+    `given().header("Authorization", "Dev <subject>")`):
+      - `POST /api/projects` with NO Authorization header → 401.
+      - `POST /api/projects` as `Dev dev-viewer` → 403 (lacks ESTIMATOR).
+      - `POST /api/projects` as `Dev dev-estimator` → 201, and assert a
+        `User` row for `dev-estimator` now exists (inject `UserRepository`,
+        read it in a `@Transactional` check) — proving auth + provisioning.
+      - `GET /api/projects` with NO header → 401; as `Dev dev-viewer` → 200.
+
+  - |
+    Run the full backend suite and fix fallout: existing ITs use
+    `DevAdminAuth` so they should pass, but any request made without a
+    valid dev header will now 401 — locate and authenticate those.
+      ./gradlew :backend:implementation:test
+
+  - |
+    Add a Playwright spec
+    `src/frontend/e2e/endpoint-authorization.test.ts` covering both the
+    API contract and the frontend seam:
+      - API-level (mirror `e2e/auth.test.ts` with
+        `playwrightRequest.newContext`): `POST /api/projects` with no
+        header → 401; `Authorization: Dev dev-viewer` → 403;
+        `Authorization: Dev dev-estimator` → 201.
+      - UI-level: `loginAsDev(page, 'dev-estimator')` (`e2e/helpers.ts`),
+        navigate to the projects page, create a project through the
+        dialog, and assert it appears in the list. Because writes now
+        require ESTIMATOR, a successful create proves the frontend's
+        `apiFetch` actually sent the `Authorization` header — the exact
+        seam no backend IT can reach. Optionally also assert via
+        `page.waitForRequest`/response that the POST carried an
+        `Authorization` header.
+
+  - |
+    Ensure the rest of the e2e suite still authenticates: any existing
+    spec that renders a data page (e.g. `smoke.test.ts`, `user-menu.test.ts`,
+    the tree-table specs) must call `loginAsDev(page, 'dev-admin')` before
+    navigating, now that those pages' API calls require auth. Add it where
+    missing. Run the suite (backend + frontend must be running):
+      cd src/frontend && npx playwright test
+
+  - |
+    Update docs: `docs/authentication.md` (add a short "Endpoint
+    authorization" section — reads require VIEWER, writes require
+    ESTIMATOR, admin canary requires ADMIN, anonymous → 401) and the
+    "Modular authentication and authorization" section of `CLAUDE.md`
+    (one line stating the API endpoints are role-protected).
+
+  - |
+    Final backend build:
+      ./gradlew :backend:implementation:test
+
+validation:
+  - |
+    Authorization annotations are present on the three resources:
+      grep -q "@RolesAllowed" src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/ProjectResource.kt
+      grep -q "@RolesAllowed" src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/EstimationResource.kt
+      grep -q "@RolesAllowed" src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/EstimationVersionResource.kt
+      grep -q "ESTIMATOR" src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/EstimationVersionResource.kt
+  - |
+    The authorization tests exist:
+      test -f src/backend/implementation/src/test/kotlin/io/github/theestimator/rest/EndpointAuthorizationIT.kt
+      test -f src/frontend/e2e/endpoint-authorization.test.ts
+      grep -q "401" src/backend/implementation/src/test/kotlin/io/github/theestimator/rest/EndpointAuthorizationIT.kt
+      grep -q "403" src/backend/implementation/src/test/kotlin/io/github/theestimator/rest/EndpointAuthorizationIT.kt
+  - |
+    Docs updated:
+      grep -qi "role-protected\|RolesAllowed\|VIEWER" docs/authentication.md
+      grep -qi "role-protected\|RolesAllowed" CLAUDE.md
+  - |
+    Backend suite passes (existing ITs still green + the new auth IT):
+      ./gradlew :backend:implementation:test
+
+outputs:
+  - modified: src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/ProjectResource.kt
+  - modified: src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/EstimationResource.kt
+  - modified: src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/EstimationVersionResource.kt
+  - created: src/backend/implementation/src/test/kotlin/io/github/theestimator/rest/EndpointAuthorizationIT.kt
+  - created: src/frontend/e2e/endpoint-authorization.test.ts
+  - modified: src/frontend/e2e/ (existing specs that render data pages — e.g. smoke.test.ts, user-menu.test.ts, the tree-table specs — updated with loginAsDev where they now hit protected endpoints)
+  - modified: docs/authentication.md
+  - modified: CLAUDE.md

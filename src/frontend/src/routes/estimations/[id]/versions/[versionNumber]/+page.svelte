@@ -13,6 +13,7 @@
 	import { normalizeRoots } from '$lib/estimationNodes';
 	import { log } from '$lib/log';
 	import type { ApiVersionResponse, ApiAdditionalCost } from '$lib/api/types.js';
+	import { apiFetch } from '$lib/api/fetch';
 
 	let versionData = $state<ApiVersionResponse | null>(null);
 	let loading = $state(true);
@@ -47,7 +48,7 @@
 			const url = isDraft
 				? `/api/estimations/${estimationId}/versions/draft`
 				: `/api/estimations/${estimationId}/versions/${versionNumber}`;
-			const res = await fetch(url);
+			const res = await apiFetch(url);
 			if (!res.ok) throw new Error(`Failed to load version (${res.status})`);
 			versionData = await res.json();
 			currentNotes = versionData!.notes ?? '';
@@ -120,7 +121,7 @@
 		saveTimer = setTimeout(async () => {
 			try {
 				const id = page.params.id;
-				const res = await fetch(`/api/estimations/${id}/versions/draft`, {
+				const res = await apiFetch(`/api/estimations/${id}/versions/draft`, {
 					method: 'PUT',
 					headers: { 'Content-Type': 'application/json' },
 					body: JSON.stringify({
@@ -144,7 +145,7 @@
 
 	async function submitVersion() {
 		const id = page.params.id!;
-		const res = await fetch(`/api/estimations/${id}/versions/draft/submit`, {
+		const res = await apiFetch(`/api/estimations/${id}/versions/draft/submit`, {
 			method: 'POST'
 		});
 		if (res.ok) goto(resolve('/estimations/[id]', { id }));

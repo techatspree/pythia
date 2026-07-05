@@ -4,6 +4,7 @@
 	import { onMount } from 'svelte';
 	import ErrorBanner from '$lib/components/ErrorBanner.svelte';
 	import type { ApiVersionComparison, ApiVersionResponse } from '$lib/api/types.js';
+	import { apiFetch } from '$lib/api/fetch';
 
 	let comparison = $state<ApiVersionComparison | null>(null);
 	let versionA = $state<ApiVersionResponse | null>(null);
@@ -59,9 +60,9 @@
 			const urlA = a === 'draft' ? `/api/estimations/${id}/versions/draft` : `/api/estimations/${id}/versions/${a}`;
 			const urlB = b === 'draft' ? `/api/estimations/${id}/versions/draft` : `/api/estimations/${id}/versions/${b}`;
 			const [resA, resB, resCmp] = await Promise.all([
-				fetch(urlA),
-				fetch(urlB),
-				fetch(`/api/estimations/${id}/versions/${a}/compare/${b}`)
+				apiFetch(urlA),
+				apiFetch(urlB),
+				apiFetch(`/api/estimations/${id}/versions/${a}/compare/${b}`)
 			]);
 			if (!resA.ok) throw new Error(`Failed to load version ${a} (${resA.status})`);
 			if (!resB.ok) throw new Error(`Failed to load version ${b} (${resB.status})`);

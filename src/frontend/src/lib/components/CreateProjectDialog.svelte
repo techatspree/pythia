@@ -1,5 +1,6 @@
 <script lang="ts">
 	import ErrorBanner from '$lib/components/ErrorBanner.svelte';
+	import { apiFetch } from '$lib/api/fetch';
 
 	let { open = $bindable(false), oncreated }: { open: boolean; oncreated: () => void } = $props();
 
@@ -17,7 +18,7 @@
 		loading = true;
 		bannerMessage = null;
 		try {
-			const res = await fetch('/api/projects', {
+			const res = await apiFetch('/api/projects', {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
 				body: JSON.stringify({ name: name.trim(), description: description.trim() || null, client: client.trim() || null })

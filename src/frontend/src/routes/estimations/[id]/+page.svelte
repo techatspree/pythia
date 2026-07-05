@@ -6,6 +6,7 @@
 	import VersionList from '$lib/components/VersionList.svelte';
 	import ErrorBanner from '$lib/components/ErrorBanner.svelte';
 	import type { ApiEstimationDetail } from '$lib/api/types.js';
+	import { apiFetch } from '$lib/api/fetch';
 
 	let estimation = $state<ApiEstimationDetail | null>(null);
 	let loading = $state(true);
@@ -16,7 +17,7 @@
 		loading = true;
 		bannerMessage = null;
 		try {
-			const res = await fetch(`/api/estimations/${id}`);
+			const res = await apiFetch(`/api/estimations/${id}`);
 			if (!res.ok) throw new Error('Estimation not found');
 			estimation = await res.json();
 		} catch (e: any) {
@@ -31,7 +32,7 @@
 	async function createVersion() {
 		if (!estimation) return;
 		try {
-			const res = await fetch(`/api/estimations/${estimation.id ?? ''}/versions`, { method: 'POST' });
+			const res = await apiFetch(`/api/estimations/${estimation.id ?? ''}/versions`, { method: 'POST' });
 			if (!res.ok) throw new Error('Failed to create version');
 			await loadEstimation();
 		} catch (e: any) {
@@ -42,7 +43,7 @@
 	async function submitVersion() {
 		if (!estimation) return;
 		try {
-			const res = await fetch(`/api/estimations/${estimation.id ?? ''}/versions/draft/submit`, { method: 'POST' });
+			const res = await apiFetch(`/api/estimations/${estimation.id ?? ''}/versions/draft/submit`, { method: 'POST' });
 			if (!res.ok) throw new Error('Failed to submit version');
 			await loadEstimation();
 		} catch (e: any) {

@@ -3,6 +3,7 @@ package io.github.theestimator.rest
 import io.github.theestimator.repository.EstimationRepository
 import io.github.theestimator.rest.dto.toEstimationDetailDto
 import io.github.theestimator.service.EstimationVersionService
+import jakarta.annotation.security.RolesAllowed
 import jakarta.enterprise.context.ApplicationScoped
 import jakarta.ws.rs.GET
 import jakarta.ws.rs.NotFoundException
@@ -16,6 +17,7 @@ import java.util.UUID
 @Path("/api/estimations")
 @ApplicationScoped
 @Produces(MediaType.APPLICATION_JSON)
+@RolesAllowed("VIEWER")
 class EstimationResource(
     private val estimationRepository: EstimationRepository,
     private val versionService: EstimationVersionService

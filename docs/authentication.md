@@ -7,6 +7,26 @@ Currently there are two modules for authentication supported:
 Another modules planned in the future:
 * Keycloak
 
+# Endpoint authorization
+
+The REST API is **role-protected** — endpoints are not open. Using the
+`Role` enum (`VIEWER` / `ESTIMATOR` / `ADMIN`):
+
+* **Reads** (GET, including `export`) require **`VIEWER`** — every signed-in
+  user has it (`@RolesAllowed("VIEWER")` at the resource class level).
+* **Writes** (POST / PUT / DELETE — create/update project, create
+  estimation, create/update/submit/delete draft, archive) require
+  **`ESTIMATOR`** (`@RolesAllowed("ESTIMATOR")` on the method).
+* The admin canary `GET /api/admin/ping` requires **`ADMIN`**.
+
+An **anonymous** request → **401**; an authenticated request lacking the
+required role (e.g. a `VIEWER` attempting a write) → **403**. `MeResource`
+(`/api/auth/me`) keeps its own 401-on-anonymous check so it stays reachable
+by any authenticated principal (it provisions the `User` on first sighting).
+The `EndpointAuthorizationIT` (backend) and `endpoint-authorization.test.ts`
+(Playwright, incl. a UI create that proves the frontend sends the header)
+guard this contract.
+
 # Dev auth module
 
 The `dev` auth module is one of three concrete implementations of the

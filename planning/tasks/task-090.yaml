@@ -1,0 +1,107 @@
+id: task-090
+phase: phase-10
+title: Remove dead API client + ESLint-guard raw /api fetch
+depends_on: []
+description: |
+  Follow-up hardening after the auth-header bug. The frontend used to
+  route API calls through raw `fetch('/api/...')`, which never attached
+  the `Authorization` header — so every request hit the backend
+  anonymously and just-in-time user provisioning never fired. That was
+  fixed by adding `apiFetch` (`src/frontend/src/lib/api/fetch.ts`, which
+  attaches the active auth provider's header) and routing all `/api`
+  calls through it.
+
+  Two loose ends remain:
+
+  1. **Dead code.** `src/frontend/src/lib/api/client.ts` exports
+     `createApiClient()` (an openapi-fetch client carrying the same
+     `Authorization` middleware) and the `ApiClient` type. It is NEVER
+     called or imported anywhere — grep confirms both symbols are
+     referenced only inside `client.ts` itself. It is exactly the
+     misleading dead code that hid the original bug (it *looked* like the
+     app's authenticated API path but wasn't). Remove it.
+
+  2. **No guard against regression.** Nothing stops a future contributor
+     from writing `fetch('/api/...')` again and silently reintroducing
+     unauthenticated calls. Add an ESLint rule that bans raw `fetch(...)`
+     calls and directs authors to `apiFetch`.
+
+  Target state:
+    - `client.ts` deleted; nothing references `createApiClient` /
+      `ApiClient` / `$lib/api/client` (verified by grep; the app already
+      uses `apiFetch`).
+    - `eslint.config.js` has a `no-restricted-syntax` rule that flags
+      `fetch(...)` calls in `**/*.ts` and `**/*.svelte`, with a message
+      pointing to `apiFetch` from `$lib/api/fetch`, and a following
+      override that turns the rule OFF for the single legitimate raw-fetch
+      site, `src/lib/api/fetch.ts` (where `apiFetch` wraps the real
+      `fetch`). The existing code base must stay lint-clean because all
+      `/api` calls were already migrated to `apiFetch`.
+
+  Notes:
+    - Do NOT delete `src/lib/api/schema.d.ts` (generated OpenAPI types,
+      already in the ESLint `ignores`); only `client.ts` is dead.
+    - `no-restricted-syntax` with an AST selector is used (not
+      `no-restricted-globals`) because `.ts` files do not declare browser
+      globals in this config, so a global-based rule would not fire there;
+      the AST selector matches the `fetch(` call node regardless.
+    - This is a config + dead-code-removal task — no new service, domain
+      operation, or frontend flow — so the CLAUDE.md logging conventions
+      do not apply.
+
+steps:
+  - |
+    Start:
+      ./scripts/task.sh start task-090
+
+  - |
+    Delete `src/frontend/src/lib/api/client.ts`. First confirm it is
+    dead: `grep -rn "createApiClient\|ApiClient\|\$lib/api/client" src/frontend/src`
+    should return only lines inside `client.ts` itself. Do not touch
+    `src/lib/api/schema.d.ts` or `src/lib/api/fetch.ts`.
+
+  - |
+    Add the guard to `src/frontend/eslint.config.js`. Append a config
+    object (after the existing svelte-specific block, before the html
+    block is fine) that applies to `['**/*.ts', '**/*.svelte']` with:
+      rules: {
+        'no-restricted-syntax': ['error', {
+          selector: "CallExpression[callee.name='fetch']",
+          message: "Use apiFetch from '$lib/api/fetch' (it attaches the Authorization header) instead of raw fetch."
+        }]
+      }
+    Then append a SECOND config object AFTER it that applies only to
+    `['src/lib/api/fetch.ts']` and sets `'no-restricted-syntax': 'off'`
+    (that file legitimately wraps the real `fetch`). Order matters: the
+    override must come after the ban so it wins for that file.
+
+  - |
+    Confirm the rule is active AND the current code is clean (all `/api`
+    calls already go through `apiFetch`, so there should be zero
+    violations):
+      cd src/frontend && npm run lint
+
+  - |
+    Build check — svelte-check must stay green after removing the dead
+    client (nothing imports it):
+      cd src/frontend && npm run check
+
+validation:
+  - |
+    The dead client is gone and unreferenced:
+      ! test -f src/frontend/src/lib/api/client.ts
+      ! grep -rq "createApiClient" src/frontend/src
+      ! grep -rq "\$lib/api/client" src/frontend/src
+  - |
+    The ESLint guard exists and exempts the wrapper:
+      grep -q "no-restricted-syntax" src/frontend/eslint.config.js
+      grep -q "callee.name='fetch'" src/frontend/eslint.config.js
+      grep -q "src/lib/api/fetch.ts" src/frontend/eslint.config.js
+  - |
+    Lint passes (rule active, code clean) and types check:
+      cd src/frontend && npm run lint
+      cd src/frontend && npm run check
+
+outputs:
+  - deleted: src/frontend/src/lib/api/client.ts
+  - modified: src/frontend/eslint.config.js

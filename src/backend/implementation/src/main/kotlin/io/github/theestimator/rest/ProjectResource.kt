@@ -9,6 +9,7 @@ import io.github.theestimator.rest.dto.toDetailDto
 import io.github.theestimator.rest.dto.toSummaryDto
 import io.github.theestimator.service.EstimationService
 import io.github.theestimator.service.ProjectService
+import jakarta.annotation.security.RolesAllowed
 import jakarta.enterprise.context.ApplicationScoped
 import jakarta.transaction.Transactional
 import jakarta.ws.rs.Consumes
@@ -27,6 +28,7 @@ import java.util.UUID
 @Path("/api/projects")
 @ApplicationScoped
 @Produces(MediaType.APPLICATION_JSON)
+@RolesAllowed("VIEWER")
 class ProjectResource(
     private val projectService: ProjectService,
     private val projectRepository: ProjectRepository,
@@ -46,6 +48,7 @@ class ProjectResource(
     @POST
     @Consumes(MediaType.APPLICATION_JSON)
     @Transactional
+    @RolesAllowed("ESTIMATOR")
     fun createProject(dto: ProjectCreateDto): Response {
         val project = projectService.create(dto.name, dto.description, dto.client)
         return Response.status(Response.Status.CREATED).entity(project.toSummaryDto()).build()
@@ -63,6 +66,7 @@ class ProjectResource(
     @Path("/{id}")
     @Consumes(MediaType.APPLICATION_JSON)
     @Transactional
+    @RolesAllowed("ESTIMATOR")
     fun updateProject(@PathParam("id") id: UUID, dto: ProjectUpdateDto): Response {
         val project = projectRepository.findById(id)
             ?: throw NotFoundException("Project not found: $id")
@@ -76,6 +80,7 @@ class ProjectResource(
     @Path("/{id}/estimations")
     @Consumes(MediaType.APPLICATION_JSON)
     @Transactional
+    @RolesAllowed("ESTIMATOR")
     fun createEstimation(@PathParam("id") id: UUID, dto: EstimationCreateDto): Response {
         val project = projectRepository.findById(id)
             ?: throw NotFoundException("Project not found: $id")
@@ -86,6 +91,7 @@ class ProjectResource(
     @POST
     @Path("/{id}/archive")
     @Transactional
+    @RolesAllowed("ESTIMATOR")
     fun archiveProject(@PathParam("id") id: UUID): Response {
         val project = projectService.archive(id)
         return Response.ok(project.toSummaryDto()).build()
