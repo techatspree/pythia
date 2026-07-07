@@ -9,6 +9,8 @@
 	import PhasesPanel from '$lib/components/PhasesPanel.svelte';
 	import AdditionalCostsPanel from '$lib/components/AdditionalCostsPanel.svelte';
 	import ErrorBanner from '$lib/components/ErrorBanner.svelte';
+	import UndoHistoryPanel, { relativeTime } from '$lib/components/UndoHistoryPanel.svelte';
+	import UndoConflictDialog from '$lib/components/UndoConflictDialog.svelte';
 	import { computeCalcMap } from '$lib/adapter.js';
 	import { normalizeRoots } from '$lib/estimationNodes';
 	import { log } from '$lib/log';
@@ -34,6 +36,37 @@
 	// page owns the draft state and applies the version undo/redo returns.
 	const undoStore = new UndoStore(page.params.id!);
 	undoStore.onResult = (version) => applyVersionData(version as unknown as ApiVersionResponse);
+
+	// Undo/redo GUI (task-077).
+	let showHistory = $state(false);
+
+	// The entry a given action would target, for the toolbar tooltips.
+	function latestByStatus(status: string) {
+		const matches = undoStore.history.filter((e) => e.status === status);
+		return matches.length
+			? matches.reduce((a, b) => (a.sequenceNumber > b.sequenceNumber ? a : b))
+			: null;
+	}
+	const undoTarget = $derived(latestByStatus('ACTIVE'));
+	const redoTarget = $derived(latestByStatus('UNDONE'));
+	const undoTooltip = $derived(
+		undoTarget
+			? `Rückgängig (Strg+Z) — ${undoTarget.kind} von ${undoTarget.userDisplayName}, ${relativeTime(undoTarget.createdAt)}`
+			: 'Rückgängig (Strg+Z)'
+	);
+	const redoTooltip = $derived(
+		redoTarget
+			? `Wiederholen (Strg+Umschalt+Z) — ${redoTarget.kind} von ${redoTarget.userDisplayName}, ${relativeTime(redoTarget.createdAt)}`
+			: 'Wiederholen (Strg+Umschalt+Z)'
+	);
+
+	// Recommended conflict resolution: reload the current draft, refresh the log,
+	// then dismiss the dialog.
+	async function reloadAfterConflict() {
+		await loadVersion();
+		await undoStore.refresh();
+		undoStore.clearConflict();
+	}
 
 	const calcMap = $derived.by(() => {
 		try {
@@ -200,6 +233,34 @@
 				{/if}
 				{#if versionData.isDraft}
 					<button
+						type="button"
+						onclick={() => undoStore.undo()}
+						disabled={!undoStore.canUndo}
+						aria-label="Rückgängig"
+						title={undoTooltip}
+						class="px-3 py-2 text-sm border rounded hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed"
+					>
+						↶ Rückgängig
+					</button>
+					<button
+						type="button"
+						onclick={() => undoStore.redo()}
+						disabled={!undoStore.canRedo}
+						aria-label="Wiederholen"
+						title={redoTooltip}
+						class="px-3 py-2 text-sm border rounded hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed"
+					>
+						↷ Wiederholen
+					</button>
+					<button
+						type="button"
+						onclick={() => (showHistory = !showHistory)}
+						aria-label="Verlauf anzeigen"
+						class="px-3 py-2 text-sm border rounded hover:bg-gray-50"
+					>
+						Verlauf
+					</button>
+					<button
 						onclick={submitVersion}
 						class="px-4 py-2 text-sm bg-brand-green text-white rounded hover:bg-[#007a45]"
 					>
@@ -270,6 +331,18 @@
 			{calcMap}
 			phases={currentPhases}
 		/>
+
+		{#if versionData.isDraft && showHistory}
+			<UndoHistoryPanel history={undoStore.history} />
+		{/if}
+
+		{#if undoStore.conflict}
+			<UndoConflictDialog
+				conflict={undoStore.conflict!}
+				onreload={reloadAfterConflict}
+				oncancel={() => undoStore.clearConflict()}
+			/>
+		{/if}
 	{:else}
 		<ErrorBanner message={bannerMessage} ondismiss={() => (bannerMessage = null)} />
 	{/if}

@@ -8,21 +8,34 @@ description: |
   discoverable on screen and gives the user a graceful path when a
   conflict makes their undo impossible.
 
+  Where this lives (IMPORTANT): the `UndoStore`, the draft `$state`,
+  `EstimationGrid`, and the Submit/action area all live in the VERSION
+  EDITOR page
+  `src/frontend/src/routes/estimations/[id]/versions/[versionNumber]/+page.svelte`
+  (wired there in task-076). ALL of the undo UI in this task goes on that
+  page — NOT in `EstimationDetail.svelte`, which is a stateless header
+  component on the estimation detail page `/estimations/[id]` and has no
+  access to the store.
+
   Target UI:
 
-  1. Toolbar in `EstimationDetail.svelte`:
-       - Two icon buttons "Rückgängig" and "Wiederholen" placed left
-         of the existing action area, before the "Submit" button.
+  1. Toolbar on the version editor `+page.svelte`:
+       - Two icon buttons "Rückgängig" and "Wiederholen" added to the
+         existing action-area row (the `flex items-center gap-3` div that
+         holds the Saving/Saved indicator, the "Submit" button, and the
+         Export menu), placed before the "Submit" button.
          Disabled when `undoStore.canUndo` / `canRedo` is false.
          Tooltip shows the keyboard shortcut and, when enabled, the
          display name + relative time of the entry that will be
          undone/redone (drawn from `undoStore.history`).
-       - The buttons call `undoStore.undo()` / `undoStore.redo()` and
-         on a successful (non-null) result replace the page-level
-         `draft` state (same path the keyboard handler uses in
-         task-076).
+       - The buttons simply call `undoStore.undo()` / `undoStore.redo()`.
+         The page already registers `undoStore.onResult` (task-076), so a
+         successful (non-null) result replaces the draft `$state`
+         AUTOMATICALLY via that hook — do NOT re-implement the state
+         replacement in the buttons.
 
-  2. History side panel (collapsible) under `EstimationGrid.svelte`:
+  2. History side panel (collapsible), rendered on the editor
+     `+page.svelte` directly below `<EstimationGrid>`:
        - New component
          `src/frontend/src/lib/components/UndoHistoryPanel.svelte`
          shown when the user opens "Verlauf" from the toolbar.
@@ -39,10 +52,12 @@ description: |
          (`conflict.blockingKind`, `conflict.blockingCreatedAt`) so the
          undo cannot be performed without overwriting their work.
        - Two actions:
-           "Aktuellen Stand neu laden" — calls the existing draft
-             loader, then `undoStore.refresh()`, then
+           "Aktuellen Stand neu laden" — calls the editor page's
+             existing `loadVersion()` (pass it in as a callback prop),
+             then `undoStore.refresh()`, then
              `undoStore.clearConflict()`. This is the recommended
-             path.
+             path. (Note `loadVersion()` already refreshes history for
+             a draft, so the explicit `refresh()` is belt-and-braces.)
            "Abbrechen" — only calls `undoStore.clearConflict()` and
              keeps the local view as-is (no further undo possible
              until something changes).
@@ -67,14 +82,17 @@ description: |
        - History entries are a `<ul>` with `<li>` rows, not divs.
 
   6. E2E (Playwright):
-       - Extend `src/frontend/e2e/undo.spec.ts` (created in task-076)
-         with:
+       - Extend `src/frontend/e2e/undo.test.ts` (created in task-076 —
+         note the `.test.ts` suffix, matching the suite convention) with:
            * click-the-toolbar variant of the keyboard test (proves
              the buttons wire up),
-           * conflict scenario: simulate a second user's PUT via the
-             test-only auth helper, then attempt undo, expect the
-             dialog to appear with the other user's display name,
-             click "Aktuellen Stand neu laden", assert the dialog
+           * conflict scenario: after the UI (running as dev-admin)
+             makes an edit, simulate a SECOND user's PUT by issuing
+             `page.request.put(url, { headers: { Authorization:
+             'Dev dev-estimator' } })` (a valid ESTIMATOR dev user,
+             backend display name "Dev Estimator"); then attempt undo,
+             expect `<UndoConflictDialog>` to appear naming the other
+             user, click "Aktuellen Stand neu laden", assert the dialog
              closes and the grid shows the second user's value.
 
   Out of scope:
@@ -95,51 +113,68 @@ steps:
     actions ("Aktuellen Stand neu laden", "Abbrechen") as described.
 
   - |
-    Edit `EstimationDetail.svelte`:
-      - Add the two toolbar buttons (Rückgängig / Wiederholen) bound
-        to `undoStore.canUndo` / `canRedo`.
+    Edit the version editor page
+    `src/frontend/src/routes/estimations/[id]/versions/[versionNumber]/+page.svelte`
+    (where `undoStore`, the draft state, and `<EstimationGrid>` already
+    live):
+      - Add the two toolbar buttons (Rückgängig / Wiederholen) into the
+        existing `flex items-center gap-3` action-area row, before the
+        Submit button, bound to `undoStore.canUndo` / `canRedo`; they
+        call `undoStore.undo()` / `undoStore.redo()` (the `onResult`
+        hook already replaces the draft state).
       - Render `<UndoConflictDialog>` whenever
-        `undoStore.conflict != null`.
-      - Add a "Verlauf" toggle button that opens
-        `<UndoHistoryPanel>` in a collapsible region.
+        `undoStore.conflict != null`, passing `loadVersion` as the
+        reload callback.
+      - Add a "Verlauf" toggle button that opens `<UndoHistoryPanel>`
+        (fed `undoStore.history`) in a collapsible region below
+        `<EstimationGrid>`.
 
   - |
-    Extend `src/frontend/e2e/undo.spec.ts` with the two scenarios
+    Extend `src/frontend/e2e/undo.test.ts` with the two scenarios
     described (button-driven undo + conflict dialog flow).
 
   - |
-    Build + tests:
-      cd src/frontend && npm run check
-      cd src/frontend && npm run test:e2e -- --grep "undo"
+    Update the CLAUDE.md "Frontend — undo/redo store (`UndoStore`)"
+    paragraph: its final sentence currently reads "Visible
+    toolbar/history/conflict UI lands in task-077" — replace it to note
+    that the toolbar (Rückgängig/Wiederholen), the `UndoHistoryPanel`,
+    and the `UndoConflictDialog` now exist on the version editor page.
 
   - |
-    Manual UI sanity check via `./scripts/dev-local.sh`:
-    open an estimation, edit a value, click "Rückgängig", confirm the
-    grid reverts; click "Wiederholen", confirm it re-applies; force a
-    conflict by editing through a second dev user in another browser
-    profile and confirm the dialog renders.
+    Build + tests (the dev stack must be running for e2e —
+    `./scripts/dev.sh` with Docker up, backend on :8080 + Vite on :5173):
+      ./gradlew :frontend:check
+      cd src/frontend && npx playwright test undo
+
+  - |
+    Manual UI sanity check via `./scripts/dev.sh`:
+    open a draft in the version editor, edit a value, click "Rückgängig",
+    confirm the grid reverts; click "Wiederholen", confirm it re-applies;
+    force a conflict by editing through a second dev user in another
+    browser profile and confirm the dialog renders.
 
 validation:
   - |
-    Components exist and toolbar is wired up:
+    Components exist and the toolbar is wired up on the editor page:
       test -f src/frontend/src/lib/components/UndoHistoryPanel.svelte
       test -f src/frontend/src/lib/components/UndoConflictDialog.svelte
-      grep -q "UndoConflictDialog" src/frontend/src/lib/components/EstimationDetail.svelte
-      grep -q "UndoHistoryPanel" src/frontend/src/lib/components/EstimationDetail.svelte
-      grep -q "canUndo" src/frontend/src/lib/components/EstimationDetail.svelte
-      grep -q "canRedo" src/frontend/src/lib/components/EstimationDetail.svelte
+      grep -q "UndoConflictDialog" "src/frontend/src/routes/estimations/[id]/versions/[versionNumber]/+page.svelte"
+      grep -q "UndoHistoryPanel" "src/frontend/src/routes/estimations/[id]/versions/[versionNumber]/+page.svelte"
+      grep -q "canUndo" "src/frontend/src/routes/estimations/[id]/versions/[versionNumber]/+page.svelte"
+      grep -q "canRedo" "src/frontend/src/routes/estimations/[id]/versions/[versionNumber]/+page.svelte"
   - |
     No bare console.* introduced; ErrorBanner still wired up for
     non-conflict failures:
       ! grep -q "console\\." src/frontend/src/lib/components/UndoHistoryPanel.svelte
       ! grep -q "console\\." src/frontend/src/lib/components/UndoConflictDialog.svelte
   - |
-    Builds + e2e passes:
-      cd src/frontend && npm run check
-      cd src/frontend && npm run test:e2e -- --grep "undo"
+    Builds + e2e passes (dev stack running for e2e):
+      ./gradlew :frontend:check
+      cd src/frontend && npx playwright test undo
 
 outputs:
   - created: src/frontend/src/lib/components/UndoHistoryPanel.svelte
   - created: src/frontend/src/lib/components/UndoConflictDialog.svelte
-  - modified: src/frontend/src/lib/components/EstimationDetail.svelte
-  - modified: src/frontend/e2e/undo.spec.ts
+  - modified: src/frontend/src/routes/estimations/[id]/versions/[versionNumber]/+page.svelte
+  - modified: src/frontend/e2e/undo.test.ts
+  - modified: CLAUDE.md

@@ -10,21 +10,22 @@ Implement the planning task whose ID is given in $ARGUMENTS (e.g. `task-041`).
 
 4. **Verify outputs**: confirm that every path listed in the `outputs` section exists (or is deleted, as specified). If an expected file is missing, fix it before continuing.
 
-5. **Run the validation checks** listed in the `validation` section of the task. Each check is a shell command or a structural assertion. Run the shell commands with Bash. For structural assertions (e.g. "all four call sites accept EstimationVersion") inspect the relevant files and confirm. All checks must pass.
+5. **Run the validation checks** listed in the `validation` section of the task. Each check is a shell command or a structural assertion. Run the shell commands with Bash. For structural assertions (e.g. "all four call sites accept EstimationVersion") inspect the relevant files and confirm. All checks must pass. **Legacy tasks (pre-task-082) may reference `./mvnw` / `mvn`; translate those to the equivalent `./gradlew` invocation** (e.g. `./mvnw verify` → `./gradlew build`, `./mvnw -pl backend/implementation test` → `./gradlew :backend:implementation:test`).
 
 6. **MANDATORY BUILD CHECK** — this step is non-negotiable and must not be skipped:
-   - The task's last `steps` entry is typically the build/test command (e.g. `./gradlew :backend:implementation:test`). Run it exactly as written.
-   - If the task covers frontend-only changes, run `./gradlew :frontend:check` (or `npm run check` inside `src/frontend`).
-   - If the task covers both backend and frontend, run both.
-   - **Run the full Playwright e2e suite** — `cd src/frontend && npm run test:e2e` — and confirm all e2e tests pass. The suite needs the dev stack running (start it with `./scripts/dev.sh`, Docker up, so the `dev` backend on :8080 and the Vite frontend on :5173 are reachable). This is required even when the task only edits e2e specs or backend/auth behaviour the specs exercise — unit/IT green does NOT substitute for e2e. If you genuinely cannot start the stack in this environment, do NOT mark the task done: stop and report the e2e run as the outstanding gate (per the hard rule on unfixable build steps).
-   - **Do not mark the task done until the build passes with zero failures and the e2e suite passes.** If anything fails, diagnose and fix the root cause, then re-run. Never skip or work around the build step.
+   - Run the task's own build/test command (typically its last `steps` entry, e.g. `./gradlew :backend:implementation:test`) exactly as written.
+   - If the task covers frontend-only changes, run `./gradlew :frontend:check` (do NOT substitute `npm run check` — that runs only svelte-check and skips ESLint).
+   - If the task touches the end2end module, also run `./gradlew :backend:end2end:test`.
+   - **Then run `./gradlew build` as a final safety net.** This is the canonical full build (domain + backend + frontend) and catches cases where the task's narrow test command missed a module the change actually affected. A task-specific `:module:test` passing is not enough — `./gradlew build` must be green.
+   - **Playwright e2e — required for tasks that touch the frontend, REST DTOs, or auth behaviour**; optional (but encouraged) for pure `:domain` internal refactors when `./gradlew :domain:jvmTest` is green. When required: `cd src/frontend && npm run test:e2e`, with the dev stack running (`./scripts/dev.sh`, Docker up, `dev` backend on :8080, Vite frontend on :5173). If you genuinely cannot start the stack in this environment, do NOT mark the task done: stop and report the e2e run as the outstanding gate (per the hard rule on unfixable build steps).
+   - **Do not mark the task done until every required build/test above passes with zero failures.** If anything fails, diagnose and fix the root cause, then re-run. Never skip or work around the build step.
 
 7. **STATIC-ANALYSIS GATE** — non-negotiable, like the build check. The Gradle build runs detekt (Kotlin: domain + backend) and ESLint (TypeScript / Svelte / HTML), but the reports are *informational*: the build stays green even when there are findings (see task-056). A passing build therefore does NOT prove the code is clean — check explicitly, scoped to what this task changed:
    - Regenerate the reports for the affected module(s): `./gradlew :backend:implementation:detekt` and/or `./gradlew :domain:detekt`; for frontend, `./gradlew :frontend:npmLintReport`.
    - For every **source** file in the task's `outputs` (its `.kt`, `.kts`, `.ts`, `.svelte`, `.html` paths), confirm it introduces no new findings:
      - Kotlin — the path must NOT appear in `src/backend/implementation/build/reports/detekt/detekt.xml` or `src/domain/build/reports/detekt/detekt.xml` (detekt's checkstyle XML emits a `<file>` block only for files that have findings).
      - Frontend — the file's entry in `src/frontend/reports/eslint.json` must show `errorCount` and `warningCount` of `0`, e.g. `! jq -e '.[] | select(.filePath | endswith("Foo.svelte")) | select(.errorCount > 0 or .warningCount > 0)' src/frontend/reports/eslint.json > /dev/null`.
-   - Do NOT gate on the whole repo — the legacy baseline already has findings; only the files this task touched must be clean. Fix any new finding on a touched file before marking done. If a touched file carries a pre-existing finding unrelated to this change, leave it and note it in the report rather than expanding the task's scope.
+   - Do NOT gate on the whole repo — the legacy baseline already has findings; only the files this task touched must be clean. Fix any new finding on a touched file before marking done. **Distinguish new vs pre-existing findings** on a touched file: check whether the same finding exists on `main` (e.g. `git stash && ./gradlew :backend:implementation:detekt`, inspect, then `git stash pop`). If pre-existing and unrelated to this change, leave it and note it in the report rather than expanding the task's scope.
 
 8. **Update documentation**: after a green build, update any documentation affected by the changes.
    - If the task added, removed, or renamed a module, endpoint, schema, or public API: update `CLAUDE.md` (or the relevant section of it) to reflect the new state.
@@ -42,3 +43,4 @@ Implement the planning task whose ID is given in $ARGUMENTS (e.g. `task-041`).
 - Never delete a file that is not explicitly listed as deleted in the task's `outputs` section.
 - If the task says "do not delete X", treat that as an absolute constraint.
 - If a build failure cannot be fixed within the scope of the task (e.g. it requires changes to a different module), stop, explain the blocker, and do NOT mark done.
+- Never run `git commit`, `git push`, `git tag`, or any other VCS-mutating command unless the task's `steps` explicitly request it. Marking a task done via `./scripts/task.sh done` is the endpoint; committing is a separate, user-initiated action.
