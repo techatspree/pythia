@@ -491,7 +491,10 @@
 	</div>
 {/snippet}
 
-<div class="border rounded-lg overflow-hidden">
+<!-- data-undo-aware marks the grid cells as the undo surface: the global
+	undo/redo shortcut (task-076) acts here instead of the browser's native
+	input undo. -->
+<div class="border rounded-lg overflow-hidden" data-undo-aware="true">
 	{#if roots.length === 0}
 		<div class="p-10 text-center text-gray-400">
 			<p class="mb-4 text-sm">No items yet.</p>

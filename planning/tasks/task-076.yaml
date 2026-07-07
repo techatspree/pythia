@@ -27,8 +27,9 @@ description: |
     - All HTTP goes through `apiFetch` from `$lib/api/fetch.ts` (the
       auth-aware wrapper — every request must carry the `Authorization`
       header, since the endpoints are `@RolesAllowed` per task-091). Do
-      NOT use `src/lib/api/client.ts` (dead, unauthenticated — removed by
-      task-090).
+      NOT use `src/lib/api/client.ts` — it is unused/dead code (no
+      importers; slated for removal by the still-pending task-090), so this
+      task has no real dependency on task-090.
 
   Target state:
 
@@ -45,6 +46,9 @@ description: |
          history = $state<MutationLogEntryDto[]>([])
          loading = $state(false)
          conflict = $state<ConflictDetailsDto | null>(null)
+         // Non-409 failure message; the editor page binds this to its
+         // existing `bannerMessage` / <ErrorBanner> (see step 4).
+         error = $state<string | null>(null)
 
          canUndo = $derived(this.history.some(e => e.status === "ACTIVE"))
          // redo target is the latest UNDONE entry; a later ACTIVE entry
@@ -109,7 +113,8 @@ steps:
     `import type { components } from '$lib/api/schema'`
     (`components['schemas']['MutationLogEntryDto']`, etc.). Do all HTTP via
     `apiFetch` from `$lib/api/fetch.ts`; log via `$lib/log.ts`; on non-409
-    failure set an ErrorBanner-bound message.
+    failure set `this.error` (the ErrorBanner-bound message) and
+    `log.error(...)` — never a bare `console.*`.
 
   - |
     Create `src/frontend/src/lib/stores/undoKeyboard.svelte.ts` exporting
@@ -126,7 +131,10 @@ steps:
       - `store.refresh()` after the initial draft load and after each
         successful autosave PUT,
       - on a non-null undo/redo result, replace the page's draft/roots
-        state (reuse the existing normalize path used on load).
+        state (reuse the existing `normalizeRoots` path used on load),
+      - surface `store.error` through the page's existing `bannerMessage`
+        / `<ErrorBanner>` (e.g. an `$effect` mirroring `store.error` into
+        `bannerMessage`) so non-409 failures are user-visible.
 
   - |
     Tag the editable cells in `EstimationGrid.svelte` with
@@ -143,7 +151,10 @@ steps:
 
   - |
     Build + tests:
-      cd src/frontend && npm run check
+      ./gradlew :frontend:check          # type-check + ESLint (enforces the
+                                         # no-bare-console rule this task relies on)
+      # Playwright needs the dev stack running (./scripts/dev.sh + Docker,
+      # dev backend on :8080 + Vite on :5173):
       cd src/frontend && npx playwright test undo
 
 validation:
@@ -161,9 +172,12 @@ validation:
       ! grep -q "console\\." src/frontend/src/lib/stores/undo.svelte.ts
       ! grep -q "console\\." src/frontend/src/lib/stores/undoKeyboard.svelte.ts
   - |
-    Generated types include the undo surface, and the check passes:
+    The editor page surfaces store errors via ErrorBanner:
+      grep -q "store.error\|bannerMessage" "src/frontend/src/routes/estimations/[id]/versions/[versionNumber]/+page.svelte"
+  - |
+    Generated types include the undo surface, and the frontend gate passes:
       grep -q "/versions/draft/undo" src/frontend/src/lib/api/schema.d.ts
-      cd src/frontend && npm run check
+      ./gradlew :frontend:check
 
 outputs:
   - created: src/frontend/src/lib/stores/undo.svelte.ts

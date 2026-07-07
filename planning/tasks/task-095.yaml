@@ -1,0 +1,153 @@
+id: task-095
+phase: phase-12
+title: Reconcile plan.yaml — fix stale stack + complete task index
+depends_on: []
+description: |
+  `planning/plan.yaml` has drifted out of sync with the real project on
+  two fronts; this is a documentation/plan-hygiene task that corrects both.
+  NO code changes — only `planning/plan.yaml` (and `planning/README.md`
+  if it turns out to enumerate phases).
+
+  Problem 1 — stale frontend stack. `plan.yaml`'s `stack.frontend` block
+  still declares the original, abandoned stack:
+
+      frontend:
+        framework: react
+        language: typescript
+        build: vite
+        state: tanstack-query
+        auth: msal-react
+        styling: tailwind
+
+  The project is actually SvelteKit 5 (runes) + TypeScript + Tailwind 4 +
+  Vite, adapter-static SPA, talking to the backend via openapi-fetch /
+  the `apiFetch` wrapper with types generated from the backend OpenAPI, and
+  a provider-modular auth layer (dev | entra | keycloak — MSAL only under
+  the entra provider). See the root `CLAUDE.md` "Architecture" and
+  "Modular authentication and authorization" sections for the canonical
+  description. `state: tanstack-query` and `auth: msal-react` are wrong.
+
+  Problem 2 — incomplete task index. `plan.yaml`'s `phases[].tasks` lists
+  reference only 62 task ids, but `status.json` has 95. Every task id in
+  `status.json` MUST appear under exactly one phase. The 33 currently
+  missing from the phase index are:
+
+    task-033 task-034 task-035 task-036 task-037 task-038 task-039 task-040
+    task-041 task-042 task-043 task-044 task-045 task-046 task-047 task-048
+    task-079 task-080 task-081 task-082 task-083 task-084 task-085 task-086
+    task-087 task-088 task-089 task-090 task-091 task-092 task-093 task-094
+    task-095
+
+  (No dangling refs exist in the other direction — every id already in
+  `plan.yaml` is present in `status.json`.)
+
+  Target state:
+    - `stack.frontend` reflects the real SvelteKit stack.
+    - Every `status.json` task id appears in exactly one phase's `tasks`
+      list, so `plan.yaml` is once again a complete index.
+
+  Key design decisions (leave no ambiguity for the implementer):
+    - Do NOT rename, reorder, renumber, or delete any existing phase, and
+      do NOT change any task's status/timestamps in `status.json`. This
+      task only edits `plan.yaml` (append task ids to existing phases and/or
+      add new phase entries) and possibly `README.md`.
+    - Place each orphan task by THEME, read from its own YAML `title`
+      (and `status.json` `notes`), not by guessing from the number. Add it
+      to the existing phase whose name matches its workstream when one
+      clearly fits — e.g. static-analysis/build tasks (task-084, task-085,
+      task-086) belong with phase-10 "Code Quality and Static Analysis"
+      (which already holds task-056, task-071, task-078).
+    - The two orphan clusters that fit NO existing phase get new phases,
+      appended after phase-12 (keep phase ids sequential — `phase-13`,
+      `phase-14`):
+        * The `task-033`..`task-048` block — the Excel-aligned domain
+          model, the Kotlin Multiplatform domain conversion, the build
+          reactor, and the associated frontend panels (done May 2026,
+          between the phase-8 and phase-9 work). Group the ones that do not
+          map onto phases 1–9 here (suggested name: "Excel-aligned Domain,
+          KMP & Build Reactor").
+        * The `task-079`..`task-095` block — post-MVP hardening: auth
+          hardening (079, 080, 091, 092, 093), the Svelte 5 `$bindable`
+          refactor (081), the Maven→Gradle + PostgreSQL-everywhere build
+          modernization (082, 083), remaining static-analysis/smoke work
+          not placed in phase-10 (087), backend refactors (088, 089, 090),
+          the OpenAPI schema coverage (094), and this reconciliation task
+          (095). Suggested name: "Post-MVP Hardening & Build Modernization".
+      A new phase entry mirrors the existing shape exactly: `id`, `name`,
+      `duration_weeks`, `tasks: [...]`.
+    - It is acceptable for a done task to land in a new post-phase-12 phase
+      even though it was completed earlier — the phase index is a
+      classification, not a strict timeline. Prioritise a clean, complete,
+      unambiguous index over chronological purity.
+
+steps:
+  - |
+    Fix the stale `stack.frontend` block in `planning/plan.yaml` so it
+    describes the real stack. Replace the `state: tanstack-query` and
+    `auth: msal-react` lines and align the rest, e.g.:
+      frontend:
+        framework: sveltekit
+        language: typescript
+        build: vite
+        rendering: adapter-static-spa
+        styling: tailwind
+        api_client: openapi-fetch
+        auth: modular   # dev | entra | keycloak
+    Do not touch `stack.backend`, `stack.database`, or `stack.platform`.
+  - |
+    Enumerate the orphan task ids (those in status.json but absent from the
+    plan.yaml phase index) to confirm the working set:
+      cd planning
+      comm -23 <(jq -r '.tasks|keys[]' status.json | sort) \
+               <(grep -oE 'task-[0-9]{3}' plan.yaml | sort -u)
+    For each orphan id, read its title to classify it:
+      for t in $(comm -23 <(jq -r '.tasks|keys[]' status.json|sort) \
+                          <(grep -oE 'task-[0-9]{3}' plan.yaml|sort -u)); do
+        printf '%s  ' "$t"; grep -m1 '^title:' "tasks/$t.yaml" 2>/dev/null \
+          || jq -r ".tasks[\"$t\"].notes" status.json; done
+  - |
+    Assign every orphan to a phase in `planning/plan.yaml`:
+      - Append task-084, task-085, task-086 (and any other clearly
+        static-analysis/code-quality orphan) to phase-10's `tasks` list.
+      - Append any orphan that clearly belongs to an existing phase 1–9 by
+        theme to that phase's `tasks` list.
+      - Add new phase `phase-13` (Excel-aligned Domain, KMP & Build
+        Reactor) listing the remaining task-033..task-048 orphans, and new
+        phase `phase-14` (Post-MVP Hardening & Build Modernization) listing
+        the remaining task-079..task-095 orphans. Use the same field shape
+        as existing phases (`id`, `name`, `duration_weeks`, `tasks`).
+      - Ensure task-095 (this task) itself is placed (phase-14).
+    Every one of the 33 orphan ids must end up in exactly one phase list.
+  - |
+    Check `planning/README.md`: it currently describes the plan structure
+    generically and does NOT enumerate the phases, so it likely needs no
+    change. Only if it contains an explicit phase→task listing, update that
+    listing to match. Do not otherwise edit README.md.
+  - |
+    Validate the reconciliation (documentation-only task — the build/test
+    gate is the YAML-validity + completeness assertion below, not a Gradle
+    build):
+      ruby -ryaml -e "YAML.load_file('planning/plan.yaml'); puts 'plan.yaml valid'"
+      test -z "$(comm -23 <(jq -r '.tasks|keys[]' planning/status.json|sort) \
+                          <(grep -oE 'task-[0-9]{3}' planning/plan.yaml|sort -u))"
+
+validation:
+  - |
+    plan.yaml is still valid YAML:
+      ruby -ryaml -e "YAML.load_file('planning/plan.yaml')"
+  - |
+    The frontend stack block is corrected (SvelteKit in, dead tools out):
+      grep -q "sveltekit" planning/plan.yaml
+      ! grep -q "tanstack" planning/plan.yaml
+      ! grep -q "msal-react" planning/plan.yaml
+  - |
+    Every task id in status.json now appears in some phase's task list
+    (empty diff = complete index):
+      test -z "$(comm -23 <(jq -r '.tasks|keys[]' planning/status.json|sort) <(grep -oE 'task-[0-9]{3}' planning/plan.yaml|sort -u))"
+  - |
+    No new dangling references were introduced (every id referenced in
+    plan.yaml still exists in status.json):
+      test -z "$(comm -13 <(jq -r '.tasks|keys[]' planning/status.json|sort) <(grep -oE 'task-[0-9]{3}' planning/plan.yaml|sort -u))"
+
+outputs:
+  - modified: planning/plan.yaml

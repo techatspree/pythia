@@ -453,9 +453,9 @@
       "notes": ""
     },
     "task-076": {
-      "status": "pending",
-      "started_at": null,
-      "completed_at": null,
+      "status": "done",
+      "started_at": "2026-07-07T17:51:34+00:00",
+      "completed_at": "2026-07-07T19:19:24+00:00",
       "notes": ""
     },
     "task-077": {
@@ -565,6 +565,12 @@
       "started_at": "2026-07-06T07:48:54+00:00",
       "completed_at": "2026-07-06T12:49:09+00:00",
       "notes": "Full OpenAPI schema coverage — typed responses for all endpoints"
+    },
+    "task-095": {
+      "status": "pending",
+      "started_at": null,
+      "completed_at": null,
+      "notes": "Reconcile planning/plan.yaml with reality: fix stale frontend stack (react->SvelteKit) and add missing tasks 079-094 to the phase index"
     }
   }
 }

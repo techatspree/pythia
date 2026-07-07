@@ -14,6 +14,8 @@
 	import { log } from '$lib/log';
 	import type { ApiVersionResponse, ApiAdditionalCost } from '$lib/api/types.js';
 	import { apiFetch } from '$lib/api/fetch';
+	import { UndoStore } from '$lib/stores/undo.svelte';
+	import { installUndoShortcuts } from '$lib/stores/undoKeyboard.svelte';
 
 	let versionData = $state<ApiVersionResponse | null>(null);
 	let loading = $state(true);
@@ -27,6 +29,11 @@
 	let currentDrivers = $state<any[]>([]);
 	let currentPhases = $state<any[]>([]);
 	let currentAdditionalCosts = $state<ApiAdditionalCost[]>([]);
+
+	// Undo/redo plumbing (task-076). The store owns only the mutation log; this
+	// page owns the draft state and applies the version undo/redo returns.
+	const undoStore = new UndoStore(page.params.id!);
+	undoStore.onResult = (version) => applyVersionData(version as unknown as ApiVersionResponse);
 
 	const calcMap = $derived.by(() => {
 		try {
@@ -50,35 +57,9 @@
 				: `/api/estimations/${estimationId}/versions/${versionNumber}`;
 			const res = await apiFetch(url);
 			if (!res.ok) throw new Error(`Failed to load version (${res.status})`);
-			versionData = await res.json();
-			currentNotes = versionData!.notes ?? '';
-			currentRoots = normalizeRoots(versionData);
-			currentParameters = (versionData!.parameters ?? []).map((p: any) => ({
-				name: p.name ?? '',
-				value: p.value ?? 0,
-				comment: p.comment ?? ''
-			}));
-			currentDrivers = (versionData!.effortDrivers ?? []).map((d: any) => ({
-				description: d.description ?? '',
-				factor: d.factor ?? 0,
-				comment: d.comment ?? ''
-			}));
-			currentPhases = (versionData!.phases ?? []).map((p: any) => ({
-				name: p.name ?? '',
-				abbreviation: p.abbreviation ?? '',
-				durationWeeks: p.durationWeeks ?? null
-			}));
-			currentAdditionalCosts = (versionData!.additionalCosts ?? []).map((c: any) => ({
-				id: c.id ?? null,
-				description: c.description ?? '',
-				amount: c.amount ?? 0,
-				type: c.type,
-				amountPerWeek: c.amountPerWeek ?? null,
-				phaseAbbreviation: c.phaseAbbreviation ?? null
-			}));
-			// Baseline for the autosave effect: any subsequent change to the
-			// editable state (and only those) triggers a save.
-			lastSavedSnapshot = editableSnapshot();
+			applyVersionData(await res.json());
+			// Load the mutation log so undo/redo availability is known up front.
+			if (versionData?.isDraft) await undoStore.refresh();
 		} catch (e: any) {
 			bannerMessage = e.message;
 			log.error('loadVersion failed:', e);
@@ -87,7 +68,54 @@
 		}
 	}
 
+	// Normalise a version response into the page's editable `$state` and reset
+	// the autosave baseline. Shared by the initial load and the undo/redo path
+	// (single source for the mapping, so undo re-hydrates exactly like a load).
+	function applyVersionData(data: ApiVersionResponse) {
+		versionData = data;
+		currentNotes = data.notes ?? '';
+		currentRoots = normalizeRoots(data);
+		currentParameters = (data.parameters ?? []).map((p: any) => ({
+			name: p.name ?? '',
+			value: p.value ?? 0,
+			comment: p.comment ?? ''
+		}));
+		currentDrivers = (data.effortDrivers ?? []).map((d: any) => ({
+			description: d.description ?? '',
+			factor: d.factor ?? 0,
+			comment: d.comment ?? ''
+		}));
+		currentPhases = (data.phases ?? []).map((p: any) => ({
+			name: p.name ?? '',
+			abbreviation: p.abbreviation ?? '',
+			durationWeeks: p.durationWeeks ?? null
+		}));
+		currentAdditionalCosts = (data.additionalCosts ?? []).map((c: any) => ({
+			id: c.id ?? null,
+			description: c.description ?? '',
+			amount: c.amount ?? 0,
+			type: c.type,
+			amountPerWeek: c.amountPerWeek ?? null,
+			phaseAbbreviation: c.phaseAbbreviation ?? null
+		}));
+		// Baseline for the autosave effect: any subsequent change to the
+		// editable state (and only those) triggers a save.
+		lastSavedSnapshot = editableSnapshot();
+	}
+
 	onMount(loadVersion);
+
+	// Install/remove the global undo/redo keyboard shortcuts with the component.
+	$effect(() => installUndoShortcuts(undoStore));
+
+	// Surface non-409 undo/redo failures through the existing ErrorBanner.
+	$effect(() => {
+		const err = undoStore.error;
+		if (err) {
+			bannerMessage = err;
+			undoStore.error = null;
+		}
+	});
 
 	// Non-reactive baseline; null until the first successful load.
 	let lastSavedSnapshot: string | null = null;
@@ -135,6 +163,9 @@
 				});
 				if (!res.ok) throw new Error('Save failed');
 				saveStatus = 'saved';
+				// A successful PUT records a new mutation; refresh so undo/redo
+				// availability tracks the latest state.
+				await undoStore.refresh();
 				setTimeout(() => (saveStatus = 'idle'), 2000);
 			} catch (e: any) {
 				saveStatus = 'idle';
