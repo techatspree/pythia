@@ -4,6 +4,99 @@
  */
 
 export interface paths {
+    "/api/admin/ping": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Admin-only canary that proves role enforcement */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Pong with the caller's subject id */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["PingDto"];
+                    };
+                };
+                /** @description Not Authorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Caller lacks the ADMIN role */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/auth/me": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The current authenticated user */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description The current user */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["CurrentUserDto"];
+                    };
+                };
+                /** @description No user is populated for the request */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/estimations/{estimationId}/versions": {
         parameters: {
             query?: never;
@@ -11,7 +104,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** List Versions */
+        /** List versions (live draft first, then submitted snapshots) */
         get: {
             parameters: {
                 query?: never;
@@ -23,19 +116,40 @@ export interface paths {
             };
             requestBody?: never;
             responses: {
-                /** @description OK */
+                /** @description The version summaries */
                 200: {
                     headers: {
                         [name: string]: unknown;
                     };
                     content: {
-                        "application/json": unknown;
+                        "application/json": components["schemas"]["EstimationVersionSummaryDto"][];
                     };
+                };
+                /** @description Not Authorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Not Allowed */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Estimation not found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
                 };
             };
         };
         put?: never;
-        /** Create Version */
+        /** Create a draft version (cloned from the latest submitted, if any) */
         post: {
             parameters: {
                 query?: never;
@@ -47,14 +161,42 @@ export interface paths {
             };
             requestBody?: never;
             responses: {
-                /** @description OK */
-                200: {
+                /** @description The created draft with calculated values */
+                201: {
                     headers: {
                         [name: string]: unknown;
                     };
                     content: {
-                        "application/json": unknown;
+                        "application/json": components["schemas"]["EstimationVersionDto"];
                     };
+                };
+                /** @description Not Authorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Not Allowed */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Estimation not found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description A draft already exists for this estimation */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
                 };
             };
         };
@@ -64,17 +206,59 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/estimations/{estimationId}/versions/import": {
+    "/api/estimations/{estimationId}/versions/draft": {
         parameters: {
             query?: never;
             header?: never;
             path?: never;
             cookie?: never;
         };
-        get?: never;
-        put?: never;
-        /** Import From Excel */
-        post: {
+        /** Get the draft with on-the-fly calculated values */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    estimationId: components["schemas"]["UUID"];
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description The draft with calculated values */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["EstimationVersionDto"];
+                    };
+                };
+                /** @description Not Authorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Not Allowed */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description No draft found for this estimation */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        /** Replace the draft's collections wholesale and record the mutation */
+        put: {
             parameters: {
                 query?: never;
                 header?: never;
@@ -85,20 +269,341 @@ export interface paths {
             };
             requestBody: {
                 content: {
-                    "multipart/form-data": {
-                        /** Format: binary */
-                        file: string;
-                    };
+                    "application/json": components["schemas"]["DraftUpdateDto"];
                 };
             };
             responses: {
-                /** @description OK */
+                /** @description The updated draft with recalculated values */
                 200: {
                     headers: {
                         [name: string]: unknown;
                     };
                     content: {
-                        "application/json": unknown;
+                        "application/json": components["schemas"]["EstimationVersionDto"];
+                    };
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Not Authorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Not Allowed */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description No draft found for this estimation */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        post?: never;
+        /** Delete the draft version */
+        delete: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    estimationId: components["schemas"]["UUID"];
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description The draft was deleted */
+                204: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Not Authorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Not Allowed */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Estimation not found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/estimations/{estimationId}/versions/draft/history": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The draft's mutation log (active and undone, ordered by sequence) */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    estimationId: components["schemas"]["UUID"];
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description The mutation log entries */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["MutationLogEntryDto"][];
+                    };
+                };
+                /** @description Not Authorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Not Allowed */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Estimation not found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/estimations/{estimationId}/versions/draft/redo": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Redo this user's last undone draft mutation */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    estimationId: components["schemas"]["UUID"];
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description The recalculated draft */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["EstimationVersionDto"];
+                    };
+                };
+                /** @description Not Authorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Not Allowed */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description No draft found for this estimation */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description A newer change blocks the redo */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ConflictDetailsDto"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/estimations/{estimationId}/versions/draft/submit": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Snapshot the draft into an immutable submitted version */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    estimationId: components["schemas"]["UUID"];
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description The submitted version snapshot */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["EstimationVersionDto"];
+                    };
+                };
+                /** @description Not Authorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Not Allowed */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description No draft found for this estimation */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/estimations/{estimationId}/versions/draft/undo": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Undo this user's last draft mutation */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    estimationId: components["schemas"]["UUID"];
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description The recalculated draft */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["EstimationVersionDto"];
+                    };
+                };
+                /** @description Not Authorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Not Allowed */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description No draft found for this estimation */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description A newer change blocks the undo */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ConflictDetailsDto"];
                     };
                 };
             };
@@ -116,28 +621,49 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Compare Versions */
+        /** Diff two versions (use "draft" for the live draft) */
         get: {
             parameters: {
                 query?: never;
                 header?: never;
                 path: {
                     estimationId: components["schemas"]["UUID"];
-                    versionA: number;
-                    versionB: number;
+                    versionA: string;
+                    versionB: string;
                 };
                 cookie?: never;
             };
             requestBody?: never;
             responses: {
-                /** @description OK */
+                /** @description The version comparison */
                 200: {
                     headers: {
                         [name: string]: unknown;
                     };
                     content: {
-                        "application/json": unknown;
+                        "application/json": components["schemas"]["VersionComparisonDto"];
                     };
+                };
+                /** @description Not Authorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Not Allowed */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description A referenced version was not found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
                 };
             };
         };
@@ -156,7 +682,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Get Version */
+        /** Read a submitted version (stored calculated values) */
         get: {
             parameters: {
                 query?: never;
@@ -169,45 +695,31 @@ export interface paths {
             };
             requestBody?: never;
             responses: {
-                /** @description OK */
+                /** @description The submitted version */
                 200: {
                     headers: {
                         [name: string]: unknown;
                     };
                     content: {
-                        "application/json": unknown;
+                        "application/json": components["schemas"]["EstimationVersionDto"];
                     };
                 };
-            };
-        };
-        /** Update Version */
-        put: {
-            parameters: {
-                query?: never;
-                header?: never;
-                path: {
-                    estimationId: components["schemas"]["UUID"];
-                    versionNumber: number;
-                };
-                cookie?: never;
-            };
-            requestBody: {
-                content: {
-                    "application/json": components["schemas"]["EstimationVersionUpdateDto"];
-                };
-            };
-            responses: {
-                /** @description OK */
-                200: {
+                /** @description Not Authorized */
+                401: {
                     headers: {
                         [name: string]: unknown;
                     };
-                    content: {
-                        "application/json": unknown;
-                    };
+                    content?: never;
                 };
-                /** @description Bad Request */
-                400: {
+                /** @description Not Allowed */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Version not found for this estimation */
+                404: {
                     headers: {
                         [name: string]: unknown;
                     };
@@ -215,31 +727,9 @@ export interface paths {
                 };
             };
         };
+        put?: never;
         post?: never;
-        /** Delete Version */
-        delete: {
-            parameters: {
-                query?: never;
-                header?: never;
-                path: {
-                    estimationId: components["schemas"]["UUID"];
-                    versionNumber: number;
-                };
-                cookie?: never;
-            };
-            requestBody?: never;
-            responses: {
-                /** @description OK */
-                200: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": unknown;
-                    };
-                };
-            };
-        };
+        delete?: never;
         options?: never;
         head?: never;
         patch?: never;
@@ -252,27 +742,58 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Export Version */
+        /** Export a version as xlsx (octet-stream) or csv */
         get: {
             parameters: {
-                query?: never;
+                query: {
+                    format: string;
+                };
                 header?: never;
                 path: {
                     estimationId: components["schemas"]["UUID"];
-                    versionNumber: number;
+                    versionNumber: string;
                 };
                 cookie?: never;
             };
             requestBody?: never;
             responses: {
-                /** @description OK */
+                /** @description The exported file */
                 200: {
                     headers: {
                         [name: string]: unknown;
                     };
                     content: {
-                        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": unknown;
+                        "application/octet-stream": unknown;
+                        "text/csv": unknown;
                     };
+                };
+                /** @description Unsupported export format */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Not Authorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Not Allowed */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Version not found for this estimation */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
                 };
             };
         };
@@ -284,39 +805,59 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/estimations/{estimationId}/versions/{versionNumber}/submit": {
+    "/api/estimations/{id}": {
         parameters: {
             query?: never;
             header?: never;
             path?: never;
             cookie?: never;
         };
-        get?: never;
-        put?: never;
-        /** Submit Version */
-        post: {
+        /** Get an estimation with its live draft total effort */
+        get: {
             parameters: {
                 query?: never;
                 header?: never;
                 path: {
-                    estimationId: components["schemas"]["UUID"];
-                    versionNumber: number;
+                    id: components["schemas"]["UUID"];
                 };
                 cookie?: never;
             };
             requestBody?: never;
             responses: {
-                /** @description OK */
+                /** @description The estimation */
                 200: {
                     headers: {
                         [name: string]: unknown;
                     };
                     content: {
-                        "application/json": unknown;
+                        "application/json": components["schemas"]["EstimationDetailDto"];
                     };
+                };
+                /** @description Not Authorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Not Allowed */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Estimation not found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
                 };
             };
         };
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -330,7 +871,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** List Projects */
+        /** List all projects, optionally filtered by status */
         get: {
             parameters: {
                 query: {
@@ -342,19 +883,33 @@ export interface paths {
             };
             requestBody?: never;
             responses: {
-                /** @description OK */
+                /** @description The projects */
                 200: {
                     headers: {
                         [name: string]: unknown;
                     };
                     content: {
-                        "application/json": unknown;
+                        "application/json": components["schemas"]["ProjectSummaryDto"][];
                     };
+                };
+                /** @description Not Authorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Not Allowed */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
                 };
             };
         };
         put?: never;
-        /** Create Project */
+        /** Create a new project */
         post: {
             parameters: {
                 query?: never;
@@ -368,17 +923,31 @@ export interface paths {
                 };
             };
             responses: {
-                /** @description OK */
-                200: {
+                /** @description The created project */
+                201: {
                     headers: {
                         [name: string]: unknown;
                     };
                     content: {
-                        "application/json": unknown;
+                        "application/json": components["schemas"]["ProjectSummaryDto"];
                     };
                 };
                 /** @description Bad Request */
                 400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Not Authorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Not Allowed */
+                403: {
                     headers: {
                         [name: string]: unknown;
                     };
@@ -399,7 +968,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Get Project */
+        /** Get a single project with its estimations */
         get: {
             parameters: {
                 query?: never;
@@ -411,18 +980,39 @@ export interface paths {
             };
             requestBody?: never;
             responses: {
-                /** @description OK */
+                /** @description The project */
                 200: {
                     headers: {
                         [name: string]: unknown;
                     };
                     content: {
-                        "application/json": unknown;
+                        "application/json": components["schemas"]["ProjectDetailDto"];
                     };
+                };
+                /** @description Not Authorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Not Allowed */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Project not found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
                 };
             };
         };
-        /** Update Project */
+        /** Update a project's metadata */
         put: {
             parameters: {
                 query?: never;
@@ -438,17 +1028,38 @@ export interface paths {
                 };
             };
             responses: {
-                /** @description OK */
+                /** @description The updated project */
                 200: {
                     headers: {
                         [name: string]: unknown;
                     };
                     content: {
-                        "application/json": unknown;
+                        "application/json": components["schemas"]["ProjectSummaryDto"];
                     };
                 };
                 /** @description Bad Request */
                 400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Not Authorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Not Allowed */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Project not found */
+                404: {
                     headers: {
                         [name: string]: unknown;
                     };
@@ -472,7 +1083,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Archive Project */
+        /** Archive a project */
         post: {
             parameters: {
                 query?: never;
@@ -484,14 +1095,105 @@ export interface paths {
             };
             requestBody?: never;
             responses: {
-                /** @description OK */
+                /** @description The archived project */
                 200: {
                     headers: {
                         [name: string]: unknown;
                     };
                     content: {
-                        "application/json": unknown;
+                        "application/json": components["schemas"]["ProjectSummaryDto"];
                     };
+                };
+                /** @description Not Authorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Not Allowed */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Project not found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/projects/{id}/estimations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Create an estimation under a project */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: components["schemas"]["UUID"];
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["EstimationCreateDto"];
+                };
+            };
+            responses: {
+                /** @description The created estimation */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["EstimationSummaryDto"];
+                    };
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Not Authorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Not Allowed */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Project not found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
                 };
             };
         };
@@ -505,39 +1207,277 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
-        EffortDriverDto: {
-            id: components["schemas"]["UUID"] | null;
+        AdditionalCostDto: {
+            id?: components["schemas"]["UUID"] | null;
+            description: string;
+            /** Format: double */
+            amount: number;
+            type: components["schemas"]["AdditionalCostType"];
+            /** Format: double */
+            amountPerWeek: number | null;
+            phaseAbbreviation: string | null;
+        };
+        /** @enum {string} */
+        AdditionalCostType: "ONE_TIME" | "RECURRING";
+        AdditionalCostUpdateDto: {
+            id?: components["schemas"]["UUID"] | null;
+            description: string;
+            /** Format: double */
+            amount?: number;
+            type: components["schemas"]["AdditionalCostType"];
+            /** Format: double */
+            amountPerWeek?: number | null;
+            phaseAbbreviation?: string | null;
+        };
+        ComparisonNodeDto: {
+            logicalId: components["schemas"]["UUID"];
+            type: string;
+            title: string | null;
             description: string | null;
+            path: string[];
             /** Format: double */
-            factor: number;
-            comment: string | null;
-        };
-        EstimationParameterDto: {
-            id: components["schemas"]["UUID"] | null;
-            name: string | null;
+            minEffort: number | null;
             /** Format: double */
-            value: number;
-            comment: string | null;
+            expectedEffort: number | null;
+            /** Format: double */
+            maxEffort: number | null;
+            /** Format: double */
+            offerPT: number | null;
         };
-        EstimationVersionUpdateDto: {
+        ConflictDetailsDto: {
+            message: string;
+            /** Format: int64 */
+            blockingSequenceNumber: number;
+            blockingUserId: components["schemas"]["UUID"];
+            blockingUserDisplayName: string;
+            blockingKind: string;
+            blockingCreatedAt: components["schemas"]["Instant"];
+            /** Format: int64 */
+            currentDraftRevision: number;
+        };
+        CurrentUserDto: {
+            subjectId: string;
+            email: string | null;
+            displayName: string | null;
+            roles: components["schemas"]["Role"][];
+            providerName: string;
+        };
+        DraftUpdateDto: {
             notes?: string | null;
             parameters?: components["schemas"]["EstimationParameterDto"][] | null;
             effortDrivers?: components["schemas"]["EffortDriverDto"][] | null;
+            phases?: components["schemas"]["PhaseUpdateDto"][] | null;
+            roots?: components["schemas"]["EstimationNodeUpdateDto"][] | null;
+            additionalCosts?: components["schemas"]["AdditionalCostUpdateDto"][] | null;
+        };
+        EffortDriverDto: {
+            id?: components["schemas"]["UUID"] | null;
+            description: string;
+            /** Format: double */
+            factor: number;
+            comment?: string | null;
+        };
+        EstimationCreateDto: {
+            offer: string;
+            description?: string | null;
+        };
+        EstimationDetailDto: {
+            id: components["schemas"]["UUID"] | null;
+            offer: string | null;
+            description: string | null;
+            projectId: components["schemas"]["UUID"] | null;
+            projectName: string | null;
+            /** Format: int32 */
+            latestVersionNumber: number | null;
+            hasDraft: boolean;
+            createdAt: components["schemas"]["Instant"] | null;
+            versions: components["schemas"]["EstimationVersionSummaryDto"][];
+        };
+        EstimationNodeDto: {
+            logicalId: components["schemas"]["UUID"] | null;
+            type: string;
+            title: string | null;
+            description: string | null;
+            code: string | null;
+            /** Format: double */
+            minEffort: number | null;
+            /** Format: double */
+            expectedEffort: number | null;
+            /** Format: double */
+            maxEffort: number | null;
+            assumptions: string | null;
+            /** Format: double */
+            mean: number;
+            /** Format: double */
+            variance: number;
+            /** Format: double */
+            riskSurcharge: number;
+            /** Format: double */
+            driverSurcharge: number;
+            /** Format: double */
+            offerPT: number;
+            /** Format: double */
+            cost: number;
+            /** Format: double */
+            offerPrice: number;
+            unit: string | null;
+            phaseAbbreviation: string | null;
+            children: components["schemas"]["EstimationNodeDto"][];
+        };
+        EstimationNodeUpdateDto: {
+            logicalId?: components["schemas"]["UUID"] | null;
+            type: string;
+            title?: string | null;
+            description?: string | null;
+            code?: string | null;
+            /** Format: double */
+            minEffort?: number | null;
+            /** Format: double */
+            expectedEffort?: number | null;
+            /** Format: double */
+            maxEffort?: number | null;
+            assumptions?: string | null;
+            unit?: string | null;
+            phaseAbbreviation?: string | null;
+            children?: components["schemas"]["EstimationNodeUpdateDto"][];
+        };
+        EstimationParameterDto: {
+            id?: components["schemas"]["UUID"] | null;
+            name: string;
+            /** Format: double */
+            value: number;
+            comment?: string | null;
+        };
+        EstimationSummaryDto: {
+            id: components["schemas"]["UUID"] | null;
+            offer: string | null;
+            description: string | null;
+            /** Format: int32 */
+            latestVersionNumber: number | null;
+            /** Format: int32 */
+            versionCount: number;
+            hasDraft: boolean;
+            createdAt: components["schemas"]["Instant"] | null;
+        };
+        EstimationVersionDto: {
+            /** Format: int32 */
+            versionNumber: number;
+            isDraft: boolean;
+            /** Format: double */
+            totalEffort: number;
+            notes: string | null;
+            createdAt: components["schemas"]["Instant"] | null;
+            submittedAt: components["schemas"]["Instant"] | null;
+            parameters: components["schemas"]["EstimationParameterDto"][];
+            effortDrivers: components["schemas"]["EffortDriverDto"][];
+            phases: components["schemas"]["ProjectPhaseDto"][];
+            roots: components["schemas"]["EstimationNodeDto"][];
+            additionalCosts: components["schemas"]["AdditionalCostDto"][];
+        };
+        EstimationVersionSummaryDto: {
+            /** Format: int32 */
+            versionNumber: number;
+            isDraft: boolean;
+            /** Format: double */
+            totalEffort: number | null;
+            notes: string | null;
+            createdAt: components["schemas"]["Instant"] | null;
+        };
+        /**
+         * Format: date-time
+         * @example 2022-03-10T16:15:50Z
+         */
+        Instant: string;
+        MutationLogEntryDto: {
+            id: components["schemas"]["UUID"];
+            /** Format: int64 */
+            sequenceNumber: number;
+            /** Format: int64 */
+            revisionBefore: number;
+            /** Format: int64 */
+            revisionAfter: number;
+            userId: components["schemas"]["UUID"];
+            userDisplayName: string;
+            kind: string;
+            status: string;
+            createdAt: components["schemas"]["Instant"];
+            undoneAt: components["schemas"]["Instant"] | null;
+        };
+        NodeModificationDto: {
+            logicalId: components["schemas"]["UUID"];
+            type: string;
+            before: components["schemas"]["ComparisonNodeDto"];
+            after: components["schemas"]["ComparisonNodeDto"];
+            changedFields: string[];
+        };
+        ParameterChangeDto: {
+            name: string;
+            /** Format: double */
+            oldValue: number | null;
+            /** Format: double */
+            newValue: number | null;
+            changeType: string;
+        };
+        PhaseUpdateDto: {
+            name: string;
+            abbreviation: string;
+            /** Format: double */
+            durationWeeks?: number | null;
+        };
+        PingDto: {
+            message: string;
+            user: string;
         };
         ProjectCreateDto: {
             name: string;
             description?: string | null;
             client?: string | null;
         };
+        ProjectDetailDto: {
+            id: components["schemas"]["UUID"] | null;
+            name: string | null;
+            description: string | null;
+            client: string | null;
+            status: components["schemas"]["ProjectStatus"];
+            createdAt: components["schemas"]["Instant"] | null;
+            estimations: components["schemas"]["EstimationSummaryDto"][];
+        };
+        ProjectPhaseDto: {
+            id?: components["schemas"]["UUID"] | null;
+            name: string;
+            abbreviation: string;
+            /** Format: double */
+            durationWeeks?: number | null;
+        };
         /** @enum {string} */
         ProjectStatus: "ACTIVE" | "ARCHIVED";
+        ProjectSummaryDto: {
+            id: components["schemas"]["UUID"] | null;
+            name: string | null;
+            description: string | null;
+            client: string | null;
+            status: components["schemas"]["ProjectStatus"];
+            createdAt: components["schemas"]["Instant"] | null;
+        };
         ProjectUpdateDto: {
             name?: string | null;
             description?: string | null;
             client?: string | null;
         };
+        /** @enum {string} */
+        Role: "VIEWER" | "ESTIMATOR" | "ADMIN";
         /** Format: uuid */
         UUID: string;
+        VersionComparisonDto: {
+            /** Format: int32 */
+            versionA: number;
+            /** Format: int32 */
+            versionB: number;
+            addedNodes: components["schemas"]["ComparisonNodeDto"][];
+            removedNodes: components["schemas"]["ComparisonNodeDto"][];
+            modifiedNodes: components["schemas"]["NodeModificationDto"][];
+            parameterChanges: components["schemas"]["ParameterChangeDto"][];
+        };
     };
     responses: never;
     parameters: never;

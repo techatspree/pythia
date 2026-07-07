@@ -561,9 +561,9 @@
       "notes": "Show a meaningful, user-facing error when an operation is denied for lack of authorization (403), instead of a generic error"
     },
     "task-094": {
-      "status": "pending",
-      "started_at": null,
-      "completed_at": null,
+      "status": "done",
+      "started_at": "2026-07-06T07:48:54+00:00",
+      "completed_at": "2026-07-06T12:49:09+00:00",
       "notes": "Full OpenAPI schema coverage — typed responses for all endpoints"
     }
   }

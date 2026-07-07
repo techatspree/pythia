@@ -133,6 +133,8 @@ When implementing a task, read its YAML in full, run `./scripts/task.sh start`, 
 
 ## REST API surface
 
+Every JSON endpoint documents its **request and response** schemas plus real status codes (401/403/404/409/204) in the generated OpenAPI document (task-094). The JAX-RS methods keep their `jakarta.ws.rs.core.Response` return type; response bodies are declared with MicroProfile OpenAPI annotations (`@APIResponse` + `@Content`/`@Schema`, `@Tag`, `@Operation`). SmallRye writes the document to `src/backend/implementation/target/openapi/openapi.json` on build (`quarkus.smallrye-openapi.store-schema-directory`); the committed copy at `src/frontend/src/lib/api/openapi.json` and the typed client `src/frontend/src/lib/api/schema.d.ts` are regenerated from it via `cd src/frontend && npm run gen:api`. (Frontend component code still consumes the hand-written `$lib/api/types.ts`; migrating it onto the generated `schema.d.ts` is a separate follow-up.)
+
 Base path `/api/`. Key endpoints under `EstimationVersionResource`:
 
 - `GET  /api/estimations/{eid}/versions` — list (draft first, then submitted)

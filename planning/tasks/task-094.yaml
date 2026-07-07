@@ -1,5 +1,5 @@
 id: task-094
-phase: phase-8
+phase: phase-12
 title: Full OpenAPI schema coverage — typed responses everywhere
 depends_on: [task-075]
 description: |
@@ -38,6 +38,10 @@ description: |
       its nested DTOs into `components/schemas` automatically, so
       `EstimationNodeDto` (inside `EstimationVersionDto.roots`) needs no
       separate annotation.
+    - Optional polish while touching every method: add a `@Tag` per
+      resource class and an `@Operation(summary = …)` per endpoint so the
+      generated document has human-readable grouping and summaries, not
+      just schemas.
     - `exportVersion` returns a binary stream — document it as
       `application/octet-stream` + `text/csv` with no JSON schema.
     - This is a documentation/contract change only: no new service, domain

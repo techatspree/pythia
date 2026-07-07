@@ -19,6 +19,20 @@ export QUARKUS_PROFILE=dev
 # cleanup only kills the daemon THIS script started — NOT IntelliJ's.
 KOTLIN_DAEMONS_BEFORE=$(pgrep -u "$USER" -f KotlinCompileDaemon 2>/dev/null | sort -n | xargs || true)
 
+# List the Quarkus Dev Services / Testcontainers containers (the postgres:16
+# Dev Services DB plus its ryuk reaper). If Docker is down these calls return
+# empty, which is harmless.
+dev_service_containers() {
+    {
+        docker ps -q --filter "label=org.testcontainers=true"
+        docker ps -q --filter "label=org.testcontainers.ryuk=true"
+    } 2>/dev/null | sort -u
+}
+
+# Snapshot the ones that already exist before we start, so cleanup only stops
+# containers THIS run spawned — never a PostgreSQL a developer runs by hand.
+DEV_CONTAINERS_BEFORE=$(dev_service_containers | xargs || true)
+
 cleanup() {
     echo "Stopping services..."
     kill $BACKEND_PID $FRONTEND_PID 2>/dev/null
@@ -32,6 +46,18 @@ cleanup() {
         case " $KOTLIN_DAEMONS_BEFORE " in
             *" $pid "*) ;;  # was already running; leave alone
             *) kill -9 "$pid" 2>/dev/null || true ;;
+        esac
+    done
+    # Stop the Dev Services PostgreSQL container (and its ryuk reaper) that this
+    # run started but that outlived the kill above — a JVM killed abruptly does
+    # not always tear down its Testcontainers container, which then keeps port
+    # 5432 bound so the next dev.sh fails with "Bind for 0.0.0.0:5432 failed:
+    # port is already allocated". Only touch containers that appeared AFTER this
+    # script started.
+    for cid in $(dev_service_containers); do
+        case " $DEV_CONTAINERS_BEFORE " in
+            *" $cid "*) ;;  # pre-existing; leave alone
+            *) docker stop -t 3 "$cid" >/dev/null 2>&1 || true ;;
         esac
     done
     echo "Done."

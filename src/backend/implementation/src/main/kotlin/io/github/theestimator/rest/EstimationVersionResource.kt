@@ -3,8 +3,12 @@ package io.github.theestimator.rest
 import io.github.theestimator.auth.CurrentUserProvider
 import io.github.theestimator.domain.submitted.SubmittedEstimationVersion
 import io.github.theestimator.repository.EstimationRepository
+import io.github.theestimator.rest.dto.ConflictDetailsDto
 import io.github.theestimator.rest.dto.DraftUpdateDto
+import io.github.theestimator.rest.dto.EstimationVersionDto
 import io.github.theestimator.rest.dto.EstimationVersionSummaryDto
+import io.github.theestimator.rest.dto.MutationLogEntryDto
+import io.github.theestimator.rest.dto.VersionComparisonDto
 import io.github.theestimator.rest.dto.toDto
 import io.github.theestimator.rest.dto.toLogDto
 import io.github.theestimator.rest.dto.toSummaryDto
@@ -35,12 +39,19 @@ import jakarta.ws.rs.QueryParam
 import jakarta.ws.rs.core.MediaType
 import jakarta.ws.rs.core.Response
 import jakarta.ws.rs.core.StreamingOutput
+import org.eclipse.microprofile.openapi.annotations.Operation
+import org.eclipse.microprofile.openapi.annotations.enums.SchemaType
+import org.eclipse.microprofile.openapi.annotations.media.Content
+import org.eclipse.microprofile.openapi.annotations.media.Schema
+import org.eclipse.microprofile.openapi.annotations.responses.APIResponse
+import org.eclipse.microprofile.openapi.annotations.tags.Tag
 import java.util.UUID
 
 @Path("/api/estimations/{estimationId}/versions")
 @ApplicationScoped
 @Produces(MediaType.APPLICATION_JSON)
 @RolesAllowed("VIEWER")
+@Tag(name = "Estimation versions", description = "Draft editing, undo/redo, submitted snapshots, compare and export")
 class EstimationVersionResource(
     private val versionService: EstimationVersionService,
     private val comparisonService: VersionComparisonService,
@@ -55,6 +66,15 @@ class EstimationVersionResource(
 ) {
 
     @GET
+    @Operation(summary = "List versions (live draft first, then submitted snapshots)")
+    @APIResponse(
+        responseCode = "200",
+        description = "The version summaries",
+        content = [
+            Content(schema = Schema(type = SchemaType.ARRAY, implementation = EstimationVersionSummaryDto::class))
+        ]
+    )
+    @APIResponse(responseCode = "404", description = "Estimation not found")
     fun listVersions(@PathParam("estimationId") estimationId: UUID): Response {
         ensureEstimationExists(estimationId)
         val submitted = versionService.findSubmittedVersions(estimationId)
@@ -73,6 +93,14 @@ class EstimationVersionResource(
     @POST
     @Transactional
     @RolesAllowed("ESTIMATOR")
+    @Operation(summary = "Create a draft version (cloned from the latest submitted, if any)")
+    @APIResponse(
+        responseCode = "201",
+        description = "The created draft with calculated values",
+        content = [Content(schema = Schema(implementation = EstimationVersionDto::class))]
+    )
+    @APIResponse(responseCode = "404", description = "Estimation not found")
+    @APIResponse(responseCode = "409", description = "A draft already exists for this estimation")
     fun createDraft(@PathParam("estimationId") estimationId: UUID): Response {
         ensureEstimationExists(estimationId)
         val draft = versionService.createDraft(estimationId)
@@ -82,6 +110,13 @@ class EstimationVersionResource(
 
     @GET
     @Path("/draft")
+    @Operation(summary = "Get the draft with on-the-fly calculated values")
+    @APIResponse(
+        responseCode = "200",
+        description = "The draft with calculated values",
+        content = [Content(schema = Schema(implementation = EstimationVersionDto::class))]
+    )
+    @APIResponse(responseCode = "404", description = "No draft found for this estimation")
     fun getDraft(@PathParam("estimationId") estimationId: UUID): Response {
         ensureEstimationExists(estimationId)
         val draft = versionService.findDraft(estimationId)
@@ -95,6 +130,13 @@ class EstimationVersionResource(
     @Consumes(MediaType.APPLICATION_JSON)
     @Transactional
     @RolesAllowed("ESTIMATOR")
+    @Operation(summary = "Replace the draft's collections wholesale and record the mutation")
+    @APIResponse(
+        responseCode = "200",
+        description = "The updated draft with recalculated values",
+        content = [Content(schema = Schema(implementation = EstimationVersionDto::class))]
+    )
+    @APIResponse(responseCode = "404", description = "No draft found for this estimation")
     fun updateDraft(
         @PathParam("estimationId") estimationId: UUID,
         update: DraftUpdateDto
@@ -124,6 +166,13 @@ class EstimationVersionResource(
     @Path("/draft/submit")
     @Transactional
     @RolesAllowed("ESTIMATOR")
+    @Operation(summary = "Snapshot the draft into an immutable submitted version")
+    @APIResponse(
+        responseCode = "200",
+        description = "The submitted version snapshot",
+        content = [Content(schema = Schema(implementation = EstimationVersionDto::class))]
+    )
+    @APIResponse(responseCode = "404", description = "No draft found for this estimation")
     fun submitDraft(@PathParam("estimationId") estimationId: UUID): Response {
         ensureEstimationExists(estimationId)
         val submitted = versionService.submitDraft(estimationId)
@@ -134,6 +183,18 @@ class EstimationVersionResource(
     @Path("/draft/undo")
     @Transactional
     @RolesAllowed("ESTIMATOR")
+    @Operation(summary = "Undo this user's last draft mutation")
+    @APIResponse(
+        responseCode = "200",
+        description = "The recalculated draft",
+        content = [Content(schema = Schema(implementation = EstimationVersionDto::class))]
+    )
+    @APIResponse(responseCode = "404", description = "No draft found for this estimation")
+    @APIResponse(
+        responseCode = "409",
+        description = "A newer change blocks the undo",
+        content = [Content(schema = Schema(implementation = ConflictDetailsDto::class))]
+    )
     fun undoDraft(@PathParam("estimationId") estimationId: UUID): Response {
         ensureEstimationExists(estimationId)
         val user = currentUserService.ensureUser(currentUserProvider.get())
@@ -145,6 +206,18 @@ class EstimationVersionResource(
     @Path("/draft/redo")
     @Transactional
     @RolesAllowed("ESTIMATOR")
+    @Operation(summary = "Redo this user's last undone draft mutation")
+    @APIResponse(
+        responseCode = "200",
+        description = "The recalculated draft",
+        content = [Content(schema = Schema(implementation = EstimationVersionDto::class))]
+    )
+    @APIResponse(responseCode = "404", description = "No draft found for this estimation")
+    @APIResponse(
+        responseCode = "409",
+        description = "A newer change blocks the redo",
+        content = [Content(schema = Schema(implementation = ConflictDetailsDto::class))]
+    )
     fun redoDraft(@PathParam("estimationId") estimationId: UUID): Response {
         ensureEstimationExists(estimationId)
         val user = currentUserService.ensureUser(currentUserProvider.get())
@@ -155,6 +228,13 @@ class EstimationVersionResource(
     @GET
     @Path("/draft/history")
     @Transactional
+    @Operation(summary = "The draft's mutation log (active and undone, ordered by sequence)")
+    @APIResponse(
+        responseCode = "200",
+        description = "The mutation log entries",
+        content = [Content(schema = Schema(type = SchemaType.ARRAY, implementation = MutationLogEntryDto::class))]
+    )
+    @APIResponse(responseCode = "404", description = "Estimation not found")
     fun draftHistory(@PathParam("estimationId") estimationId: UUID): Response {
         ensureEstimationExists(estimationId)
         return Response.ok(undoService.historyFor(estimationId).map { it.toLogDto() }).build()
@@ -172,6 +252,9 @@ class EstimationVersionResource(
     @Path("/draft")
     @Transactional
     @RolesAllowed("ESTIMATOR")
+    @Operation(summary = "Delete the draft version")
+    @APIResponse(responseCode = "204", description = "The draft was deleted")
+    @APIResponse(responseCode = "404", description = "Estimation not found")
     fun deleteDraft(@PathParam("estimationId") estimationId: UUID): Response {
         ensureEstimationExists(estimationId)
         versionService.deleteDraft(estimationId)
@@ -180,6 +263,13 @@ class EstimationVersionResource(
 
     @GET
     @Path("/{versionNumber}")
+    @Operation(summary = "Read a submitted version (stored calculated values)")
+    @APIResponse(
+        responseCode = "200",
+        description = "The submitted version",
+        content = [Content(schema = Schema(implementation = EstimationVersionDto::class))]
+    )
+    @APIResponse(responseCode = "404", description = "Version not found for this estimation")
     fun getSubmittedVersion(
         @PathParam("estimationId") estimationId: UUID,
         @PathParam("versionNumber") versionNumber: Int
@@ -192,6 +282,13 @@ class EstimationVersionResource(
 
     @GET
     @Path("/{versionA}/compare/{versionB}")
+    @Operation(summary = "Diff two versions (use \"draft\" for the live draft)")
+    @APIResponse(
+        responseCode = "200",
+        description = "The version comparison",
+        content = [Content(schema = Schema(implementation = VersionComparisonDto::class))]
+    )
+    @APIResponse(responseCode = "404", description = "A referenced version was not found")
     fun compareVersions(
         @PathParam("estimationId") estimationId: UUID,
         @PathParam("versionA") versionA: String,
@@ -206,6 +303,17 @@ class EstimationVersionResource(
     @GET
     @Path("/{versionNumber}/export")
     @Produces("application/octet-stream", "text/csv")
+    @Operation(summary = "Export a version as xlsx (octet-stream) or csv")
+    @APIResponse(
+        responseCode = "200",
+        description = "The exported file",
+        content = [
+            Content(mediaType = "application/octet-stream"),
+            Content(mediaType = "text/csv")
+        ]
+    )
+    @APIResponse(responseCode = "400", description = "Unsupported export format")
+    @APIResponse(responseCode = "404", description = "Version not found for this estimation")
     fun exportVersion(
         @PathParam("estimationId") estimationId: UUID,
         @PathParam("versionNumber") versionNumber: String,

@@ -3,7 +3,10 @@ package io.github.theestimator.rest
 import io.github.theestimator.domain.ProjectStatus
 import io.github.theestimator.repository.ProjectRepository
 import io.github.theestimator.rest.dto.EstimationCreateDto
+import io.github.theestimator.rest.dto.EstimationSummaryDto
 import io.github.theestimator.rest.dto.ProjectCreateDto
+import io.github.theestimator.rest.dto.ProjectDetailDto
+import io.github.theestimator.rest.dto.ProjectSummaryDto
 import io.github.theestimator.rest.dto.ProjectUpdateDto
 import io.github.theestimator.rest.dto.toDetailDto
 import io.github.theestimator.rest.dto.toSummaryDto
@@ -23,12 +26,19 @@ import jakarta.ws.rs.Produces
 import jakarta.ws.rs.QueryParam
 import jakarta.ws.rs.core.MediaType
 import jakarta.ws.rs.core.Response
+import org.eclipse.microprofile.openapi.annotations.Operation
+import org.eclipse.microprofile.openapi.annotations.enums.SchemaType
+import org.eclipse.microprofile.openapi.annotations.media.Content
+import org.eclipse.microprofile.openapi.annotations.media.Schema
+import org.eclipse.microprofile.openapi.annotations.responses.APIResponse
+import org.eclipse.microprofile.openapi.annotations.tags.Tag
 import java.util.UUID
 
 @Path("/api/projects")
 @ApplicationScoped
 @Produces(MediaType.APPLICATION_JSON)
 @RolesAllowed("VIEWER")
+@Tag(name = "Projects", description = "Projects and their estimations")
 class ProjectResource(
     private val projectService: ProjectService,
     private val projectRepository: ProjectRepository,
@@ -36,6 +46,12 @@ class ProjectResource(
 ) {
 
     @GET
+    @Operation(summary = "List all projects, optionally filtered by status")
+    @APIResponse(
+        responseCode = "200",
+        description = "The projects",
+        content = [Content(schema = Schema(type = SchemaType.ARRAY, implementation = ProjectSummaryDto::class))]
+    )
     fun listProjects(@QueryParam("status") status: ProjectStatus?): Response {
         val projects = if (status != null) {
             projectService.findByStatus(status)
@@ -49,6 +65,12 @@ class ProjectResource(
     @Consumes(MediaType.APPLICATION_JSON)
     @Transactional
     @RolesAllowed("ESTIMATOR")
+    @Operation(summary = "Create a new project")
+    @APIResponse(
+        responseCode = "201",
+        description = "The created project",
+        content = [Content(schema = Schema(implementation = ProjectSummaryDto::class))]
+    )
     fun createProject(dto: ProjectCreateDto): Response {
         val project = projectService.create(dto.name, dto.description, dto.client)
         return Response.status(Response.Status.CREATED).entity(project.toSummaryDto()).build()
@@ -56,6 +78,13 @@ class ProjectResource(
 
     @GET
     @Path("/{id}")
+    @Operation(summary = "Get a single project with its estimations")
+    @APIResponse(
+        responseCode = "200",
+        description = "The project",
+        content = [Content(schema = Schema(implementation = ProjectDetailDto::class))]
+    )
+    @APIResponse(responseCode = "404", description = "Project not found")
     fun getProject(@PathParam("id") id: UUID): Response {
         val project = projectRepository.findById(id)
             ?: throw NotFoundException("Project not found: $id")
@@ -67,6 +96,13 @@ class ProjectResource(
     @Consumes(MediaType.APPLICATION_JSON)
     @Transactional
     @RolesAllowed("ESTIMATOR")
+    @Operation(summary = "Update a project's metadata")
+    @APIResponse(
+        responseCode = "200",
+        description = "The updated project",
+        content = [Content(schema = Schema(implementation = ProjectSummaryDto::class))]
+    )
+    @APIResponse(responseCode = "404", description = "Project not found")
     fun updateProject(@PathParam("id") id: UUID, dto: ProjectUpdateDto): Response {
         val project = projectRepository.findById(id)
             ?: throw NotFoundException("Project not found: $id")
@@ -81,6 +117,13 @@ class ProjectResource(
     @Consumes(MediaType.APPLICATION_JSON)
     @Transactional
     @RolesAllowed("ESTIMATOR")
+    @Operation(summary = "Create an estimation under a project")
+    @APIResponse(
+        responseCode = "201",
+        description = "The created estimation",
+        content = [Content(schema = Schema(implementation = EstimationSummaryDto::class))]
+    )
+    @APIResponse(responseCode = "404", description = "Project not found")
     fun createEstimation(@PathParam("id") id: UUID, dto: EstimationCreateDto): Response {
         val project = projectRepository.findById(id)
             ?: throw NotFoundException("Project not found: $id")
@@ -92,6 +135,13 @@ class ProjectResource(
     @Path("/{id}/archive")
     @Transactional
     @RolesAllowed("ESTIMATOR")
+    @Operation(summary = "Archive a project")
+    @APIResponse(
+        responseCode = "200",
+        description = "The archived project",
+        content = [Content(schema = Schema(implementation = ProjectSummaryDto::class))]
+    )
+    @APIResponse(responseCode = "404", description = "Project not found")
     fun archiveProject(@PathParam("id") id: UUID): Response {
         val project = projectService.archive(id)
         return Response.ok(project.toSummaryDto()).build()

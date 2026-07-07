@@ -1,10 +1,25 @@
 {
   "openapi" : "3.1.0",
+  "tags" : [ {
+    "name" : "Admin",
+    "description" : "Admin-only canary endpoints"
+  }, {
+    "name" : "Auth",
+    "description" : "Current authenticated user"
+  }, {
+    "name" : "Estimation versions",
+    "description" : "Draft editing, undo/redo, submitted snapshots, compare and export"
+  }, {
+    "name" : "Estimations",
+    "description" : "Estimations and their draft calculation"
+  }, {
+    "name" : "Projects",
+    "description" : "Projects and their estimations"
+  } ],
   "components" : {
     "schemas" : {
-      "EffortDriverDto" : {
+      "AdditionalCostDto" : {
         "type" : "object",
-        "required" : [ "id", "description", "factor", "comment" ],
         "properties" : {
           "id" : {
             "anyOf" : [ {
@@ -14,20 +29,31 @@
             } ]
           },
           "description" : {
-            "type" : [ "string", "null" ]
+            "type" : "string"
           },
-          "factor" : {
+          "amount" : {
             "type" : "number",
             "format" : "double"
           },
-          "comment" : {
+          "type" : {
+            "$ref" : "#/components/schemas/AdditionalCostType"
+          },
+          "amountPerWeek" : {
+            "type" : [ "number", "null" ],
+            "format" : "double"
+          },
+          "phaseAbbreviation" : {
             "type" : [ "string", "null" ]
           }
-        }
+        },
+        "required" : [ "description", "amount", "type", "amountPerWeek", "phaseAbbreviation" ]
       },
-      "EstimationParameterDto" : {
+      "AdditionalCostType" : {
+        "type" : "string",
+        "enum" : [ "ONE_TIME", "RECURRING" ]
+      },
+      "AdditionalCostUpdateDto" : {
         "type" : "object",
-        "required" : [ "id", "name", "value", "comment" ],
         "properties" : {
           "id" : {
             "anyOf" : [ {
@@ -36,19 +62,120 @@
               "type" : "null"
             } ]
           },
-          "name" : {
-            "type" : [ "string", "null" ]
+          "description" : {
+            "type" : "string"
           },
-          "value" : {
+          "amount" : {
             "type" : "number",
             "format" : "double"
           },
-          "comment" : {
+          "type" : {
+            "$ref" : "#/components/schemas/AdditionalCostType"
+          },
+          "amountPerWeek" : {
+            "type" : [ "number", "null" ],
+            "format" : "double"
+          },
+          "phaseAbbreviation" : {
             "type" : [ "string", "null" ]
+          }
+        },
+        "required" : [ "description", "type" ]
+      },
+      "ComparisonNodeDto" : {
+        "type" : "object",
+        "required" : [ "logicalId", "type", "title", "description", "path", "minEffort", "expectedEffort", "maxEffort", "offerPT" ],
+        "properties" : {
+          "logicalId" : {
+            "$ref" : "#/components/schemas/UUID"
+          },
+          "type" : {
+            "type" : "string"
+          },
+          "title" : {
+            "type" : [ "string", "null" ]
+          },
+          "description" : {
+            "type" : [ "string", "null" ]
+          },
+          "path" : {
+            "type" : "array",
+            "items" : {
+              "type" : "string"
+            }
+          },
+          "minEffort" : {
+            "type" : [ "number", "null" ],
+            "format" : "double"
+          },
+          "expectedEffort" : {
+            "type" : [ "number", "null" ],
+            "format" : "double"
+          },
+          "maxEffort" : {
+            "type" : [ "number", "null" ],
+            "format" : "double"
+          },
+          "offerPT" : {
+            "type" : [ "number", "null" ],
+            "format" : "double"
           }
         }
       },
-      "EstimationVersionUpdateDto" : {
+      "ConflictDetailsDto" : {
+        "type" : "object",
+        "required" : [ "message", "blockingSequenceNumber", "blockingUserId", "blockingUserDisplayName", "blockingKind", "blockingCreatedAt", "currentDraftRevision" ],
+        "properties" : {
+          "message" : {
+            "type" : "string"
+          },
+          "blockingSequenceNumber" : {
+            "type" : "integer",
+            "format" : "int64"
+          },
+          "blockingUserId" : {
+            "$ref" : "#/components/schemas/UUID"
+          },
+          "blockingUserDisplayName" : {
+            "type" : "string"
+          },
+          "blockingKind" : {
+            "type" : "string"
+          },
+          "blockingCreatedAt" : {
+            "$ref" : "#/components/schemas/Instant"
+          },
+          "currentDraftRevision" : {
+            "type" : "integer",
+            "format" : "int64"
+          }
+        }
+      },
+      "CurrentUserDto" : {
+        "type" : "object",
+        "required" : [ "subjectId", "email", "displayName", "roles", "providerName" ],
+        "properties" : {
+          "subjectId" : {
+            "type" : "string"
+          },
+          "email" : {
+            "type" : [ "string", "null" ]
+          },
+          "displayName" : {
+            "type" : [ "string", "null" ]
+          },
+          "roles" : {
+            "type" : "array",
+            "items" : {
+              "$ref" : "#/components/schemas/Role"
+            }
+          },
+          "providerName" : {
+            "type" : "string"
+          }
+        }
+      },
+      "DraftUpdateDto" : {
         "type" : "object",
         "properties" : {
           "notes" : {
@@ -65,6 +192,511 @@
             "items" : {
               "$ref" : "#/components/schemas/EffortDriverDto"
             }
+          },
+          "phases" : {
+            "type" : [ "array", "null" ],
+            "items" : {
+              "$ref" : "#/components/schemas/PhaseUpdateDto"
+            }
+          },
+          "roots" : {
+            "type" : [ "array", "null" ],
+            "items" : {
+              "$ref" : "#/components/schemas/EstimationNodeUpdateDto"
+            }
+          },
+          "additionalCosts" : {
+            "type" : [ "array", "null" ],
+            "items" : {
+              "$ref" : "#/components/schemas/AdditionalCostUpdateDto"
+            }
+          }
+        }
+      },
+      "EffortDriverDto" : {
+        "type" : "object",
+        "properties" : {
+          "id" : {
+            "anyOf" : [ {
+              "$ref" : "#/components/schemas/UUID"
+            }, {
+              "type" : "null"
+            } ]
+          },
+          "description" : {
+            "type" : "string"
+          },
+          "factor" : {
+            "type" : "number",
+            "format" : "double"
+          },
+          "comment" : {
+            "type" : [ "string", "null" ]
+          }
+        },
+        "required" : [ "description", "factor" ]
+      },
+      "EstimationCreateDto" : {
+        "type" : "object",
+        "required" : [ "offer" ],
+        "properties" : {
+          "offer" : {
+            "type" : "string"
+          },
+          "description" : {
+            "type" : [ "string", "null" ]
+          }
+        }
+      },
+      "EstimationDetailDto" : {
+        "type" : "object",
+        "required" : [ "id", "offer", "description", "projectId", "projectName", "latestVersionNumber", "hasDraft", "createdAt", "versions" ],
+        "properties" : {
+          "id" : {
+            "anyOf" : [ {
+              "$ref" : "#/components/schemas/UUID"
+            }, {
+              "type" : "null"
+            } ]
+          },
+          "offer" : {
+            "type" : [ "string", "null" ]
+          },
+          "description" : {
+            "type" : [ "string", "null" ]
+          },
+          "projectId" : {
+            "anyOf" : [ {
+              "$ref" : "#/components/schemas/UUID"
+            }, {
+              "type" : "null"
+            } ]
+          },
+          "projectName" : {
+            "type" : [ "string", "null" ]
+          },
+          "latestVersionNumber" : {
+            "type" : [ "integer", "null" ],
+            "format" : "int32"
+          },
+          "hasDraft" : {
+            "type" : "boolean"
+          },
+          "createdAt" : {
+            "anyOf" : [ {
+              "$ref" : "#/components/schemas/Instant"
+            }, {
+              "type" : "null"
+            } ]
+          },
+          "versions" : {
+            "type" : "array",
+            "items" : {
+              "$ref" : "#/components/schemas/EstimationVersionSummaryDto"
+            }
+          }
+        }
+      },
+      "EstimationNodeDto" : {
+        "type" : "object",
+        "required" : [ "logicalId", "type", "title", "description", "code", "minEffort", "expectedEffort", "maxEffort", "assumptions", "mean", "variance", "riskSurcharge", "driverSurcharge", "offerPT", "cost", "offerPrice", "unit", "phaseAbbreviation", "children" ],
+        "properties" : {
+          "logicalId" : {
+            "anyOf" : [ {
+              "$ref" : "#/components/schemas/UUID"
+            }, {
+              "type" : "null"
+            } ]
+          },
+          "type" : {
+            "type" : "string"
+          },
+          "title" : {
+            "type" : [ "string", "null" ]
+          },
+          "description" : {
+            "type" : [ "string", "null" ]
+          },
+          "code" : {
+            "type" : [ "string", "null" ]
+          },
+          "minEffort" : {
+            "type" : [ "number", "null" ],
+            "format" : "double"
+          },
+          "expectedEffort" : {
+            "type" : [ "number", "null" ],
+            "format" : "double"
+          },
+          "maxEffort" : {
+            "type" : [ "number", "null" ],
+            "format" : "double"
+          },
+          "assumptions" : {
+            "type" : [ "string", "null" ]
+          },
+          "mean" : {
+            "type" : "number",
+            "format" : "double"
+          },
+          "variance" : {
+            "type" : "number",
+            "format" : "double"
+          },
+          "riskSurcharge" : {
+            "type" : "number",
+            "format" : "double"
+          },
+          "driverSurcharge" : {
+            "type" : "number",
+            "format" : "double"
+          },
+          "offerPT" : {
+            "type" : "number",
+            "format" : "double"
+          },
+          "cost" : {
+            "type" : "number",
+            "format" : "double"
+          },
+          "offerPrice" : {
+            "type" : "number",
+            "format" : "double"
+          },
+          "unit" : {
+            "type" : [ "string", "null" ]
+          },
+          "phaseAbbreviation" : {
+            "type" : [ "string", "null" ]
+          },
+          "children" : {
+            "type" : "array",
+            "items" : {
+              "$ref" : "#/components/schemas/EstimationNodeDto"
+            }
+          }
+        }
+      },
+      "EstimationNodeUpdateDto" : {
+        "type" : "object",
+        "properties" : {
+          "logicalId" : {
+            "anyOf" : [ {
+              "$ref" : "#/components/schemas/UUID"
+            }, {
+              "type" : "null"
+            } ]
+          },
+          "type" : {
+            "type" : "string"
+          },
+          "title" : {
+            "type" : [ "string", "null" ]
+          },
+          "description" : {
+            "type" : [ "string", "null" ]
+          },
+          "code" : {
+            "type" : [ "string", "null" ]
+          },
+          "minEffort" : {
+            "type" : [ "number", "null" ],
+            "format" : "double"
+          },
+          "expectedEffort" : {
+            "type" : [ "number", "null" ],
+            "format" : "double"
+          },
+          "maxEffort" : {
+            "type" : [ "number", "null" ],
+            "format" : "double"
+          },
+          "assumptions" : {
+            "type" : [ "string", "null" ]
+          },
+          "unit" : {
+            "type" : [ "string", "null" ]
+          },
+          "phaseAbbreviation" : {
+            "type" : [ "string", "null" ]
+          },
+          "children" : {
+            "type" : "array",
+            "items" : {
+              "$ref" : "#/components/schemas/EstimationNodeUpdateDto"
+            }
+          }
+        },
+        "required" : [ "type" ]
+      },
+      "EstimationParameterDto" : {
+        "type" : "object",
+        "properties" : {
+          "id" : {
+            "anyOf" : [ {
+              "$ref" : "#/components/schemas/UUID"
+            }, {
+              "type" : "null"
+            } ]
+          },
+          "name" : {
+            "type" : "string"
+          },
+          "value" : {
+            "type" : "number",
+            "format" : "double"
+          },
+          "comment" : {
+            "type" : [ "string", "null" ]
+          }
+        },
+        "required" : [ "name", "value" ]
+      },
+      "EstimationSummaryDto" : {
+        "type" : "object",
+        "required" : [ "id", "offer", "description", "latestVersionNumber", "versionCount", "hasDraft", "createdAt" ],
+        "properties" : {
+          "id" : {
+            "anyOf" : [ {
+              "$ref" : "#/components/schemas/UUID"
+            }, {
+              "type" : "null"
+            } ]
+          },
+          "offer" : {
+            "type" : [ "string", "null" ]
+          },
+          "description" : {
+            "type" : [ "string", "null" ]
+          },
+          "latestVersionNumber" : {
+            "type" : [ "integer", "null" ],
+            "format" : "int32"
+          },
+          "versionCount" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "hasDraft" : {
+            "type" : "boolean"
+          },
+          "createdAt" : {
+            "anyOf" : [ {
+              "$ref" : "#/components/schemas/Instant"
+            }, {
+              "type" : "null"
+            } ]
+          }
+        }
+      },
+      "EstimationVersionDto" : {
+        "type" : "object",
+        "required" : [ "versionNumber", "isDraft", "totalEffort", "notes", "createdAt", "submittedAt", "parameters", "effortDrivers", "phases", "roots", "additionalCosts" ],
+        "properties" : {
+          "versionNumber" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "isDraft" : {
+            "type" : "boolean"
+          },
+          "totalEffort" : {
+            "type" : "number",
+            "format" : "double"
+          },
+          "notes" : {
+            "type" : [ "string", "null" ]
+          },
+          "createdAt" : {
+            "anyOf" : [ {
+              "$ref" : "#/components/schemas/Instant"
+            }, {
+              "type" : "null"
+            } ]
+          },
+          "submittedAt" : {
+            "anyOf" : [ {
+              "$ref" : "#/components/schemas/Instant"
+            }, {
+              "type" : "null"
+            } ]
+          },
+          "parameters" : {
+            "type" : "array",
+            "items" : {
+              "$ref" : "#/components/schemas/EstimationParameterDto"
+            }
+          },
+          "effortDrivers" : {
+            "type" : "array",
+            "items" : {
+              "$ref" : "#/components/schemas/EffortDriverDto"
+            }
+          },
+          "phases" : {
+            "type" : "array",
+            "items" : {
+              "$ref" : "#/components/schemas/ProjectPhaseDto"
+            }
+          },
+          "roots" : {
+            "type" : "array",
+            "items" : {
+              "$ref" : "#/components/schemas/EstimationNodeDto"
+            }
+          },
+          "additionalCosts" : {
+            "type" : "array",
+            "items" : {
+              "$ref" : "#/components/schemas/AdditionalCostDto"
+            }
+          }
+        }
+      },
+      "EstimationVersionSummaryDto" : {
+        "type" : "object",
+        "required" : [ "versionNumber", "isDraft", "totalEffort", "notes", "createdAt" ],
+        "properties" : {
+          "versionNumber" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "isDraft" : {
+            "type" : "boolean"
+          },
+          "totalEffort" : {
+            "type" : [ "number", "null" ],
+            "format" : "double"
+          },
+          "notes" : {
+            "type" : [ "string", "null" ]
+          },
+          "createdAt" : {
+            "anyOf" : [ {
+              "$ref" : "#/components/schemas/Instant"
+            }, {
+              "type" : "null"
+            } ]
+          }
+        }
+      },
+      "Instant" : {
+        "type" : "string",
+        "format" : "date-time",
+        "examples" : [ "2022-03-10T16:15:50Z" ]
+      },
+      "MutationLogEntryDto" : {
+        "type" : "object",
+        "required" : [ "id", "sequenceNumber", "revisionBefore", "revisionAfter", "userId", "userDisplayName", "kind", "status", "createdAt", "undoneAt" ],
+        "properties" : {
+          "id" : {
+            "$ref" : "#/components/schemas/UUID"
+          },
+          "sequenceNumber" : {
+            "type" : "integer",
+            "format" : "int64"
+          },
+          "revisionBefore" : {
+            "type" : "integer",
+            "format" : "int64"
+          },
+          "revisionAfter" : {
+            "type" : "integer",
+            "format" : "int64"
+          },
+          "userId" : {
+            "$ref" : "#/components/schemas/UUID"
+          },
+          "userDisplayName" : {
+            "type" : "string"
+          },
+          "kind" : {
+            "type" : "string"
+          },
+          "status" : {
+            "type" : "string"
+          },
+          "createdAt" : {
+            "$ref" : "#/components/schemas/Instant"
+          },
+          "undoneAt" : {
+            "anyOf" : [ {
+              "$ref" : "#/components/schemas/Instant"
+            }, {
+              "type" : "null"
+            } ]
+          }
+        }
+      },
+      "NodeModificationDto" : {
+        "type" : "object",
+        "required" : [ "logicalId", "type", "before", "after", "changedFields" ],
+        "properties" : {
+          "logicalId" : {
+            "$ref" : "#/components/schemas/UUID"
+          },
+          "type" : {
+            "type" : "string"
+          },
+          "before" : {
+            "$ref" : "#/components/schemas/ComparisonNodeDto"
+          },
+          "after" : {
+            "$ref" : "#/components/schemas/ComparisonNodeDto"
+          },
+          "changedFields" : {
+            "type" : "array",
+            "items" : {
+              "type" : "string"
+            }
+          }
+        }
+      },
+      "ParameterChangeDto" : {
+        "type" : "object",
+        "required" : [ "name", "oldValue", "newValue", "changeType" ],
+        "properties" : {
+          "name" : {
+            "type" : "string"
+          },
+          "oldValue" : {
+            "type" : [ "number", "null" ],
+            "format" : "double"
+          },
+          "newValue" : {
+            "type" : [ "number", "null" ],
+            "format" : "double"
+          },
+          "changeType" : {
+            "type" : "string"
+          }
+        }
+      },
+      "PhaseUpdateDto" : {
+        "type" : "object",
+        "required" : [ "name", "abbreviation" ],
+        "properties" : {
+          "name" : {
+            "type" : "string"
+          },
+          "abbreviation" : {
+            "type" : "string"
+          },
+          "durationWeeks" : {
+            "type" : [ "number", "null" ],
+            "format" : "double"
+          }
+        }
+      },
+      "PingDto" : {
+        "type" : "object",
+        "required" : [ "message", "user" ],
+        "properties" : {
+          "message" : {
+            "type" : "string"
+          },
+          "user" : {
+            "type" : "string"
           }
         }
       },
@@ -83,9 +715,102 @@
           }
         }
       },
+      "ProjectDetailDto" : {
+        "type" : "object",
+        "required" : [ "id", "name", "description", "client", "status", "createdAt", "estimations" ],
+        "properties" : {
+          "id" : {
+            "anyOf" : [ {
+              "$ref" : "#/components/schemas/UUID"
+            }, {
+              "type" : "null"
+            } ]
+          },
+          "name" : {
+            "type" : [ "string", "null" ]
+          },
+          "description" : {
+            "type" : [ "string", "null" ]
+          },
+          "client" : {
+            "type" : [ "string", "null" ]
+          },
+          "status" : {
+            "$ref" : "#/components/schemas/ProjectStatus"
+          },
+          "createdAt" : {
+            "anyOf" : [ {
+              "$ref" : "#/components/schemas/Instant"
+            }, {
+              "type" : "null"
+            } ]
+          },
+          "estimations" : {
+            "type" : "array",
+            "items" : {
+              "$ref" : "#/components/schemas/EstimationSummaryDto"
+            }
+          }
+        }
+      },
+      "ProjectPhaseDto" : {
+        "type" : "object",
+        "properties" : {
+          "id" : {
+            "anyOf" : [ {
+              "$ref" : "#/components/schemas/UUID"
+            }, {
+              "type" : "null"
+            } ]
+          },
+          "name" : {
+            "type" : "string"
+          },
+          "abbreviation" : {
+            "type" : "string"
+          },
+          "durationWeeks" : {
+            "type" : [ "number", "null" ],
+            "format" : "double"
+          }
+        },
+        "required" : [ "name", "abbreviation" ]
+      },
       "ProjectStatus" : {
         "type" : "string",
         "enum" : [ "ACTIVE", "ARCHIVED" ]
+      },
+      "ProjectSummaryDto" : {
+        "type" : "object",
+        "required" : [ "id", "name", "description", "client", "status", "createdAt" ],
+        "properties" : {
+          "id" : {
+            "anyOf" : [ {
+              "$ref" : "#/components/schemas/UUID"
+            }, {
+              "type" : "null"
+            } ]
+          },
+          "name" : {
+            "type" : [ "string", "null" ]
+          },
+          "description" : {
+            "type" : [ "string", "null" ]
+          },
+          "client" : {
+            "type" : [ "string", "null" ]
+          },
+          "status" : {
+            "$ref" : "#/components/schemas/ProjectStatus"
+          },
+          "createdAt" : {
+            "anyOf" : [ {
+              "$ref" : "#/components/schemas/Instant"
+            }, {
+              "type" : "null"
+            } ]
+          }
+        }
       },
       "ProjectUpdateDto" : {
         "type" : "object",
@@ -101,69 +826,188 @@
           }
         }
       },
+      "Role" : {
+        "type" : "string",
+        "enum" : [ "VIEWER", "ESTIMATOR", "ADMIN" ]
+      },
       "UUID" : {
         "type" : "string",
         "format" : "uuid",
         "pattern" : "[a-fA-F0-9]{8}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{12}"
-      }
-    },
-    "securitySchemes" : {
-      "SecurityScheme" : {
-        "type" : "openIdConnect",
-        "openIdConnectUrl" : "http://localhost:8180/realms/estimation/.well-known/openid-configuration",
-        "description" : "Authentication"
+      },
+      "VersionComparisonDto" : {
+        "type" : "object",
+        "required" : [ "versionA", "versionB", "addedNodes", "removedNodes", "modifiedNodes", "parameterChanges" ],
+        "properties" : {
+          "versionA" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "versionB" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "addedNodes" : {
+            "type" : "array",
+            "items" : {
+              "$ref" : "#/components/schemas/ComparisonNodeDto"
+            }
+          },
+          "removedNodes" : {
+            "type" : "array",
+            "items" : {
+              "$ref" : "#/components/schemas/ComparisonNodeDto"
+            }
+          },
+          "modifiedNodes" : {
+            "type" : "array",
+            "items" : {
+              "$ref" : "#/components/schemas/NodeModificationDto"
+            }
+          },
+          "parameterChanges" : {
+            "type" : "array",
+            "items" : {
+              "$ref" : "#/components/schemas/ParameterChangeDto"
+            }
+          }
+        }
       }
     }
   },
   "paths" : {
-    "/api/estimations/{estimationId}/versions" : {
+    "/api/admin/ping" : {
       "get" : {
-        "parameters" : [ {
-          "name" : "estimationId",
-          "in" : "path",
-          "required" : true,
-          "schema" : {
-            "$ref" : "#/components/schemas/UUID"
-          }
-        } ],
+        "summary" : "Admin-only canary that proves role enforcement",
+        "tags" : [ "Admin" ],
         "responses" : {
           "200" : {
-            "description" : "OK",
+            "description" : "Pong with the caller's subject id",
             "content" : {
               "application/json" : {
-                "schema" : { }
+                "schema" : {
+                  "$ref" : "#/components/schemas/PingDto"
+                }
               }
             }
+          },
+          "403" : {
+            "description" : "Caller lacks the ADMIN role"
+          },
+          "401" : {
+            "description" : "Not Authorized"
           }
         },
-        "summary" : "List Versions",
-        "tags" : [ "Estimation Version Resource" ]
-      },
-      "post" : {
-        "parameters" : [ {
-          "name" : "estimationId",
-          "in" : "path",
-          "required" : true,
-          "schema" : {
-            "$ref" : "#/components/schemas/UUID"
-          }
-        } ],
-        "responses" : {
-          "200" : {
-            "description" : "OK",
-            "content" : {
-              "application/json" : {
-                "schema" : { }
-              }
-            }
-          }
-        },
-        "summary" : "Create Version",
-        "tags" : [ "Estimation Version Resource" ]
+        "security" : [ {
+          "SecurityScheme" : [ "ADMIN" ]
+        } ]
       }
     },
-    "/api/estimations/{estimationId}/versions/import" : {
+    "/api/auth/me" : {
+      "get" : {
+        "summary" : "The current authenticated user",
+        "tags" : [ "Auth" ],
+        "responses" : {
+          "200" : {
+            "description" : "The current user",
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/CurrentUserDto"
+                }
+              }
+            }
+          },
+          "401" : {
+            "description" : "No user is populated for the request"
+          }
+        }
+      }
+    },
+    "/api/estimations/{estimationId}/versions" : {
+      "get" : {
+        "summary" : "List versions (live draft first, then submitted snapshots)",
+        "tags" : [ "Estimation versions" ],
+        "parameters" : [ {
+          "name" : "estimationId",
+          "in" : "path",
+          "required" : true,
+          "schema" : {
+            "$ref" : "#/components/schemas/UUID"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "description" : "The version summaries",
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "type" : "array",
+                  "items" : {
+                    "$ref" : "#/components/schemas/EstimationVersionSummaryDto"
+                  }
+                }
+              }
+            }
+          },
+          "404" : {
+            "description" : "Estimation not found"
+          },
+          "401" : {
+            "description" : "Not Authorized"
+          },
+          "403" : {
+            "description" : "Not Allowed"
+          }
+        },
+        "security" : [ {
+          "SecurityScheme" : [ "VIEWER" ]
+        } ]
+      },
       "post" : {
+        "summary" : "Create a draft version (cloned from the latest submitted, if any)",
+        "tags" : [ "Estimation versions" ],
+        "parameters" : [ {
+          "name" : "estimationId",
+          "in" : "path",
+          "required" : true,
+          "schema" : {
+            "$ref" : "#/components/schemas/UUID"
+          }
+        } ],
+        "responses" : {
+          "201" : {
+            "description" : "The created draft with calculated values",
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/EstimationVersionDto"
+                }
+              }
+            }
+          },
+          "404" : {
+            "description" : "Estimation not found"
+          },
+          "409" : {
+            "description" : "A draft already exists for this estimation"
+          },
+          "401" : {
+            "description" : "Not Authorized"
+          },
+          "403" : {
+            "description" : "Not Allowed"
+          }
+        },
+        "security" : [ {
+          "SecurityScheme" : [ "ESTIMATOR" ]
+        } ]
+      }
+    },
+    "/api/estimations/{estimationId}/versions/draft" : {
+      "put" : {
+        "summary" : "Replace the draft's collections wholesale and record the mutation",
+        "tags" : [ "Estimation versions" ],
         "parameters" : [ {
           "name" : "estimationId",
           "in" : "path",
@@ -174,16 +1018,9 @@
         } ],
         "requestBody" : {
           "content" : {
-            "multipart/form-data" : {
+            "application/json" : {
               "schema" : {
-                "type" : "object",
-                "required" : [ "file" ],
-                "properties" : {
-                  "file" : {
-                    "type" : "string",
-                    "format" : "binary"
-                  }
-                }
+                "$ref" : "#/components/schemas/DraftUpdateDto"
               }
             }
           },
@@ -191,20 +1028,277 @@
         },
         "responses" : {
           "200" : {
-            "description" : "OK",
+            "description" : "The updated draft with recalculated values",
             "content" : {
               "application/json" : {
-                "schema" : { }
+                "schema" : {
+                  "$ref" : "#/components/schemas/EstimationVersionDto"
+                }
               }
             }
+          },
+          "404" : {
+            "description" : "No draft found for this estimation"
+          },
+          "401" : {
+            "description" : "Not Authorized"
+          },
+          "403" : {
+            "description" : "Not Allowed"
+          },
+          "400" : {
+            "description" : "Bad Request"
           }
         },
-        "summary" : "Import From Excel",
-        "tags" : [ "Estimation Version Resource" ]
+        "security" : [ {
+          "SecurityScheme" : [ "ESTIMATOR" ]
+        } ]
+      },
+      "get" : {
+        "summary" : "Get the draft with on-the-fly calculated values",
+        "tags" : [ "Estimation versions" ],
+        "parameters" : [ {
+          "name" : "estimationId",
+          "in" : "path",
+          "required" : true,
+          "schema" : {
+            "$ref" : "#/components/schemas/UUID"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "description" : "The draft with calculated values",
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/EstimationVersionDto"
+                }
+              }
+            }
+          },
+          "404" : {
+            "description" : "No draft found for this estimation"
+          },
+          "401" : {
+            "description" : "Not Authorized"
+          },
+          "403" : {
+            "description" : "Not Allowed"
+          }
+        },
+        "security" : [ {
+          "SecurityScheme" : [ "VIEWER" ]
+        } ]
+      },
+      "delete" : {
+        "summary" : "Delete the draft version",
+        "tags" : [ "Estimation versions" ],
+        "parameters" : [ {
+          "name" : "estimationId",
+          "in" : "path",
+          "required" : true,
+          "schema" : {
+            "$ref" : "#/components/schemas/UUID"
+          }
+        } ],
+        "responses" : {
+          "204" : {
+            "description" : "The draft was deleted"
+          },
+          "404" : {
+            "description" : "Estimation not found"
+          },
+          "401" : {
+            "description" : "Not Authorized"
+          },
+          "403" : {
+            "description" : "Not Allowed"
+          }
+        },
+        "security" : [ {
+          "SecurityScheme" : [ "ESTIMATOR" ]
+        } ]
+      }
+    },
+    "/api/estimations/{estimationId}/versions/draft/history" : {
+      "get" : {
+        "summary" : "The draft's mutation log (active and undone, ordered by sequence)",
+        "tags" : [ "Estimation versions" ],
+        "parameters" : [ {
+          "name" : "estimationId",
+          "in" : "path",
+          "required" : true,
+          "schema" : {
+            "$ref" : "#/components/schemas/UUID"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "description" : "The mutation log entries",
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "type" : "array",
+                  "items" : {
+                    "$ref" : "#/components/schemas/MutationLogEntryDto"
+                  }
+                }
+              }
+            }
+          },
+          "404" : {
+            "description" : "Estimation not found"
+          },
+          "401" : {
+            "description" : "Not Authorized"
+          },
+          "403" : {
+            "description" : "Not Allowed"
+          }
+        },
+        "security" : [ {
+          "SecurityScheme" : [ "VIEWER" ]
+        } ]
+      }
+    },
+    "/api/estimations/{estimationId}/versions/draft/redo" : {
+      "post" : {
+        "summary" : "Redo this user's last undone draft mutation",
+        "tags" : [ "Estimation versions" ],
+        "parameters" : [ {
+          "name" : "estimationId",
+          "in" : "path",
+          "required" : true,
+          "schema" : {
+            "$ref" : "#/components/schemas/UUID"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "description" : "The recalculated draft",
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/EstimationVersionDto"
+                }
+              }
+            }
+          },
+          "404" : {
+            "description" : "No draft found for this estimation"
+          },
+          "409" : {
+            "description" : "A newer change blocks the redo",
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ConflictDetailsDto"
+                }
+              }
+            }
+          },
+          "401" : {
+            "description" : "Not Authorized"
+          },
+          "403" : {
+            "description" : "Not Allowed"
+          }
+        },
+        "security" : [ {
+          "SecurityScheme" : [ "ESTIMATOR" ]
+        } ]
+      }
+    },
+    "/api/estimations/{estimationId}/versions/draft/submit" : {
+      "post" : {
+        "summary" : "Snapshot the draft into an immutable submitted version",
+        "tags" : [ "Estimation versions" ],
+        "parameters" : [ {
+          "name" : "estimationId",
+          "in" : "path",
+          "required" : true,
+          "schema" : {
+            "$ref" : "#/components/schemas/UUID"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "description" : "The submitted version snapshot",
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/EstimationVersionDto"
+                }
+              }
+            }
+          },
+          "404" : {
+            "description" : "No draft found for this estimation"
+          },
+          "401" : {
+            "description" : "Not Authorized"
+          },
+          "403" : {
+            "description" : "Not Allowed"
+          }
+        },
+        "security" : [ {
+          "SecurityScheme" : [ "ESTIMATOR" ]
+        } ]
+      }
+    },
+    "/api/estimations/{estimationId}/versions/draft/undo" : {
+      "post" : {
+        "summary" : "Undo this user's last draft mutation",
+        "tags" : [ "Estimation versions" ],
+        "parameters" : [ {
+          "name" : "estimationId",
+          "in" : "path",
+          "required" : true,
+          "schema" : {
+            "$ref" : "#/components/schemas/UUID"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "description" : "The recalculated draft",
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/EstimationVersionDto"
+                }
+              }
+            }
+          },
+          "404" : {
+            "description" : "No draft found for this estimation"
+          },
+          "409" : {
+            "description" : "A newer change blocks the undo",
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ConflictDetailsDto"
+                }
+              }
+            }
+          },
+          "401" : {
+            "description" : "Not Authorized"
+          },
+          "403" : {
+            "description" : "Not Allowed"
+          }
+        },
+        "security" : [ {
+          "SecurityScheme" : [ "ESTIMATOR" ]
+        } ]
       }
     },
     "/api/estimations/{estimationId}/versions/{versionA}/compare/{versionB}" : {
       "get" : {
+        "summary" : "Diff two versions (use \"draft\" for the live draft)",
+        "tags" : [ "Estimation versions" ],
         "parameters" : [ {
           "name" : "estimationId",
           "in" : "path",
@@ -217,77 +1311,46 @@
           "in" : "path",
           "required" : true,
           "schema" : {
-            "type" : "integer",
-            "format" : "int32"
+            "type" : "string"
           }
         }, {
           "name" : "versionB",
           "in" : "path",
           "required" : true,
           "schema" : {
-            "type" : "integer",
-            "format" : "int32"
+            "type" : "string"
           }
         } ],
         "responses" : {
           "200" : {
-            "description" : "OK",
+            "description" : "The version comparison",
             "content" : {
               "application/json" : {
-                "schema" : { }
+                "schema" : {
+                  "$ref" : "#/components/schemas/VersionComparisonDto"
+                }
               }
             }
+          },
+          "404" : {
+            "description" : "A referenced version was not found"
+          },
+          "401" : {
+            "description" : "Not Authorized"
+          },
+          "403" : {
+            "description" : "Not Allowed"
           }
         },
-        "summary" : "Compare Versions",
-        "tags" : [ "Estimation Version Resource" ]
+        "security" : [ {
+          "SecurityScheme" : [ "VIEWER" ]
+        } ]
       }
     },
     "/api/estimations/{estimationId}/versions/{versionNumber}" : {
-      "put" : {
-        "parameters" : [ {
-          "name" : "estimationId",
-          "in" : "path",
-          "required" : true,
-          "schema" : {
-            "$ref" : "#/components/schemas/UUID"
-          }
-        }, {
-          "name" : "versionNumber",
-          "in" : "path",
-          "required" : true,
-          "schema" : {
-            "type" : "integer",
-            "format" : "int32"
-          }
-        } ],
-        "requestBody" : {
-          "content" : {
-            "application/json" : {
-              "schema" : {
-                "$ref" : "#/components/schemas/EstimationVersionUpdateDto"
-              }
-            }
-          },
-          "required" : true
-        },
-        "responses" : {
-          "200" : {
-            "description" : "OK",
-            "content" : {
-              "application/json" : {
-                "schema" : { }
-              }
-            }
-          },
-          "400" : {
-            "description" : "Bad Request"
-          }
-        },
-        "summary" : "Update Version",
-        "tags" : [ "Estimation Version Resource" ]
-      },
       "get" : {
+        "summary" : "Read a submitted version (stored calculated values)",
+        "tags" : [ "Estimation versions" ],
         "parameters" : [ {
           "name" : "estimationId",
           "in" : "path",
@@ -306,50 +1369,34 @@
         } ],
         "responses" : {
           "200" : {
-            "description" : "OK",
+            "description" : "The submitted version",
             "content" : {
               "application/json" : {
-                "schema" : { }
+                "schema" : {
+                  "$ref" : "#/components/schemas/EstimationVersionDto"
+                }
               }
             }
+          },
+          "404" : {
+            "description" : "Version not found for this estimation"
+          },
+          "401" : {
+            "description" : "Not Authorized"
+          },
+          "403" : {
+            "description" : "Not Allowed"
           }
         },
-        "summary" : "Get Version",
-        "tags" : [ "Estimation Version Resource" ]
-      },
-      "delete" : {
-        "parameters" : [ {
-          "name" : "estimationId",
-          "in" : "path",
-          "required" : true,
-          "schema" : {
-            "$ref" : "#/components/schemas/UUID"
-          }
-        }, {
-          "name" : "versionNumber",
-          "in" : "path",
-          "required" : true,
-          "schema" : {
-            "type" : "integer",
-            "format" : "int32"
-          }
-        } ],
-        "responses" : {
-          "200" : {
-            "description" : "OK",
-            "content" : {
-              "application/json" : {
-                "schema" : { }
-              }
-            }
-          }
-        },
-        "summary" : "Delete Version",
-        "tags" : [ "Estimation Version Resource" ]
+        "security" : [ {
+          "SecurityScheme" : [ "VIEWER" ]
+        } ]
       }
     },
     "/api/estimations/{estimationId}/versions/{versionNumber}/export" : {
       "get" : {
+        "summary" : "Export a version as xlsx (octet-stream) or csv",
+        "tags" : [ "Estimation versions" ],
         "parameters" : [ {
           "name" : "estimationId",
           "in" : "path",
@@ -362,56 +1409,85 @@
           "in" : "path",
           "required" : true,
           "schema" : {
-            "type" : "integer",
-            "format" : "int32"
+            "type" : "string"
           }
+        }, {
+          "name" : "format",
+          "in" : "query",
+          "schema" : {
+            "type" : "string",
+            "default" : "xlsx"
+          },
+          "required" : true
         } ],
         "responses" : {
           "200" : {
-            "description" : "OK",
+            "description" : "The exported file",
             "content" : {
-              "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" : { }
+              "application/octet-stream" : { },
+              "text/csv" : { }
             }
+          },
+          "400" : {
+            "description" : "Unsupported export format"
+          },
+          "404" : {
+            "description" : "Version not found for this estimation"
+          },
+          "401" : {
+            "description" : "Not Authorized"
+          },
+          "403" : {
+            "description" : "Not Allowed"
           }
         },
-        "summary" : "Export Version",
-        "tags" : [ "Estimation Version Resource" ]
+        "security" : [ {
+          "SecurityScheme" : [ "VIEWER" ]
+        } ]
       }
     },
-    "/api/estimations/{estimationId}/versions/{versionNumber}/submit" : {
-      "post" : {
+    "/api/estimations/{id}" : {
+      "get" : {
+        "summary" : "Get an estimation with its live draft total effort",
+        "tags" : [ "Estimations" ],
         "parameters" : [ {
-          "name" : "estimationId",
+          "name" : "id",
           "in" : "path",
           "required" : true,
           "schema" : {
             "$ref" : "#/components/schemas/UUID"
           }
-        }, {
-          "name" : "versionNumber",
-          "in" : "path",
-          "required" : true,
-          "schema" : {
-            "type" : "integer",
-            "format" : "int32"
-          }
         } ],
         "responses" : {
           "200" : {
-            "description" : "OK",
+            "description" : "The estimation",
             "content" : {
               "application/json" : {
-                "schema" : { }
+                "schema" : {
+                  "$ref" : "#/components/schemas/EstimationDetailDto"
+                }
               }
             }
+          },
+          "404" : {
+            "description" : "Estimation not found"
+          },
+          "401" : {
+            "description" : "Not Authorized"
+          },
+          "403" : {
+            "description" : "Not Allowed"
           }
         },
-        "summary" : "Submit Version",
-        "tags" : [ "Estimation Version Resource" ]
+        "security" : [ {
+          "SecurityScheme" : [ "VIEWER" ]
+        } ]
       }
     },
     "/api/projects" : {
       "get" : {
+        "summary" : "List all projects, optionally filtered by status",
+        "tags" : [ "Projects" ],
         "parameters" : [ {
           "name" : "status",
           "in" : "query",
@@ -426,18 +1502,32 @@
         } ],
         "responses" : {
           "200" : {
-            "description" : "OK",
+            "description" : "The projects",
             "content" : {
               "application/json" : {
-                "schema" : { }
+                "schema" : {
+                  "type" : "array",
+                  "items" : {
+                    "$ref" : "#/components/schemas/ProjectSummaryDto"
+                  }
+                }
               }
             }
+          },
+          "401" : {
+            "description" : "Not Authorized"
+          },
+          "403" : {
+            "description" : "Not Allowed"
           }
         },
-        "summary" : "List Projects",
-        "tags" : [ "Project Resource" ]
+        "security" : [ {
+          "SecurityScheme" : [ "VIEWER" ]
+        } ]
       },
       "post" : {
+        "summary" : "Create a new project",
+        "tags" : [ "Projects" ],
         "requestBody" : {
           "content" : {
             "application/json" : {
@@ -449,24 +1539,35 @@
           "required" : true
         },
         "responses" : {
-          "200" : {
-            "description" : "OK",
+          "201" : {
+            "description" : "The created project",
             "content" : {
               "application/json" : {
-                "schema" : { }
+                "schema" : {
+                  "$ref" : "#/components/schemas/ProjectSummaryDto"
+                }
               }
             }
+          },
+          "401" : {
+            "description" : "Not Authorized"
+          },
+          "403" : {
+            "description" : "Not Allowed"
           },
           "400" : {
             "description" : "Bad Request"
           }
         },
-        "summary" : "Create Project",
-        "tags" : [ "Project Resource" ]
+        "security" : [ {
+          "SecurityScheme" : [ "ESTIMATOR" ]
+        } ]
       }
     },
     "/api/projects/{id}" : {
       "put" : {
+        "summary" : "Update a project's metadata",
+        "tags" : [ "Projects" ],
         "parameters" : [ {
           "name" : "id",
           "in" : "path",
@@ -487,21 +1588,35 @@
         },
         "responses" : {
           "200" : {
-            "description" : "OK",
+            "description" : "The updated project",
             "content" : {
               "application/json" : {
-                "schema" : { }
+                "schema" : {
+                  "$ref" : "#/components/schemas/ProjectSummaryDto"
+                }
               }
             }
+          },
+          "404" : {
+            "description" : "Project not found"
+          },
+          "401" : {
+            "description" : "Not Authorized"
+          },
+          "403" : {
+            "description" : "Not Allowed"
           },
           "400" : {
             "description" : "Bad Request"
           }
         },
-        "summary" : "Update Project",
-        "tags" : [ "Project Resource" ]
+        "security" : [ {
+          "SecurityScheme" : [ "ESTIMATOR" ]
+        } ]
       },
       "get" : {
+        "summary" : "Get a single project with its estimations",
+        "tags" : [ "Projects" ],
         "parameters" : [ {
           "name" : "id",
           "in" : "path",
@@ -512,20 +1627,34 @@
         } ],
         "responses" : {
           "200" : {
-            "description" : "OK",
+            "description" : "The project",
             "content" : {
               "application/json" : {
-                "schema" : { }
+                "schema" : {
+                  "$ref" : "#/components/schemas/ProjectDetailDto"
+                }
               }
             }
+          },
+          "404" : {
+            "description" : "Project not found"
+          },
+          "401" : {
+            "description" : "Not Authorized"
+          },
+          "403" : {
+            "description" : "Not Allowed"
           }
         },
-        "summary" : "Get Project",
-        "tags" : [ "Project Resource" ]
+        "security" : [ {
+          "SecurityScheme" : [ "VIEWER" ]
+        } ]
       }
     },
     "/api/projects/{id}/archive" : {
       "post" : {
+        "summary" : "Archive a project",
+        "tags" : [ "Projects" ],
         "parameters" : [ {
           "name" : "id",
           "in" : "path",
@@ -536,16 +1665,79 @@
         } ],
         "responses" : {
           "200" : {
-            "description" : "OK",
+            "description" : "The archived project",
             "content" : {
               "application/json" : {
-                "schema" : { }
+                "schema" : {
+                  "$ref" : "#/components/schemas/ProjectSummaryDto"
+                }
               }
             }
+          },
+          "404" : {
+            "description" : "Project not found"
+          },
+          "401" : {
+            "description" : "Not Authorized"
+          },
+          "403" : {
+            "description" : "Not Allowed"
           }
         },
-        "summary" : "Archive Project",
-        "tags" : [ "Project Resource" ]
+        "security" : [ {
+          "SecurityScheme" : [ "ESTIMATOR" ]
+        } ]
+      }
+    },
+    "/api/projects/{id}/estimations" : {
+      "post" : {
+        "summary" : "Create an estimation under a project",
+        "tags" : [ "Projects" ],
+        "parameters" : [ {
+          "name" : "id",
+          "in" : "path",
+          "required" : true,
+          "schema" : {
+            "$ref" : "#/components/schemas/UUID"
+          }
+        } ],
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/EstimationCreateDto"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "201" : {
+            "description" : "The created estimation",
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/EstimationSummaryDto"
+                }
+              }
+            }
+          },
+          "404" : {
+            "description" : "Project not found"
+          },
+          "401" : {
+            "description" : "Not Authorized"
+          },
+          "403" : {
+            "description" : "Not Allowed"
+          },
+          "400" : {
+            "description" : "Bad Request"
+          }
+        },
+        "security" : [ {
+          "SecurityScheme" : [ "ESTIMATOR" ]
+        } ]
       }
     }
   },
