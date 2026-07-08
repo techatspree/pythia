@@ -5,12 +5,13 @@ project:
 
 stack:
   frontend:
-    framework: react
+    framework: sveltekit
     language: typescript
     build: vite
-    state: tanstack-query
-    auth: msal-react
+    rendering: adapter-static-spa
     styling: tailwind
+    api_client: openapi-fetch
+    auth: modular   # dev | entra | keycloak
   backend:
     framework: quarkus
     language: java
@@ -82,7 +83,7 @@ phases:
   - id: phase-10
     name: Code Quality and Static Analysis
     duration_weeks: 1
-    tasks: [task-056, task-071, task-078]
+    tasks: [task-056, task-071, task-078, task-084, task-085, task-086]
   - id: phase-11
     name: Collaborative Estimation Sessions
     duration_weeks: 2
@@ -91,6 +92,14 @@ phases:
     name: Persistent Undo Across Sessions
     duration_weeks: 2
     tasks: [task-072, task-073, task-074, task-075, task-076, task-077]
+  - id: phase-13
+    name: Excel-aligned Domain, KMP & Build Reactor
+    duration_weeks: 3
+    tasks: [task-033, task-034, task-035, task-036, task-037, task-038, task-039, task-040, task-041, task-042, task-043, task-044, task-045, task-046, task-047, task-048]
+  - id: phase-14
+    name: Post-MVP Hardening & Build Modernization
+    duration_weeks: 3
+    tasks: [task-079, task-080, task-081, task-082, task-083, task-087, task-088, task-089, task-090, task-091, task-092, task-093, task-094, task-095]
 
 execution:
   task_format: tasks/<task-id>.yaml

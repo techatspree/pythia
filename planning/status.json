@@ -537,9 +537,9 @@
       "notes": "Backend — just-in-time User provisioning from the auth principal"
     },
     "task-090": {
-      "status": "pending",
-      "started_at": null,
-      "completed_at": null,
+      "status": "done",
+      "started_at": "2026-07-07T20:46:33+00:00",
+      "completed_at": "2026-07-07T20:50:21+00:00",
       "notes": "Remove dead createApiClient; ESLint-guard raw /api fetch"
     },
     "task-091": {
@@ -567,9 +567,9 @@
       "notes": "Full OpenAPI schema coverage — typed responses for all endpoints"
     },
     "task-095": {
-      "status": "pending",
-      "started_at": null,
-      "completed_at": null,
+      "status": "done",
+      "started_at": "2026-07-07T20:38:02+00:00",
+      "completed_at": "2026-07-07T20:40:14+00:00",
       "notes": "Reconcile planning/plan.yaml with reality: fix stale frontend stack (react->SvelteKit) and add missing tasks 079-094 to the phase index"
     }
   }

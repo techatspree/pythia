@@ -60,6 +60,11 @@ Typical flow: run `next`, run `show` to read the task, do the work, run `done`. 
 | 7 | 1 | Observability, CI/CD, hardening | 026–029 |
 | 8 | 1 | Polish and production readiness | 030–032 |
 | 9 | 1 | Tree-shaped Estimation Hierarchy | 049–055, 057–059, 061, 069–070 |
+| 10 | 1 | Code Quality and Static Analysis | 056, 071, 078, 084–086 |
+| 11 | 2 | Collaborative Estimation Sessions | 062–067 |
+| 12 | 2 | Persistent Undo Across Sessions | 072–077 |
+| 13 | 3 | Excel-aligned Domain, KMP & Build Reactor | 033–048 |
+| 14 | 3 | Post-MVP Hardening & Build Modernization | 079–083, 087–095 |
 
 Total: roughly 10 weeks of focused work for one developer, less with parallel tracks.
 

@@ -82,9 +82,36 @@ steps:
       cd src/frontend && npm run lint
 
   - |
+    Update CLAUDE.md — it references the now-deleted `client.ts` in two
+    places that describe it as the app's live authenticated API path;
+    both are already misleading (the real path is `apiFetch`) and become
+    dangling once `client.ts` is gone:
+      - The architecture bullet (`- **`src/frontend`** — SvelteKit 5 …`):
+        replace "Talks to the backend via `$lib/api/client.ts`
+        (openapi-fetch with types regenerated from the backend OpenAPI)."
+        with wording that describes `apiFetch` (`$lib/api/fetch.ts`, a
+        plain `fetch` wrapper that attaches the active auth provider's
+        `Authorization` header), with request/response types generated via
+        openapi-typescript into `$lib/api/schema.d.ts`. Note that
+        "openapi-fetch" was only the dead `client.ts`, so drop that term.
+      - The auth section sentence "The API client
+        (`src/frontend/src/lib/api/client.ts`) installs an openapi-fetch
+        `onRequest` middleware that consults
+        `getAuthProvider().getAuthorizationHeader()` and attaches the
+        result as the `Authorization` header.": rewrite it to describe
+        `apiFetch` (`$lib/api/fetch.ts`) consulting
+        `getAuthProvider().getAuthorizationHeader()` and attaching it as
+        the `Authorization` header on every `/api` call.
+      - Optionally note near the frontend conventions that raw `fetch(...)`
+        is banned by ESLint (`no-restricted-syntax`) in favour of
+        `apiFetch`.
+
+  - |
     Build check — svelte-check must stay green after removing the dead
-    client (nothing imports it):
+    client (nothing imports it), plus the frontend gate for parity with
+    the implement-task check:
       cd src/frontend && npm run check
+      ./gradlew :frontend:check
 
 validation:
   - |
@@ -98,6 +125,10 @@ validation:
       grep -q "callee.name='fetch'" src/frontend/eslint.config.js
       grep -q "src/lib/api/fetch.ts" src/frontend/eslint.config.js
   - |
+    CLAUDE.md no longer references the deleted client and points at apiFetch:
+      ! grep -q "api/client" CLAUDE.md
+      grep -q "apiFetch" CLAUDE.md
+  - |
     Lint passes (rule active, code clean) and types check:
       cd src/frontend && npm run lint
       cd src/frontend && npm run check
@@ -105,3 +136,4 @@ validation:
 outputs:
   - deleted: src/frontend/src/lib/api/client.ts
   - modified: src/frontend/eslint.config.js
+  - modified: CLAUDE.md

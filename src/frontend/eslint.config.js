@@ -66,6 +66,30 @@ export default [
 	},
 
 	{
+		// Ban raw `fetch(...)`: every `/api` call must go through `apiFetch`
+		// (`$lib/api/fetch.ts`), which attaches the Authorization header.
+		files: ['**/*.ts', '**/*.svelte'],
+		rules: {
+			'no-restricted-syntax': [
+				'error',
+				{
+					selector: "CallExpression[callee.name='fetch']",
+					message:
+						"Use apiFetch from '$lib/api/fetch' (it attaches the Authorization header) instead of raw fetch."
+				}
+			]
+		}
+	},
+
+	{
+		// The one legitimate raw-fetch site: apiFetch wraps the real `fetch`.
+		files: ['src/lib/api/fetch.ts'],
+		rules: {
+			'no-restricted-syntax': 'off'
+		}
+	},
+
+	{
 		...htmlPlugin.configs['flat/recommended'],
 		files: ['**/*.html'],
 		languageOptions: {
