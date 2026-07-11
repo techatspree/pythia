@@ -1,0 +1,150 @@
+id: task-101
+phase: phase-15
+title: Frontend — method registry + lazy-loaded editor modules
+depends_on: [task-100]
+description: |
+  Introduce a client-side registry of estimation-method editor
+  modules. The version editor route reads the estimation's
+  `method` and lazy-loads the matching module via `import()`.
+  Extract the existing PERT editor (EstimationGrid + parameter /
+  driver / phase / additional-costs panels) into the PERT method
+  module without changing its behaviour.
+
+  ## Frozen decisions (from task-096)
+
+  - **Path.** New folder
+    `src/frontend/src/lib/methods/` holds `registry.ts` and one
+    subfolder per method: `pert/` and (later) `bucketSampled/`.
+  - **Registry shape.** `registry.ts` exports:
+      ```ts
+      export type EditorModule = { Editor: SvelteComponent };
+      export const methodRegistry: Record<
+        EstimationMethod,
+        () => Promise<EditorModule>
+      > = {
+        THREE_POINT_PERT: () => import('./pert/EditorModule.svelte'),
+        BUCKET_SAMPLED_PERT: () => import('./bucketSampled/EditorModule.svelte'),
+      };
+      ```
+    Missing entries throw a clear error via `log.error`
+    (`$lib/log.ts`), then rethrow so `ErrorBanner` surfaces it.
+  - **PERT extraction.** The existing PERT editor logic already
+    lives on
+    `src/frontend/src/routes/estimations/[id]/versions/[versionNumber]/+page.svelte`.
+    Extract the PERT-specific composition
+    (ParametersPanel + EffortDriversPanel + PhasesPanel +
+    AdditionalCostsPanel + EstimationGrid) into
+    `src/lib/methods/pert/EditorModule.svelte`, receiving the
+    same `$bindable`-shaped props the +page.svelte currently
+    passes. The route becomes a thin shell that loads the module
+    and forwards state.
+  - **Autosave and undo/redo stay on the route.** The autosave
+    `$effect` and the `UndoStore` wiring stay in
+    `+page.svelte` (they own the state and the network I/O).
+    The editor module is a pure view / editor over
+    `$bindable` state.
+  - **Bucket module is a placeholder stub.** `bucketSampled/`
+    gets a minimal `EditorModule.svelte` that renders "not yet
+    implemented" and logs a warning. Real implementation lands
+    in task-104; the stub exists here so the registry is
+    complete and can be lazy-loaded end-to-end.
+  - **Bootstrapping.** The route uses `await
+    methodRegistry[estimation.method]()` inside `loadVersion`
+    (or a `$derived` promise, whichever fits the current pattern
+    — inspect the file). Show a small loading state while the
+    module resolves.
+  - **Logging.** `log.info` from `$lib/log.ts` on module load
+    success; `log.error` on missing entry. Never bare
+    `console.*`.
+  - **CLAUDE.md.** Update the "Architecture" bullet for
+    `src/frontend` to mention the registry and lazy-loaded
+    per-method editor modules.
+
+  ## What does NOT belong in this task
+
+  - Bucket UI beyond a stub — task-104.
+  - Session-support routing — task-105.
+  - Export UI dispatch — task-107.
+
+steps:
+  - |
+    Read the current version editor route:
+      src/frontend/src/routes/estimations/[id]/versions/[versionNumber]/+page.svelte
+    Identify the block of markup that composes the four panels
+    and the grid — that is what moves into
+    `src/lib/methods/pert/EditorModule.svelte`. Also confirm the
+    `$bindable` props each panel currently uses so the module's
+    prop signature matches.
+  - |
+    Create `src/frontend/src/lib/methods/registry.ts` with the
+    shape above. Use the generated `EstimationMethod` type from
+    `$lib/api/schema` (via task-100) — this is the first
+    frontend consumer of the type outside the undo store.
+  - |
+    Create `src/frontend/src/lib/methods/pert/EditorModule.svelte`.
+    Move the panels + grid composition into it. Declare each
+    editable collection as `$bindable()` — mirror the current
+    +page.svelte prop set exactly (`currentParameters`,
+    `currentDrivers`, `currentPhases`, `currentAdditionalCosts`,
+    `currentRoots`, `currentNotes`, plus the calc map).
+  - |
+    Create `src/frontend/src/lib/methods/bucketSampled/EditorModule.svelte`
+    as a placeholder:
+      <script>let msg = 'Bucket + sampled editor not yet available'</script>
+      <div class="p-4 text-gray-600">{msg}</div>
+    Log a warning on mount: `log.warn('Bucket editor stub
+    rendered; real implementation lands in task-104')`.
+  - |
+    Refactor +page.svelte to import `methodRegistry`, await the
+    module for `estimation.method` during `loadVersion`, and
+    render `<svelte:component this={module.Editor} bind:… />`
+    (or `{#await}` with the promise if that fits the SvelteKit 5
+    idiom better here). Keep the autosave `$effect` and the
+    `UndoStore` install exactly where they are — do NOT move them
+    into the module.
+  - |
+    Emit `log.info` on successful module load, `log.error` on
+    missing entry (rethrow so ErrorBanner surfaces the failure).
+    Use `$lib/log.ts` — never `console.*`.
+  - |
+    Update `CLAUDE.md` "Architecture" bullet for `src/frontend`:
+    add a one-line note about `src/lib/methods/registry.ts` and
+    lazy-loaded per-method editor modules.
+  - |
+    Build:
+      ./gradlew :frontend:check
+      ./gradlew build
+
+validation:
+  - |
+    Registry and PERT editor module exist:
+      test -f src/frontend/src/lib/methods/registry.ts
+      test -f src/frontend/src/lib/methods/pert/EditorModule.svelte
+      test -f src/frontend/src/lib/methods/bucketSampled/EditorModule.svelte
+  - |
+    Registry maps both methods with dynamic imports:
+      grep -q "THREE_POINT_PERT" src/frontend/src/lib/methods/registry.ts
+      grep -q "BUCKET_SAMPLED_PERT" src/frontend/src/lib/methods/registry.ts
+      grep -q "import(" src/frontend/src/lib/methods/registry.ts
+  - |
+    Route loads via the registry:
+      grep -q "methodRegistry" src/frontend/src/routes/estimations/\[id\]/versions/\[versionNumber\]/+page.svelte
+  - |
+    Frontend logging convention (log from $lib/log, no bare console.*):
+      grep -q "from '\$lib/log'" src/frontend/src/lib/methods/registry.ts
+      ! grep -nE "^\\s*console\\." src/frontend/src/lib/methods/registry.ts
+      ! grep -nE "^\\s*console\\." src/frontend/src/lib/methods/pert/EditorModule.svelte
+      ! grep -nE "^\\s*console\\." src/frontend/src/lib/methods/bucketSampled/EditorModule.svelte
+  - |
+    CLAUDE.md documents the registry:
+      grep -q "lib/methods/registry" CLAUDE.md
+  - |
+    Full-stack build is green:
+      ./gradlew build
+
+outputs:
+  - created: src/frontend/src/lib/methods/registry.ts
+  - created: src/frontend/src/lib/methods/pert/EditorModule.svelte
+  - created: src/frontend/src/lib/methods/bucketSampled/EditorModule.svelte
+  - modified: src/frontend/src/routes/estimations/[id]/versions/[versionNumber]/+page.svelte
+  - modified: CLAUDE.md

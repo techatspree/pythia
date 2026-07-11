@@ -1,0 +1,123 @@
+id: task-109
+phase: phase-12
+title: Move undo history to a section under the toolbar
+depends_on: [task-077]
+description: |
+  Follow-up UI fix to task-077. The undo/redo "Verlauf" (history) panel
+  currently renders at the very BOTTOM of the version editor page —
+  below `<EstimationGrid>`, which itself sits under four other panels
+  (Parameters, Effort Drivers, Phases, Additional Costs). Because the
+  "Verlauf" toggle button lives in the top toolbar, opening the panel
+  changed something far off-screen and felt like it did nothing; a
+  `scrollIntoView` workaround was added to compensate.
+
+  Target state: the history renders as a collapsible section directly
+  UNDER THE TOOLBAR (immediately below the header/action-area row, above
+  the "Version N" title), so toggling "Verlauf" reveals it right where
+  the button is. This makes the `scrollIntoView` workaround unnecessary —
+  remove it.
+
+  Current implementation (all in the version editor page
+  `src/frontend/src/routes/estimations/[id]/versions/[versionNumber]/+page.svelte`):
+    - Script has `let showHistory = $state(false)`, plus a
+      `let historyEl = $state<HTMLElement | null>(null)` and an
+      `$effect` that calls `historyEl.scrollIntoView(...)` when
+      `showHistory` turns true.
+    - The toolbar "Verlauf" button (in the `flex items-center gap-3`
+      action row) toggles `showHistory` and carries `aria-pressed`.
+    - The panel is rendered at the bottom, after `<EstimationGrid>`:
+        {#if versionData.isDraft && showHistory}
+          <div bind:this={historyEl} class="scroll-mt-4">
+            <UndoHistoryPanel history={undoStore.history} />
+          </div>
+        {/if}
+
+  Key design decisions:
+    - Move the `{#if versionData.isDraft && showHistory}` +
+      `<UndoHistoryPanel history={undoStore.history} />` block to sit
+      immediately AFTER the header row (`<div class="flex items-center
+      justify-between mb-4"> … </div>`) and BEFORE the
+      `<h1>Version {versionData.versionNumber}</h1>` title. The panel's
+      own root already carries `mt-4` spacing, so no extra wrapper is
+      needed.
+    - Delete the now-dead `historyEl` state, the `scrollIntoView`
+      `$effect`, and the `bind:this` / `scroll-mt-4` wrapper `<div>`.
+    - Keep everything else from task-077 unchanged: the `showHistory`
+      toggle, the button's `aria-pressed` active state, the
+      `UndoHistoryPanel` component itself, and the conflict dialog
+      (which stays where it is).
+    - Frontend-only. No store, domain, backend, or logging change (no
+      new try/catch or data flow — a pure layout move), so the CLAUDE.md
+      logging conventions do not apply.
+
+steps:
+  - |
+    Edit `src/frontend/src/routes/estimations/[id]/versions/[versionNumber]/+page.svelte`:
+      - In the `<script>`, remove `let historyEl = $state<HTMLElement |
+        null>(null)` and the `$effect(() => { if (showHistory &&
+        historyEl) historyEl.scrollIntoView(...) })` block (and their
+        explanatory comment). Keep `let showHistory = $state(false)`.
+      - Remove the bottom history block that currently follows
+        `<EstimationGrid …/>`:
+          {#if versionData.isDraft && showHistory}
+            <div bind:this={historyEl} class="scroll-mt-4">
+              <UndoHistoryPanel history={undoStore.history} />
+            </div>
+          {/if}
+        Leave the `{#if undoStore.conflict} <UndoConflictDialog …/> {/if}`
+        block in place.
+      - Insert the history section directly under the toolbar — right
+        after the header row `<div class="flex items-center
+        justify-between mb-4"> … </div>` closes and before
+        `<h1 class="text-2xl font-bold mb-2">Version …</h1>`:
+          {#if versionData.isDraft && showHistory}
+            <UndoHistoryPanel history={undoStore.history} />
+          {/if}
+      - Do NOT change the toolbar button (it keeps `onclick={() =>
+        (showHistory = !showHistory)}`, `aria-pressed={showHistory}`,
+        and its active style).
+  - |
+    Update the e2e test `src/frontend/e2e/undo.test.ts`: the test
+    currently named "Verlauf button reveals the history panel and scrolls
+    it into view" asserts `toBeInViewport()` after a scroll. Rename it to
+    reflect the new behaviour (e.g. "Verlauf button toggles the history
+    section under the toolbar") and keep the meaningful assertions: after
+    clicking "Verlauf anzeigen", the button has `aria-pressed="true"`, the
+    "Verlauf" panel header is in the viewport (now without any scroll),
+    and there is at least one history row (`ul li`). The tall-grid setup
+    is no longer required but is harmless to keep.
+  - |
+    Update CLAUDE.md — the "Frontend — undo/redo store (`UndoStore`)"
+    paragraph describes the panel as "a collapsible `UndoHistoryPanel`
+    below `EstimationGrid`". Change that wording to say the panel renders
+    as a collapsible section directly under the toolbar (above the version
+    title) on the editor page.
+  - |
+    Build + tests (the dev stack must be running for e2e —
+    `./scripts/dev.sh` with Docker up, backend on :8080 + Vite on :5173):
+      ./gradlew :frontend:check
+      cd src/frontend && npx playwright test undo
+
+validation:
+  - |
+    The history panel is still rendered, but the scroll workaround is gone:
+      grep -q "UndoHistoryPanel" "src/frontend/src/routes/estimations/[id]/versions/[versionNumber]/+page.svelte"
+      ! grep -q "scrollIntoView" "src/frontend/src/routes/estimations/[id]/versions/[versionNumber]/+page.svelte"
+      ! grep -q "historyEl" "src/frontend/src/routes/estimations/[id]/versions/[versionNumber]/+page.svelte"
+  - |
+    The panel now sits above the version title, not after the grid
+    (the UndoHistoryPanel usage appears before the "Version" heading and
+    before <EstimationGrid> in the file):
+      test "$(grep -n 'UndoHistoryPanel history=' 'src/frontend/src/routes/estimations/[id]/versions/[versionNumber]/+page.svelte' | head -1 | cut -d: -f1)" -lt "$(grep -n '<EstimationGrid' 'src/frontend/src/routes/estimations/[id]/versions/[versionNumber]/+page.svelte' | head -1 | cut -d: -f1)"
+  - |
+    CLAUDE.md wording updated to describe the new placement:
+      grep -q "under the toolbar" CLAUDE.md
+  - |
+    Frontend gate passes and the undo e2e (incl. the Verlauf test) is green:
+      ./gradlew :frontend:check
+      cd src/frontend && npx playwright test undo
+
+outputs:
+  - modified: src/frontend/src/routes/estimations/[id]/versions/[versionNumber]/+page.svelte
+  - modified: src/frontend/e2e/undo.test.ts
+  - modified: CLAUDE.md

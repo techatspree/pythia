@@ -1,0 +1,151 @@
+id: task-100
+phase: phase-15
+title: REST DTO — method-tagged leaf type discriminator (reserve BUCKETED)
+depends_on: [task-099]
+description: |
+  Extend the REST leaf item discriminator to be method-tagged so
+  the wire format can carry method-specific leaf shapes. Reserve
+  the `BUCKETED` variant in the OpenAPI schema and in Jackson
+  subtype registration; the concrete `BucketedEstimationItem`
+  ships in task-102/103. Regenerate the frontend typed client.
+
+  ## Frozen decisions (from task-096)
+
+  - **Discriminator, not payload.** Extend the existing `type`
+    discriminator on `EstimationNodeDto` /
+    `EstimationNodeUpdateDto`. DO NOT introduce a nested
+    `estimation` payload. New `type` values are added per method
+    (`FIXED`, `TIME_RELATIVE` — existing PERT leaves;
+    `BUCKETED` — reserved here). `GROUP` stays as-is.
+  - **OpenAPI stays fully typed.** The generated schema keeps a
+    `oneOf` on `type` (per task-094's coverage). Add the
+    `BUCKETED` variant with the fields it will eventually carry —
+    even though the backend cannot yet serialise a real bucketed
+    node, the schema entry is required so the generated
+    `schema.d.ts` is stable. Use `@Schema(oneOf = [...])` to
+    include the reserved subtype.
+  - **Jackson subtypes.** Extend `EstimationNodeDto` and
+    `EstimationNodeUpdateDto`'s `@JsonSubTypes` annotations with
+    a `BucketedNodeDto` / `BucketedNodeUpdateDto` sealed class
+    entry. The DTO's fields are:
+      * `bucketId: String?` (nullable at wire level — a leaf may
+        temporarily have no bucket during editing)
+      * `isSample: Boolean` (default false)
+      * `optimistic`, `likely`, `pessimistic` (Double, required
+        only when `isSample == true`)
+    Include a `@AssertTrue`-style Bean Validation check that
+    sample rows carry the three-point values, if that fits the
+    existing DTO validation pattern; otherwise the check moves
+    to `DraftUpdateApplier` when task-103 lands.
+  - **DraftMutationJackson.** Add `BucketedNodeUpdateDto` to the
+    `@JsonSubTypes` list on the mutation snapshot polymorphic
+    root so the undo log can round-trip the new leaf shape once
+    it becomes reachable. NO behaviour change for existing PERT
+    drafts.
+  - **Generated schema regen.** After the backend build produces
+    the new OpenAPI JSON, run
+    `cd src/frontend && npm run gen:api` so `schema.d.ts` picks
+    up the reserved type. Frontend components still consume the
+    hand-written `types.ts` — do NOT migrate them here (that's a
+    task-101 concern).
+  - **Backend rejection of unimplemented leaf.** Because task-102
+    / task-103 have not yet added the `BUCKETED` persistence
+    path, `DraftUpdateApplier` must reject a payload that carries
+    a `BucketedNodeUpdateDto` with a 400 and a clear message.
+    This keeps the schema honest ("BUCKETED is a real type") while
+    preventing users from posting one against a PERT estimation.
+    task-103 will lift the rejection for `BUCKET_SAMPLED_PERT`
+    estimations.
+  - **CLAUDE.md.** Update "REST API surface" — new type variant
+    and per-estimation immutability of the method context that
+    controls which type variants are legal.
+
+  ## What does NOT belong in this task
+
+  - No `BucketedEstimationItem` domain type — task-102.
+  - No `BUCKETED` persistence columns — task-103.
+  - No frontend registry or lazy editor loading — task-101.
+
+steps:
+  - |
+    Read the current DTOs:
+      src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/dto/EstimationNodeDto.kt
+      src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/dto/EstimationNodeUpdateDto.kt
+    Read `DraftMutationJackson` to see how polymorphic snapshot
+    round-trip is wired:
+      src/backend/implementation/src/main/kotlin/io/github/theestimator/service/DraftMutationJackson.kt
+      (or wherever the `StoredMutation` Jackson binding lives).
+  - |
+    Add a sealed subclass `BucketedNodeDto : EstimationNodeDto`
+    with the fields listed above. Register it in the
+    `@JsonSubTypes` list on `EstimationNodeDto`. Annotate with
+    `@Schema(name = "BucketedNode", …)` so the OpenAPI oneOf
+    entry gets a stable name.
+    Do the same on `EstimationNodeUpdateDto` for
+    `BucketedNodeUpdateDto`.
+  - |
+    Update `DraftMutationJackson` (or the module that registers
+    subtypes for `StoredMutation`) so it knows about
+    `BucketedNodeUpdateDto`. Add a unit test asserting that a
+    `StoredMutation` containing a mixed tree
+    (`GroupNodeUpdateDto` root, `FixedNodeUpdateDto` leaf,
+    `BucketedNodeUpdateDto` leaf) round-trips through
+    `ObjectMapper.writeValueAsString` /
+    `readValue<StoredMutation>` losslessly.
+  - |
+    Update `DraftUpdateApplier` to reject any
+    `BucketedNodeUpdateDto` currently: throw a
+    `BadRequestException` (`400`) with the message "BUCKETED
+    leaves are not yet supported for this estimation method".
+    Add a `@QuarkusTest` in `EstimationVersionResourceIT` covering
+    the rejection.
+  - |
+    Regenerate the frontend typed client:
+      cd src/frontend && npm run gen:api
+    Commit both the regenerated `openapi.json` (backend copy is
+    also written to `target/openapi/openapi.json` — the committed
+    copy at `src/frontend/src/lib/api/openapi.json` and the typed
+    `src/frontend/src/lib/api/schema.d.ts` are the ones to
+    commit).
+  - |
+    Update `CLAUDE.md` "REST API surface" section to note the
+    method-tagged leaf discriminator and that `BUCKETED` is
+    reserved (accepted only for `BUCKET_SAMPLED_PERT`
+    estimations, currently rejected pending task-103).
+  - |
+    Build:
+      ./gradlew :backend:implementation:test
+      ./gradlew :frontend:check
+      ./gradlew build
+
+validation:
+  - |
+    DTO sealed hierarchy now includes BUCKETED:
+      grep -q "BucketedNodeDto" src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/dto/EstimationNodeDto.kt
+      grep -q "BucketedNodeUpdateDto" src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/dto/EstimationNodeUpdateDto.kt
+      grep -q "BUCKETED" src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/dto/EstimationNodeUpdateDto.kt
+  - |
+    DraftUpdateApplier rejects BUCKETED with 400 and logs WARN:
+      grep -q "BucketedNodeUpdateDto" src/backend/implementation/src/main/kotlin/io/github/theestimator/service/DraftUpdateApplier.kt
+      grep -q "BadRequestException\|Response.Status.BAD_REQUEST" src/backend/implementation/src/main/kotlin/io/github/theestimator/service/DraftUpdateApplier.kt
+      grep -q "Log.warn" src/backend/implementation/src/main/kotlin/io/github/theestimator/service/DraftUpdateApplier.kt
+  - |
+    Regenerated frontend schema includes the new type:
+      grep -q "BUCKETED" src/frontend/src/lib/api/schema.d.ts
+      grep -q "BUCKETED" src/frontend/src/lib/api/openapi.json
+  - |
+    CLAUDE.md documents the change:
+      grep -q "BUCKETED" CLAUDE.md
+  - |
+    Full-stack build is green:
+      ./gradlew build
+
+outputs:
+  - modified: src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/dto/EstimationNodeDto.kt
+  - modified: src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/dto/EstimationNodeUpdateDto.kt
+  - modified: src/backend/implementation/src/main/kotlin/io/github/theestimator/service/DraftMutationJackson.kt
+  - modified: src/backend/implementation/src/main/kotlin/io/github/theestimator/service/DraftUpdateApplier.kt
+  - modified: src/backend/implementation/src/test/kotlin/io/github/theestimator/rest/EstimationVersionResourceIT.kt
+  - modified: src/frontend/src/lib/api/openapi.json
+  - modified: src/frontend/src/lib/api/schema.d.ts
+  - modified: CLAUDE.md

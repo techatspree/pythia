@@ -55,6 +55,10 @@ EstimationNode (sealed)
 
 A `leaves()` extension on `EstimationNode` flat-walks the tree and returns the leaf items.
 
+#### Pluggable estimation methods (SPI)
+
+Estimation methods are pluggable behind a domain SPI in `io.github.theestimator.method` (phase-15, planned in task-096). `EstimationMethod` is a `@JsExport` enum (`THREE_POINT_PERT`, `BUCKET_SAMPLED_PERT`); `EstimationMethodModule` is the interface each method implements — it supplies the per-leaf `calculate(item, params)` (mirroring `EstimationItem.withCalculationParameters`) plus the export `exportRow` / `exportColumnHeaders` shaping; and `EstimationMethodRegistry` is a singleton `object` mapping enum → module (`register` / `get` / `require` / `all`, where `require` throws for an unregistered method). **One Kotlin package per method** — each concrete method lives in its own `io.github.theestimator.method.<method>` package and cross-package references between methods are forbidden; all interaction goes through the SPI. Only the enum is `@JsExport`ed; the interface and registry stay domain-internal. The registry starts empty and concrete modules register themselves in their own tasks (task-098 PERT, task-102 bucket+sampled).
+
 ### Persistence shape
 
 Single self-referential table per side, JPA `SINGLE_TABLE` inheritance with a `node_type` discriminator (`GROUP` | `FIXED` | `TIME_RELATIVE`). Children ordered by an integer `position` column (`@OrderColumn`). The version's `roots` use `@SQLRestriction("parent_id IS NULL")` to pick out the top-level rows.

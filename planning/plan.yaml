@@ -100,6 +100,10 @@ phases:
     name: Post-MVP Hardening & Build Modernization
     duration_weeks: 3
     tasks: [task-079, task-080, task-081, task-082, task-083, task-087, task-088, task-089, task-090, task-091, task-092, task-093, task-094, task-095]
+  - id: phase-15
+    name: Pluggable Estimation Methods
+    duration_weeks: 4
+    tasks: [task-096, task-097, task-098, task-099, task-100, task-101, task-102, task-103, task-104, task-105, task-106, task-107, task-108]
 
 execution:
   task_format: tasks/<task-id>.yaml

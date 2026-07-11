@@ -1,0 +1,101 @@
+id: task-108
+phase: phase-15
+title: E2E — bucket + sampled full-stack Playwright test
+depends_on: [task-104, task-107]
+description: |
+  End-to-end Playwright spec for the bucket + sampled estimation
+  method — creation, editing, sampling, submission, and export.
+  Proves the SPI is wired end-to-end and that a second method
+  works alongside the existing PERT flow without regression.
+
+  ## Frozen decisions (from task-096)
+
+  - **File.** `src/frontend/e2e/estimation-bucket-sampled.spec.ts`.
+  - **Fixture / stack.** Runs against the local dev stack
+    (`./scripts/dev.sh`) — the same target every existing e2e
+    spec uses.
+  - **Auth.** Use the dev auth module (default for e2e).
+  - **What the spec covers, in order.**
+      1. Create a fresh estimation via the UI, selecting
+         `method = Bucket + Sampled Three-Point` on the create
+         dialog.
+      2. On the version editor, open the Bucket panel. Confirm
+         default buckets (XS, S, M, L, XL) are present. Add a
+         sixth bucket "XXL"; rename "L" to "Large"; delete "XXL".
+      3. Add three groups + a mix of items. Assign every leaf to
+         a bucket via the dropdown.
+      4. Mark one leaf per bucket as `isSample` and enter a
+         three-point PERT estimate (optimistic / likely /
+         pessimistic).
+      5. Assert every non-sample leaf shows the derived
+         bucket-average effort in the grid.
+      6. Submit the version. Navigate to the submitted version
+         detail — assert the same derived numbers appear on the
+         non-sample rows and the raw PT values still show on the
+         sample rows.
+      7. Trigger xlsx export from the submitted version.
+         Download the file, load it via the test's xlsx helper,
+         assert the header row contains the neutral columns AND
+         "Bucket", "Is Sample", "Optimistic", "Likely",
+         "Pessimistic".
+  - **Playwright configuration.** No new webserver
+    configuration. Reuse the shared beforeAll/afterAll that
+    other specs use.
+  - **Selectors.** Prefer `getByRole` / `getByLabel` — this is a
+    high-visibility regression test; do not depend on css
+    classes.
+  - **Determinism.** Use fixed timestamps or Playwright's
+    freeze-time helper if the app depends on `Date.now()` (spot
+    check by grepping for `Date.now`); otherwise ignore.
+  - **Runtime.** The spec must finish under 30s so it fits
+    inside the standard e2e budget.
+  - **CLAUDE.md.** No documentation change (e2e specs are not
+    documented invidiually).
+
+  ## What does NOT belong in this task
+
+  - No production-code changes — this task only adds the spec.
+  - No new backend or frontend changes; if the spec exposes a
+    bug, the fix is a follow-up (report + link to a new task).
+
+steps:
+  - |
+    Read existing e2e specs to match style, waits, and helpers:
+      src/frontend/e2e/estimation-editor.spec.ts (if present) or
+      the equivalent PERT-flow spec.
+  - |
+    Write
+    `src/frontend/e2e/estimation-bucket-sampled.spec.ts` covering
+    the seven scenarios listed in the description.
+  - |
+    Verify the dev stack (`./scripts/dev.sh`) is up (Docker
+    running) before running the spec:
+      cd src/frontend && npm run test:e2e -- estimation-bucket-sampled.spec.ts
+    Iterate until green.
+  - |
+    Run the full e2e suite once to confirm no regression on
+    existing specs:
+      cd src/frontend && npm run test:e2e
+  - |
+    Run the full-stack Gradle build one last time:
+      ./gradlew build
+
+validation:
+  - |
+    E2E spec file exists:
+      test -f src/frontend/e2e/estimation-bucket-sampled.spec.ts
+  - |
+    Spec covers the key touchpoints:
+      grep -q "Bucket" src/frontend/e2e/estimation-bucket-sampled.spec.ts
+      grep -q "Sample\|isSample" src/frontend/e2e/estimation-bucket-sampled.spec.ts
+      grep -q "export\|Export" src/frontend/e2e/estimation-bucket-sampled.spec.ts
+      grep -q "submit\|Submit" src/frontend/e2e/estimation-bucket-sampled.spec.ts
+  - |
+    Full Playwright e2e suite passes against the dev stack:
+      cd src/frontend && npm run test:e2e
+  - |
+    Full-stack Gradle build is green:
+      ./gradlew build
+
+outputs:
+  - created: src/frontend/e2e/estimation-bucket-sampled.spec.ts

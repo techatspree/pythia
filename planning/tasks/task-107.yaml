@@ -1,0 +1,114 @@
+id: task-107
+phase: phase-15
+title: Export dispatch — xlsx/csv writers dispatched by method
+depends_on: [task-102, task-098, task-103]
+description: |
+  Refactor the shared xlsx/csv export pipeline
+  (`EstimationVersionResource` export endpoint + writer) so it
+  looks up the estimation's `method` and delegates the row/column
+  shape into the method module's `exportRow` /
+  `exportColumnHeaders` (declared in the SPI by task-097,
+  implemented by task-098 for PERT and task-102 for
+  bucket+sampled).
+
+  ## Frozen decisions (from task-096)
+
+  - **Dispatch layer only.** This task owns the shared
+    file-format plumbing (xlsx sheet setup, csv writer,
+    HTTP response), not any method-specific column shape.
+    Every method-specific column and row already lives in its
+    method's module (task-098 for PERT, task-102 for bucket).
+  - **Neutral columns come first.** The exported row starts
+    with the shared neutral columns (title, path, mean,
+    variance, offerPT, cost, offerPrice) and then appends the
+    method-specific cells returned by the module's
+    `exportRow(item)`. Headers are assembled the same way. This
+    keeps a PERT export forward-compatible with a bucket export
+    for tooling that reads only the neutral columns.
+  - **Endpoint.** No new endpoint. The existing
+    `GET /api/estimations/{eid}/versions/{n}/export?format=xlsx|csv`
+    is refactored in place. The response headers stay the same
+    (filename, content-type).
+  - **Backend test.** Add a `@QuarkusTest` that exports one PERT
+    estimation and one bucket+sampled estimation and asserts
+    the expected header row (neutral + method-specific).
+  - **Logging.** `Log.info` on export start (estimation id +
+    method + format); `Log.debug` on the number of rows written;
+    `Log.error` on any I/O failure path.
+  - **CLAUDE.md.** Update "REST API surface" to note that the
+    export dispatch delegates to the method module's writer.
+
+  ## What does NOT belong in this task
+
+  - Any change to method modules (PERT export writer already
+    lives in task-098; bucket export writer already lives in
+    task-102).
+  - Frontend export UI — this task keeps the same download link
+    behaviour.
+
+steps:
+  - |
+    Locate the current export code path. It should be under
+    `src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/`
+    (`EstimationVersionResource.export`) plus a writer under
+    `.../service/export/` or a similar folder. Grep:
+      grep -rn "export" src/backend/implementation/src/main/kotlin | grep -i "xlsx\|csv" | head
+  - |
+    Refactor the writer:
+      1. Load the estimation's method.
+      2. Look up the module via
+         `EstimationMethodRegistry.require(method)`.
+      3. Assemble headers: `NEUTRAL_HEADERS +
+         module.exportColumnHeaders()`.
+      4. For each leaf: `neutralCells(item) + module.exportRow(item)`.
+      5. Write to xlsx or csv as before.
+    Remove any inline PERT-specific column handling in the
+    writer (that logic lives in task-098's module now).
+    `Log.info` on start; `Log.debug` on row count; `Log.error`
+    on failure.
+  - |
+    Add `@QuarkusTest` (in
+    `.../rest/EstimationVersionResourceIT.kt` or a dedicated
+    `EstimationExportIT.kt`):
+      * PERT estimation with 2 leaves → export xlsx, assert
+        headers = `NEUTRAL + PERT_HEADERS`, row count = 2.
+      * Bucket estimation with 2 buckets + 4 leaves (2 samples,
+        2 non-samples) → export csv, assert headers =
+        `NEUTRAL + BUCKET_HEADERS` and non-sample rows have
+        empty PT cells.
+  - |
+    Update `CLAUDE.md` "REST API surface".
+  - |
+    Build:
+      ./gradlew :backend:implementation:test
+      ./gradlew build
+
+validation:
+  - |
+    Writer no longer references PERT columns directly by name
+    (i.e. the writer is method-agnostic; PERT column strings
+    live only in the PERT module):
+      ! grep -rE "\"Optimistic\"|\"Likely\"|\"Pessimistic\"" \
+          src/backend/implementation/src/main/kotlin/io/github/theestimator/service/export/ 2>/dev/null \
+          || echo "expected: only NEUTRAL headers hard-coded in the writer"
+  - |
+    Writer uses the registry:
+      grep -rq "EstimationMethodRegistry" src/backend/implementation/src/main/kotlin/io/github/theestimator/
+  - |
+    Logging in place:
+      grep -rq "Log.info" src/backend/implementation/src/main/kotlin/io/github/theestimator/ | head
+  - |
+    New export test class or additions exist and pass:
+      grep -rq "exportColumnHeaders\|BUCKET_HEADERS\|PERT_HEADERS\|export.*xlsx\|export.*csv" \
+        src/backend/implementation/src/test/kotlin/io/github/theestimator/
+  - |
+    CLAUDE.md documents the dispatch behaviour:
+      grep -q "export" CLAUDE.md
+  - |
+    Full-stack build is green:
+      ./gradlew build
+
+outputs:
+  - modified: src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/EstimationVersionResource.kt
+  - modified: src/backend/implementation/src/test/kotlin/io/github/theestimator/rest/EstimationVersionResourceIT.kt
+  - modified: CLAUDE.md

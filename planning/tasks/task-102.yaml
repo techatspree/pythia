@@ -1,0 +1,199 @@
+id: task-102
+phase: phase-15
+title: Domain — implement bucket + sampled estimation method
+depends_on: [task-098]
+description: |
+  Implement the second estimation method — **bucket + sampled
+  three-point** — behind the SPI introduced in task-097. This is
+  the domain-side (KMP) piece: the leaf item type, the reducer,
+  the method module, and the module's export writer. Backend
+  persistence lands in task-103; frontend editor lands in
+  task-104.
+
+  ## Frozen decisions (from task-096)
+
+  - **Package.** All bucket+sampled code lives in
+    `io.github.theestimator.method.bucketsampled`. NO cross-
+    reference from this package into
+    `io.github.theestimator.method.threepoint` — the two methods
+    interact only via the SPI in
+    `io.github.theestimator.method`.
+  - **Leaf item shape.** New sealed subclass
+    `BucketedEstimationItem : EstimationItem` with:
+      * `bucketId: String` (non-null on a fully-edited item;
+        the domain assumes it — validation happens at the DTO
+        layer in task-100)
+      * `isSample: Boolean`
+      * Optional `optimistic: Double? = null`,
+        `likely: Double? = null`,
+        `pessimistic: Double? = null` — required when
+        `isSample = true`.
+    Keep the sealed hierarchy shape used by
+    `FixedEstimationItem` / `TimeRelativeEstimationItem`; do
+    not introduce a second inheritance level.
+  - **Reducer semantics.** For each bucket, average the
+    per-sample PERT-derived `mean` across the bucket's sample
+    items; assign the bucket's mean to every non-sample item
+    in the bucket. Variance and offerPT follow the same
+    per-bucket average; cost and offerPrice flow through the
+    existing `EstimationVersion.calculate()` accumulation from
+    the assigned mean.
+  - **Where the reducer lives.** A dedicated top-level function
+    `computeBucketAverages(items): Map<bucketId, BucketAverages>`
+    in the same package. The `BucketMethodModule.calculate()`
+    hook receives the whole flat list of leaves it produced
+    (the SPI addition arrives via task-097's already-in-place
+    calculate), consumes `computeBucketAverages`, and returns
+    the per-leaf calculated values.
+  - **SPI ADJUSTMENT.** task-097's SPI was per-leaf
+    (`calculate(item, params)`). The bucket method needs
+    per-BUCKET context — extend the SPI here with a batch hook
+    `calculateAll(items: List<EstimationItem>, params):
+    List<EstimationItem>` and give it a default in the SPI that
+    calls `calculate` per leaf (so PERT keeps working without
+    change). Bucket module overrides `calculateAll`. Document
+    the extension in the SPI file with a one-line comment; NO
+    change to the PERT module needed.
+  - **Registry.** The bucket module registers itself via
+    `EstimationMethodRegistry.installStandardMethods()` — extend
+    the same bootstrap point task-098 added.
+  - **Export writer.** `BucketMethodModule.exportColumnHeaders()`
+    returns `[..., "Bucket", "Is Sample", "Optimistic",
+    "Likely", "Pessimistic"]`. `.exportRow(item)` returns
+    matching cells; non-sample rows have empty PT cells.
+  - **Kotlin/JS pitfall.** `BucketedEstimationItem` will have
+    computed getters for the shared neutral values. INLINE the
+    parent formulas — do NOT reference `super.mean` /
+    `super.variance` / `super.offerPT`. See the reference
+    comment in `TimeRelativeEstimationItem.kt`.
+  - **KMP export.** Type is `@JsExport`-annotated; secondary
+    constructors get `@JsName("…")` — again see
+    `TimeRelativeEstimationItem.kt`.
+  - **Single source of truth.** All bucket calculation lives in
+    `:domain`. The frontend `adapter.ts` (updated in task-104)
+    just calls into the KMP-compiled JS — no reimplementation.
+  - **Buckets themselves.** The domain does NOT own bucket
+    persistence (labels, ordering); buckets are stored on
+    `Estimation` in the backend (task-103). The domain model
+    only sees `bucketId: String`. The reducer works purely from
+    that id — it does not need labels or order.
+
+  ## What does NOT belong in this task
+
+  - Any backend JPA / Flyway change — task-103.
+  - Any frontend editor UI — task-104.
+  - Session-support reducer for multi-estimator input — task-106.
+
+steps:
+  - |
+    Extend the SPI in
+    `src/domain/src/main/kotlin/io/github/theestimator/method/EstimationMethodModule.kt`
+    with a `calculateAll(items, params): List<EstimationItem>`
+    default that calls `calculate(item, params)` per leaf. Add a
+    one-line inline comment explaining why the extension exists
+    ("bucket methods need per-bucket batch context").
+  - |
+    Create package
+      src/domain/src/main/kotlin/io/github/theestimator/method/bucketsampled/
+    Add `BucketedEstimationItem.kt`:
+      * `@JsExport @DomainEntity data class BucketedEstimationItem(
+           override val id: String,
+           override val title: String,
+           val bucketId: String,
+           val isSample: Boolean,
+           val optimistic: Double? = null,
+           val likely: Double? = null,
+           val pessimistic: Double? = null
+         ) : EstimationItem()`
+      * Provide computed neutral getters (`mean`, `variance`,
+        `offerPT`, `cost`, `offerPrice`) that INLINE the PERT
+        formula for sample rows and RETURN the bucket-derived
+        values for non-sample rows. Since a single item cannot
+        derive its bucket's average alone, add a
+        `withCalculatedFromBucket(mean, variance, offerPT):
+        BucketedEstimationItem` helper the module calls from
+        `calculateAll` after computing per-bucket averages.
+    Follow the Kotlin/JS pitfall guidance from
+    `TimeRelativeEstimationItem.kt`.
+  - |
+    Add `computeBucketAverages.kt` with:
+      internal data class BucketAverages(
+        val mean: Double, val variance: Double, val offerPT: Double
+      )
+      internal fun computeBucketAverages(
+        items: List<BucketedEstimationItem>,
+        params: CalculationParameters
+      ): Map<String, BucketAverages>
+    The function filters `items.filter { it.isSample }`, groups
+    by `bucketId`, computes each sample's PERT-derived
+    mean/variance/offerPT via the shared formula, averages
+    within a bucket, and returns the per-bucket map.
+  - |
+    Add `BucketMethodModule.kt` implementing
+    `EstimationMethodModule`:
+      * `method = EstimationMethod.BUCKET_SAMPLED_PERT`
+      * Override `calculateAll(items, params)`: compute bucket
+        averages once, then map each leaf — sample rows keep
+        their sample-derived values; non-sample rows get their
+        bucket's average via `withCalculatedFromBucket`.
+      * `exportColumnHeaders` / `exportRow` as described above.
+      * `logger.info { "…" }` on module registration.
+  - |
+    Extend
+    `EstimationMethodRegistry.installStandardMethods()` (added by
+    task-098) to also register `BucketMethodModule`.
+  - |
+    Add unit tests in
+    `src/domain/src/commonTest/kotlin/io/github/theestimator/method/bucketsampled/`:
+      * `BucketedEstimationItemTest.kt` — construction; sample
+        row PERT math; `withCalculatedFromBucket` copy semantics.
+      * `ComputeBucketAveragesTest.kt` — three sample items in
+        one bucket average correctly; two buckets in one call;
+        a bucket with zero samples produces no entry.
+      * `BucketMethodModuleTest.kt` — `calculateAll` on a mixed
+        list (2 buckets, 2 samples each, 3 non-samples) yields
+        expected mean on every leaf; `exportColumnHeaders().size
+        == exportRow(item).size`; module is registered after
+        `installStandardMethods()`.
+  - |
+    Build the domain module and rebuild the frontend so the
+    updated `domain.d.mts` is fresh:
+      ./gradlew :domain:clean :domain:build
+      ./gradlew :frontend:clean :frontend:check
+
+validation:
+  - |
+    Bucket method files exist:
+      test -f src/domain/src/main/kotlin/io/github/theestimator/method/bucketsampled/BucketedEstimationItem.kt
+      test -f src/domain/src/main/kotlin/io/github/theestimator/method/bucketsampled/computeBucketAverages.kt
+      test -f src/domain/src/main/kotlin/io/github/theestimator/method/bucketsampled/BucketMethodModule.kt
+  - |
+    No cross-references from the bucket package into the
+    threepoint package (the two methods must not know each other):
+      ! grep -rE "de\\.spree\\.estimation\\.method\\.threepoint" \
+          src/domain/src/main/kotlin/io/github/theestimator/method/bucketsampled/
+  - |
+    Kotlin/JS super-property pitfall: no `super.<computed prop>`
+    references:
+      ! grep -rE "super\\.mean|super\\.variance|super\\.offerPT" \
+          src/domain/src/main/kotlin/io/github/theestimator/method/bucketsampled/
+  - |
+    Bucket module logs on registration:
+      grep -q "logger.info" src/domain/src/main/kotlin/io/github/theestimator/method/bucketsampled/BucketMethodModule.kt
+  - |
+    Bucket-averages unit tests exist:
+      test -f src/domain/src/commonTest/kotlin/io/github/theestimator/method/bucketsampled/ComputeBucketAveragesTest.kt
+      test -f src/domain/src/commonTest/kotlin/io/github/theestimator/method/bucketsampled/BucketMethodModuleTest.kt
+  - |
+    Domain build (JVM + JS + tests) and frontend :check pass:
+      ./gradlew :domain:build :frontend:check
+
+outputs:
+  - modified: src/domain/src/main/kotlin/io/github/theestimator/method/EstimationMethodModule.kt
+  - modified: src/domain/src/main/kotlin/io/github/theestimator/method/EstimationMethodRegistry.kt
+  - created: src/domain/src/main/kotlin/io/github/theestimator/method/bucketsampled/BucketedEstimationItem.kt
+  - created: src/domain/src/main/kotlin/io/github/theestimator/method/bucketsampled/computeBucketAverages.kt
+  - created: src/domain/src/main/kotlin/io/github/theestimator/method/bucketsampled/BucketMethodModule.kt
+  - created: src/domain/src/commonTest/kotlin/io/github/theestimator/method/bucketsampled/BucketedEstimationItemTest.kt
+  - created: src/domain/src/commonTest/kotlin/io/github/theestimator/method/bucketsampled/ComputeBucketAveragesTest.kt
+  - created: src/domain/src/commonTest/kotlin/io/github/theestimator/method/bucketsampled/BucketMethodModuleTest.kt

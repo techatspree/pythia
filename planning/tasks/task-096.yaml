@@ -1,0 +1,460 @@
+id: task-096
+phase: phase-15
+title: Plan phase-15 — pluggable estimation methods (define phase + child tasks)
+depends_on: [task-095]
+description: |
+  This is a planning/scaffolding task. It introduces phase-15
+  "Pluggable Estimation Methods" and writes the individual task YAML
+  files that will implement it. NO production code changes — only
+  `planning/plan.yaml`, `planning/README.md`, `planning/status.json`,
+  and new `planning/tasks/task-097.yaml` .. `planning/tasks/task-108.yaml`.
+
+  ## Motivation
+
+  The whole codebase currently assumes a single PERT three-point
+  estimate per work item:
+    - domain: `EstimationItem` sealed hierarchy in
+      `src/domain/src/main/kotlin/io/github/theestimator/model/` —
+      `FixedEstimationItem` and `TimeRelativeEstimationItem` both
+      carry `optimistic`/`likely`/`pessimistic`;
+    - backend persistence: draft + submitted node discriminators
+      (`FIXED` / `TIME_RELATIVE`) plus the three PT columns
+      (V6/V7 Flyway migrations);
+    - REST DTOs: `EstimationNodeDto` / `EstimationNodeUpdateDto`
+      (`src/backend/implementation/.../rest/dto/`);
+    - frontend editor: `EstimationGrid.svelte`, `ParametersPanel`,
+      driver/phase panels, `adapter.ts`, and the autosave `$effect`
+      all speak PERT;
+    - collaborative estimation session (phase-11, task-062..067),
+      undo/redo mutation log, submit snapshots, comparison, and
+      xlsx/csv export are all PERT-shaped.
+
+  Target architecture (fixed at planning time — the implementer of
+  each child task does not re-decide these):
+
+  1. Introduce an `EstimationMethod` abstraction. Each `Estimation`
+     is bound to exactly ONE method at creation time and the method
+     is IMMUTABLE afterwards. This simplifies snapshotting,
+     comparison, undo, and export — every version of a given
+     estimation has the same method.
+
+  2. A method is a self-contained module supplying TWO things:
+       (a) Editor + calculation — the leaf domain node types, the
+           per-item calculation that yields the domain-neutral
+           values (mean, variance, offerPT, cost, offerPrice) that
+           `EstimationVersion.calculate()` already accumulates over
+           the tree, and the frontend editor screens.
+       (b) Estimation-session support — how the collaborative
+           session (phase-11) collects individual estimator input
+           per work item under this method and reduces them to a
+           group estimate.
+       (c) Export writer — how the method's method-specific data
+           (raw inputs plus any method-only display columns) is
+           serialised into the xlsx/csv export. The shared export
+           pipeline dispatches into the method's writer by looking
+           up the `Estimation.method` and invoking the module.
+
+  3. Method #1 is PERT (the current implementation, repackaged
+     behind the SPI with no behaviour change — existing e2e must
+     still pass end-to-end).
+
+  4. Method #2 is **bucket + sampled three-point** — proves the
+     abstraction. Every leaf item is placed into a bucket (buckets
+     are per-estimation, user-defined ordered categories, e.g.
+     XS/S/M/L/XL). Within each bucket the estimator picks a small
+     sample of items and estimates each with a three-point PERT.
+     The AVERAGE of those sample PERT estimates becomes the effort
+     (mean + variance + offerPT) assigned to every OTHER item in
+     that bucket. Cost / offerPrice flow from that mean through
+     the existing accumulation. Session support lets multiple
+     estimators independently place items in buckets and
+     independently PERT-estimate sample items; the reducer averages
+     the sample PERTs across estimators (and, for bucket
+     assignments, resolves per-item via last-write-wins with
+     provenance recorded — decided here to remove ambiguity for
+     task-106).
+
+  ## Cross-cutting decisions frozen here (do not re-open in child tasks)
+
+  - **Storage of `method`.** New column on `Estimation`
+    (`estimation.method text NOT NULL`), NOT on `EstimationVersion`.
+    Flyway V9 adds the column with default `'THREE_POINT_PERT'` and
+    backfills existing rows.
+  - **Submitted side is method-specific.** The submitted-side
+    persistence carries method-specific columns — all raw inputs
+    that the method captured on the draft side (three-point PT
+    values for PERT; bucket assignment + `is_sample` + sample PT
+    values for bucket+sampled) are ALSO persisted on the submitted
+    snapshot, alongside the shared neutral effort columns
+    (`mean`, `variance`, `offerPT`, `cost`, `offerPrice`). The
+    neutral columns are still populated by the calculate step so
+    aggregate reads (comparison, list, dashboard) stay uniform,
+    but the method-specific columns are what an export or a
+    detail view of a submitted version reads.
+  - **The domain module is the single source of truth for every
+    estimation method.** All method-specific calculation, the
+    leaf item shape, the reducer for session support, and the
+    export writer's data-shaping live in `:domain` (KMP). Backend
+    and frontend delegate to the domain module — no re-derivation
+    in Quarkus services or Svelte components.
+  - **One Kotlin package per method.** Each `EstimationMethodModule`
+    lives in its own package under
+    `io.github.theestimator.method.<method>` (e.g.
+    `io.github.theestimator.method.threepoint`,
+    `io.github.theestimator.method.bucketsampled`). The SPI itself
+    (interface + registry + `EstimationMethod` enum) lives in
+    `io.github.theestimator.method`. Cross-method references between
+    method packages are forbidden — they all interact only via
+    the SPI in the parent package.
+  - **DTO shape for leaf items.** Extend the existing `type`
+    discriminator, DO NOT introduce a nested `estimation` payload.
+    New `type` values are added per method (e.g. `FIXED`,
+    `TIME_RELATIVE`, `BUCKETED`). The generated OpenAPI schema
+    remains fully typed via oneOf on `type`. Groups keep `type:
+    GROUP`.
+  - **Cross-method drafts are impossible** because method is bound
+    at estimation level. The undo/redo mutation log therefore stays
+    a single-method log per draft; only `DraftMutationJackson` and
+    the Jackson `@JsonSubTypes` list gain the new leaf types.
+  - **Registry pattern on both sides.** Kotlin domain gets a
+    `EstimationMethodRegistry` singleton keyed by
+    `EstimationMethod` enum; TypeScript frontend gets a matching
+    `methodRegistry` map keyed by the same string, with each entry
+    lazy-loaded via `import()`.
+  - **Bucket ordering.** Buckets are per-estimation, ordered by an
+    integer `position` column (same pattern as node children).
+    Order is presented to the user (XS → XL by default) but the
+    concrete labels are user-editable.
+  - **Sampled-item marker.** A boolean `is_sample` on the bucketed
+    leaf row. Non-sample rows carry NO three-point values; sample
+    rows carry `optimistic`/`likely`/`pessimistic` + a `bucket_id`.
+
+  ## Deliverable — the phase and its child tasks
+
+  Append to `planning/plan.yaml`:
+
+      - id: phase-15
+        name: Pluggable Estimation Methods
+        duration_weeks: 4
+        tasks: [task-097, task-098, task-099, task-100, task-101,
+                task-102, task-103, task-104, task-105, task-106,
+                task-107, task-108]
+
+  Update `planning/README.md`'s phase summary table with the same
+  row.
+
+  Create each of these child task YAML files (one per subtask
+  described below). All child tasks have `phase: phase-15` and use
+  the standard task-file shape. Their `depends_on` chain is
+  specified below.
+
+  ### Child task list (with the one-line intent — the implementer
+  writes each YAML's full description/steps/validation from the
+  intent + the frozen decisions above; do not invent new design
+  decisions)
+
+  - **task-097** — Domain SPI: introduce `EstimationMethod` enum
+    (`THREE_POINT_PERT`, `BUCKET_SAMPLED_PERT`) and a
+    `EstimationMethodModule` interface in `:domain`, package
+    `io.github.theestimator.method`, covering (a) the sealed leaf
+    item shape the method contributes, (b) the per-leaf
+    calculation into the domain-neutral values, (c) the export
+    writer's data-shaping. Add `EstimationMethodRegistry`
+    singleton in the same package. NO backend / frontend change
+    yet — pure domain SPI + tests. Update `CLAUDE.md` "Domain
+    model" section to introduce the SPI.
+    `depends_on: [task-096]` (phase-15 opener; depends on this
+    planning task).
+
+  - **task-098** — PERT-as-method-1: repackage
+    `FixedEstimationItem` + `TimeRelativeEstimationItem` behind
+    `EstimationMethodModule.THREE_POINT_PERT`, moved into package
+    `io.github.theestimator.method.threepoint`. `calculate()` still
+    routes through the module. Move the existing PERT xlsx/csv
+    export logic into the module's export writer. All existing
+    domain + backend + frontend behaviour unchanged; existing
+    tests all pass.
+    `depends_on: [task-097]`.
+
+  - **task-099** — Backend: add `method` column on `Estimation`.
+    Flyway `V9__estimation_method.sql` — `ALTER TABLE estimations
+    ADD COLUMN method text NOT NULL DEFAULT 'THREE_POINT_PERT'`,
+    backfill safe because of default. Update JPA `Estimation`
+    entity, the create-DTO to require a method, and enforce
+    immutability on update. `EstimationResource.createEstimation`
+    accepts the method; PUT paths reject a differing method with
+    `409`.
+    `depends_on: [task-098]`.
+
+  - **task-100** — (depends transitively on task-097 via task-099).
+    REST DTO refactor: extend the leaf `type`
+    discriminator to be method-tagged. Add the new `BUCKETED`
+    variant (its concrete shape lands in task-103; here we only
+    reserve the type in the OpenAPI schema and adjust Jackson
+    subtypes). Regenerate OpenAPI JSON + `schema.d.ts` via
+    `cd src/frontend && npm run gen:api`. Frontend components keep
+    reading the hand-written `types.ts` for now (`schema.d.ts` is
+    consumed by the undo store).
+    `depends_on: [task-099]`.
+
+  - **task-101** — Frontend: registry + lazy-loaded editor
+    modules. Introduce `src/frontend/src/lib/methods/registry.ts`
+    with an entry per method that lazy-loads the editor via
+    `import()`. Extract the existing `EstimationGrid` +
+    parameter/driver/phase panels into
+    `src/lib/methods/pert/EditorModule.svelte` — behaviour
+    unchanged. The version editor route uses the registry to load
+    the module matching the estimation's `method`.
+    `depends_on: [task-100]`.
+
+  - **task-102** — Domain: implement bucket+sampled method in
+    package `io.github.theestimator.method.bucketsampled`.
+    New leaf item `BucketedEstimationItem` under the sealed
+    hierarchy (fields: `bucketId: String`, `isSample: Boolean`,
+    optional `optimistic`/`likely`/`pessimistic` when
+    `isSample=true`). Domain reducer computes per-bucket mean from
+    sample items and assigns it to every non-sample item in the
+    same bucket. Method module registered under
+    `EstimationMethod.BUCKET_SAMPLED_PERT`. Includes the bucket
+    method's export-writer implementation (per the SPI). No
+    cross-references from this package into
+    `io.github.theestimator.method.threepoint`. Kotlin/JS-safe:
+    inline the parent formulas — DO NOT reference
+    `super.<computed prop>`.
+    `depends_on: [task-098]` (needs the SPI + registry).
+
+  - **task-103** — Backend: persist buckets + bucketed leaves on
+    BOTH the draft AND the submitted side (submitted side is
+    method-specific per the frozen decision above — sample rows
+    persist their three-point values on the submitted table too).
+    Flyway `V10__bucket_sampled_method.sql` — new
+    `estimation_buckets` table (id, estimation_id, position,
+    label) referenced from both `draft_estimation_nodes` and
+    `submitted_estimation_nodes` for `BUCKETED` rows; add
+    discriminator `BUCKETED` plus columns `bucket_id`, `is_sample`
+    (raw PERT values reuse the existing
+    `optimistic`/`likely`/`pessimistic` columns; nullable since
+    only sample rows use them) to BOTH node tables. Draft/submitted
+    mappers, `DraftUpdateApplier`, `DraftSnapshotMapper`, and
+    `DraftMutationJackson` handle the new leaf type. Non-sample
+    bucketed submitted rows still store the derived
+    `mean`/`variance`/`offerPT`/`cost`/`offerPrice` neutral
+    columns (populated by calculate) so aggregate comparison and
+    list reads stay uniform.
+    `depends_on: [task-102, task-100]`.
+
+  - **task-104** — Frontend: bucket+sampled editor module in
+    `src/lib/methods/bucketSampled/EditorModule.svelte`. Bucket
+    panel (list buckets, add/rename/reorder/delete — dnd via
+    `svelte-dnd-action` like the tree table). Item grid column for
+    bucket assignment + an "sample" toggle; a "sample-estimate"
+    inline three-point editor visible when
+    `isSample=true`. Live display of derived per-bucket mean and
+    the resulting non-sample effort via `adapter.ts` (which just
+    calls into the Kotlin/JS domain — no frontend recomputation).
+    Autosave and undo/redo flow through the shared
+    `applyVersionData` path.
+    `depends_on: [task-103, task-101]`.
+
+  - **task-105** — Session SPI + PERT session-support module.
+    Refactor phase-11 session code so per-method behaviour lives
+    behind a `EstimationMethodSessionSupport` interface. Existing
+    PERT session flow becomes the `THREE_POINT_PERT` module. No
+    change to session UX for PERT estimations.
+    `depends_on: [task-101]`.
+
+  - **task-106** — Bucket+sampled session-support module.
+    Per-estimator bucket assignments (LWW with provenance:
+    reducer keeps last write per (item, estimator) and picks the
+    most recent across estimators; conflicts surfaced in the
+    session UI) + per-estimator sample PERT
+    (reducer averages the three-point values element-wise across
+    estimators before feeding into the per-bucket mean).
+    `depends_on: [task-105, task-104]`.
+
+  - **task-107** — Export dispatch: refactor the shared xlsx/csv
+    export pipeline (`EstimationVersionResource` export endpoint
+    + writer) so it looks up the estimation's method and calls
+    into the method module's export writer (declared in the SPI
+    by task-097, implemented by task-098 for PERT and task-102
+    for bucket+sampled). This task only owns the DISPATCH layer
+    and the shared file-format plumbing — every method-specific
+    column and row shape already lives in its method's module.
+    Adds an e2e-style backend test that exports one estimation
+    of each method and asserts the expected columns.
+    `depends_on: [task-102, task-098, task-103]`.
+
+  - **task-108** — E2E: bucket+sampled full-stack Playwright test
+    (`src/frontend/e2e/estimation-bucket-sampled.spec.ts`).
+    Creates an estimation with method `BUCKET_SAMPLED_PERT`,
+    adds three buckets, adds several items, marks a sample per
+    bucket, PERT-estimates the samples, asserts the derived effort
+    on the non-sample items in the grid, submits the version, and
+    asserts the submitted snapshot preserves the derived numbers
+    and the export contains the bucket column.
+    `depends_on: [task-104, task-107]`.
+
+  ## Explicit non-goals
+
+  - Do not migrate existing estimations onto method #2 — they
+    remain PERT.
+  - Do not add a THIRD estimation method in this phase.
+  - Do not remove the shared neutral effort columns
+    (`mean`/`variance`/`offerPT`/`cost`/`offerPrice`) from the
+    submitted side — they must stay populated for every method
+    so aggregate comparison, list, and dashboard reads remain
+    method-agnostic. Method-specific columns are ADDED
+    alongside; the neutral columns are not replaced.
+  - Do not touch `stack.frontend` / `stack.backend` in `plan.yaml`
+    — the stack is unchanged.
+
+  ## Documentation obligation for child tasks
+
+  The refactor changes documented architectural invariants
+  (domain leaf hierarchy, persistence shape, REST DTO
+  discriminator, frontend registry pattern). Each child task
+  MUST update the affected section(s) of the root `CLAUDE.md`:
+
+    - task-097 → "Domain model: trees, not flat groups"
+      (introduce the SPI, list `EstimationMethodRegistry`).
+    - task-099 → "Persistence shape" and "REST API surface"
+      (add `Estimation.method`, POST create body).
+    - task-100 → "REST API surface" and the frontend
+      "Frontend ↔ domain bridge" note (method-tagged type
+      discriminator).
+    - task-101 → "Architecture" — frontend section (registry +
+      lazy-loaded editor modules).
+    - task-103 → "Persistence shape" (`estimation_buckets`,
+      BUCKETED discriminator, method-specific submitted columns).
+    - task-105 → "Collaborative estimation session" area of
+      CLAUDE.md if that section is added, otherwise cover it in
+      the phase-11 docs.
+
+steps:
+  - |
+    Read the current `planning/plan.yaml` and confirm phase-14 is
+    the last phase entry (it should be, per task-095). Read
+    `planning/README.md`'s Phase-summary table so you know its
+    format.
+
+  - |
+    Append the phase-15 entry to `planning/plan.yaml` immediately
+    after phase-14, using the shape of the existing entries:
+
+        - id: phase-15
+          name: Pluggable Estimation Methods
+          duration_weeks: 4
+          tasks: [task-097, task-098, task-099, task-100, task-101,
+                  task-102, task-103, task-104, task-105, task-106,
+                  task-107, task-108]
+
+  - |
+    Update the Phase-summary table in `planning/README.md`: append
+    one row `| 15 | 4 | Pluggable Estimation Methods | 097–108 |`.
+
+  - |
+    For each child task listed in the description (task-097 …
+    task-108) do the following, in order:
+      (a) Register the task in `planning/status.json` via
+          `./scripts/task.sh add "<one-line title>"`. The script
+          computes and prints the ID; capture it and verify it
+          matches the expected id (`task-097`, then `task-098`,
+          …). If it does not match, STOP — the plan assumes
+          contiguous IDs starting at 097; investigate any drift
+          before writing further files.
+      (b) Write `planning/tasks/<id>.yaml` following the standard
+          task-file structure. The child task's `description`
+          fully restates its intent (drawn from the corresponding
+          bullet in this task's description) plus references the
+          frozen cross-cutting decisions above so the child task
+          is self-contained for `/implement-task`. The child
+          task's `steps` name concrete files (Kotlin classes,
+          Flyway file, Svelte components) it will create or edit.
+          The child task's `validation` includes at least one
+          structural check (file exists / grep for class or type)
+          AND at least one build/test check (`./gradlew build`
+          for cross-module tasks, `:domain:build` for pure domain
+          tasks, `:backend:implementation:test` for backend,
+          `:frontend:check` for frontend). Add a logging check
+          per the CLAUDE.md logging conventions for any child
+          task that adds a backend service, REST endpoint,
+          domain operation, or significant frontend flow.
+      (c) Set the child task's `depends_on` exactly as specified
+          in the description above.
+
+  - |
+    Validate the planning edits (this is a documentation-only
+    task; the gate is YAML validity + index completeness, not a
+    Gradle build):
+
+      ruby -ryaml -e "YAML.load_file('planning/plan.yaml'); \
+        puts 'plan.yaml valid'"
+      for t in $(seq -f "task-%03g" 97 108); do
+        ruby -ryaml -e "YAML.load_file('planning/tasks/$t.yaml')" \
+          || { echo "$t invalid"; exit 1; }
+      done
+      test -z "$(comm -23 \
+        <(jq -r '.tasks|keys[]' planning/status.json | sort) \
+        <(grep -oE 'task-[0-9]{3}' planning/plan.yaml | sort -u))"
+      test -z "$(comm -13 \
+        <(jq -r '.tasks|keys[]' planning/status.json | sort) \
+        <(grep -oE 'task-[0-9]{3}' planning/plan.yaml | sort -u))"
+
+validation:
+  - |
+    plan.yaml is valid YAML and contains phase-15 with the
+    expected task list:
+      ruby -ryaml -e "YAML.load_file('planning/plan.yaml')"
+      grep -q "id: phase-15" planning/plan.yaml
+      grep -q "Pluggable Estimation Methods" planning/plan.yaml
+      for t in $(seq -f "task-%03g" 97 108); do
+        grep -q "$t" planning/plan.yaml || { echo "$t missing"; exit 1; }
+      done
+
+  - |
+    Every child task YAML exists and is valid:
+      for t in $(seq -f "task-%03g" 97 108); do
+        test -f "planning/tasks/$t.yaml" || { echo "$t missing"; exit 1; }
+        ruby -ryaml -e "YAML.load_file('planning/tasks/$t.yaml')"
+      done
+
+  - |
+    Each child task declares phase phase-15:
+      for t in $(seq -f "task-%03g" 97 108); do
+        grep -q "^phase: phase-15$" "planning/tasks/$t.yaml" \
+          || { echo "$t phase mismatch"; exit 1; }
+      done
+
+  - |
+    Every task id in status.json appears in plan.yaml (complete
+    index) and every id in plan.yaml exists in status.json (no
+    dangling refs):
+      test -z "$(comm -23 \
+        <(jq -r '.tasks|keys[]' planning/status.json | sort) \
+        <(grep -oE 'task-[0-9]{3}' planning/plan.yaml | sort -u))"
+      test -z "$(comm -13 \
+        <(jq -r '.tasks|keys[]' planning/status.json | sort) \
+        <(grep -oE 'task-[0-9]{3}' planning/plan.yaml | sort -u))"
+
+  - |
+    README phase summary was updated:
+      grep -q "Pluggable Estimation Methods" planning/README.md
+      grep -q "097.108" planning/README.md \
+        || grep -q "097–108" planning/README.md
+
+outputs:
+  - modified: planning/plan.yaml
+  - modified: planning/README.md
+  - modified: planning/status.json
+  - created: planning/tasks/task-097.yaml
+  - created: planning/tasks/task-098.yaml
+  - created: planning/tasks/task-099.yaml
+  - created: planning/tasks/task-100.yaml
+  - created: planning/tasks/task-101.yaml
+  - created: planning/tasks/task-102.yaml
+  - created: planning/tasks/task-103.yaml
+  - created: planning/tasks/task-104.yaml
+  - created: planning/tasks/task-105.yaml
+  - created: planning/tasks/task-106.yaml
+  - created: planning/tasks/task-107.yaml
+  - created: planning/tasks/task-108.yaml

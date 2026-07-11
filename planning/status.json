@@ -571,6 +571,90 @@
       "started_at": "2026-07-07T20:38:02+00:00",
       "completed_at": "2026-07-07T20:40:14+00:00",
       "notes": "Reconcile planning/plan.yaml with reality: fix stale frontend stack (react->SvelteKit) and add missing tasks 079-094 to the phase index"
+    },
+    "task-096": {
+      "status": "done",
+      "started_at": "2026-07-11T14:10:08+00:00",
+      "completed_at": "2026-07-11T14:21:23+00:00",
+      "notes": "Add phase-15: pluggable estimation methods (three-point PERT as method 1, bucket+sampled as method 2)"
+    },
+    "task-097": {
+      "status": "done",
+      "started_at": "2026-07-11T16:33:05+00:00",
+      "completed_at": "2026-07-11T16:39:06+00:00",
+      "notes": "Domain SPI: EstimationMethod enum, EstimationMethodModule interface, EstimationMethodRegistry"
+    },
+    "task-098": {
+      "status": "pending",
+      "started_at": null,
+      "completed_at": null,
+      "notes": "PERT-as-method-1: repackage FixedEstimationItem + TimeRelativeEstimationItem behind SPI"
+    },
+    "task-099": {
+      "status": "pending",
+      "started_at": null,
+      "completed_at": null,
+      "notes": "Backend: add method column on Estimation (Flyway V9), immutable after create"
+    },
+    "task-100": {
+      "status": "pending",
+      "started_at": null,
+      "completed_at": null,
+      "notes": "REST DTO: extend leaf type discriminator to be method-tagged; reserve BUCKETED"
+    },
+    "task-101": {
+      "status": "pending",
+      "started_at": null,
+      "completed_at": null,
+      "notes": "Frontend: method registry + lazy-loaded editor modules; extract PERT editor"
+    },
+    "task-102": {
+      "status": "pending",
+      "started_at": null,
+      "completed_at": null,
+      "notes": "Domain: implement bucket+sampled method (BucketedEstimationItem, per-bucket mean reducer)"
+    },
+    "task-103": {
+      "status": "pending",
+      "started_at": null,
+      "completed_at": null,
+      "notes": "Backend: persist buckets + bucketed leaves (Flyway V10) on draft and submitted sides"
+    },
+    "task-104": {
+      "status": "pending",
+      "started_at": null,
+      "completed_at": null,
+      "notes": "Frontend: bucket+sampled editor module (bucket panel + sample toggle + inline 3-point)"
+    },
+    "task-105": {
+      "status": "pending",
+      "started_at": null,
+      "completed_at": null,
+      "notes": "Session SPI + PERT session-support module; refactor phase-11 session code behind SPI"
+    },
+    "task-106": {
+      "status": "pending",
+      "started_at": null,
+      "completed_at": null,
+      "notes": "Bucket+sampled session-support module (LWW bucket assignment + averaged sample PERT)"
+    },
+    "task-107": {
+      "status": "pending",
+      "started_at": null,
+      "completed_at": null,
+      "notes": "Export dispatch: xlsx/csv writers dispatched by estimation method via SPI"
+    },
+    "task-108": {
+      "status": "pending",
+      "started_at": null,
+      "completed_at": null,
+      "notes": "E2E: bucket+sampled full-stack Playwright test (create/estimate/submit/export)"
+    },
+    "task-109": {
+      "status": "pending",
+      "started_at": null,
+      "completed_at": null,
+      "notes": "Move the undo/redo history from below the grid to a collapsible section directly under the toolbar (follow-up to task-077)"
     }
   }
 }

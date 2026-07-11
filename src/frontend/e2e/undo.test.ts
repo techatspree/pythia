@@ -122,6 +122,32 @@ test('undo/redo revert and re-apply via toolbar buttons', async ({ page }) => {
 	await expect(page.locator(cellSelector)).toHaveValue('9');
 });
 
+test('Verlauf button reveals the history panel and scrolls it into view', async ({ page }) => {
+	const projectId = await createProject(page);
+	const estimationId = await createEstimation(page, projectId);
+	const versionNumber = await createDraft(page, estimationId);
+	await populateDraft(page, estimationId);
+
+	await page.goto(`/estimations/${estimationId}/versions/${versionNumber}?draft=true`);
+	await page.waitForLoadState('networkidle');
+
+	// Record a mutation so the panel has a row.
+	await page.locator('[data-cell="0-0-1"]').fill('9');
+	await page.waitForTimeout(1500);
+	await page.waitForLoadState('networkidle');
+
+	const verlaufBtn = page.getByRole('button', { name: 'Verlauf anzeigen' });
+	await expect(verlaufBtn).toHaveAttribute('aria-pressed', 'false');
+
+	await verlaufBtn.click();
+
+	// The button reflects the open state and the panel is brought into view.
+	await expect(verlaufBtn).toHaveAttribute('aria-pressed', 'true');
+	const panelHeader = page.getByText('Verlauf', { exact: true }).last();
+	await expect(panelHeader).toBeInViewport();
+	await expect(page.locator('ul li')).not.toHaveCount(0);
+});
+
 test('undo conflict opens the dialog; reload adopts the other user value', async ({ page }) => {
 	const projectId = await createProject(page);
 	const estimationId = await createEstimation(page, projectId);

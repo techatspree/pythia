@@ -1,0 +1,143 @@
+id: task-105
+phase: phase-15
+title: Session SPI + PERT session-support module
+depends_on: [task-101]
+description: |
+  Refactor the phase-11 collaborative-estimation-session code so
+  per-method behaviour lives behind a
+  `EstimationMethodSessionSupport` interface. Wrap the current
+  PERT session flow as the `THREE_POINT_PERT` implementation
+  without changing session UX for existing PERT estimations.
+
+  ## Frozen decisions (from task-096)
+
+  - **Where the SPI lives.** In `:domain`, package
+    `io.github.theestimator.method` (same package as
+    `EstimationMethodModule` and the registry — session support
+    is a second SPI at the same level, NOT a nested type inside
+    `EstimationMethodModule`). Rationale: session support and
+    editor/calculation have different implementation profiles
+    (session support is inherently multi-estimator + stateful);
+    keeping them as sibling SPIs avoids over-general interfaces.
+  - **Interface shape.**
+      ```kotlin
+      interface EstimationMethodSessionSupport {
+        val method: EstimationMethod
+        fun reduce(
+          input: List<EstimatorInput>
+        ): SessionResult
+      }
+      ```
+    where `EstimatorInput` and `SessionResult` are new common
+    types in `io.github.theestimator.method`. PERT's `EstimatorInput`
+    carries a three-point per work item; PERT's `SessionResult`
+    is a per-work-item averaged three-point + a per-work-item
+    accepted flag. Concrete shapes are chosen during
+    implementation — keep them minimal.
+  - **Registry.** Extend `EstimationMethodRegistry` with a
+    `registerSessionSupport(module)` and a `requireSession(method)`
+    accessor. `installStandardMethods()` registers PERT's
+    session support alongside its module.
+  - **PERT parity.** The existing PERT session code (phase-11
+    tasks 062–067) already does exactly this reduction — extract
+    the pure-function core (given per-estimator three-point
+    inputs, compute the group's three-point) into
+    `ThreePointSessionSupport.reduce` in the PERT package
+    `io.github.theestimator.method.threepoint`. The rest of the
+    session flow (persistence, live-updates over websockets,
+    UI) stays where it is; only the reduction call site is
+    swapped to go through
+    `EstimationMethodRegistry.requireSession(method).reduce(...)`.
+  - **Backend routing.** Locate the current session reducer call
+    site (grep for the phase-11 code) and route through the
+    registry. Log INFO on session start with method + estimation
+    id.
+  - **Frontend routing.** Same as backend: session UI components
+    delegate to the method's registered support where behaviour
+    diverges. In this task, PERT's UI stays intact — the
+    dispatch is invisible to the user for PERT.
+  - **Kotlin/JS pitfall.** No `super.<computed prop>` usages
+    should appear in the session code.
+  - **CLAUDE.md.** No new section needed (the phase-11 area is
+    lightly documented). Add a one-line pointer in
+    "Collaborative Estimation Sessions" if such a subsection
+    exists; otherwise skip.
+
+  ## What does NOT belong in this task
+
+  - Bucket+sampled session behaviour — task-106.
+
+steps:
+  - |
+    Locate phase-11 session code:
+      grep -r "EstimationSession\|EstimatorInput\|EstimatorVote" src/ --include='*.kt' | head
+    Read the current reduction call site.
+  - |
+    Add
+    `src/domain/src/main/kotlin/io/github/theestimator/method/EstimationMethodSessionSupport.kt`
+    with the interface plus supporting common types
+    (`EstimatorInput`, `SessionResult`). Keep them minimal —
+    extend only as concrete methods need.
+  - |
+    Extend `EstimationMethodRegistry`:
+      * `registerSessionSupport(module: EstimationMethodSessionSupport)`
+      * `getSession(method): EstimationMethodSessionSupport?`
+      * `requireSession(method): EstimationMethodSessionSupport`
+        (throws)
+      * `installStandardMethods()` also registers PERT session
+        support.
+  - |
+    Add
+    `src/domain/src/main/kotlin/io/github/theestimator/method/threepoint/ThreePointSessionSupport.kt`
+    implementing the SPI: `reduce(inputs) → SessionResult` with
+    the PERT reduction from the current phase-11 code.
+  - |
+    Refactor the backend session code to call
+    `EstimationMethodRegistry.requireSession(estimation.method).reduce(...)`
+    instead of the current in-place PERT reduction. Log INFO on
+    session start with method + estimation id.
+  - |
+    Add domain unit tests in
+    `src/domain/src/commonTest/kotlin/io/github/theestimator/method/threepoint/ThreePointSessionSupportTest.kt`.
+  - |
+    Add a backend `@QuarkusTest` that runs a full PERT session
+    round-trip (via the existing session integration harness) —
+    parity check to prove behaviour is unchanged.
+  - |
+    If `CLAUDE.md` has a "Collaborative Estimation Sessions"
+    subsection, add a one-line mention of the new
+    `EstimationMethodSessionSupport` SPI. Otherwise skip.
+  - |
+    Build:
+      ./gradlew :domain:build
+      ./gradlew :backend:implementation:test
+      ./gradlew build
+
+validation:
+  - |
+    Session SPI + PERT support module exist:
+      test -f src/domain/src/main/kotlin/io/github/theestimator/method/EstimationMethodSessionSupport.kt
+      test -f src/domain/src/main/kotlin/io/github/theestimator/method/threepoint/ThreePointSessionSupport.kt
+  - |
+    Registry exposes the new session accessors:
+      grep -q "registerSessionSupport\|requireSession" src/domain/src/main/kotlin/io/github/theestimator/method/EstimationMethodRegistry.kt
+  - |
+    Backend session code routes through the registry and logs
+    at INFO:
+      grep -rq "requireSession" src/backend/implementation/src/main/kotlin
+      grep -rq "Log.info" src/backend/implementation/src/main/kotlin/io/github/theestimator/service/
+  - |
+    Kotlin/JS pitfall: no super-property usages in the session
+    code:
+      ! grep -rE "super\\.mean|super\\.variance|super\\.offerPT" \
+          src/domain/src/main/kotlin/io/github/theestimator/method/
+  - |
+    Full-stack build is green:
+      ./gradlew build
+
+outputs:
+  - created: src/domain/src/main/kotlin/io/github/theestimator/method/EstimationMethodSessionSupport.kt
+  - created: src/domain/src/main/kotlin/io/github/theestimator/method/threepoint/ThreePointSessionSupport.kt
+  - created: src/domain/src/commonTest/kotlin/io/github/theestimator/method/threepoint/ThreePointSessionSupportTest.kt
+  - modified: src/domain/src/main/kotlin/io/github/theestimator/method/EstimationMethodRegistry.kt
+  - modified: CLAUDE.md

@@ -1,0 +1,192 @@
+id: task-097
+phase: phase-15
+title: Domain SPI — EstimationMethod enum, module interface, registry
+depends_on: [task-096]
+description: |
+  Introduce the pluggable-method Service Provider Interface in
+  `:domain` (Kotlin Multiplatform). This is the phase-15 opener:
+  no backend or frontend change — pure domain SPI + tests.
+
+  ## Frozen decisions (from task-096)
+
+  - **Package.** The SPI itself lives in
+    `io.github.theestimator.method` (interface + registry + enum). Each
+    concrete method module lives in its own package under
+    `io.github.theestimator.method.<method>` — the concrete modules
+    land in task-098 (PERT) and task-102 (bucket+sampled). Cross-
+    references between method packages are forbidden; every
+    interaction goes through this SPI.
+  - **Method enum values.** `THREE_POINT_PERT`,
+    `BUCKET_SAMPLED_PERT`. `EstimationMethod` is a plain Kotlin
+    enum so it survives Kotlin/JS export (via `@JsExport`).
+  - **Three module responsibilities.** Each
+    `EstimationMethodModule` supplies (a) the leaf item shape it
+    contributes, (b) the per-leaf calculation into the shared
+    neutral values (`mean`, `variance`, `offerPT`, `cost`,
+    `offerPrice`) that `EstimationVersion.calculate()` accumulates,
+    (c) the export writer's data-shaping (row/column shape for
+    xlsx/csv).
+  - **Registry.** A `EstimationMethodRegistry` singleton (object)
+    holds the enum→module mapping. In task-097 the registry starts
+    EMPTY — modules register themselves in their own tasks
+    (task-098 registers PERT, task-102 registers bucket+sampled).
+    A `require(method): EstimationMethodModule` accessor throws
+    `IllegalStateException` for an unregistered method, so the
+    build blows up loudly rather than silently defaulting.
+    Forward-looking caveat (not this task): a Kotlin `object`
+    initialises lazily, so task-098/task-102 must ensure each method
+    module's `register(...)` actually runs (explicit registration
+    wiring), not rely on object-init side effects.
+  - **Single source of truth.** All method-specific logic lives in
+    `:domain`; backend and frontend delegate. Do NOT add a service
+    or component wrapper that recomputes anything.
+  - **KMP export.** ONLY the `EstimationMethod` enum is `@JsExport`ed
+    (the frontend needs the method identity in task-101). The
+    interface `EstimationMethodModule` and the `EstimationMethodRegistry`
+    object stay NON-exported domain-internal types — do NOT annotate
+    them `@JsExport`, since exporting an interface with sealed-type
+    params plus an object holding `mutableMapOf` / `List<…>` invites
+    Kotlin/JS export pitfalls. Follow the exact enum export pattern from
+    `EstimationVersionStatus.kt`: a file-level
+    `@file:OptIn(ExperimentalJsExport::class)`, imports
+    `kotlin.js.ExperimentalJsExport` + `kotlin.js.JsExport`, then
+    `@JsExport` on the enum.
+  - **Kotlin/JS pitfall.** Any getter that shadows or extends a
+    parent computed property must INLINE the parent formula —
+    `super.<computed prop>` infinite-recurses on Kotlin/JS. The SPI
+    does not have this problem today (no computed getters on the
+    interface), but keep the rule in mind when task-102 lands.
+
+  ## What ships in this task
+
+  - `io/github/theestimator/method/EstimationMethod.kt` — enum
+    `EstimationMethod { THREE_POINT_PERT, BUCKET_SAMPLED_PERT }`,
+    `@JsExport`-annotated with the `@file:OptIn(ExperimentalJsExport::class)`
+    header (mirror `EstimationVersionStatus.kt`).
+  - `io/github/theestimator/method/EstimationMethodModule.kt` —
+    interface with:
+      * `val method: EstimationMethod`
+      * `fun calculate(item, params): EstimationItem` — takes a
+        `EstimationItem` produced by this module, returns the same
+        leaf with the shared neutral values populated (mirrors the
+        existing per-leaf application of `CalculationParameters`).
+      * `fun exportRow(item): List<String>` — method-specific
+        cells for one leaf, appended after the shared columns.
+      * `fun exportColumnHeaders(): List<String>` — column names
+        matching the `exportRow` cells.
+      The interface deliberately does not yet include a
+      session-support hook — that arrives in task-105 as a
+      separate `EstimationMethodSessionSupport` interface.
+  - `io/github/theestimator/method/EstimationMethodRegistry.kt` —
+    object with:
+      * `fun register(module: EstimationMethodModule)`
+      * `fun get(method: EstimationMethod): EstimationMethodModule?`
+      * `fun require(method: EstimationMethod): EstimationMethodModule`
+        (throws `IllegalStateException` when missing)
+      * `fun all(): List<EstimationMethodModule>`
+  - JUnit 5 unit test in
+    `src/domain/src/test/kotlin/io/github/theestimator/method/EstimationMethodRegistryTest.kt`
+    covering register / get / require / all, and the "unknown
+    method throws" case. Uses a tiny in-file fake module. NOTE: the
+    `:domain` module's tests live in the JVM `src/test/kotlin` source
+    set (there is no `commonTest`) and use JUnit 5
+    (`org.junit.jupiter.api` — `@Test`, `@BeforeEach`/`@AfterEach`,
+    `Assertions.*`), matching every existing domain test.
+  - Logging via `io.github.oshai:kotlin-logging` (already available
+    in `:domain`): the registry emits a DEBUG log on `register`
+    with the enum name; no other logging needed for a pure SPI.
+  - `CLAUDE.md` "Domain model: trees, not flat groups" section
+    gains a short subsection introducing `EstimationMethod` /
+    `EstimationMethodModule` / `EstimationMethodRegistry` and the
+    "one package per method" rule.
+
+steps:
+  - |
+    Read the current domain layout so the SPI files sit next to
+    the sealed hierarchy:
+      src/domain/src/main/kotlin/io/github/theestimator/model/
+      src/domain/src/main/kotlin/io/github/theestimator/
+    Create the new package
+      src/domain/src/main/kotlin/io/github/theestimator/method/
+  - |
+    Add `EstimationMethod.kt` with the enum, using the exact export
+    header from `EstimationVersionStatus.kt`:
+      @file:OptIn(ExperimentalJsExport::class)
+      package io.github.theestimator.method
+      import kotlin.js.ExperimentalJsExport
+      import kotlin.js.JsExport
+      @JsExport
+      enum class EstimationMethod { THREE_POINT_PERT, BUCKET_SAMPLED_PERT }
+  - |
+    Add `EstimationMethodModule.kt` with the interface above.
+    The signature of `calculate` should exactly match the shape
+    the existing `EstimationVersion.calculate()` pipeline uses —
+    inspect `EstimationVersion.kt` and mirror its `CalculationParameters`
+    parameter type; return an `EstimationItem`. Do NOT introduce
+    a new parameter object.
+  - |
+    Add `EstimationMethodRegistry.kt` as an `object` (Kotlin
+    singleton). Back the mapping with a
+    `mutableMapOf<EstimationMethod, EstimationMethodModule>()`.
+    Emit `logger.debug { "…" }` on register (lambda form,
+    kotlin-logging idiom) — one `private val logger =
+    KotlinLogging.logger {}` at file scope.
+  - |
+    Add `src/domain/src/test/kotlin/io/github/theestimator/method/EstimationMethodRegistryTest.kt`
+    (JVM `src/test` source set, JUnit 5 — NOT `commonTest`/kotlin.test)
+    with tests: register+get round-trip, require throws for
+    unknown, `all()` reflects order-independent membership.
+    Use `org.junit.jupiter.api` (`@Test`, `Assertions.*`) like the
+    existing domain tests. Use a tiny in-test fake module implementing
+    the interface. Reset the registry between tests with `@BeforeEach` /
+    `@AfterEach` calling a test-only `internal fun clear()` added to the
+    object — mark it `@Suppress` if detekt complains.
+  - |
+    Update `CLAUDE.md` "Domain model: trees, not flat groups"
+    section: add a one-paragraph note introducing the SPI, the
+    registry, and the "one Kotlin package per method" rule.
+    Reference the phase-15 planning task (task-096) for the
+    full design.
+  - |
+    Build the domain module and confirm the KMP JS output still
+    exports (`:domain:build` compiles the JS target and packages the
+    TypeScript, so it verifies the new `@JsExport` enum compiles for JS):
+      ./gradlew :domain:build
+    No `publishToMavenLocal` / frontend TS regeneration is needed here:
+    this is a no-consumer SPI (the backend picks up the JVM jar and the
+    frontend consumes the generated types only once the concrete method
+    modules land — task-098/task-101). Defer the publish + regen to the
+    first consuming task.
+
+validation:
+  - |
+    SPI files exist:
+      test -f src/domain/src/main/kotlin/io/github/theestimator/method/EstimationMethod.kt
+      test -f src/domain/src/main/kotlin/io/github/theestimator/method/EstimationMethodModule.kt
+      test -f src/domain/src/main/kotlin/io/github/theestimator/method/EstimationMethodRegistry.kt
+  - |
+    Enum has both values and is `@JsExport`-annotated:
+      grep -q "THREE_POINT_PERT" src/domain/src/main/kotlin/io/github/theestimator/method/EstimationMethod.kt
+      grep -q "BUCKET_SAMPLED_PERT" src/domain/src/main/kotlin/io/github/theestimator/method/EstimationMethod.kt
+      grep -q "@JsExport" src/domain/src/main/kotlin/io/github/theestimator/method/EstimationMethod.kt
+  - |
+    Registry test exists (JVM src/test source set) and the registry uses
+    the kotlin-logging idiom:
+      test -f src/domain/src/test/kotlin/io/github/theestimator/method/EstimationMethodRegistryTest.kt
+      grep -q "org.junit.jupiter.api" src/domain/src/test/kotlin/io/github/theestimator/method/EstimationMethodRegistryTest.kt
+      grep -q "KotlinLogging.logger" src/domain/src/main/kotlin/io/github/theestimator/method/EstimationMethodRegistry.kt
+      grep -q "logger.debug" src/domain/src/main/kotlin/io/github/theestimator/method/EstimationMethodRegistry.kt
+  - |
+    CLAUDE.md was updated to introduce the SPI:
+      grep -q "EstimationMethod" CLAUDE.md
+      grep -q "EstimationMethodRegistry" CLAUDE.md
+  - |
+    Domain build is green (JVM + JS + tests):
+      ./gradlew :domain:build
+
+outputs:
+  - created: src/domain/src/main/kotlin/io/github/theestimator/method/EstimationMethod.kt
+  - created: src/domain/src/main/kotlin/io/github/theestimator/method/EstimationMethodModule.kt
+  - created: src/domain/src/main/kotlin/io/github/theestimator/method/EstimationMethodRegistry.kt
+  - created: src/domain/src/test/kotlin/io/github/theestimator/method/EstimationMethodRegistryTest.kt
+  - modified: CLAUDE.md

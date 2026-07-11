@@ -1,0 +1,157 @@
+id: task-104
+phase: phase-15
+title: Frontend — bucket + sampled editor module
+depends_on: [task-103, task-101]
+description: |
+  Replace the task-101 bucket editor stub with the real
+  bucket+sampled editor: bucket panel, item grid column for
+  bucket assignment + sample toggle, inline three-point editor
+  for sample rows, and live display of derived per-bucket mean
+  driving the effort on non-sample items.
+
+  ## Frozen decisions (from task-096)
+
+  - **Path.** Editor lives in
+    `src/frontend/src/lib/methods/bucketSampled/EditorModule.svelte`
+    plus supporting Svelte components in the same folder.
+  - **State ownership.** Same pattern as the PERT editor: the
+    version editor route (+page.svelte) holds `$state`
+    collections and passes them via `$bindable()` props. NO
+    local snapshot / onchange pattern (per the CLAUDE.md
+    "$bindable" preference).
+  - **New `$state` collections on the route.** `currentBuckets`
+    (list of bucket labels ordered by position) — declared
+    conditionally when the estimation's method is
+    `BUCKET_SAMPLED_PERT`. Normalise once in `loadVersion`
+    using the response DTO's new `buckets` field (task-103).
+  - **BucketPanel.** New component
+    `bucketSampled/BucketPanel.svelte`:
+      * Lists buckets, drag-and-drop reorder via
+        `svelte-dnd-action` (mirror the TreeTable dnd pattern).
+      * Inline rename (double-click), delete button, "add
+        bucket" button.
+      * Default labels for a fresh estimation: XS, S, M, L, XL
+        (created on first draft load if the buckets list is
+        empty).
+  - **Item grid.** Reuse the existing `TreeTable.svelte`
+    generic component (`src/lib/components/treetable/`) with a
+    method-specific column set:
+      * Title (tree column)
+      * Bucket picker (dropdown, options from
+        `currentBuckets`)
+      * Sample toggle (checkbox — bound to `isSample`)
+      * Optimistic / Likely / Pessimistic (visible + editable
+        only when `isSample=true`; otherwise show the derived
+        per-bucket mean read-only via the calc map)
+      * Cost / OfferPT / OfferPrice (shared neutral columns,
+        computed via `adapter.ts`)
+    Column snippets follow the same shape as
+    `EstimationGrid.svelte` — inspect that file for the exact
+    pattern.
+  - **adapter.ts.** Extend
+    `src/frontend/src/lib/adapter.ts` to construct a
+    `createVersion(...)` that walks bucketed leaves too, then
+    invokes the domain's `EstimationVersion.calculate()`. The
+    domain (task-102) already handles the reducer end-to-end;
+    the adapter just plumbs the tree in and reads the calc map
+    out. NO recomputation in the frontend — this is the
+    single-source-of-truth rule.
+  - **Autosave.** Piggy-back on the existing autosave `$effect`
+    on +page.svelte — it already deep-reads the editable state
+    via `$state.snapshot(...)` and PUTs a `DraftUpdateDto`. Add
+    `currentBuckets` to the snapshotted set. The PUT payload
+    gains a `buckets` field (task-103's
+    `DraftUpdateDto.buckets`).
+  - **Undo/Redo.** Nothing to add on the frontend; the store
+    replaces the whole state via `applyVersionData`, which
+    normalises the response DTO and includes the buckets
+    collection.
+  - **Logging.** `log.debug` from `$lib/log.ts` on module load;
+    `log.error` on unexpected state (e.g. a bucketed leaf with
+    an unknown `bucketId` — surface via `ErrorBanner`).
+  - **CLAUDE.md.** Update the `src/lib/methods/…` bullet with a
+    short mention of the bucket editor + BucketPanel.
+
+  ## What does NOT belong in this task
+
+  - Session support — task-106.
+  - Export dispatch — task-107.
+  - E2E — task-108.
+
+steps:
+  - |
+    Delete the placeholder from task-101 (or overwrite it):
+      src/frontend/src/lib/methods/bucketSampled/EditorModule.svelte
+  - |
+    Read the existing PERT editor (from task-101) and
+    `EstimationGrid.svelte` for the column-snippet pattern.
+    Read `TreeTable.svelte` for the generic API.
+  - |
+    Extend `adapter.ts` so it accepts a
+    `roots: Array<EstimationNode>` that may contain
+    `BucketedEstimationItem` leaves — pass them through to the
+    domain, walk the returned calc-map recursively as usual.
+  - |
+    Extend the version editor route's `loadVersion` to
+    normalise the `buckets` array on the response DTO into a
+    new `$state` collection `currentBuckets` (only for
+    `BUCKET_SAMPLED_PERT` estimations). Pass it via `$bindable`
+    into the module.
+  - |
+    Extend the route's autosave `$effect` to include
+    `currentBuckets` in the snapshot compared against
+    `lastSavedSnapshot`, and to serialise it into the PUT
+    payload's `buckets` field.
+  - |
+    Create `src/lib/methods/bucketSampled/BucketPanel.svelte`
+    with add/rename/reorder/delete of buckets. Bindable
+    `buckets: BucketDto[]` prop.
+  - |
+    Create the real
+    `src/lib/methods/bucketSampled/EditorModule.svelte` that:
+      * Renders the `ParametersPanel`, `EffortDriversPanel`,
+        `PhasesPanel`, `AdditionalCostsPanel`, `BucketPanel`,
+        and the bucket-method `TreeTable` (with the column set
+        described above).
+      * Accepts the same `$bindable` props as the PERT module
+        PLUS `currentBuckets`.
+  - |
+    Update CLAUDE.md's frontend architecture bullet with a
+    one-line mention of the bucket editor path.
+  - |
+    Build:
+      ./gradlew :frontend:check
+      ./gradlew build
+
+validation:
+  - |
+    Bucket editor components exist:
+      test -f src/frontend/src/lib/methods/bucketSampled/EditorModule.svelte
+      test -f src/frontend/src/lib/methods/bucketSampled/BucketPanel.svelte
+  - |
+    Placeholder message from task-101 is gone (module is real):
+      ! grep -q "Bucket editor stub" src/frontend/src/lib/methods/bucketSampled/EditorModule.svelte
+      ! grep -q "not yet available" src/frontend/src/lib/methods/bucketSampled/EditorModule.svelte
+  - |
+    Route wires currentBuckets and the module:
+      grep -q "currentBuckets" src/frontend/src/routes/estimations/\[id\]/versions/\[versionNumber\]/+page.svelte
+  - |
+    Frontend logging convention followed and error banner
+    referenced for surfacing:
+      grep -q "from '\$lib/log'" src/frontend/src/lib/methods/bucketSampled/EditorModule.svelte
+      ! grep -nE "^\\s*console\\." src/frontend/src/lib/methods/bucketSampled/EditorModule.svelte
+      ! grep -nE "^\\s*console\\." src/frontend/src/lib/methods/bucketSampled/BucketPanel.svelte
+  - |
+    adapter.ts passes bucketed leaves through unchanged (no
+    frontend re-derivation):
+      ! grep -nE "computeBucket|reduceBucket|calculateBucket" src/frontend/src/lib/adapter.ts
+  - |
+    Full-stack build is green:
+      ./gradlew build
+
+outputs:
+  - modified: src/frontend/src/lib/methods/bucketSampled/EditorModule.svelte
+  - created: src/frontend/src/lib/methods/bucketSampled/BucketPanel.svelte
+  - modified: src/frontend/src/lib/adapter.ts
+  - modified: src/frontend/src/routes/estimations/[id]/versions/[versionNumber]/+page.svelte
+  - modified: CLAUDE.md

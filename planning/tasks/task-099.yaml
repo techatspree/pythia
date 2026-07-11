@@ -1,0 +1,147 @@
+id: task-099
+phase: phase-15
+title: Backend — add method column on Estimation (Flyway V9, immutable)
+depends_on: [task-098]
+description: |
+  Bind every `Estimation` to exactly one `EstimationMethod` at
+  creation time, and enforce that the method cannot change
+  afterwards. This lands the storage + REST plumbing behind
+  task-097's SPI so both the current PERT flow and the incoming
+  bucket+sampled flow have somewhere to persist their choice.
+
+  ## Frozen decisions (from task-096)
+
+  - **Column location.** `estimation.method text NOT NULL` — new
+    column on the `estimations` table (NOT on
+    `draft_estimation_versions` / `submitted_estimation_versions`).
+    Every version of one estimation shares the method.
+  - **Migration.** Flyway `V9__estimation_method.sql`:
+      `ALTER TABLE estimations ADD COLUMN method text NOT NULL
+       DEFAULT 'THREE_POINT_PERT';`
+    Backfilling is implicit thanks to the default; no `UPDATE`
+    needed. Do NOT drop the default afterwards — the REST layer
+    still relies on the column being nullable-free even if the
+    frontend forgets to send it explicitly (belt + braces).
+  - **Immutability.** The method is fixed at estimation-creation
+    time. `EstimationResource.createEstimation` accepts the method
+    (defaulting to `THREE_POINT_PERT` for backward compatibility
+    with older callers that ship no method). `PUT` paths on
+    `EstimationResource` REJECT a differing method with `409
+    Conflict` (JSON body: `ConflictDetailsDto` with a clear
+    message). Reads (`GET /api/estimations`, `GET
+    /api/estimations/{id}`) return the method in the DTO.
+  - **DTO.** Extend `EstimationDto` and `CreateEstimationDto` with
+    a `method: EstimationMethod` field. Use the domain's
+    `EstimationMethod` enum directly (Quarkus/Jackson serialises
+    enums as their name). This keeps the OpenAPI schema fully
+    typed.
+  - **Logging.** `EstimationResource.createEstimation` logs
+    INFO with the estimation id and method; the immutability
+    check logs WARN on rejection. Use `io.quarkus.logging.Log`
+    (no per-class logger field, per the CLAUDE.md convention).
+  - **CLAUDE.md.** Update the "Persistence shape" and "REST API
+    surface" sections: `estimations` table gains `method`; POST
+    request body carries `method`; PUT rejects method changes
+    with 409.
+
+  ## What does NOT belong in this task
+
+  - No changes to leaf item shape or the discriminator — that is
+    task-100.
+  - No BUCKETED persistence tables — that is task-103.
+  - No frontend routing changes based on method — that is task-101.
+  - No shared-export dispatch refactor — that is task-107.
+
+steps:
+  - |
+    Read the current entities and DTOs:
+      src/backend/implementation/src/main/kotlin/io/github/theestimator/model/Estimation.kt (JPA entity)
+      src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/EstimationResource.kt
+      src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/dto/EstimationDto.kt
+      src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/dto/CreateEstimationDto.kt (if it exists; else the equivalent create body)
+    Locate the Flyway migrations directory:
+      src/backend/implementation/src/main/resources/db/migration/
+  - |
+    Create
+    `src/backend/implementation/src/main/resources/db/migration/V9__estimation_method.sql`
+    with:
+      ALTER TABLE estimations
+        ADD COLUMN method text NOT NULL
+        DEFAULT 'THREE_POINT_PERT';
+    Leave the default in place (belt + braces).
+  - |
+    Add the JPA field on the `Estimation` entity:
+      @Column(name = "method", nullable = false)
+      @Enumerated(EnumType.STRING)
+      lateinit var method: EstimationMethod
+    Import the domain enum
+    `io.github.theestimator.method.EstimationMethod`.
+  - |
+    Extend `EstimationDto` and the create-body DTO with
+    `method: EstimationMethod`. The MicroProfile OpenAPI
+    annotations should mark the field required on the create
+    body and required on the response. Regenerate the OpenAPI
+    document is NOT this task's concern — the build's
+    smallrye-openapi step runs it automatically; the frontend
+    schema regen (task-100) will pick it up.
+  - |
+    `EstimationResource.createEstimation`:
+      * Accept the method from the body (defaulting to
+        `THREE_POINT_PERT` if absent — this keeps existing
+        integration tests happy until they are updated).
+      * Log INFO with the created estimation id AND the chosen
+        method: `Log.info("Created estimation \$id with method \$method")`.
+    `EstimationResource.updateEstimation` (any PUT that carries
+    an estimation body):
+      * If the request body includes a `method` and it differs
+        from the persisted method, respond 409 with a
+        `ConflictDetailsDto` (mirror the shape used by
+        `UndoConflictException`). Log WARN with the id and both
+        methods.
+  - |
+    Update or add a `@QuarkusTest` in
+    `.../rest/EstimationResourceIT.kt`:
+      * POST with `method = BUCKET_SAMPLED_PERT` — response
+        returns the method.
+      * PUT changing method → 409.
+      * POST with omitted method still succeeds and defaults to
+        `THREE_POINT_PERT`.
+  - |
+    Update `CLAUDE.md`:
+      * "Persistence shape" — mention the `method` column and
+        that it is set at creation and immutable.
+      * "REST API surface" — POST create body carries `method`;
+        PUT rejects method changes with 409.
+  - |
+    Build:
+      ./gradlew :backend:implementation:test
+      ./gradlew build
+
+validation:
+  - |
+    Flyway V9 exists and adds the column with the expected default:
+      test -f src/backend/implementation/src/main/resources/db/migration/V9__estimation_method.sql
+      grep -q "ADD COLUMN method" src/backend/implementation/src/main/resources/db/migration/V9__estimation_method.sql
+      grep -q "DEFAULT 'THREE_POINT_PERT'" src/backend/implementation/src/main/resources/db/migration/V9__estimation_method.sql
+  - |
+    JPA entity has the method field:
+      grep -q "var method: EstimationMethod" src/backend/implementation/src/main/kotlin/io/github/theestimator/model/Estimation.kt
+  - |
+    Resource logs on create and rejects method changes:
+      grep -q "Log.info" src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/EstimationResource.kt
+      grep -q "409\|Response.Status.CONFLICT" src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/EstimationResource.kt
+  - |
+    CLAUDE.md documents the changes:
+      grep -q "estimation.method\|Estimation.method" CLAUDE.md
+      grep -q "immutable" CLAUDE.md
+  - |
+    Full-stack build is green:
+      ./gradlew build
+
+outputs:
+  - created: src/backend/implementation/src/main/resources/db/migration/V9__estimation_method.sql
+  - modified: src/backend/implementation/src/main/kotlin/io/github/theestimator/model/Estimation.kt
+  - modified: src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/EstimationResource.kt
+  - modified: src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/dto/EstimationDto.kt
+  - modified: src/backend/implementation/src/test/kotlin/io/github/theestimator/rest/EstimationResourceIT.kt
+  - modified: CLAUDE.md

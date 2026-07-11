@@ -39,6 +39,15 @@
 
 	// Undo/redo GUI (task-077).
 	let showHistory = $state(false);
+	// The history panel sits below the (potentially tall) grid, so scroll it
+	// into view when opened — otherwise toggling it from the top toolbar looks
+	// like nothing happened.
+	let historyEl = $state<HTMLElement | null>(null);
+	$effect(() => {
+		if (showHistory && historyEl) {
+			historyEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
+		}
+	});
 
 	// The entry a given action would target, for the toolbar tooltips.
 	function latestByStatus(status: string) {
@@ -256,7 +265,10 @@
 						type="button"
 						onclick={() => (showHistory = !showHistory)}
 						aria-label="Verlauf anzeigen"
-						class="px-3 py-2 text-sm border rounded hover:bg-gray-50"
+						aria-pressed={showHistory}
+						class="px-3 py-2 text-sm border rounded hover:bg-gray-50 {showHistory
+							? 'bg-brand-green/10 border-brand-green/40 text-brand-green'
+							: ''}"
 					>
 						Verlauf
 					</button>
@@ -333,7 +345,9 @@
 		/>
 
 		{#if versionData.isDraft && showHistory}
-			<UndoHistoryPanel history={undoStore.history} />
+			<div bind:this={historyEl} class="scroll-mt-4">
+				<UndoHistoryPanel history={undoStore.history} />
+			</div>
 		{/if}
 
 		{#if undoStore.conflict}

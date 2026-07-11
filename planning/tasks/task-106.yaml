@@ -1,0 +1,130 @@
+id: task-106
+phase: phase-15
+title: Bucket + sampled session-support module
+depends_on: [task-105, task-104]
+description: |
+  Add the bucket+sampled session-support module: multi-estimator
+  bucket assignments (LWW with provenance) plus multi-estimator
+  sample PERT (element-wise averaged into the per-bucket mean).
+
+  ## Frozen decisions (from task-096)
+
+  - **Package.** `io.github.theestimator.method.bucketsampled`.
+  - **Bucket assignment reduction.** Last-write-wins per
+    (item, estimator) — keep the most recent write per estimator
+    for each item; then across estimators, pick the most recent
+    write. Record provenance
+    (estimator id + timestamp) alongside so the session UI can
+    surface conflicts. Concretely:
+      * `EstimatorBucketAssignment(itemId, estimatorId, bucketId,
+         at: Instant)`.
+      * Reducer output per item:
+        `AssignmentResult(bucketId, source: EstimatorId,
+        conflictingAssignments: List<EstimatorBucketAssignment>)`.
+        The `conflictingAssignments` list contains any writes
+        that lost the LWW race — surfaced in the session UI.
+  - **Sample PERT reduction.** For each (item marked as sample),
+    average across estimators element-wise on optimistic /
+    likely / pessimistic before feeding the sample into the
+    per-bucket mean reducer (task-102).
+  - **Where the reducer lives.** A pure function
+    `reduceBucketSampledSession(inputs): BucketSampledSessionResult`
+    in the bucketsampled package, called by
+    `BucketSampledSessionSupport.reduce`.
+  - **Registration.** Wire into
+    `EstimationMethodRegistry.installStandardMethods()` alongside
+    `BucketMethodModule` (from task-102).
+  - **Backend + frontend routing.** The session code already
+    delegates to the registry after task-105. This task just adds
+    the concrete module + backend integration tests.
+  - **Frontend session UI.** Add the conflict-surfacing UI on
+    the session page — a small badge on any item whose
+    `conflictingAssignments.isNotEmpty()`, with a click-through
+    showing which estimator picked which bucket. Follow the
+    existing session-page patterns.
+  - **Logging.** `logger.debug { "…" }` in the reducer for
+    per-bucket and per-item averaging (lambda form so it's
+    allocation-free when off). Backend `Log.info` on
+    reduction outcome; frontend `log.debug` on the UI hook.
+  - **CLAUDE.md.** No new section, but if the session subsection
+    exists from task-105 add a one-line mention of LWW +
+    provenance for bucket assignments.
+
+  ## What does NOT belong in this task
+
+  - Bucket-editor UI on the version editor — task-104.
+  - Export writer — task-107.
+
+steps:
+  - |
+    Read task-102's bucketsampled package files (there are only
+    a handful) and task-105's session SPI to understand the
+    exact interface.
+  - |
+    Add
+    `src/domain/src/main/kotlin/io/github/theestimator/method/bucketsampled/BucketSampledSessionSupport.kt`
+    implementing `EstimationMethodSessionSupport`.
+  - |
+    Add
+    `src/domain/src/main/kotlin/io/github/theestimator/method/bucketsampled/reduceBucketSampledSession.kt`
+    with `reduceBucketSampledSession(inputs)`. Split into two
+    private helpers: `resolveAssignmentLWW(inputs)` and
+    `averageSamplePert(inputs)`.
+  - |
+    Register the new session support in
+    `EstimationMethodRegistry.installStandardMethods()`.
+  - |
+    Unit tests:
+      src/domain/src/commonTest/kotlin/io/github/theestimator/method/bucketsampled/BucketSampledSessionSupportTest.kt
+      src/domain/src/commonTest/kotlin/io/github/theestimator/method/bucketsampled/ReduceBucketSampledSessionTest.kt
+    Cover: LWW selects most recent estimator, conflict list
+    populated when others also wrote; sample PT element-wise
+    average with 3+ estimators; two-bucket case.
+  - |
+    Backend `@QuarkusTest`: full bucket+sampled session
+    round-trip with 3 estimators, 2 buckets, mixed sample and
+    non-sample items — the session summary shows bucket-derived
+    effort on non-sample items and lists conflicts on the item
+    where two estimators disagreed on the bucket.
+  - |
+    Frontend session-page UI: add the conflict badge + drawer
+    described above. Follow the existing session page's Svelte
+    5 idioms (`$state`, `$derived`, `$effect`). Use
+    `$lib/log.ts` for logging; NEVER bare console.
+  - |
+    Build:
+      ./gradlew :domain:build
+      ./gradlew :backend:implementation:test
+      ./gradlew :frontend:check
+      ./gradlew build
+
+validation:
+  - |
+    Session-support module + reducer + tests exist:
+      test -f src/domain/src/main/kotlin/io/github/theestimator/method/bucketsampled/BucketSampledSessionSupport.kt
+      test -f src/domain/src/main/kotlin/io/github/theestimator/method/bucketsampled/reduceBucketSampledSession.kt
+      test -f src/domain/src/commonTest/kotlin/io/github/theestimator/method/bucketsampled/ReduceBucketSampledSessionTest.kt
+  - |
+    Registration wired into installStandardMethods:
+      grep -q "BucketSampledSessionSupport" src/domain/src/main/kotlin/io/github/theestimator/method/EstimationMethodRegistry.kt
+  - |
+    Domain logging idiom used:
+      grep -q "logger.debug" src/domain/src/main/kotlin/io/github/theestimator/method/bucketsampled/reduceBucketSampledSession.kt
+  - |
+    Frontend session-page UI wires the conflict badge (grep for
+    the new component/hook name — replace `ConflictBadge` with
+    whatever the implementation actually names):
+      grep -rq "conflictingAssignments" src/frontend/src/
+  - |
+    Frontend no-bare-console rule holds for the new files:
+      ! grep -rnE "^\\s*console\\." src/frontend/src/ | grep -E "session|bucket" || true
+  - |
+    Full-stack build is green:
+      ./gradlew build
+
+outputs:
+  - created: src/domain/src/main/kotlin/io/github/theestimator/method/bucketsampled/BucketSampledSessionSupport.kt
+  - created: src/domain/src/main/kotlin/io/github/theestimator/method/bucketsampled/reduceBucketSampledSession.kt
+  - created: src/domain/src/commonTest/kotlin/io/github/theestimator/method/bucketsampled/BucketSampledSessionSupportTest.kt
+  - created: src/domain/src/commonTest/kotlin/io/github/theestimator/method/bucketsampled/ReduceBucketSampledSessionTest.kt
+  - modified: src/domain/src/main/kotlin/io/github/theestimator/method/EstimationMethodRegistry.kt

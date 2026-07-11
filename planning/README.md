@@ -65,6 +65,7 @@ Typical flow: run `next`, run `show` to read the task, do the work, run `done`. 
 | 12 | 2 | Persistent Undo Across Sessions | 072–077 |
 | 13 | 3 | Excel-aligned Domain, KMP & Build Reactor | 033–048 |
 | 14 | 3 | Post-MVP Hardening & Build Modernization | 079–083, 087–095 |
+| 15 | 4 | Pluggable Estimation Methods | 096 (planning), 097–108 |
 
 Total: roughly 10 weeks of focused work for one developer, less with parallel tracks.
 
