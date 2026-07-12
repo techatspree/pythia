@@ -111,6 +111,25 @@ class EstimationVersionResourceIT {
     }
 
     @Test
+    fun `update draft with a BUCKETED leaf is rejected with 400`() {
+        given().post("/api/estimations/$estimationId/versions")
+            .then().statusCode(201)
+
+        given()
+            .contentType(ContentType.JSON)
+            .body("""
+                {
+                    "roots": [
+                        {"type": "BUCKETED", "description": "Not yet supported", "bucketId": "b1"}
+                    ]
+                }
+            """.trimIndent())
+            .`when`().put("/api/estimations/$estimationId/versions/draft")
+            .then()
+            .statusCode(400)
+    }
+
+    @Test
     fun `submit draft creates submitted version and removes draft`() {
         buildRealisticDraft(estimationId)
 

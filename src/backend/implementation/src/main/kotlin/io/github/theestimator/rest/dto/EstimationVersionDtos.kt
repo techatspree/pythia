@@ -1,6 +1,7 @@
 package io.github.theestimator.rest.dto
 
 import io.github.theestimator.domain.AdditionalCostType
+import org.eclipse.microprofile.openapi.annotations.media.Schema
 import java.time.Instant
 import java.util.UUID
 
@@ -49,6 +50,7 @@ data class ProjectPhaseDto(
 
 data class EstimationNodeDto(
     val logicalId: UUID?,
+    @field:Schema(enumeration = ["GROUP", "FIXED", "TIME_RELATIVE", "BUCKETED"])
     val type: String,
     val title: String?,
     val description: String?,
@@ -66,7 +68,11 @@ data class EstimationNodeDto(
     val offerPrice: Double,
     val unit: String?,
     val phaseAbbreviation: String?,
-    val children: List<EstimationNodeDto>
+    val children: List<EstimationNodeDto>,
+    // Reserved for the bucket+sampled method (task-100); populated once
+    // task-102/103 land the BUCKETED persistence path.
+    val bucketId: String? = null,
+    val isSample: Boolean = false
 )
 
 data class AdditionalCostDto(
@@ -104,6 +110,7 @@ data class DraftUpdateDto(
 
 data class EstimationNodeUpdateDto(
     val logicalId: UUID? = null,
+    @field:Schema(enumeration = ["GROUP", "FIXED", "TIME_RELATIVE", "BUCKETED"])
     val type: String,
     val title: String? = null,
     val description: String? = null,
@@ -114,5 +121,10 @@ data class EstimationNodeUpdateDto(
     val assumptions: String? = null,
     val unit: String? = null,
     val phaseAbbreviation: String? = null,
-    val children: List<EstimationNodeUpdateDto> = emptyList()
+    val children: List<EstimationNodeUpdateDto> = emptyList(),
+    // Reserved for the bucket+sampled method (task-100); currently rejected by
+    // DraftUpdateApplier pending task-103. Sample rows reuse
+    // minEffort/expectedEffort/maxEffort for their three-point values.
+    val bucketId: String? = null,
+    val isSample: Boolean = false
 )

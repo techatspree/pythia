@@ -8,7 +8,7 @@ private val logger = KotlinLogging.logger {}
 /**
  * Singleton registry mapping each [EstimationMethod] to its
  * [EstimationMethodModule]. [installStandardMethods] registers the built-in
- * modules; it runs from the object's [init] so the registry self-populates the
+ * modules; it runs from the object's initialization so the registry self-populates the
  * first time it is touched. [require] throws for an unregistered method so a
  * misconfigured build fails loudly rather than silently defaulting.
  */

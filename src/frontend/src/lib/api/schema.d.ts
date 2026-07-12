@@ -1280,11 +1280,13 @@ export interface components {
         EstimationCreateDto: {
             offer: string;
             description?: string | null;
+            method?: components["schemas"]["EstimationMethod"];
         };
         EstimationDetailDto: {
             id: components["schemas"]["UUID"] | null;
             offer: string | null;
             description: string | null;
+            method: components["schemas"]["EstimationMethod"];
             projectId: components["schemas"]["UUID"] | null;
             projectName: string | null;
             /** Format: int32 */
@@ -1293,9 +1295,12 @@ export interface components {
             createdAt: components["schemas"]["Instant"] | null;
             versions: components["schemas"]["EstimationVersionSummaryDto"][];
         };
+        /** @enum {string} */
+        EstimationMethod: "THREE_POINT_PERT" | "BUCKET_SAMPLED_PERT";
         EstimationNodeDto: {
             logicalId: components["schemas"]["UUID"] | null;
-            type: string;
+            /** @enum {string} */
+            type: "GROUP" | "FIXED" | "TIME_RELATIVE" | "BUCKETED";
             title: string | null;
             description: string | null;
             code: string | null;
@@ -1323,10 +1328,13 @@ export interface components {
             unit: string | null;
             phaseAbbreviation: string | null;
             children: components["schemas"]["EstimationNodeDto"][];
+            bucketId?: string | null;
+            isSample?: boolean;
         };
         EstimationNodeUpdateDto: {
             logicalId?: components["schemas"]["UUID"] | null;
-            type: string;
+            /** @enum {string} */
+            type: "GROUP" | "FIXED" | "TIME_RELATIVE" | "BUCKETED";
             title?: string | null;
             description?: string | null;
             code?: string | null;
@@ -1340,6 +1348,8 @@ export interface components {
             unit?: string | null;
             phaseAbbreviation?: string | null;
             children?: components["schemas"]["EstimationNodeUpdateDto"][];
+            bucketId?: string | null;
+            isSample?: boolean;
         };
         EstimationParameterDto: {
             id?: components["schemas"]["UUID"] | null;
@@ -1352,6 +1362,7 @@ export interface components {
             id: components["schemas"]["UUID"] | null;
             offer: string | null;
             description: string | null;
+            method: components["schemas"]["EstimationMethod"];
             /** Format: int32 */
             latestVersionNumber: number | null;
             /** Format: int32 */

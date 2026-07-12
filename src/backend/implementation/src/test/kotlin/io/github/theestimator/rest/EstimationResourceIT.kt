@@ -1,20 +1,20 @@
 package io.github.theestimator.rest
 
+import io.github.theestimator.auth.DevAdminAuth
 import io.github.theestimator.domain.Estimation
 import io.github.theestimator.domain.Project
 import io.github.theestimator.repository.EstimationRepository
-import io.github.theestimator.auth.DevAdminAuth
 import io.github.theestimator.repository.ProjectRepository
 import io.quarkus.test.junit.QuarkusTest
-import org.junit.jupiter.api.extension.ExtendWith
 import io.restassured.RestAssured.given
-import io.restassured.http.ContentType
 import jakarta.inject.Inject
 import jakarta.transaction.Transactional
-import org.hamcrest.Matchers.*
+import org.hamcrest.Matchers.equalTo
+import org.hamcrest.Matchers.notNullValue
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
-import java.util.UUID
+import org.junit.jupiter.api.extension.ExtendWith
+import java.util.*
 
 @QuarkusTest
 @ExtendWith(DevAdminAuth::class)

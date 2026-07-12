@@ -597,9 +597,9 @@
       "notes": "Backend: add method column on Estimation (Flyway V9), immutable after create"
     },
     "task-100": {
-      "status": "pending",
-      "started_at": null,
-      "completed_at": null,
+      "status": "done",
+      "started_at": "2026-07-12T14:10:53+00:00",
+      "completed_at": "2026-07-12T14:22:04+00:00",
       "notes": "REST DTO: extend leaf type discriminator to be method-tagged; reserve BUCKETED"
     },
     "task-101": {
@@ -667,6 +667,12 @@
       "started_at": null,
       "completed_at": null,
       "notes": "Plan phase-16: i18n — English source language + per-user language switch with DE/EN modules"
+    },
+    "task-112": {
+      "status": "pending",
+      "started_at": null,
+      "completed_at": null,
+      "notes": "Frontend: create new estimation in GUI (dialog + POST + navigate), backed by e2e/backend IT"
     }
   }
 }

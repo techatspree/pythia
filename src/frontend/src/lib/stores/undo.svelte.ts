@@ -45,9 +45,14 @@ export class UndoStore {
 		this.loading = true;
 		try {
 			const res = await apiFetch(`/api/estimations/${this.estimationId}/versions/draft/history`);
-			if (!res.ok) throw new Error(`Failed to load undo history (${res.status})`);
-			this.history = (await res.json()) as MutationLogEntryDto[];
+			if (res.ok) {
+				this.history = (await res.json()) as MutationLogEntryDto[];
+			} else {
+				this.error = `Could not load undo history:  ${res.status})`;
+				log.error('UndoStore.refresh failed:');
+			}
 		} catch (e) {
+			// todo: check if an exception can occur at all
 			this.error = `Could not load undo history: ${messageOf(e)}`;
 			log.error('UndoStore.refresh failed:', e);
 		} finally {

@@ -15,7 +15,9 @@ import io.github.theestimator.rest.dto.EffortDriverDto
 import io.github.theestimator.rest.dto.EstimationNodeUpdateDto
 import io.github.theestimator.rest.dto.EstimationParameterDto
 import io.github.theestimator.rest.dto.PhaseUpdateDto
+import io.quarkus.logging.Log
 import jakarta.enterprise.context.ApplicationScoped
+import jakarta.ws.rs.BadRequestException
 import java.util.UUID
 
 // Shared clear-and-rebuild that writes a DraftUpdateDto into a draft entity.
@@ -96,6 +98,13 @@ class DraftUpdateApplier {
         parentNode: DraftEstimationNode?,
         pos: Int
     ): DraftEstimationNode {
+        // BUCKETED is reserved on the wire (task-100) but has no persistence
+        // path yet (task-103). Reject it loudly rather than silently coercing
+        // it to a fixed leaf.
+        if (dto.type == "BUCKETED") {
+            Log.warn("Rejected BUCKETED leaf ${dto.logicalId}: not yet supported for this estimation method")
+            throw BadRequestException("BUCKETED leaves are not yet supported for this estimation method")
+        }
         val node: DraftEstimationNode = when (dto.type) {
             "GROUP" -> DraftGroupNode().apply { title = dto.title }
             "TIME_RELATIVE" -> DraftTimeRelativeItemNode().apply { unit = dto.unit ?: "h/Woche" }

@@ -245,12 +245,15 @@
           },
           "description" : {
             "type" : [ "string", "null" ]
+          },
+          "method" : {
+            "$ref" : "#/components/schemas/EstimationMethod"
           }
         }
       },
       "EstimationDetailDto" : {
         "type" : "object",
-        "required" : [ "id", "offer", "description", "projectId", "projectName", "latestVersionNumber", "hasDraft", "createdAt", "versions" ],
+        "required" : [ "id", "offer", "description", "method", "projectId", "projectName", "latestVersionNumber", "hasDraft", "createdAt", "versions" ],
         "properties" : {
           "id" : {
             "anyOf" : [ {
@@ -264,6 +267,9 @@
           },
           "description" : {
             "type" : [ "string", "null" ]
+          },
+          "method" : {
+            "$ref" : "#/components/schemas/EstimationMethod"
           },
           "projectId" : {
             "anyOf" : [ {
@@ -297,6 +303,10 @@
           }
         }
       },
+      "EstimationMethod" : {
+        "type" : "string",
+        "enum" : [ "THREE_POINT_PERT", "BUCKET_SAMPLED_PERT" ]
+      },
       "EstimationNodeDto" : {
         "type" : "object",
         "required" : [ "logicalId", "type", "title", "description", "code", "minEffort", "expectedEffort", "maxEffort", "assumptions", "mean", "variance", "riskSurcharge", "driverSurcharge", "offerPT", "cost", "offerPrice", "unit", "phaseAbbreviation", "children" ],
@@ -309,7 +319,8 @@
             } ]
           },
           "type" : {
-            "type" : "string"
+            "type" : "string",
+            "enum" : [ "GROUP", "FIXED", "TIME_RELATIVE", "BUCKETED" ]
           },
           "title" : {
             "type" : [ "string", "null" ]
@@ -374,6 +385,12 @@
             "items" : {
               "$ref" : "#/components/schemas/EstimationNodeDto"
             }
+          },
+          "bucketId" : {
+            "type" : [ "string", "null" ]
+          },
+          "isSample" : {
+            "type" : "boolean"
           }
         }
       },
@@ -388,7 +405,8 @@
             } ]
           },
           "type" : {
-            "type" : "string"
+            "type" : "string",
+            "enum" : [ "GROUP", "FIXED", "TIME_RELATIVE", "BUCKETED" ]
           },
           "title" : {
             "type" : [ "string", "null" ]
@@ -425,6 +443,12 @@
             "items" : {
               "$ref" : "#/components/schemas/EstimationNodeUpdateDto"
             }
+          },
+          "bucketId" : {
+            "type" : [ "string", "null" ]
+          },
+          "isSample" : {
+            "type" : "boolean"
           }
         },
         "required" : [ "type" ]
@@ -454,7 +478,7 @@
       },
       "EstimationSummaryDto" : {
         "type" : "object",
-        "required" : [ "id", "offer", "description", "latestVersionNumber", "versionCount", "hasDraft", "createdAt" ],
+        "required" : [ "id", "offer", "description", "method", "latestVersionNumber", "versionCount", "hasDraft", "createdAt" ],
         "properties" : {
           "id" : {
             "anyOf" : [ {
@@ -468,6 +492,9 @@
           },
           "description" : {
             "type" : [ "string", "null" ]
+          },
+          "method" : {
+            "$ref" : "#/components/schemas/EstimationMethod"
           },
           "latestVersionNumber" : {
             "type" : [ "integer", "null" ],
@@ -872,6 +899,12 @@
             }
           }
         }
+      }
+    },
+    "securitySchemes" : {
+      "SecurityScheme" : {
+        "type" : "openIdConnect",
+        "description" : "Authentication"
       }
     }
   },
