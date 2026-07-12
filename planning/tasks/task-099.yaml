@@ -11,38 +11,61 @@ description: |
 
   ## Frozen decisions (from task-096)
 
-  - **Column location.** `estimation.method text NOT NULL` — new
-    column on the `estimations` table (NOT on
+  - **Column location.** `estimation.method VARCHAR(255) NOT NULL` —
+    new column on the `estimations` table (NOT on
     `draft_estimation_versions` / `submitted_estimation_versions`).
-    Every version of one estimation shares the method.
+    Every version of one estimation shares the method. Use
+    `VARCHAR(255)` to match the codebase's existing enum columns
+    (project/version `status`, additional-cost `type` are all
+    `VARCHAR(255)`) and the entity's default `@Enumerated(STRING)`
+    mapping — this keeps Hibernate `validate` (dev-minikube/prod) happy.
   - **Migration.** Flyway `V9__estimation_method.sql`:
-      `ALTER TABLE estimations ADD COLUMN method text NOT NULL
+      `ALTER TABLE estimations ADD COLUMN method VARCHAR(255) NOT NULL
        DEFAULT 'THREE_POINT_PERT';`
     Backfilling is implicit thanks to the default; no `UPDATE`
     needed. Do NOT drop the default afterwards — the REST layer
     still relies on the column being nullable-free even if the
     frontend forgets to send it explicitly (belt + braces).
-  - **Immutability.** The method is fixed at estimation-creation
-    time. `EstimationResource.createEstimation` accepts the method
-    (defaulting to `THREE_POINT_PERT` for backward compatibility
-    with older callers that ship no method). `PUT` paths on
-    `EstimationResource` REJECT a differing method with `409
-    Conflict` (JSON body: `ConflictDetailsDto` with a clear
-    message). Reads (`GET /api/estimations`, `GET
-    /api/estimations/{id}`) return the method in the DTO.
-  - **DTO.** Extend `EstimationDto` and `CreateEstimationDto` with
-    a `method: EstimationMethod` field. Use the domain's
-    `EstimationMethod` enum directly (Quarkus/Jackson serialises
-    enums as their name). This keeps the OpenAPI schema fully
-    typed.
-  - **Logging.** `EstimationResource.createEstimation` logs
-    INFO with the estimation id and method; the immutability
-    check logs WARN on rejection. Use `io.quarkus.logging.Log`
-    (no per-class logger field, per the CLAUDE.md convention).
+    NOTE: `%test` runs with `hibernate schema-management=drop-and-create`
+    and `flyway.enabled=false`, so the test suite generates its schema
+    from the JPA entities and NEVER executes this migration. A green
+    `./gradlew build` therefore does NOT validate V9 — the migration is
+    only exercised (under Hibernate `validate`) in dev-minikube/prod.
+    Keep the column type identical to the entity mapping so `validate`
+    cannot fail there.
+  - **Immutability (by construction).** The method is fixed at
+    estimation-creation time. `ProjectResource.createEstimation`
+    (`POST /api/projects/{id}/estimations`) accepts the method
+    (defaulting to `THREE_POINT_PERT` for backward compatibility with
+    callers that ship no method). Immutability then holds
+    AUTOMATICALLY: there is NO estimation-update endpoint (estimations
+    are only created and read — the only estimation GETs are
+    `EstimationResource.getEstimation` and the project-detail listing),
+    so nothing can change the method after create. Do NOT add a PUT /
+    409 rejection path — there is no endpoint to attach it to. If a
+    future task introduces an estimation-edit endpoint, THAT task adds
+    the immutability guard.
+  - **DTO.** The real DTOs live in
+    `rest/dto/ProjectDtos.kt`: extend `EstimationCreateDto` (request),
+    and `EstimationSummaryDto` + `EstimationDetailDto` (responses — the
+    method must appear on both, since `EstimationSummaryDto` is the
+    create response and the project-detail list item, and
+    `EstimationDetailDto` is the `getEstimation` response) with a
+    `method: EstimationMethod` field. Use the domain's
+    `EstimationMethod` enum directly (Quarkus/Jackson serialises enums
+    as their name). This keeps the OpenAPI schema fully typed. Map the
+    field in `rest/dto/ProjectMapper.kt`
+    (`Estimation.toSummaryDto()` / `toEstimationDetailDto()`), and make
+    `EstimationCreateDto.method` default to `THREE_POINT_PERT`.
+  - **Logging.** `ProjectResource.createEstimation` logs INFO with the
+    created estimation id and method, via `io.quarkus.logging.Log`
+    (no per-class logger field, per the CLAUDE.md convention). (No
+    WARN-on-rejection — there is no rejection path.)
   - **CLAUDE.md.** Update the "Persistence shape" and "REST API
-    surface" sections: `estimations` table gains `method`; POST
-    request body carries `method`; PUT rejects method changes
-    with 409.
+    surface" sections: `estimations` table gains a `method` column
+    (set at creation, immutable); the POST create body carries
+    `method` and the estimation read DTOs return it; the method is
+    immutable because there is no estimation-update endpoint.
 
   ## What does NOT belong in this task
 
@@ -54,64 +77,75 @@ description: |
 
 steps:
   - |
-    Read the current entities and DTOs:
-      src/backend/implementation/src/main/kotlin/io/github/theestimator/model/Estimation.kt (JPA entity)
-      src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/EstimationResource.kt
-      src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/dto/EstimationDto.kt
-      src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/dto/CreateEstimationDto.kt (if it exists; else the equivalent create body)
-    Locate the Flyway migrations directory:
+    Read the current entities, DTOs, service, and resource:
+      src/backend/implementation/src/main/kotlin/io/github/theestimator/domain/Estimation.kt (JPA entity — package `domain`, NOT `model`)
+      src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/ProjectResource.kt (has createEstimation)
+      src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/EstimationResource.kt (has getEstimation only)
+      src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/dto/ProjectDtos.kt (EstimationCreateDto / EstimationSummaryDto / EstimationDetailDto)
+      src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/dto/ProjectMapper.kt (Estimation.toSummaryDto / toEstimationDetailDto)
+      src/backend/implementation/src/main/kotlin/io/github/theestimator/service/EstimationService.kt (create(offer, project, description))
+    Locate the Flyway migrations directory (latest is V8, so V9 is next):
       src/backend/implementation/src/main/resources/db/migration/
   - |
     Create
     `src/backend/implementation/src/main/resources/db/migration/V9__estimation_method.sql`
     with:
       ALTER TABLE estimations
-        ADD COLUMN method text NOT NULL
+        ADD COLUMN method VARCHAR(255) NOT NULL
         DEFAULT 'THREE_POINT_PERT';
-    Leave the default in place (belt + braces).
+    Leave the default in place (belt + braces). Use `VARCHAR(255)` to
+    match the existing enum columns and the entity's enum mapping.
   - |
-    Add the JPA field on the `Estimation` entity:
-      @Column(name = "method", nullable = false)
+    Add the JPA field on the `Estimation` entity
+    (`io.github.theestimator.domain.Estimation`). Match the entity's
+    style — a defaulted non-null `var`, NOT `lateinit` (lateinit on a
+    JPA enum read before assignment throws; a default also mirrors the
+    SQL `DEFAULT` and satisfies the NOT NULL column):
       @Enumerated(EnumType.STRING)
-      lateinit var method: EstimationMethod
+      @Column(name = "method", nullable = false)
+      var method: EstimationMethod = EstimationMethod.THREE_POINT_PERT
     Import the domain enum
     `io.github.theestimator.method.EstimationMethod`.
   - |
-    Extend `EstimationDto` and the create-body DTO with
-    `method: EstimationMethod`. The MicroProfile OpenAPI
-    annotations should mark the field required on the create
-    body and required on the response. Regenerate the OpenAPI
-    document is NOT this task's concern — the build's
-    smallrye-openapi step runs it automatically; the frontend
-    schema regen (task-100) will pick it up.
+    Extend the estimation DTOs in `rest/dto/ProjectDtos.kt` with
+    `method: EstimationMethod`:
+      * `EstimationCreateDto` — add `val method: EstimationMethod =
+        EstimationMethod.THREE_POINT_PERT` (defaulted, so older callers
+        that omit it still work).
+      * `EstimationSummaryDto` and `EstimationDetailDto` — add the
+        `method` field to both (Summary is the create response + the
+        project-detail list item; Detail is the getEstimation response).
+    Map it in `rest/dto/ProjectMapper.kt`
+    (`Estimation.toSummaryDto()` / `toEstimationDetailDto()`). Optionally
+    add `@Schema(required = true)` to keep the field required in the
+    generated OpenAPI. Regenerating the OpenAPI document is not this
+    task's concern — the build's smallrye-openapi step runs it
+    automatically; the frontend schema regen (task-100) picks it up.
   - |
-    `EstimationResource.createEstimation`:
-      * Accept the method from the body (defaulting to
-        `THREE_POINT_PERT` if absent — this keeps existing
-        integration tests happy until they are updated).
-      * Log INFO with the created estimation id AND the chosen
-        method: `Log.info("Created estimation \$id with method \$method")`.
-    `EstimationResource.updateEstimation` (any PUT that carries
-    an estimation body):
-      * If the request body includes a `method` and it differs
-        from the persisted method, respond 409 with a
-        `ConflictDetailsDto` (mirror the shape used by
-        `UndoConflictException`). Log WARN with the id and both
-        methods.
+    `ProjectResource.createEstimation` (POST /api/projects/{id}/estimations):
+      * Pass `dto.method` through to `EstimationService.create(...)` —
+        add a `method: EstimationMethod = EstimationMethod.THREE_POINT_PERT`
+        parameter to `EstimationService.create` and set
+        `estimation.method = method` there.
+      * Log INFO with the created estimation id AND the chosen method,
+        e.g. `Log.info("Created estimation \$id with method \$method")`.
+    Do NOT add any PUT / 409 path — there is no estimation-update
+    endpoint, so the method is immutable by construction (see the
+    Immutability decision above).
   - |
-    Update or add a `@QuarkusTest` in
-    `.../rest/EstimationResourceIT.kt`:
-      * POST with `method = BUCKET_SAMPLED_PERT` — response
-        returns the method.
-      * PUT changing method → 409.
-      * POST with omitted method still succeeds and defaults to
-        `THREE_POINT_PERT`.
+    Tests (put each where the endpoint under test lives):
+      * `.../rest/ProjectResourceIT.kt` — POST create with
+        `method = BUCKET_SAMPLED_PERT` returns that method; POST with
+        the method omitted defaults to `THREE_POINT_PERT`.
+      * `.../rest/EstimationResourceIT.kt` — `GET /api/estimations/{id}`
+        returns the persisted method.
   - |
     Update `CLAUDE.md`:
-      * "Persistence shape" — mention the `method` column and
-        that it is set at creation and immutable.
-      * "REST API surface" — POST create body carries `method`;
-        PUT rejects method changes with 409.
+      * "Persistence shape" — the `estimations` table gains a `method`
+        column, set at creation and immutable.
+      * "REST API surface" — the POST create body carries `method`, and
+        the estimation read DTOs return it; the method is immutable
+        because there is no estimation-update endpoint.
   - |
     Build:
       ./gradlew :backend:implementation:test
@@ -124,24 +158,29 @@ validation:
       grep -q "ADD COLUMN method" src/backend/implementation/src/main/resources/db/migration/V9__estimation_method.sql
       grep -q "DEFAULT 'THREE_POINT_PERT'" src/backend/implementation/src/main/resources/db/migration/V9__estimation_method.sql
   - |
-    JPA entity has the method field:
-      grep -q "var method: EstimationMethod" src/backend/implementation/src/main/kotlin/io/github/theestimator/model/Estimation.kt
+    JPA entity (package `domain`) has the method field, and the DTOs
+    carry it:
+      grep -q "var method: EstimationMethod" src/backend/implementation/src/main/kotlin/io/github/theestimator/domain/Estimation.kt
+      grep -q "method: EstimationMethod" src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/dto/ProjectDtos.kt
   - |
-    Resource logs on create and rejects method changes:
-      grep -q "Log.info" src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/EstimationResource.kt
-      grep -q "409\|Response.Status.CONFLICT" src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/EstimationResource.kt
+    Create path threads the method through the service and logs INFO:
+      grep -q "method: EstimationMethod" src/backend/implementation/src/main/kotlin/io/github/theestimator/service/EstimationService.kt
+      grep -q "Log.info" src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/ProjectResource.kt
   - |
-    CLAUDE.md documents the changes:
-      grep -q "estimation.method\|Estimation.method" CLAUDE.md
-      grep -q "immutable" CLAUDE.md
+    CLAUDE.md documents the new column (use a distinctive phrase like
+    "method column" so this is checkable):
+      grep -q "method column" CLAUDE.md
   - |
     Full-stack build is green:
       ./gradlew build
 
 outputs:
   - created: src/backend/implementation/src/main/resources/db/migration/V9__estimation_method.sql
-  - modified: src/backend/implementation/src/main/kotlin/io/github/theestimator/model/Estimation.kt
-  - modified: src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/EstimationResource.kt
-  - modified: src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/dto/EstimationDto.kt
+  - modified: src/backend/implementation/src/main/kotlin/io/github/theestimator/domain/Estimation.kt
+  - modified: src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/ProjectResource.kt
+  - modified: src/backend/implementation/src/main/kotlin/io/github/theestimator/service/EstimationService.kt
+  - modified: src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/dto/ProjectDtos.kt
+  - modified: src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/dto/ProjectMapper.kt
+  - modified: src/backend/implementation/src/test/kotlin/io/github/theestimator/rest/ProjectResourceIT.kt
   - modified: src/backend/implementation/src/test/kotlin/io/github/theestimator/rest/EstimationResourceIT.kt
   - modified: CLAUDE.md

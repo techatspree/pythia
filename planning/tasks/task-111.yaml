@@ -1,0 +1,333 @@
+id: task-111
+phase: phase-16
+title: Plan phase-16 — i18n (English source + DE/EN per-user modules)
+depends_on: []
+description: |
+  Planning/scaffolding task that introduces phase-16
+  "Internationalization" and writes the individual task YAML
+  files that will implement it. NO production code changes —
+  only `planning/plan.yaml`, `planning/README.md`,
+  `planning/status.json`, and new
+  `planning/tasks/task-112.yaml` .. `planning/tasks/task-118.yaml`.
+
+  ## Motivation
+
+  The system today mixes English and German across the source
+  code AND the UI. This is a legacy of the German-first origin
+  (see CLAUDE.md: "The German-language UI and domain vocabulary
+  … are intentional"). Concretely today:
+
+  - **Domain source code** (`:domain`) mixes both:
+      * `EstimationVersion.kt` looks up the daily rate via a
+        magic string key `parameterValue("Tagessatz")`.
+      * `EstimationDefaults` documents "Tagessatz — daily rate
+        in EUR".
+      * `EstimationCalculator` embeds German descriptor strings
+        like `"Gesamtaufwand = Summe aller AngebotsPT"`.
+      * The rest of the sealed hierarchy uses English (`mean`,
+        `variance`, `offerPT`, `bucketId`, `isSample`).
+  - **Backend** (`:backend:implementation`) has German seeder
+    values and German log messages sprinkled in Excel
+    import/export code
+    (`ExcelImporter`/`ExcelExporter` reference sheet names
+    like `"Aufwandstreiber"`, `"Zusammenfassung der
+    Aufwandstreiber"`) plus `TestDataSeeder` inserting a
+    parameter row named `"Tagessatz"`.
+  - **Frontend** (`:frontend`) has ~all UI strings hard-coded
+    in German across every Svelte component
+    (`ParametersPanel`, `UndoHistoryPanel`,
+    `UndoConflictDialog`, the editor page, and many more).
+    No i18n library is in use.
+  - **User** has NO language preference stored on the entity.
+
+  The refactor lands the following invariants:
+
+  1. **English is the ONLY source-code domain language.** Every
+     Kotlin identifier, semantic key (like the parameter
+     lookup name), inline comment, and log message in
+     `:domain` and `:backend` is English.
+  2. **The GUI supports multiple languages via a per-user
+     preference.** The current language modules are DE and EN;
+     more can be added later via the same registry.
+  3. **Backend and domain do not emit translated strings.**
+     They emit stable English machine keys / codes
+     (following the pattern already established by
+     `ChangeDescription.kind` in task-110). The frontend owns
+     translation; adding a language only requires a new JSON
+     catalog + a menu entry.
+  4. **User preference is authoritative and persisted.** A new
+     `users.language` column (char(2), NOT NULL, default
+     `'de'`) with a PUT `/api/auth/me/language` endpoint.
+     Default `'de'` so existing users see today's UI. First
+     sighting via `UserProvisioningFilter` seeds the language
+     from `Accept-Language` when it is `en`; otherwise `de`.
+
+  ## Cross-cutting decisions frozen here (do not re-open in child tasks)
+
+  - **English identifiers, English comments, English logs.**
+    In every `.kt` file under `:domain` and
+    `:backend:implementation`. Rename magic-string semantic
+    keys — the parameter lookup `"Tagessatz"` becomes
+    `"dailyRate"`. Coordinate with a Flyway data migration
+    (see child task-112 below).
+  - **Excel importer/exporter labels are DATA, not source
+    language.** They mirror the CUSTOMER'S Excel workbook,
+    which is in German. Move them into a `ExcelGermanLabels.kt`
+    constants object clearly marked "external Excel schema,
+    not source language" — the importer / exporter keep
+    working on German Excel files, but the surrounding Kotlin
+    code, log messages, and Kotlin identifiers around them are
+    English.
+  - **Backend-emitted user-facing text is codes, not strings.**
+    Exceptions like `UndoConflictException` keep an English
+    developer message for logs but the wire response carries a
+    stable code (`code: "UNDO_CONFLICT"`) plus enough
+    parameters for the frontend to render a translated
+    sentence. `diffSummary` already does this via
+    `ChangeDescription.kind`. The frontend maps codes to text
+    per active language.
+  - **Excel EXPORT stays German for now** (matches the
+    customer's expected workbook). A follow-up phase can add
+    language-aware export.
+  - **Frontend i18n stack.** `svelte-i18n` (the mature
+    de-facto SvelteKit i18n library — reactive `$_('key')`
+    binding, JSON message catalogs, plural + interpolation
+    support). Message catalogs live in
+    `src/frontend/src/lib/i18n/` — one JSON per language
+    (`de.json`, `en.json`) plus `index.ts` exporting the
+    initialised `i18n` instance and a `setUserLanguage(lang)`
+    helper.
+  - **Key naming.** Dot-separated, action-oriented,
+    component-scoped where useful, e.g. `common.button.save`,
+    `panel.parameters.title`, `history.change.parameterChanged`.
+    First language (DE) is a lift-and-shift — every extracted
+    string keeps its current German text under a new key,
+    with no wording change.
+  - **User preference storage.** Flyway
+    `V<N>__user_language.sql` adds `users.language char(2)
+    NOT NULL DEFAULT 'de'`. Note that this migration's number
+    depends on which V-number is next when task-114 lands
+    (phase-15's task-099 reserves V9, task-103 reserves V10).
+    Child task-114 picks the next available `V11` (or higher
+    if phase-15 migrations land first) and this task's
+    description does NOT name a fixed V-number to avoid
+    hard-coding a collision.
+  - **REST for language.** New endpoints on the auth-me area:
+      * `GET  /api/auth/me` — the existing endpoint gains a
+        `language` field on the response.
+      * `PUT  /api/auth/me/language` — body
+        `{language: "de" | "en"}` (JSON), returns 204 on
+        success, 400 for an unsupported code. Logs INFO with
+        the user id and the new language.
+    Reject any language outside the supported set at the wire
+    boundary; frontend and backend share the same enum on
+    `EstimationMethod`-style pattern (a `SupportedLanguage`
+    enum with `DE`, `EN`).
+  - **Where the SupportedLanguage enum lives.** In `:domain`,
+    package `io.github.theestimator.i18n`, `@JsExport`-annotated
+    following the `EstimationVersionStatus.kt` idiom (file-
+    level `@file:OptIn(ExperimentalJsExport::class)`). The
+    domain has no other i18n knowledge; the enum just gives
+    both sides one canonical name for the language codes.
+  - **Number, currency, date formatting.** Introduce
+    `src/frontend/src/lib/format.ts` with `formatCurrency(value,
+    locale)`, `formatNumber(value, locale, options?)`,
+    `formatDate(iso, locale)`. Uses `Intl.NumberFormat` /
+    `Intl.DateTimeFormat`. Currency symbol stays `€`
+    regardless of locale (the tool is EUR-only). Migrate every
+    existing direct `toLocaleString('de-DE')` / hardcoded
+    format call site to the helper.
+  - **Deliverable of task-111 (this task).** Append phase-16
+    to `planning/plan.yaml`, update `planning/README.md`, and
+    create child task YAMLs task-112..task-118.
+  - **Explicit non-goals.** No translation of Excel export
+    output (stays German). No RTL support. No third language
+    beyond DE and EN. No i18n of the German-language
+    business-domain terms IN the code — those are Anglicised
+    outright (`"Tagessatz"` → `"dailyRate"`, not translated as
+    a label pair).
+
+  ## Child task list (with the one-line intent)
+
+  - **task-112** — Domain: rename German semantic keys and
+    comments to English. `"Tagessatz"` becomes `"dailyRate"`;
+    German descriptor strings in `EstimationCalculator`
+    become English; comments and log messages translated.
+    Flyway migration renames existing rows in both
+    `draft_estimation_parameters` and
+    `submitted_estimation_parameters`. `TestDataSeeder`
+    updated. Excel-labels constants file introduced as data,
+    not source language. Existing domain tests still pass
+    (may need string constants updated).
+    `depends_on: [task-111]`.
+
+  - **task-113** — Backend: audit and rename remaining German
+    identifiers, comments, and log messages in
+    `:backend:implementation` to English. Excel
+    importer/exporter keep the German labels via the new
+    constants file but everything else around them is
+    English. Backend tests still pass.
+    `depends_on: [task-112]`.
+
+  - **task-114** — User language preference: Flyway
+    migration `V<next>__user_language.sql` (`users.language
+    char(2) NOT NULL DEFAULT 'de'`), extend `User` entity,
+    extend `CurrentUser` DTO, add `PUT
+    /api/auth/me/language` endpoint, and update
+    `UserProvisioningFilter` to seed language from
+    `Accept-Language` on first sighting. INFO-log on
+    language update. Also introduces the
+    `io.github.theestimator.i18n.SupportedLanguage` `@JsExport`
+    enum in `:domain`.
+    `depends_on: [task-113]`.
+
+  - **task-115** — Frontend i18n foundation and DE catalog.
+    Add `svelte-i18n` dependency. Create
+    `src/lib/i18n/index.ts`, `src/lib/i18n/de.json`. Extract
+    ALL hard-coded German UI strings from every Svelte
+    component into `de.json` under a namespaced key. Every
+    component uses `$_('key')`. No visible UI change — this
+    is a lift-and-shift.
+    `depends_on: [task-114]`.
+
+  - **task-116** — English catalog + language switcher.
+    Add `src/lib/i18n/en.json` with a translation for every
+    key in `de.json`. Language-switcher UI in the user menu
+    (top-right) — writes to `PUT /api/auth/me/language` and
+    updates the active locale reactively. On app startup,
+    read the language from `getAuthProvider().getAccount()`
+    (or the `/api/auth/me` response) and initialise the
+    active locale.
+    `depends_on: [task-115]`.
+
+  - **task-117** — Locale-aware number / currency / date
+    formatting. Introduce `src/lib/format.ts` with
+    `formatCurrency`, `formatNumber`, `formatDate` — all take
+    a locale from the store. Migrate every hardcoded
+    `toLocaleString('de-DE')`, `Intl.NumberFormat('de-DE',
+    …)`, etc. to the helper. Frontend tests / e2e still
+    green.
+    `depends_on: [task-116]`.
+
+  - **task-118** — E2E: Playwright spec covering the
+    language flow. Log in, verify the UI is in German
+    (default), switch to English via the menu, verify UI
+    strings become English, reload the page, verify the
+    language sticks (persisted via `/api/auth/me`). Under
+    the standard e2e budget.
+    `depends_on: [task-117]`.
+
+steps:
+  - |
+    Read the current `planning/plan.yaml`. Confirm the last
+    phase entry is phase-15 (per task-096). Read
+    `planning/README.md`'s Phase-summary table so you know
+    its format.
+  - |
+    Append the phase-16 entry to `planning/plan.yaml`
+    immediately after phase-15:
+      - id: phase-16
+        name: Internationalization
+        duration_weeks: 2
+        tasks: [task-111, task-112, task-113, task-114,
+                task-115, task-116, task-117, task-118]
+    (task-111 is included because it declares
+    `phase: phase-16` — every id in status.json must appear
+    in exactly one phase.)
+  - |
+    Update `planning/README.md`'s Phase-summary table with
+    the row:
+      | 16 | 2 | Internationalization | 111 (planning), 112–118 |
+  - |
+    For each child task in the list (task-112 … task-118),
+    in order:
+      (a) Register the task in `planning/status.json` via
+          `./scripts/task.sh add "<one-line title>"`. The
+          script prints the ID; verify it matches the
+          expected id (task-112, then task-113, …). If it
+          does not match, STOP — the plan assumes contiguous
+          IDs starting at 112; investigate.
+      (b) Write `planning/tasks/<id>.yaml` following the
+          standard task-file structure. The child task's
+          description fully restates its intent (drawn from
+          the corresponding bullet in this task's
+          description) plus references the frozen decisions
+          above so the child task is self-contained for
+          `/implement-task`. Each child task's `steps` name
+          concrete files (Kotlin classes, Flyway file,
+          Svelte components) it will create or edit. Each
+          child task's `validation` includes at least one
+          structural check AND at least one build/test
+          check (`./gradlew build` for full-stack, or the
+          scoped `:module:build` / `:module:check` for
+          single-module tasks). Add logging validation per
+          the CLAUDE.md logging conventions for any child
+          task that adds a backend service/endpoint, a
+          domain operation, or a significant frontend flow.
+      (c) Set each child task's `depends_on` exactly as
+          specified in the child-task list.
+  - |
+    Validate the reconciliation (documentation-only task —
+    the gate is YAML validity + index completeness, not a
+    Gradle build):
+      ruby -ryaml -e "YAML.load_file('planning/plan.yaml'); \
+        puts 'plan.yaml valid'"
+      for t in $(seq -f "task-%03g" 112 118); do
+        ruby -ryaml -e "YAML.load_file('planning/tasks/$t.yaml')" \
+          || { echo "$t invalid"; exit 1; }
+      done
+      test -z "$(comm -23 \
+        <(jq -r '.tasks|keys[]' planning/status.json | sort) \
+        <(grep -oE 'task-[0-9]{3}' planning/plan.yaml | sort -u))"
+      test -z "$(comm -13 \
+        <(jq -r '.tasks|keys[]' planning/status.json | sort) \
+        <(grep -oE 'task-[0-9]{3}' planning/plan.yaml | sort -u))"
+
+validation:
+  - |
+    plan.yaml is valid YAML and contains phase-16 with the
+    expected task list:
+      ruby -ryaml -e "YAML.load_file('planning/plan.yaml')"
+      grep -q "id: phase-16" planning/plan.yaml
+      grep -q "Internationalization" planning/plan.yaml
+      for t in $(seq -f "task-%03g" 112 118); do
+        grep -q "$t" planning/plan.yaml || { echo "$t missing"; exit 1; }
+      done
+  - |
+    Every child task YAML exists and is valid:
+      for t in $(seq -f "task-%03g" 112 118); do
+        test -f "planning/tasks/$t.yaml" || { echo "$t missing"; exit 1; }
+        ruby -ryaml -e "YAML.load_file('planning/tasks/$t.yaml')"
+      done
+  - |
+    Each child task declares phase phase-16:
+      for t in $(seq -f "task-%03g" 112 118); do
+        grep -q "^phase: phase-16$" "planning/tasks/$t.yaml" \
+          || { echo "$t phase mismatch"; exit 1; }
+      done
+  - |
+    No orphans (every id in status.json appears in plan.yaml)
+    and no dangling refs (every id in plan.yaml is registered):
+      test -z "$(comm -23 \
+        <(jq -r '.tasks|keys[]' planning/status.json | sort) \
+        <(grep -oE 'task-[0-9]{3}' planning/plan.yaml | sort -u))"
+      test -z "$(comm -13 \
+        <(jq -r '.tasks|keys[]' planning/status.json | sort) \
+        <(grep -oE 'task-[0-9]{3}' planning/plan.yaml | sort -u))"
+  - |
+    README phase summary was updated:
+      grep -q "Internationalization" planning/README.md
+      grep -q "112.118" planning/README.md \
+        || grep -q "112–118" planning/README.md
+
+outputs:
+  - modified: planning/plan.yaml
+  - modified: planning/README.md
+  - modified: planning/status.json
+  - created: planning/tasks/task-112.yaml
+  - created: planning/tasks/task-113.yaml
+  - created: planning/tasks/task-114.yaml
+  - created: planning/tasks/task-115.yaml
+  - created: planning/tasks/task-116.yaml
+  - created: planning/tasks/task-117.yaml
+  - created: planning/tasks/task-118.yaml

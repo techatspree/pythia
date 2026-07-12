@@ -12,6 +12,7 @@ import io.github.theestimator.rest.dto.toDetailDto
 import io.github.theestimator.rest.dto.toSummaryDto
 import io.github.theestimator.service.EstimationService
 import io.github.theestimator.service.ProjectService
+import io.quarkus.logging.Log
 import jakarta.annotation.security.RolesAllowed
 import jakarta.enterprise.context.ApplicationScoped
 import jakarta.transaction.Transactional
@@ -127,7 +128,8 @@ class ProjectResource(
     fun createEstimation(@PathParam("id") id: UUID, dto: EstimationCreateDto): Response {
         val project = projectRepository.findById(id)
             ?: throw NotFoundException("Project not found: $id")
-        val estimation = estimationService.create(dto.offer, project, dto.description)
+        val estimation = estimationService.create(dto.offer, project, dto.description, dto.method)
+        Log.info("Created estimation ${estimation.id} with method ${dto.method}")
         return Response.status(Response.Status.CREATED).entity(estimation.toSummaryDto()).build()
     }
 

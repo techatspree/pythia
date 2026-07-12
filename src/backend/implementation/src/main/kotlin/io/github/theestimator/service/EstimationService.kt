@@ -2,6 +2,7 @@ package io.github.theestimator.service
 
 import io.github.theestimator.domain.Estimation
 import io.github.theestimator.domain.Project
+import io.github.theestimator.method.EstimationMethod
 import io.github.theestimator.repository.EstimationRepository
 import jakarta.enterprise.context.ApplicationScoped
 import jakarta.transaction.Transactional
@@ -17,11 +18,17 @@ class EstimationService(
     fun findByProjectId(projectId: UUID): List<Estimation> = estimationRepository.findByProjectId(projectId)
 
     @Transactional
-    fun create(offer: String, project: Project, description: String? = null): Estimation {
+    fun create(
+        offer: String,
+        project: Project,
+        description: String? = null,
+        method: EstimationMethod = EstimationMethod.THREE_POINT_PERT
+    ): Estimation {
         val estimation = Estimation().apply {
             this.offer = offer
             this.project = project
             this.description = description
+            this.method = method
         }
         estimationRepository.persist(estimation)
         return estimation

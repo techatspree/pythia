@@ -63,6 +63,8 @@ Method #1 is three-point PERT (task-098): `ThreePointMethodModule` in `io.github
 
 ### Persistence shape
 
+The `estimations` table carries a method column (`method`, `VARCHAR(255)`, V9 migration; JPA `@Enumerated(STRING) var method: EstimationMethod`) — the estimation's `EstimationMethod`, chosen at creation and **immutable** (there is no estimation-update endpoint, so nothing mutates it after create). Every version of one estimation shares its method.
+
 Single self-referential table per side, JPA `SINGLE_TABLE` inheritance with a `node_type` discriminator (`GROUP` | `FIXED` | `TIME_RELATIVE`). Children ordered by an integer `position` column (`@OrderColumn`). The version's `roots` use `@SQLRestriction("parent_id IS NULL")` to pick out the top-level rows.
 
 - **Draft** side: `draft_estimation_nodes` (V6 migration); JPA entity `DraftEstimationNode` with three `@DiscriminatorValue` subclasses (`DraftGroupNode`, `DraftFixedItemNode`, `DraftTimeRelativeItemNode`). Mutable, edited via the REST PUT endpoint.
@@ -165,3 +167,5 @@ Auth endpoints (provider-agnostic, populated by whichever concrete module is act
 - `GET  /api/admin/ping` — `@RolesAllowed("ADMIN")` canary that returns `{message: "pong", user: <subjectId>}`. Used by `e2e/auth.test.ts` to prove role enforcement under the dev module; survives feature churn.
 
 `DraftUpdateDto.roots: List<EstimationNodeUpdateDto>` carries the editable tree (recursive children, `type` discriminator). Responses use `EstimationNodeDto` with calculated fields populated at every level (groups carry accumulated values).
+
+`POST /api/projects/{id}/estimations` (`ProjectResource.createEstimation`) accepts an `EstimationCreateDto` whose `method: EstimationMethod` selects the estimation method (defaults to `THREE_POINT_PERT` when omitted); the estimation read DTOs (`EstimationSummaryDto`, `EstimationDetailDto`) return it. The method is immutable — there is no estimation-update endpoint, so it cannot change after creation.

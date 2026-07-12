@@ -106,6 +106,43 @@ class ProjectResourceIT {
     }
 
     @Test
+    fun `create estimation with an explicit method returns that method`() {
+        val projectId = given()
+            .contentType(ContentType.JSON)
+            .body("""{"name": "Method Project"}""")
+            .post("/api/projects")
+            .then().statusCode(201)
+            .extract().path<String>("id")
+
+        given()
+            .contentType(ContentType.JSON)
+            .body("""{"offer": "EST-METHOD-1", "method": "BUCKET_SAMPLED_PERT"}""")
+            .`when`().post("/api/projects/$projectId/estimations")
+            .then()
+            .statusCode(201)
+            .body("offer", equalTo("EST-METHOD-1"))
+            .body("method", equalTo("BUCKET_SAMPLED_PERT"))
+    }
+
+    @Test
+    fun `create estimation without a method defaults to THREE_POINT_PERT`() {
+        val projectId = given()
+            .contentType(ContentType.JSON)
+            .body("""{"name": "Default Method Project"}""")
+            .post("/api/projects")
+            .then().statusCode(201)
+            .extract().path<String>("id")
+
+        given()
+            .contentType(ContentType.JSON)
+            .body("""{"offer": "EST-METHOD-2"}""")
+            .`when`().post("/api/projects/$projectId/estimations")
+            .then()
+            .statusCode(201)
+            .body("method", equalTo("THREE_POINT_PERT"))
+    }
+
+    @Test
     fun `filter by status returns only matching projects`() {
         given()
             .contentType(ContentType.JSON)

@@ -52,6 +52,7 @@ class EstimationResourceIT {
             .body("id", equalTo(estimationId.toString()))
             .body("offer", equalTo("EST-IT-001"))
             .body("description", equalTo("Integration test estimation"))
+            .body("method", equalTo("THREE_POINT_PERT"))
             .body("hasDraft", equalTo(false))
             .body("versions.size()", equalTo(0))
     }

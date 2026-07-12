@@ -2,9 +2,12 @@ package io.github.theestimator.domain
 
 import io.github.theestimator.domain.draft.DraftEstimationVersion
 import io.github.theestimator.domain.submitted.SubmittedEstimationVersion
+import io.github.theestimator.method.EstimationMethod
 import jakarta.persistence.CascadeType
 import jakarta.persistence.Column
 import jakarta.persistence.Entity
+import jakarta.persistence.EnumType
+import jakarta.persistence.Enumerated
 import jakarta.persistence.FetchType
 import jakarta.persistence.JoinColumn
 import jakarta.persistence.ManyToOne
@@ -23,6 +26,12 @@ class Estimation : BaseEntity() {
     var offer: String? = null
 
     var description: String? = null
+
+    // Chosen at creation and immutable thereafter (no estimation-update
+    // endpoint). VARCHAR(255) via @Enumerated(STRING); defaults to PERT.
+    @Enumerated(EnumType.STRING)
+    @Column(name = "method", nullable = false)
+    var method: EstimationMethod = EstimationMethod.THREE_POINT_PERT
 
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "project_id", nullable = false)

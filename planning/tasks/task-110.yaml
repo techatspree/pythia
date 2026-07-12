@@ -1,0 +1,349 @@
+id: task-110
+phase: phase-12
+title: Verlauf — meaningful per-mutation summary instead of raw kind
+depends_on: [task-077]
+description: |
+  Refactor the mutation-log "Verlauf" panel so each entry shows a
+  human-readable summary of what actually changed in that PUT,
+  rather than the raw internal kind string.
+
+  ## Current state (the problem)
+
+  Every draft PUT records a `DraftMutationLogEntry` with
+  `kind = "REPLACE_WHOLE_DRAFT"` (see
+  `src/domain/src/main/kotlin/io/github/theestimator/model/mutation/DraftMutation.kt`:
+  `ReplaceWholeDraft.kind`). `EstimationVersion.diff(other)`
+  (`.../mutation/Diff.kt`) currently returns exactly one variant —
+  `ReplaceWholeDraft(before, after)` — carrying the whole before /
+  after `EstimationVersion` snapshots.
+
+  The wire DTO
+  `src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/dto/MutationLogEntryDto.kt`
+  exposes only `kind`, `userDisplayName`, `createdAt`, `status`,
+  the technical `sequenceNumber`/`revisionBefore`/`revisionAfter`,
+  and `undoneAt`.
+
+  `src/frontend/src/lib/components/UndoHistoryPanel.svelte`
+  renders each row as `<entry.kind> · <userDisplayName> · <relative
+  time>` with an "Aktiv" / "Rückgängig gemacht" badge. Because
+  `entry.kind` is always the literal string `REPLACE_WHOLE_DRAFT`,
+  the user cannot see WHAT was done — e.g. that "Tagessatz 800 →
+  900 €" or "'Login-Formular' zu 'Frontend' hinzugefügt".
+
+  ## Target state
+
+  Each history row displays a **structured, human-readable list**
+  of the actual changes that PUT introduced, for example:
+
+  ```
+  Tino Meier · vor 5 min                           [Aktiv]
+    · Tagessatz: 800 € → 900 €
+    · Element 'Login-Formular' zu Gruppe 'Frontend' hinzugefügt
+    · Optimistisch bei 'Session-Timeout': 2 → 3 PT
+    ( + 12 weitere Änderungen )
+  ```
+
+  ## Frozen decisions
+
+  - **Where the diff logic lives.** In `:domain`, package
+    `io.github.theestimator.model.mutation`, next to the existing
+    `diff()` function. Add a pure function
+    `EstimationVersion.diffSummary(other): List<ChangeDescription>`
+    that walks the two versions and returns a closed set of
+    structured change entries. This is the **single source of
+    truth** — backend and frontend do NOT reimplement it. The
+    result is deterministic (order comes from a stable walk of
+    the tree in `roots`, followed by parameters, drivers, phases,
+    additional costs, notes, then leaf-level PT changes for
+    matched leaves).
+  - **Closed set of `ChangeDescription`s** (@JsExport + sealed,
+    same idiom as `DraftMutation`):
+      * `ParameterChanged(name, oldValue, newValue)` — `dailyRate`,
+        `riskFactor`, `driverFactor`, and any other scalar on
+        `EstimationParameters`; `name` is a stable machine key
+        (e.g. `"dailyRate"`).
+      * `PhaseAdded(title)` / `PhaseRemoved(title)`
+      * `PhaseChanged(title, field, oldValue, newValue)` — one
+        entry per changed field on a matched phase (matched by
+        `id`).
+      * `EffortDriverAdded(name)` / `EffortDriverRemoved(name)`
+      * `EffortDriverChanged(name, field, oldValue, newValue)`
+      * `AdditionalCostAdded(title)` / `AdditionalCostRemoved(title)`
+      * `AdditionalCostChanged(title, field, oldValue, newValue)`
+      * `NodeAdded(path, nodeType)` / `NodeRemoved(path,
+        nodeType)` — `path` is the slash-joined titles from the
+        root (e.g. `"Frontend/Login-Formular"`); `nodeType`
+        matches the sealed EstimationNode discriminator
+        (`GROUP` / `FIXED` / `TIME_RELATIVE` / `BUCKETED` once
+        task-103 lands).
+      * `NodeRenamed(pathBefore, oldTitle, newTitle)`
+      * `NodeMoved(pathBefore, pathAfter)`
+      * `NodeValueChanged(path, field, oldValue, newValue)` —
+        one entry per changed leaf field (`optimistic`,
+        `likely`, `pessimistic`, `phaseId`, etc.).
+      * `NotesChanged`
+      * `OtherChange(kind)` — fallback for anything the walker
+        cannot classify (guard against future model growth).
+    All values are stringified via a common `formatValue(Any?):
+    String` helper (numbers with the German number style
+    `1.234,56`, nulls as `"–"`); the frontend does NOT re-parse
+    or re-format.
+  - **Node matching for rename/move detection.** Match nodes by
+    stable `id` between the two trees. `NodeAdded` / `NodeRemoved`
+    are reported only for ids present on exactly one side.
+    A matched pair with a changed title yields `NodeRenamed`;
+    a matched pair with a changed parent path yields `NodeMoved`
+    (both may fire for the same node — that's fine, the panel
+    lists both).
+  - **Cap.** `diffSummary` returns at most 25 entries. If more
+    changes exist, the 25th entry is replaced with a special
+    `Truncated(remaining: Int)` variant carrying the count so the
+    panel can render "( + X weitere Änderungen )". No unbounded
+    lists on the wire.
+  - **On which side is the summary computed.** At READ time on
+    the backend, from the stored `payload` (which carries the
+    before + after `DraftUpdateDto` snapshots already —
+    `UndoService.recordMutation`). No schema migration; no
+    duplicate storage. The mutation-log rows on disk stay
+    exactly as they are today.
+  - **Wire format.** Extend `MutationLogEntryDto` with
+    `summary: List<ChangeSummaryDto>`, where `ChangeSummaryDto`
+    is a flat DTO with `kind: String` (matches the domain
+    variant name, e.g. `"PARAMETER_CHANGED"`), optional
+    `path: String?`, optional `field: String?`, optional
+    `oldValue: String?`, optional `newValue: String?`,
+    optional `nodeType: String?`, optional `remaining: Int?`.
+    Only fields relevant to the variant are populated; the
+    frontend switches on `kind`. This keeps the OpenAPI schema
+    stable and additive.
+  - **Frontend rendering.** `UndoHistoryPanel.svelte` iterates
+    `entry.summary` and formats each in German via a small
+    per-variant lookup in the same component. All strings are
+    hard-coded German (matching the existing German UI). Long
+    lists are visually capped with a small `<details>` disclosure
+    for entries beyond the first 5 shown lines (independent of
+    the 25-cap on the wire). Preserve the existing "Aktiv" /
+    "Rückgängig gemacht" badge and the user/time header.
+  - **Fallback for legacy rows.** If the stored payload cannot be
+    deserialised into a valid before/after pair (e.g. schema
+    drift from a very old row), the mapper falls back to a
+    single `OtherChange(kind = entry.kind)` entry and logs a WARN.
+    Never fail the history endpoint.
+  - **`kind` field stays on the wire.** Do NOT drop the existing
+    `kind` field from `MutationLogEntryDto` — external consumers
+    (tests, potential telemetry) may rely on it. It becomes
+    redundant for UI purposes; the panel just stops rendering it
+    directly.
+  - **Logging.** Domain function is pure; use
+    `KotlinLogging.logger { }` lambda form for a `debug` line
+    with the entry count. Backend mapper logs `Log.debug` per
+    summarised entry (id + change count); logs `Log.warn` on
+    payload-deserialisation failure. Frontend panel emits
+    `log.debug` from `$lib/log.ts` on mount with entry count.
+    Never bare `console.*`.
+
+  ## What does NOT belong in this task
+
+  - No change to `DraftMutation` sealed variants (still
+    `ReplaceWholeDraft`); the summary is an ADDITIONAL, richer
+    view on the same before/after snapshot — the internal
+    mutation representation stays.
+  - No schema migration; no new column on `draft_mutation_log`.
+  - No i18n framework — the panel keeps hard-coded German
+    strings, matching the existing UI convention.
+  - No changes to undo/redo semantics or the conflict-detection
+    rules.
+  - Not blocked by the phase-15 method work; treat the diff as
+    method-agnostic (it walks the neutral `EstimationVersion`
+    shape). If task-102's `BucketedEstimationItem` lands first,
+    add the corresponding leaf-field cases; otherwise limit to
+    the currently supported leaves.
+
+steps:
+  - |
+    Read the current bits so nothing gets missed:
+      src/domain/src/main/kotlin/io/github/theestimator/model/mutation/DraftMutation.kt
+      src/domain/src/main/kotlin/io/github/theestimator/model/mutation/Diff.kt
+      src/domain/src/main/kotlin/io/github/theestimator/model/EstimationVersion.kt
+      src/domain/src/main/kotlin/io/github/theestimator/model/EstimationNode.kt
+      src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/dto/MutationLogEntryDto.kt
+      src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/dto/MutationLogMapper.kt
+      src/backend/implementation/src/main/kotlin/io/github/theestimator/service/DraftMutationJackson.kt
+      src/backend/implementation/src/main/kotlin/io/github/theestimator/service/UndoService.kt   (payload shape only)
+      src/frontend/src/lib/components/UndoHistoryPanel.svelte
+      src/frontend/src/lib/api/schema.d.ts    (to confirm the generated MutationLogEntryDto)
+  - |
+    Add
+    `src/domain/src/main/kotlin/io/github/theestimator/model/mutation/ChangeDescription.kt`
+    with the sealed hierarchy above. Follow the DraftMutation
+    idiom: `@file:OptIn(ExperimentalJsExport::class)`,
+    `@JsExport @DomainEntity sealed class ChangeDescription { …
+    }`. Each variant is a `data class`; scalar `oldValue` /
+    `newValue` fields are `String?` so the frontend does not need
+    to know the underlying type.
+  - |
+    Add
+    `src/domain/src/main/kotlin/io/github/theestimator/model/mutation/DiffSummary.kt`
+    with:
+      fun EstimationVersion.diffSummary(other: EstimationVersion):
+          List<ChangeDescription>
+    Walk order (stable): parameters → drivers → phases →
+    additional costs → notes → tree (roots recursively). Use
+    the existing `id`-based matching wherever collections have
+    stable ids; fall back to positional matching only for the
+    root-level list (with an `id`-preferring pairing helper —
+    write a small internal `pair(byId, byIndex)` function; do
+    not inline it three times). Apply the 25-entry cap: if the
+    walker produces > 25 raw entries, keep the first 24, then
+    append `Truncated(remaining = raw.size - 24)`. Emit a
+    `logger.debug { "diffSummary produced ${result.size} entries
+    (cap 25)" }` (lambda form) at the end.
+  - |
+    Add domain tests in
+    `src/domain/src/test/kotlin/io/github/theestimator/model/mutation/DiffSummaryTest.kt`
+    (JVM `src/test`, JUnit 5, per the existing pattern):
+      * Two identical versions → empty list.
+      * Change `dailyRate` → single `ParameterChanged("dailyRate",
+        …, …)`.
+      * Add / remove / rename a leaf, add / remove a group, move
+        a leaf, change one PT value on a leaf — each yields the
+        expected variant with the correct path.
+      * NotesChanged when only notes differ.
+      * More than 25 changes → the last entry is `Truncated(N)`
+        with `N == raw - 24`.
+      * Whole-tree replace produces a bounded list.
+  - |
+    Extend the wire DTO. Add
+    `src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/dto/ChangeSummaryDto.kt`
+    with the flat DTO shape above. Extend
+    `MutationLogEntryDto` with `summary: List<ChangeSummaryDto>`.
+    Keep the existing fields untouched.
+  - |
+    Update
+    `src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/dto/MutationLogMapper.kt`
+    (which currently has `DraftMutationLogEntry.toLogDto()`):
+      * Inject `DraftMutationJackson` (or thread it through the
+        caller) so the mapper can deserialise `payload` back into
+        `StoredMutation(kind, before, after)`.
+      * Reconstruct a domain `EstimationVersion` for both
+        `before` and `after` via the same path
+        `DraftUpdateApplier` uses today; if that path is not
+        readily reachable from the mapper, add a small
+        internal helper `toDomain(DraftUpdateDto):
+        EstimationVersion` and use it here (the applier already
+        knows this conversion).
+      * Call `before.diffSummary(after)` and map each
+        `ChangeDescription` to a `ChangeSummaryDto`.
+      * `Log.debug` with entry id + summary count.
+      * On deserialisation failure: `Log.warn`, return a
+        single-element summary
+        `[ChangeSummaryDto(kind = "OTHER_CHANGE", …)]`, never
+        throw.
+    Adjust callers (`historyFor` in `UndoService` /
+    `EstimationVersionResource.history`) so they still just
+    return the list — the mapper does the enrichment.
+  - |
+    Add a `@QuarkusTest` in
+    `.../rest/EstimationVersionResourceIT.kt` that PUTs two
+    changes to a draft (change dailyRate, then add a leaf), GETs
+    `/api/estimations/{eid}/versions/draft/history`, and asserts
+    the response contains the two entries with the expected
+    `summary[].kind` values and `oldValue`/`newValue` on the
+    parameter change.
+  - |
+    Regenerate the frontend OpenAPI-typed client:
+      cd src/frontend && npm run gen:api
+    Confirm `MutationLogEntryDto` in `schema.d.ts` now includes
+    `summary`.
+  - |
+    Update
+    `src/frontend/src/lib/components/UndoHistoryPanel.svelte`:
+      * Replace the single-line `<entry.kind>` rendering with:
+          – A header row: user · relative time · Aktiv/Rückgängig
+            badge (existing content, minus the raw kind).
+          – A list of summary lines: iterate `entry.summary`,
+            switch on `line.kind`, format via a small local
+            dictionary of hard-coded German strings.
+          – When `entry.summary.length > 5`, wrap the tail in a
+            `<details>` disclosure ("weitere Änderungen anzeigen").
+          – When a line's `kind == "TRUNCATED"`, render "( +
+            {remaining} weitere Änderungen serverseitig )" so the
+            user knows there's a wire cap.
+        Never render raw `entry.kind` text in the UI.
+      * Emit `log.debug` on mount with the entry count.
+      * No `console.*`; errors continue to surface via
+        `ErrorBanner` as elsewhere.
+  - |
+    Add / extend the frontend unit / Playwright coverage:
+      * If a component test harness exists, add a small test that
+        renders the panel with a fixture entry whose `summary`
+        has both a scalar change and a `Truncated` marker, and
+        asserts the German strings appear.
+      * Extend the existing undo-flow Playwright spec (or add a
+        small spec) to make one edit, open the Verlauf panel,
+        and assert the change line appears (e.g. contains
+        "Tagessatz").
+  - |
+    Update `CLAUDE.md` "Undo log" subsection (in "Persistence
+    shape") with a one-line note that `MutationLogEntryDto` now
+    carries a summary computed on the fly from the stored
+    payload by `EstimationVersion.diffSummary`.
+  - |
+    Build (full stack — this touches domain, backend, frontend):
+      ./gradlew :domain:build
+      ./gradlew :backend:implementation:test
+      ./gradlew :frontend:check
+      ./gradlew build
+
+validation:
+  - |
+    Domain diff-summary function and its tests exist:
+      test -f src/domain/src/main/kotlin/io/github/theestimator/model/mutation/ChangeDescription.kt
+      test -f src/domain/src/main/kotlin/io/github/theestimator/model/mutation/DiffSummary.kt
+      test -f src/domain/src/test/kotlin/io/github/theestimator/model/mutation/DiffSummaryTest.kt
+      grep -q "fun EstimationVersion.diffSummary" src/domain/src/main/kotlin/io/github/theestimator/model/mutation/DiffSummary.kt
+      grep -q "sealed class ChangeDescription" src/domain/src/main/kotlin/io/github/theestimator/model/mutation/ChangeDescription.kt
+  - |
+    Kotlin/JS export idiom present and no super-property pitfall:
+      grep -q "@file:OptIn(ExperimentalJsExport::class)" src/domain/src/main/kotlin/io/github/theestimator/model/mutation/ChangeDescription.kt
+      grep -q "@JsExport" src/domain/src/main/kotlin/io/github/theestimator/model/mutation/ChangeDescription.kt
+      ! grep -rE "super\\.mean|super\\.variance|super\\.offerPT" src/domain/src/main/kotlin/io/github/theestimator/model/mutation/
+  - |
+    Domain logging idiom used:
+      grep -q "KotlinLogging.logger" src/domain/src/main/kotlin/io/github/theestimator/model/mutation/DiffSummary.kt
+      grep -q "logger.debug" src/domain/src/main/kotlin/io/github/theestimator/model/mutation/DiffSummary.kt
+  - |
+    Backend wire DTO extended and mapper populates the summary:
+      test -f src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/dto/ChangeSummaryDto.kt
+      grep -q "summary" src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/dto/MutationLogEntryDto.kt
+      grep -q "diffSummary" src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/dto/MutationLogMapper.kt
+      grep -q "Log.debug\|Log.warn" src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/dto/MutationLogMapper.kt
+  - |
+    Generated frontend schema includes the new summary field:
+      grep -q "summary" src/frontend/src/lib/api/schema.d.ts
+  - |
+    Frontend panel no longer renders raw `entry.kind` and uses
+    the log facade:
+      ! grep -q "{entry.kind}" src/frontend/src/lib/components/UndoHistoryPanel.svelte
+      grep -q "entry.summary" src/frontend/src/lib/components/UndoHistoryPanel.svelte
+      grep -q "from '\$lib/log'" src/frontend/src/lib/components/UndoHistoryPanel.svelte
+      ! grep -nE "^\\s*console\\." src/frontend/src/lib/components/UndoHistoryPanel.svelte
+  - |
+    CLAUDE.md documents the enriched history:
+      grep -q "diffSummary\|Verlauf" CLAUDE.md
+  - |
+    Full-stack build is green:
+      ./gradlew build
+
+outputs:
+  - created: src/domain/src/main/kotlin/io/github/theestimator/model/mutation/ChangeDescription.kt
+  - created: src/domain/src/main/kotlin/io/github/theestimator/model/mutation/DiffSummary.kt
+  - created: src/domain/src/test/kotlin/io/github/theestimator/model/mutation/DiffSummaryTest.kt
+  - created: src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/dto/ChangeSummaryDto.kt
+  - modified: src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/dto/MutationLogEntryDto.kt
+  - modified: src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/dto/MutationLogMapper.kt
+  - modified: src/backend/implementation/src/test/kotlin/io/github/theestimator/rest/EstimationVersionResourceIT.kt
+  - modified: src/frontend/src/lib/api/openapi.json
+  - modified: src/frontend/src/lib/api/schema.d.ts
+  - modified: src/frontend/src/lib/components/UndoHistoryPanel.svelte
+  - modified: CLAUDE.md

@@ -591,9 +591,9 @@
       "notes": "PERT-as-method-1: repackage FixedEstimationItem + TimeRelativeEstimationItem behind SPI"
     },
     "task-099": {
-      "status": "pending",
-      "started_at": null,
-      "completed_at": null,
+      "status": "done",
+      "started_at": "2026-07-12T13:46:22+00:00",
+      "completed_at": "2026-07-12T13:53:24+00:00",
       "notes": "Backend: add method column on Estimation (Flyway V9), immutable after create"
     },
     "task-100": {
@@ -655,6 +655,18 @@
       "started_at": null,
       "completed_at": null,
       "notes": "Move the undo/redo history from below the grid to a collapsible section directly under the toolbar (follow-up to task-077)"
+    },
+    "task-110": {
+      "status": "pending",
+      "started_at": null,
+      "completed_at": null,
+      "notes": "Verlauf history — show meaningful per-mutation summary (what actually changed) instead of raw kind"
+    },
+    "task-111": {
+      "status": "pending",
+      "started_at": null,
+      "completed_at": null,
+      "notes": "Plan phase-16: i18n — English source language + per-user language switch with DE/EN modules"
     }
   }
 }
