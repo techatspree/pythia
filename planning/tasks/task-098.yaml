@@ -10,42 +10,57 @@ description: |
 
   ## Frozen decisions (from task-096)
 
-  - **Package.** The PERT method module lives in
-    `io.github.theestimator.method.threepoint`. The existing leaf
-    types `FixedEstimationItem` and `TimeRelativeEstimationItem`
-    (currently under `io.github.theestimator.model`) MOVE into this
-    package alongside `ThreePointMethodModule`. Update every
-    import site accordingly. The sealed hierarchy root
-    `EstimationItem` (and `EstimationNode`, `EstimationGroup`)
-    stay in `io.github.theestimator.model`, since they are
-    method-agnostic.
+  - **Package (revised — sealed-class constraint).** The PERT method
+    module `ThreePointMethodModule` lives in
+    `io.github.theestimator.method.threepoint`. The existing leaf types
+    `FixedEstimationItem` and `TimeRelativeEstimationItem` **STAY in
+    `io.github.theestimator.model`** — they are subclasses of the
+    `sealed class EstimationItem`, and Kotlin requires all subclasses of
+    a sealed class to be in the SAME package and module as the sealed
+    root. Moving them to `method.threepoint` would not compile. So the
+    "one package per method" rule applies to the METHOD MODULE class, not
+    to the sealed leaf types (which are pinned to `model` by the sealed
+    hierarchy). `ThreePointMethodModule` simply imports the existing
+    `io.github.theestimator.model.FixedEstimationItem` /
+    `TimeRelativeEstimationItem`. No leaf-type move, and therefore NO
+    import-site churn across `:domain` / `:backend` / `:frontend`.
+    (This supersedes the task-096 "move the leaf types" note; the same
+    constraint applies to task-102's `BucketedEstimationItem`, which must
+    also live in `model`.)
   - **Behaviour parity.** The PERT calculation stays byte-identical
     to today's `EstimationVersion.calculate()`; the module is a
     thin wrapper that delegates to the existing per-leaf mapping.
     The submitted-side neutral columns
     (`mean`/`variance`/`offerPT`/`cost`/`offerPrice`) are still
     what get persisted for PERT-method estimations.
-  - **Registration.** `ThreePointMethodModule` calls
-    `EstimationMethodRegistry.register(this)` from a module
-    bootstrap: define a top-level `internal fun registerThreePointMethod()`
-    in the package and invoke it eagerly from a Kotlin `init {}`
-    block on the `EstimationMethodModule` object accessor, OR
-    from an existing domain entry point that both `:backend` and
-    `:frontend` reach (safest: expose an `installStandardMethods()`
-    function on the registry object that domain callers invoke
-    once — call it from `EstimationVersion.Companion` init or a
-    similar always-hit surface). Decide during implementation and
-    document the choice inline; the only hard requirement is that
-    the registry contains the PERT module by the time
-    `EstimationVersion.calculate()` runs.
-  - **Export writer.** Move the existing xlsx/csv PERT column
-    logic out of the current backend export code and into
-    `ThreePointMethodModule.exportRow` /
-    `.exportColumnHeaders`. The dispatch layer that consumes it
-    lands in task-107; until then, the backend's export code path
-    can still call the module directly for its single existing
-    method. The unit tests must exercise the module's row + header
-    output.
+  - **Registration.** Expose an `installStandardMethods()` function on
+    `EstimationMethodRegistry` that registers the PERT module (and, in
+    task-102, the bucket module), and invoke it from an `init {}` block on
+    the `EstimationMethodRegistry` object so the registry self-populates
+    the first time it is touched. Caveat (from task-097): a Kotlin
+    `object`'s `init {}` runs lazily on first access, so anything that
+    reads the registry (the export writers' `require(...)`, or a test)
+    triggers it — that is sufficient here since nothing needs the module
+    before the registry is first accessed. Tests must still call
+    `installStandardMethods()` (or touch the registry) explicitly and
+    reset with `clear()` between cases. Note this couples the
+    otherwise method-agnostic registry to the concrete
+    `ThreePointMethodModule`; that is an accepted, documented trade-off
+    for eager self-registration (leave a one-line comment saying so).
+  - **Export writer.** The backend export writers are
+    `ExcelExporter.kt` and `CsvExporter.kt` in
+    `io.github.theestimator.service`. Move only the PERT COLUMN DATA — the
+    method-specific header names and the per-leaf string cells — into
+    `ThreePointMethodModule.exportColumnHeaders` / `.exportRow` (both
+    return `List<String>`, KMP-safe). The actual file writing (Apache
+    POI for xlsx, CSV formatting) is JVM-only and STAYS in the backend
+    writers; they just source the method-specific columns from the
+    module. Because only one method exists in this task, the writers call
+    `EstimationMethodRegistry.require(EstimationMethod.THREE_POINT_PERT)`
+    directly (hardcoded) — do NOT reference `estimation.method`, which
+    does not exist until task-099. The registry-driven dispatch by
+    `estimation.method` lands in task-107. The unit tests must exercise
+    the module's row + header output.
   - **Kotlin/JS pitfall.** The existing PERT sealed hierarchy
     already inlines its parent formulas (see the note in
     `TimeRelativeEstimationItem.kt`). Preserve that; DO NOT
@@ -60,56 +75,50 @@ description: |
   - `io/github/theestimator/method/threepoint/ThreePointMethodModule.kt`
     implementing `EstimationMethodModule` with `method =
     EstimationMethod.THREE_POINT_PERT`; delegates to the existing
-    per-leaf calculation.
-  - Move `FixedEstimationItem.kt` and
-    `TimeRelativeEstimationItem.kt` from
-    `io/github/theestimator/model/` into
-    `io/github/theestimator/method/threepoint/`. Every import site
-    across `:domain`, `:backend:implementation`, and `:frontend`
-    (Kotlin/JS generated bindings — check `src/lib/domain/*` after
-    a rebuild) updates accordingly.
-  - Registry bootstrap that installs the PERT module before any
-    `calculate()` call (see decision above).
-  - Unit tests in `io/github/theestimator/method/threepoint/` for
-    the module's calculate + export writer methods (round-trip
-    on a fixed / time-relative sample, and column header/row
-    length match).
-  - Delete any dead code in backend/frontend that is now
-    superseded by the module. Do NOT delete the existing PERT
-    backend export path yet — task-107 will finish that; the
-    module simply becomes the single source of the column shape.
+    per-leaf calculation (`EstimationItem.withCalculationParameters`).
+    It imports the existing `io.github.theestimator.model.FixedEstimationItem`
+    / `TimeRelativeEstimationItem` — the leaf types are NOT moved (they
+    are sealed subclasses pinned to `model`).
+  - `installStandardMethods()` added to `EstimationMethodRegistry`, called
+    from the registry's `init {}` (see decision above).
+  - PERT column data moved into the module's `exportColumnHeaders` /
+    `exportRow`; `ExcelExporter.kt` / `CsvExporter.kt` updated to source
+    those columns via `EstimationMethodRegistry.require(
+    EstimationMethod.THREE_POINT_PERT)`. POI/CSV formatting stays in the
+    backend writers.
+  - JUnit 5 unit test at
+    `src/domain/src/test/kotlin/io/github/theestimator/method/threepoint/ThreePointMethodModuleTest.kt`
+    (JVM `src/test` source set — there is no `commonTest`) for the
+    module's calculate + export methods (round-trip on a fixed /
+    time-relative sample, and `exportColumnHeaders().size ==
+    exportRow(item).size`, plus the module is present after
+    `installStandardMethods()`).
+  - Do NOT delete the existing PERT backend export path — task-107 owns
+    the dispatch refactor. This task only makes the module the single
+    source of the PERT column shape. (No other code is superseded; the
+    dead-code sweep from the original plan is dropped — there is no
+    behaviour change here.)
   - `CLAUDE.md` update as noted.
 
 steps:
   - |
-    Read the current PERT hierarchy:
+    Read the current PERT hierarchy (nothing here moves — the leaf
+    types are sealed subclasses pinned to `model`):
       src/domain/src/main/kotlin/io/github/theestimator/model/
         EstimationItem.kt (sealed root — stays)
-        FixedEstimationItem.kt (moves)
-        TimeRelativeEstimationItem.kt (moves)
-        EstimationGroup.kt (stays — method-agnostic)
+        FixedEstimationItem.kt (stays)
+        TimeRelativeEstimationItem.kt (stays)
+        EstimationGroup.kt (stays)
         EstimationVersion.kt (stays)
-    Read the current backend export path
-    (`EstimationVersionResource` + associated export writer under
-    `.../rest/export/` or `.../service/export/`) to understand the
-    PERT column shape that needs to move.
+    Read the current backend export writers
+    `src/backend/implementation/src/main/kotlin/io/github/theestimator/service/ExcelExporter.kt`
+    and `.../service/CsvExporter.kt` (and their tree tests
+    `ExcelExporterTreeTest.kt` / `CsvExporterTreeTest.kt`) to identify
+    the PERT-specific columns (header names + per-leaf string cells)
+    whose data-shaping will move into the module.
   - |
-    Create package
+    Create the package
       src/domain/src/main/kotlin/io/github/theestimator/method/threepoint/
-    Move `FixedEstimationItem.kt` and
-    `TimeRelativeEstimationItem.kt` into it (update `package`
-    declarations). Do NOT change their internals.
-  - |
-    Update every Kotlin import in `:domain` and
-    `:backend:implementation` from
-    `io.github.theestimator.model.FixedEstimationItem` /
-    `io.github.theestimator.model.TimeRelativeEstimationItem` to
-    `io.github.theestimator.method.threepoint.…`. Rebuild
-    `:domain:packageTypescript` so the frontend `src/lib/domain`
-    reflects the new package (run `./gradlew :domain:clean
-    :domain:build :frontend:clean :frontend:check` per the
-    CLAUDE.md advice about stale `.d.mts`).
-  - |
     Add `ThreePointMethodModule.kt` implementing the SPI:
       class ThreePointMethodModule : EstimationMethodModule {
         override val method = EstimationMethod.THREE_POINT_PERT
@@ -129,18 +138,23 @@ steps:
     `EstimationMethodRegistry` itself; document the decision in a
     one-line comment.
   - |
-    Move the PERT xlsx/csv column shape into the module's export
-    hooks. The backend export writer today has hard-coded PERT
-    columns — copy that shape into
-    `ThreePointMethodModule.exportColumnHeaders` /
-    `.exportRow`. Update the existing backend writer to call the
-    module (via `EstimationMethodRegistry.require(estimation.method)`).
-    A cleaner registry-driven dispatch layer arrives in task-107;
-    this task only makes sure the SPI-owned data-shaping is what
-    fills the file today.
+    Move the PERT column DATA-shaping into the module's export hooks.
+    Copy the PERT-specific header names into
+    `ThreePointMethodModule.exportColumnHeaders()` and the per-leaf
+    string cells into `.exportRow(item)` (both `List<String>`). Update
+    `ExcelExporter.kt` and `CsvExporter.kt` to source those columns from
+    `EstimationMethodRegistry.require(EstimationMethod.THREE_POINT_PERT)`
+    — hardcoded, since only one method exists (do NOT use
+    `estimation.method`; that field arrives in task-099). POI/CSV
+    formatting stays in the backend writers. The existing
+    `ExcelExporterTreeTest.kt` / `CsvExporterTreeTest.kt` must still pass
+    unchanged (byte-identical output).
   - |
-    Add unit tests in
-    `src/domain/src/commonTest/kotlin/io/github/theestimator/method/threepoint/ThreePointMethodModuleTest.kt`:
+    Add a JUnit 5 unit test at
+    `src/domain/src/test/kotlin/io/github/theestimator/method/threepoint/ThreePointMethodModuleTest.kt`
+    (JVM `src/test` source set, `org.junit.jupiter.api` — NOT
+    `commonTest`/kotlin.test), resetting the registry with
+    `EstimationMethodRegistry.clear()` in `@BeforeEach`/`@AfterEach`:
       * `calculate` on a `FixedEstimationItem` returns the same
         values the pre-refactor path produced (assert against
         hand-computed numbers or against
@@ -151,10 +165,14 @@ steps:
         `installStandardMethods()`.
   - |
     Update `CLAUDE.md` "Domain model: trees, not flat groups"
-    section with the one-line note that PERT (fixed + time-
-    relative leaves) now lives in package
+    section (the SPI subsection added in task-097) with a one-line note
+    that the PERT method module lives in
     `io.github.theestimator.method.threepoint` and is registered by
-    `EstimationMethodRegistry.installStandardMethods()`.
+    `EstimationMethodRegistry.installStandardMethods()` — and that the
+    sealed leaf types `FixedEstimationItem` / `TimeRelativeEstimationItem`
+    stay in `io.github.theestimator.model` (the sealed-class package rule
+    means per-method leaf types cannot move out of the sealed root's
+    package).
   - |
     Run the domain, backend, and frontend builds to prove
     behaviour parity:
@@ -165,15 +183,17 @@ steps:
 
 validation:
   - |
-    The PERT method module and its tests exist:
+    The PERT method module and its JUnit 5 test exist:
       test -f src/domain/src/main/kotlin/io/github/theestimator/method/threepoint/ThreePointMethodModule.kt
-      test -f src/domain/src/commonTest/kotlin/io/github/theestimator/method/threepoint/ThreePointMethodModuleTest.kt
+      test -f src/domain/src/test/kotlin/io/github/theestimator/method/threepoint/ThreePointMethodModuleTest.kt
+      grep -q "org.junit.jupiter.api" src/domain/src/test/kotlin/io/github/theestimator/method/threepoint/ThreePointMethodModuleTest.kt
   - |
-    Fixed and time-relative items moved to the new package:
-      test -f src/domain/src/main/kotlin/io/github/theestimator/method/threepoint/FixedEstimationItem.kt
-      test -f src/domain/src/main/kotlin/io/github/theestimator/method/threepoint/TimeRelativeEstimationItem.kt
-      ! test -f src/domain/src/main/kotlin/io/github/theestimator/model/FixedEstimationItem.kt
-      ! test -f src/domain/src/main/kotlin/io/github/theestimator/model/TimeRelativeEstimationItem.kt
+    The sealed leaf types STAYED in `model` (not moved — sealed-class
+    package rule), and the module references them from there:
+      test -f src/domain/src/main/kotlin/io/github/theestimator/model/FixedEstimationItem.kt
+      test -f src/domain/src/main/kotlin/io/github/theestimator/model/TimeRelativeEstimationItem.kt
+      ! test -f src/domain/src/main/kotlin/io/github/theestimator/method/threepoint/FixedEstimationItem.kt
+      ! test -f src/domain/src/main/kotlin/io/github/theestimator/method/threepoint/TimeRelativeEstimationItem.kt
   - |
     PERT module registers itself and logs at INFO:
       grep -q "EstimationMethodRegistry.register" src/domain/src/main/kotlin/io/github/theestimator/method/threepoint/ThreePointMethodModule.kt \
@@ -194,10 +214,8 @@ validation:
 
 outputs:
   - created: src/domain/src/main/kotlin/io/github/theestimator/method/threepoint/ThreePointMethodModule.kt
-  - created: src/domain/src/main/kotlin/io/github/theestimator/method/threepoint/FixedEstimationItem.kt
-  - created: src/domain/src/main/kotlin/io/github/theestimator/method/threepoint/TimeRelativeEstimationItem.kt
-  - created: src/domain/src/commonTest/kotlin/io/github/theestimator/method/threepoint/ThreePointMethodModuleTest.kt
-  - deleted: src/domain/src/main/kotlin/io/github/theestimator/model/FixedEstimationItem.kt
-  - deleted: src/domain/src/main/kotlin/io/github/theestimator/model/TimeRelativeEstimationItem.kt
+  - created: src/domain/src/test/kotlin/io/github/theestimator/method/threepoint/ThreePointMethodModuleTest.kt
   - modified: src/domain/src/main/kotlin/io/github/theestimator/method/EstimationMethodRegistry.kt
+  - modified: src/backend/implementation/src/main/kotlin/io/github/theestimator/service/ExcelExporter.kt
+  - modified: src/backend/implementation/src/main/kotlin/io/github/theestimator/service/CsvExporter.kt
   - modified: CLAUDE.md

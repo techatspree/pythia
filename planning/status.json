@@ -585,9 +585,9 @@
       "notes": "Domain SPI: EstimationMethod enum, EstimationMethodModule interface, EstimationMethodRegistry"
     },
     "task-098": {
-      "status": "pending",
-      "started_at": null,
-      "completed_at": null,
+      "status": "done",
+      "started_at": "2026-07-11T20:14:25+00:00",
+      "completed_at": "2026-07-11T20:24:44+00:00",
       "notes": "PERT-as-method-1: repackage FixedEstimationItem + TimeRelativeEstimationItem behind SPI"
     },
     "task-099": {

@@ -4,6 +4,8 @@ import io.github.theestimator.domain.submitted.SubmittedEstimationNode
 import io.github.theestimator.domain.submitted.SubmittedEstimationVersion
 import io.github.theestimator.domain.submitted.SubmittedGroupNode
 import io.github.theestimator.domain.submitted.SubmittedTimeRelativeItemNode
+import io.github.theestimator.method.EstimationMethod
+import io.github.theestimator.method.EstimationMethodRegistry
 import jakarta.enterprise.context.ApplicationScoped
 import java.io.BufferedWriter
 import java.io.OutputStream
@@ -14,9 +16,14 @@ class CsvExporter {
     fun export(version: SubmittedEstimationVersion, output: OutputStream) {
         val w = output.bufferedWriter(Charsets.UTF_8)
 
-        // Header: Path,Group,Description,Min,Expected,Max,Mean,OfferPT,Node type
+        // Header: Path,Group,Description,<method columns>,Mean,OfferPT,Node type.
+        // The method-specific columns (Min,Expected,Max for PERT) are the single
+        // source of the column shape — sourced from the SPI module (task-098).
+        val methodColumns = EstimationMethodRegistry
+            .require(EstimationMethod.THREE_POINT_PERT)
+            .exportColumnHeaders()
         w.append(
-            listOf("Path", "Group", "Description", "Min", "Expected", "Max", "Mean", "OfferPT", "Node type")
+            (listOf("Path", "Group", "Description") + methodColumns + listOf("Mean", "OfferPT", "Node type"))
                 .joinToString(",")
         ).append("\n")
 

@@ -5,6 +5,8 @@ import io.github.theestimator.domain.submitted.SubmittedEstimationNode
 import io.github.theestimator.domain.submitted.SubmittedEstimationVersion
 import io.github.theestimator.domain.submitted.SubmittedGroupNode
 import io.github.theestimator.domain.submitted.SubmittedTimeRelativeItemNode
+import io.github.theestimator.method.EstimationMethod
+import io.github.theestimator.method.EstimationMethodRegistry
 import jakarta.enterprise.context.ApplicationScoped
 import org.apache.poi.ss.usermodel.Sheet
 import org.apache.poi.xssf.usermodel.XSSFRow
@@ -46,8 +48,14 @@ class ExcelExporter {
         val sheet = workbook.createSheet("Projektstrukturplan")
 
         val headerRow = sheet.createRow(0)
-        val headers = listOf(
-            "Beschreibung", "Min", "Erwartet", "Max", "Mittelwert",
+        // The method-specific input columns (Min/Expected/Max for PERT) are
+        // sourced from the SPI module (task-098) — the module is the single
+        // source of the PERT column shape across both exporters.
+        val methodColumns = EstimationMethodRegistry
+            .require(EstimationMethod.THREE_POINT_PERT)
+            .exportColumnHeaders()
+        val headers = listOf("Beschreibung") + methodColumns + listOf(
+            "Mittelwert",
             "Mittelwert pro Gruppe", "Varianz", "Varianz pro Gruppe",
             "Zuschl. Risiko (PT)", "Zuschl. Aufwandstreiber (PT)",
             "Angebots-PT", "Angebots-PT pro Gruppe", "Kosten",
