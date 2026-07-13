@@ -1,0 +1,41 @@
+<script lang="ts">
+	import EstimationGrid from '$lib/components/EstimationGrid.svelte';
+	import ParametersPanel from '$lib/components/ParametersPanel.svelte';
+	import EffortDriversPanel from '$lib/components/EffortDriversPanel.svelte';
+	import PhasesPanel from '$lib/components/PhasesPanel.svelte';
+	import AdditionalCostsPanel from '$lib/components/AdditionalCostsPanel.svelte';
+	import type { ApiAdditionalCost } from '$lib/api/types.js';
+	import type { CalcEntry } from '$lib/estimationNodes';
+
+	// Three-point PERT editor module (task-101). The route owns the state,
+	// autosave and undo/redo; this module is the pure $bindable view over the
+	// editable collections. Each collection is $bindable so child-panel edits
+	// propagate back to the route (the task-081/109 pattern).
+	let {
+		roots = $bindable(),
+		parameters = $bindable(),
+		effortDrivers = $bindable(),
+		phases = $bindable(),
+		additionalCosts = $bindable(),
+		calcMap,
+		editable
+	}: {
+		roots: any[];
+		parameters: any[];
+		effortDrivers: any[];
+		phases: any[];
+		additionalCosts: ApiAdditionalCost[];
+		calcMap: Map<string, CalcEntry>;
+		editable: boolean;
+	} = $props();
+</script>
+
+<ParametersPanel bind:parameters {editable} />
+
+<EffortDriversPanel bind:effortDrivers {editable} />
+
+<PhasesPanel bind:phases {roots} {calcMap} {editable} />
+
+<AdditionalCostsPanel bind:costs={additionalCosts} {phases} {editable} />
+
+<EstimationGrid bind:roots {editable} {calcMap} {phases} />

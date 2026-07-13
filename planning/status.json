@@ -603,9 +603,9 @@
       "notes": "REST DTO: extend leaf type discriminator to be method-tagged; reserve BUCKETED"
     },
     "task-101": {
-      "status": "pending",
-      "started_at": null,
-      "completed_at": null,
+      "status": "done",
+      "started_at": "2026-07-13T07:42:44+00:00",
+      "completed_at": "2026-07-13T07:54:02+00:00",
       "notes": "Frontend: method registry + lazy-loaded editor modules; extract PERT editor"
     },
     "task-102": {

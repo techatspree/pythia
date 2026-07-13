@@ -1,0 +1,288 @@
+id: task-112
+phase: phase-14
+title: Frontend — create new estimation via project detail dialog
+depends_on: [task-090]
+description: |
+  Add the missing "create new estimation" flow to the project
+  detail page. Backed by an integration test on the backend and a
+  Playwright end-to-end on the frontend.
+
+  ## Current state (the gap)
+
+  The backend already exposes the create endpoint:
+
+    * `POST /api/projects/{id}/estimations` on `ProjectResource.createEstimation`
+      (`src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/ProjectResource.kt`)
+    * Request body: `EstimationCreateDto(offer: String,
+      description: String? = null, method: EstimationMethod =
+      THREE_POINT_PERT)` (`.../rest/dto/ProjectDtos.kt`)
+    * Response: `201 Created` with `EstimationSummaryDto` (the
+      row shape rendered by `ProjectDetail.svelte`)
+    * Requires `@RolesAllowed("ESTIMATOR")`
+
+  The generated OpenAPI schema
+  (`src/frontend/src/lib/api/schema.d.ts`) already contains
+  `EstimationCreateDto` and the matching request path.
+
+  What is MISSING is the UI:
+
+    * `src/frontend/src/lib/components/ProjectDetail.svelte`
+      renders a `<table>` of estimations but has NO "New
+      estimation" button. There is no dialog, no form, no client
+      call to `POST /api/projects/{id}/estimations`.
+    * As a result the user has no way to create an estimation
+      from the GUI. There is a `/projects/[id]/+page.svelte`
+      route but it forwards straight to `ProjectDetail`, so the
+      hosting page cannot help.
+
+  ## Target state
+
+  On the project detail page:
+
+    * A visible "Neue Kalkulation" button (top-right, next to
+      the "Estimations" heading — matching the existing project
+      detail typography). The button appears only when the user
+      has the `ESTIMATOR` role; a viewer sees no button.
+    * Clicking the button opens a small modal dialog with two
+      fields — "Angebot" (offer, required, single-line text
+      input) and "Beschreibung" (description, optional,
+      multiline textarea). Method selection is INTENTIONALLY not
+      exposed in this task (the backend default
+      `THREE_POINT_PERT` is used); the per-method picker lands
+      with the phase-15 frontend registry (task-101/104).
+    * "Speichern" submits `POST /api/projects/{id}/estimations`
+      via the `apiFetch` wrapper (from `$lib/api/fetch.ts`) with
+      `EstimationCreateDto` typed from
+      `$lib/api/schema.d.ts`'s
+      `components['schemas']['EstimationCreateDto']`. On 201,
+      the dialog closes, the estimations table refreshes with
+      the new row visible, and the browser navigates to
+      `/estimations/{newEstimation.id}` (the estimation detail
+      page — matching the click-through behaviour of an existing
+      row).
+    * "Abbrechen" (or Escape) closes the dialog without POSTing.
+    * Any error surfaces via the existing `ErrorBanner`
+      component; the dialog stays open with the entered values
+      preserved so the user can retry. A 403 (viewer trying to
+      POST) yields a clear "Sie sind nicht berechtigt, eine
+      Kalkulation anzulegen." message.
+
+  ## Frozen decisions (do not re-open in implementation)
+
+  - **Phase.** phase-14 (Post-MVP Hardening & Build
+    Modernization). This is a functional-gap fix, not a phase-5
+    original build-out.
+  - **Where the dialog lives.** New component
+    `src/frontend/src/lib/components/CreateEstimationDialog.svelte`.
+    Modal shell follows the existing dialog idiom already in the
+    repo (`UndoConflictDialog.svelte`) — same overlay + centred
+    card + focus trap semantics. Reuse Tailwind classes from
+    that component; do NOT introduce a new modal primitive.
+  - **State pattern.** SvelteKit 5 runes — `$state` for the two
+    form fields, `$derived` for `canSubmit`, standard
+    `$bindable` NOT needed (this is a leaf modal, not an
+    editor). Follows the "$bindable preference" only where the
+    parent owns state; a modal's transient fields stay local.
+  - **API client.** Use `apiFetch` (`$lib/api/fetch.ts`). The
+    ESLint rule `no-restricted-syntax` (task-090) already
+    forbids raw `fetch`. Types come from
+    `$lib/api/schema.d.ts`, following the same pattern the undo
+    store uses.
+  - **Authorization gate on the button.** Read the user's roles
+    from `getAuthProvider().getAccount()` — reuse whatever the
+    current auth account exposes (`account.roles: string[]`) —
+    and show the button only when the array contains
+    `"ESTIMATOR"`. Do NOT probe the backend just to hide/show
+    the button.
+  - **Navigation on success.** Use `goto()` from
+    `$app/navigation` with a resolved
+    `/estimations/{newEstimation.id}` path.
+  - **Refresh strategy on failure recovery.** After a failed
+    POST the dialog stays open and no client-side state is
+    mutated. On successful POST but before navigation, the
+    parent's `project.estimations` array is optimistically
+    appended with the returned `EstimationSummaryDto` so if the
+    user cancels navigation (unlikely) the row still appears.
+  - **Backend integration test.** A `@QuarkusTest` in the
+    existing `ProjectResourceIT` (or a new one alongside)
+    covering: (a) authenticated ESTIMATOR POSTs
+    `EstimationCreateDto{offer:"E-2026-042"}` — response 201,
+    the returned summary carries the offer, and a follow-up
+    `GET /api/projects/{id}` shows the estimation in the
+    project's estimation list; (b) omitted `description`
+    accepted; (c) `method` omitted defaults to
+    `THREE_POINT_PERT`; (d) VIEWER POST rejected with 403;
+    (e) invalid project id → 404. Tests authenticate via the
+    `DevAdminAuth` extension (per CLAUDE.md; use a helper
+    `DevRoleAuth("VIEWER")` if the extension already supports
+    role parameterisation — else stick to ADMIN vs anonymous).
+  - **Playwright e2e.** New spec
+    `src/frontend/e2e/create-estimation.spec.ts`. Uses the dev
+    stack. Navigates to `/projects/{id}` for a seeded project
+    (from `TestDataSeeder`), clicks "Neue Kalkulation", fills
+    "Angebot" and "Beschreibung", clicks "Speichern", asserts
+    the browser lands on `/estimations/…`, then navigates back
+    to the project detail and asserts the new offer text
+    appears in the table.
+  - **Logging.** Backend `Log.info` on create is already there
+    (`ProjectResource.createEstimation` line 132). Frontend
+    dialog uses `log` from `$lib/log.ts`:
+    `log.debug` on submit; `log.error` on failure. Never bare
+    `console.*`. Errors surface via `ErrorBanner` as elsewhere.
+  - **German UI text.** Consistent with the existing
+    German-first UI ("Neue Kalkulation", "Angebot",
+    "Beschreibung", "Speichern", "Abbrechen"). Task-115 will
+    later extract these to the `de.json` catalog — that
+    migration is out of scope here (raw strings for now).
+  - **No backend endpoint changes.** The endpoint, DTO,
+    validation, and OpenAPI annotation are all in place.
+  - **No frontend types.ts change.** The dialog reads directly
+    from the generated `schema.d.ts` (matching what the undo
+    store already does).
+
+  ## What does NOT belong in this task
+
+  - No editing / deletion / archiving of estimations from the
+    project detail — those are separate features.
+  - No method picker in the dialog — see phase-15 tasks.
+  - No i18n migration (task-115).
+  - No changes to the existing project-create dialog (if one
+    exists it is unrelated to this task).
+
+steps:
+  - |
+    Read the current bits so nothing gets missed:
+      src/frontend/src/lib/components/ProjectDetail.svelte
+      src/frontend/src/lib/components/UndoConflictDialog.svelte  (modal reference)
+      src/frontend/src/lib/components/ErrorBanner.svelte
+      src/frontend/src/lib/api/fetch.ts                          (apiFetch)
+      src/frontend/src/lib/api/schema.d.ts                       (EstimationCreateDto)
+      src/frontend/src/routes/projects/[id]/+page.svelte
+      src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/ProjectResource.kt   (create endpoint)
+      src/backend/implementation/src/test/kotlin/io/github/theestimator/rest/ProjectResourceIT.kt  (if it exists — else find the closest resource IT)
+      src/backend/implementation/src/main/kotlin/io/github/theestimator/testdata/TestDataSeeder.kt (which project id to hit in e2e)
+  - |
+    Create
+    `src/frontend/src/lib/components/CreateEstimationDialog.svelte`:
+      * Props: `projectId: string`,
+        `onCreated: (created: EstimationSummaryDto) => void`,
+        `onClose: () => void`.
+      * `$state` for `offer` (string, required), `description`
+        (string, optional), `submitting` (boolean), `error`
+        (string | null).
+      * `$derived` `canSubmit = offer.trim().length > 0 &&
+        !submitting`.
+      * Submit handler:
+        ```
+        const res = await apiFetch(`/api/projects/${projectId}/estimations`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ offer: offer.trim(), description: description.trim() || null })
+        });
+        ```
+        On 201, call `onCreated(await res.json())`; on non-2xx
+        set `error` from the response body (`error.message` if
+        JSON, else `response.statusText`). `log.debug` on
+        start; `log.error` on non-2xx.
+      * Modal shell mirrors `UndoConflictDialog.svelte` (fixed
+        overlay + centred card, close on Escape).
+      * German labels: "Neue Kalkulation" (title), "Angebot"
+        (offer input), "Beschreibung" (description textarea),
+        "Speichern" (submit), "Abbrechen" (cancel).
+  - |
+    Update
+    `src/frontend/src/lib/components/ProjectDetail.svelte`:
+      * Read the current user's roles via
+        `getAuthProvider().getAccount()` (or the existing
+        surface the code uses to check roles — inspect the
+        existing components for the pattern).
+      * Add a "Neue Kalkulation" button next to the
+        "Estimations" heading — visible only when the user has
+        `ESTIMATOR`. Wrap the button and the modal in a single
+        `$state` `dialogOpen`.
+      * When the dialog fires `onCreated(created)`: optimistic
+        append to `project.estimations`, then
+        `goto(resolve('/estimations/[id]', { id: created.id }))`.
+  - |
+    Frontend build + type-check + lint:
+      ./gradlew :frontend:check
+  - |
+    Backend integration test. Extend the existing
+    `ProjectResourceIT` (or add a new `EstimationCreationIT` if
+    the codebase pattern prefers per-endpoint ITs — inspect
+    other ITs to decide) with tests (a) through (e) from the
+    frozen decisions above. Use `DevAdminAuth` for authenticated
+    calls; anonymous / wrong-role calls exercise the auth
+    guard. Do NOT stub the repository — this is a `@QuarkusTest`
+    running against the Dev Services PostgreSQL, per CLAUDE.md.
+  - |
+    Playwright e2e in
+    `src/frontend/e2e/create-estimation.spec.ts`. Dev stack
+    running (`./scripts/dev.sh`). The spec:
+      1. `await page.goto('/projects/' + seededProjectId)`;
+      2. Click the "Neue Kalkulation" button (locate via
+         `getByRole('button', { name: 'Neue Kalkulation' })`);
+      3. Fill "Angebot" with a unique offer id and
+         "Beschreibung" with any text;
+      4. Click "Speichern";
+      5. Assert URL matches `/estimations/[a-f0-9-]+`;
+      6. Navigate back to the project detail; assert the new
+         offer text is now visible in the estimations table.
+      7. A second scenario asserts that submitting an empty
+         offer is prevented (button disabled or a validation
+         message).
+  - |
+    Update `CLAUDE.md` "REST API surface" section IF it lists
+    the frontend flows — otherwise skip (this task adds no new
+    endpoints, only a new UI path).
+  - |
+    Full-stack build + e2e:
+      ./gradlew :backend:implementation:test
+      ./gradlew :frontend:check
+      ./gradlew build
+      cd src/frontend && npm run test:e2e -- create-estimation.spec.ts
+
+validation:
+  - |
+    Dialog component exists and uses apiFetch (not raw fetch):
+      test -f src/frontend/src/lib/components/CreateEstimationDialog.svelte
+      grep -q "apiFetch" src/frontend/src/lib/components/CreateEstimationDialog.svelte
+      ! grep -nE "^\\s*fetch\\(" src/frontend/src/lib/components/CreateEstimationDialog.svelte
+  - |
+    Dialog uses the shared log facade and never bare console.*,
+    and errors surface via ErrorBanner:
+      grep -q "from '\$lib/log'" src/frontend/src/lib/components/CreateEstimationDialog.svelte
+      ! grep -nE "^\\s*console\\." src/frontend/src/lib/components/CreateEstimationDialog.svelte
+  - |
+    Project detail exposes the trigger button and wires the
+    dialog:
+      grep -q "Neue Kalkulation" src/frontend/src/lib/components/ProjectDetail.svelte
+      grep -q "CreateEstimationDialog" src/frontend/src/lib/components/ProjectDetail.svelte
+  - |
+    Backend integration test asserts a 201 create + role gate:
+      grep -rq "POST.*projects.*estimations\|createEstimation" src/backend/implementation/src/test/kotlin/io/github/theestimator/rest/
+      grep -rq "201\|CREATED" src/backend/implementation/src/test/kotlin/io/github/theestimator/rest/ProjectResourceIT.kt \
+        || grep -rq "201\|CREATED" src/backend/implementation/src/test/kotlin/io/github/theestimator/rest/EstimationCreationIT.kt \
+        || { echo "no ProjectResourceIT/EstimationCreationIT covers 201"; exit 1; }
+      grep -rq "403\|FORBIDDEN" src/backend/implementation/src/test/kotlin/io/github/theestimator/rest/ProjectResourceIT.kt \
+        || grep -rq "403\|FORBIDDEN" src/backend/implementation/src/test/kotlin/io/github/theestimator/rest/EstimationCreationIT.kt \
+        || { echo "role gate not asserted"; exit 1; }
+  - |
+    Playwright e2e file exists and covers the key steps:
+      test -f src/frontend/e2e/create-estimation.spec.ts
+      grep -q "Neue Kalkulation" src/frontend/e2e/create-estimation.spec.ts
+      grep -q "Speichern" src/frontend/e2e/create-estimation.spec.ts
+      grep -q "estimations/" src/frontend/e2e/create-estimation.spec.ts
+  - |
+    Backend already logs create (kept intact):
+      grep -q "Log.info" src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/ProjectResource.kt
+  - |
+    Full-stack Gradle build is green and the new spec passes:
+      ./gradlew build
+      cd src/frontend && npm run test:e2e -- create-estimation.spec.ts
+
+outputs:
+  - created: src/frontend/src/lib/components/CreateEstimationDialog.svelte
+  - modified: src/frontend/src/lib/components/ProjectDetail.svelte
+  - created: src/frontend/e2e/create-estimation.spec.ts
+  - modified: src/backend/implementation/src/test/kotlin/io/github/theestimator/rest/ProjectResourceIT.kt

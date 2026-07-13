@@ -15,19 +15,37 @@ description: |
   - **Path.** New folder
     `src/frontend/src/lib/methods/` holds `registry.ts` and one
     subfolder per method: `pert/` and (later) `bucketSampled/`.
-  - **Registry shape.** `registry.ts` exports:
+  - **Registry shape (Svelte 5).** A dynamic `import('*.svelte')`
+    exposes the component as the module's `default` export (NOT a named
+    `Editor`), and Svelte 5 uses the `Component` type (NOT the removed
+    `SvelteComponent`). So:
       ```ts
-      export type EditorModule = { Editor: SvelteComponent };
-      export const methodRegistry: Record<
-        EstimationMethod,
-        () => Promise<EditorModule>
-      > = {
+      import type { Component } from 'svelte';
+      import type { components } from '$lib/api/schema';
+      import { log } from '$lib/log';
+
+      type EstimationMethod = components['schemas']['EstimationMethod'];
+      export type EditorModule = { default: Component<any> };
+
+      const methodRegistry: Record<EstimationMethod, () => Promise<EditorModule>> = {
         THREE_POINT_PERT: () => import('./pert/EditorModule.svelte'),
         BUCKET_SAMPLED_PERT: () => import('./bucketSampled/EditorModule.svelte'),
       };
+
+      export async function loadEditorModule(method: EstimationMethod): Promise<EditorModule> {
+        const loader = methodRegistry[method];
+        if (!loader) {
+          log.error(`No editor module registered for method: ${method}`);
+          throw new Error(`No editor module registered for method: ${method}`);
+        }
+        const mod = await loader();
+        log.info(`Loaded editor module for method: ${method}`);
+        return mod;
+      }
       ```
-    Missing entries throw a clear error via `log.error`
-    (`$lib/log.ts`), then rethrow so `ErrorBanner` surfaces it.
+    The route renders the resolved module's `default` export as the
+    component (see Bootstrapping). A missing entry logs via `log.error`
+    (`$lib/log.ts`) then throws so `ErrorBanner` surfaces it.
   - **PERT extraction.** The existing PERT editor logic already
     lives on
     `src/frontend/src/routes/estimations/[id]/versions/[versionNumber]/+page.svelte`.
@@ -48,11 +66,33 @@ description: |
     implemented" and logs a warning. Real implementation lands
     in task-104; the stub exists here so the registry is
     complete and can be lazy-loaded end-to-end.
-  - **Bootstrapping.** The route uses `await
-    methodRegistry[estimation.method]()` inside `loadVersion`
-    (or a `$derived` promise, whichever fits the current pattern
-    — inspect the file). Show a small loading state while the
-    module resolves.
+  - **Obtaining the method (IMPORTANT).** The editor route
+    (`/estimations/[id]/versions/[versionNumber]`) currently fetches only
+    the VERSION (`GET /versions/draft` | `/versions/{n}` →
+    `ApiVersionResponse` / `EstimationVersionDto`), which carries NO
+    `method` field, and there is no `+page.ts` load. So the route must
+    additionally read the estimation's method: in `loadVersion`, after
+    the version loads, call
+    `apiFetch(`/api/estimations/${estimationId}`)` and read `.method`
+    from the `EstimationDetailDto` response (the `method` field added in
+    task-099). Store it in a `$state<EstimationMethod>` on the page.
+  - **Bootstrapping (Svelte 5).** With the method known, resolve the
+    module and render its `default` export as a dynamic component. Svelte
+    5 has NO `<svelte:component>`; assign the component to a capitalized
+    variable and use it directly, e.g.:
+      ```svelte
+      {#await loadEditorModule(currentMethod)}
+        <p class="text-gray-500">Loading editor…</p>
+      {:then mod}
+        {@const Editor = mod.default}
+        <Editor bind:currentRoots bind:currentParameters … {calcMap} editable={versionData.isDraft} />
+      {:catch e}
+        <ErrorBanner message={e.message} … />
+      {/await}
+      ```
+    (or resolve the module into a `$state` component variable during
+    `loadVersion` — whichever fits; both are valid Svelte 5, neither uses
+    `svelte:component`).
   - **Logging.** `log.info` from `$lib/log.ts` on module load
     success; `log.error` on missing entry. Never bare
     `console.*`.
@@ -75,11 +115,18 @@ steps:
     `src/lib/methods/pert/EditorModule.svelte`. Also confirm the
     `$bindable` props each panel currently uses so the module's
     prop signature matches.
+    Also note the route does NOT currently have the estimation's
+    `method` — it fetches the version, which has no `method` field. Plan
+    an extra `apiFetch('/api/estimations/{id}')` to read it (see below).
   - |
-    Create `src/frontend/src/lib/methods/registry.ts` with the
-    shape above. Use the generated `EstimationMethod` type from
-    `$lib/api/schema` (via task-100) — this is the first
-    frontend consumer of the type outside the undo store.
+    Create `src/frontend/src/lib/methods/registry.ts` with the Svelte 5
+    shape above: `methodRegistry` (Record of method → `() =>
+    import('*.svelte')`) plus a `loadEditorModule(method)` helper that
+    logs via `$lib/log` and throws on a missing entry. Use the generated
+    `EstimationMethod` type (`components['schemas']['EstimationMethod']`
+    from `$lib/api/schema`) and `Component` from `'svelte'` — do NOT use
+    the removed `SvelteComponent`. Remember `import('*.svelte')` returns
+    `{ default: Component }`.
   - |
     Create `src/frontend/src/lib/methods/pert/EditorModule.svelte`.
     Move the panels + grid composition into it. Declare each
@@ -95,13 +142,19 @@ steps:
     Log a warning on mount: `log.warn('Bucket editor stub
     rendered; real implementation lands in task-104')`.
   - |
-    Refactor +page.svelte to import `methodRegistry`, await the
-    module for `estimation.method` during `loadVersion`, and
-    render `<svelte:component this={module.Editor} bind:… />`
-    (or `{#await}` with the promise if that fits the SvelteKit 5
-    idiom better here). Keep the autosave `$effect` and the
-    `UndoStore` install exactly where they are — do NOT move them
-    into the module.
+    Refactor +page.svelte:
+      * In `loadVersion`, after the version loads, fetch the estimation
+        to get its method:
+        `apiFetch('/api/estimations/${estimationId}')` → read `.method`
+        (typed via `components['schemas']['EstimationDetailDto']`) into a
+        `let currentMethod = $state<EstimationMethod>('THREE_POINT_PERT')`.
+      * Import `loadEditorModule` from `$lib/methods/registry` and render
+        the module via `{#await loadEditorModule(currentMethod)} … {:then
+        mod} {@const Editor = mod.default} <Editor bind:… /> {:catch e}
+        <ErrorBanner …/> {/await}` — NO `<svelte:component>`, NO
+        `SvelteComponent`.
+      * Keep the autosave `$effect` and the `UndoStore` install exactly
+        where they are — do NOT move them into the module.
   - |
     Emit `log.info` on successful module load, `log.error` on
     missing entry (rethrow so ErrorBanner surfaces the failure).
@@ -127,8 +180,9 @@ validation:
       grep -q "BUCKET_SAMPLED_PERT" src/frontend/src/lib/methods/registry.ts
       grep -q "import(" src/frontend/src/lib/methods/registry.ts
   - |
-    Route loads via the registry:
-      grep -q "methodRegistry" src/frontend/src/routes/estimations/\[id\]/versions/\[versionNumber\]/+page.svelte
+    Route loads via the registry and reads the estimation method:
+      grep -q "loadEditorModule" src/frontend/src/routes/estimations/\[id\]/versions/\[versionNumber\]/+page.svelte
+      grep -q "/api/estimations/" src/frontend/src/routes/estimations/\[id\]/versions/\[versionNumber\]/+page.svelte
   - |
     Frontend logging convention (log from $lib/log, no bare console.*):
       grep -q "from '\$lib/log'" src/frontend/src/lib/methods/registry.ts

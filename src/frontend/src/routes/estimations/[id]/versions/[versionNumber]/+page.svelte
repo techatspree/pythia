@@ -2,12 +2,7 @@
 	import { page } from '$app/state';
 	import { goto } from '$app/navigation';
 	import { resolve } from '$app/paths';
-	import { onMount } from 'svelte';
-	import EstimationGrid from '$lib/components/EstimationGrid.svelte';
-	import ParametersPanel from '$lib/components/ParametersPanel.svelte';
-	import EffortDriversPanel from '$lib/components/EffortDriversPanel.svelte';
-	import PhasesPanel from '$lib/components/PhasesPanel.svelte';
-	import AdditionalCostsPanel from '$lib/components/AdditionalCostsPanel.svelte';
+	import { onMount, type Component } from 'svelte';
 	import ErrorBanner from '$lib/components/ErrorBanner.svelte';
 	import UndoHistoryPanel, { relativeTime } from '$lib/components/UndoHistoryPanel.svelte';
 	import UndoConflictDialog from '$lib/components/UndoConflictDialog.svelte';
@@ -15,9 +10,13 @@
 	import { normalizeRoots } from '$lib/estimationNodes';
 	import { log } from '$lib/log';
 	import type { ApiVersionResponse, ApiAdditionalCost } from '$lib/api/types.js';
+	import type { components } from '$lib/api/schema';
 	import { apiFetch } from '$lib/api/fetch';
 	import { UndoStore } from '$lib/stores/undo.svelte';
 	import { installUndoShortcuts } from '$lib/stores/undoKeyboard.svelte';
+	import { loadEditorModule } from '$lib/methods/registry';
+
+	type EstimationMethod = components['schemas']['EstimationMethod'];
 
 	let versionData = $state<ApiVersionResponse | null>(null);
 	let loading = $state(true);
@@ -31,6 +30,12 @@
 	let currentDrivers = $state<any[]>([]);
 	let currentPhases = $state<any[]>([]);
 	let currentAdditionalCosts = $state<ApiAdditionalCost[]>([]);
+
+	// The estimation's method drives which editor module is lazy-loaded
+	// (task-101). The version response carries no method, so loadVersion also
+	// fetches the estimation to read it.
+	let currentMethod = $state<EstimationMethod>('THREE_POINT_PERT');
+	let EditorComponent = $state<Component<any> | null>(null);
 
 	// Undo/redo plumbing (task-076). The store owns only the mutation log; this
 	// page owns the draft state and applies the version undo/redo returns.
@@ -102,6 +107,10 @@
 			applyVersionData(await res.json());
 			// Load the mutation log so undo/redo availability is known up front.
 			if (versionData?.isDraft) await undoStore.refresh();
+			// Read the estimation's method and lazy-load its editor module.
+			const estRes = await apiFetch(`/api/estimations/${estimationId}`);
+			if (estRes.ok) currentMethod = (await estRes.json()).method as EstimationMethod;
+			EditorComponent = (await loadEditorModule(currentMethod)).default;
 		} catch (e: any) {
 			bannerMessage = e.message;
 			log.error('loadVersion failed:', e);
@@ -320,29 +329,19 @@
 			<p class="mb-4 text-sm text-gray-600 italic">{versionData.notes}</p>
 		{/if}
 
-		<ParametersPanel bind:parameters={currentParameters} editable={versionData.isDraft} />
-
-		<EffortDriversPanel bind:effortDrivers={currentDrivers} editable={versionData.isDraft} />
-
-		<PhasesPanel
-			bind:phases={currentPhases}
-			roots={currentRoots}
-			{calcMap}
-			editable={versionData.isDraft}
-		/>
-
-		<AdditionalCostsPanel
-			bind:costs={currentAdditionalCosts}
-			phases={currentPhases}
-			editable={versionData?.isDraft ?? false}
-		/>
-
-		<EstimationGrid
-			bind:roots={currentRoots}
-			editable={versionData.isDraft}
-			{calcMap}
-			phases={currentPhases}
-		/>
+		{#if EditorComponent}
+			<EditorComponent
+				bind:roots={currentRoots}
+				bind:parameters={currentParameters}
+				bind:effortDrivers={currentDrivers}
+				bind:phases={currentPhases}
+				bind:additionalCosts={currentAdditionalCosts}
+				{calcMap}
+				editable={versionData.isDraft}
+			/>
+		{:else}
+			<p class="text-gray-500">Loading editor…</p>
+		{/if}
 
 		{#if versionData.isDraft && showHistory}
 			<div bind:this={historyEl} class="scroll-mt-4">
