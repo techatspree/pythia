@@ -18,12 +18,12 @@ import io.github.theestimator.domain.submitted.SubmittedFixedItemNode
 import io.github.theestimator.domain.submitted.SubmittedGroupNode
 import io.github.theestimator.domain.submitted.SubmittedProjectPhase
 import io.github.theestimator.domain.submitted.SubmittedTimeRelativeItemNode
+import io.github.theestimator.method.threepoint.FixedEstimationItem
+import io.github.theestimator.method.threepoint.TimeRelativeEstimationItem
 import io.github.theestimator.model.EstimationGroup
 import io.github.theestimator.model.EstimationItem
 import io.github.theestimator.model.EstimationNode
 import io.github.theestimator.model.EstimationVersion
-import io.github.theestimator.model.FixedEstimationItem
-import io.github.theestimator.model.TimeRelativeEstimationItem
 import io.github.theestimator.repository.DraftEstimationVersionRepository
 import io.github.theestimator.repository.EstimationRepository
 import io.github.theestimator.repository.SubmittedEstimationVersionRepository
@@ -219,6 +219,9 @@ class EstimationVersionService(
             is EstimationGroup -> SubmittedGroupNode().apply { title = domainNode.title }
             is TimeRelativeEstimationItem -> SubmittedTimeRelativeItemNode().apply { unit = domainNode.unit }
             is FixedEstimationItem -> SubmittedFixedItemNode()
+            // EstimationItem is now abstract (task-113): the when is no longer
+            // exhaustive, so fail loudly on a leaf type this side can't persist.
+            else -> error("Unknown estimation node type: ${domainNode::class.simpleName}")
         }
         node.apply {
             logicalId = UUID.fromString(domainNode.logicalId)

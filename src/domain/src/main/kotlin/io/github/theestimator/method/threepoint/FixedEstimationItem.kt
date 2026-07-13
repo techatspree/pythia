@@ -1,7 +1,12 @@
 @file:OptIn(ExperimentalJsExport::class)
 
-package io.github.theestimator.model
+package io.github.theestimator.method.threepoint
 
+import io.github.theestimator.model.CalculationParameters
+import io.github.theestimator.model.DomainEntity
+import io.github.theestimator.model.EstimationItem
+import io.github.theestimator.model.ProjectPhase
+import io.github.theestimator.model.newId
 import kotlin.js.ExperimentalJsExport
 import kotlin.js.JsExport
 

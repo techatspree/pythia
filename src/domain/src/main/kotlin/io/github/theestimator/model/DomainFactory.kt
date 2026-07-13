@@ -6,6 +6,8 @@
 
 package io.github.theestimator.model
 
+import io.github.theestimator.method.threepoint.FixedEstimationItem
+import io.github.theestimator.method.threepoint.TimeRelativeEstimationItem
 import kotlin.js.ExperimentalJsExport
 import kotlin.js.JsExport
 

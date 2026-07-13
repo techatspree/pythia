@@ -10,7 +10,7 @@ import kotlin.js.JsExport
 @Suppress("LongParameterList")
 @JsExport
 @DomainEntity
-sealed class EstimationItem(
+abstract class EstimationItem(
     val description: String,
     val code: String = "",
     val minEffort: Double = 0.0,

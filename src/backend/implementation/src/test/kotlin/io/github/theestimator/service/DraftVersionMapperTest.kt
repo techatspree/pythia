@@ -6,8 +6,8 @@ import io.github.theestimator.domain.draft.DraftGroupNode
 import io.github.theestimator.domain.draft.DraftTimeRelativeItemNode
 import io.github.theestimator.model.EstimationGroup
 import io.github.theestimator.model.EstimationItem
-import io.github.theestimator.model.FixedEstimationItem
-import io.github.theestimator.model.TimeRelativeEstimationItem
+import io.github.theestimator.method.threepoint.FixedEstimationItem
+import io.github.theestimator.method.threepoint.TimeRelativeEstimationItem
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test

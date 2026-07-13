@@ -3,7 +3,6 @@ package io.github.theestimator.method.threepoint
 import io.github.theestimator.method.EstimationMethod
 import io.github.theestimator.method.EstimationMethodRegistry
 import io.github.theestimator.model.CalculationParameters
-import io.github.theestimator.model.FixedEstimationItem
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNotNull

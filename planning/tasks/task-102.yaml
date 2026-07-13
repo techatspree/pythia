@@ -1,7 +1,7 @@
 id: task-102
 phase: phase-15
 title: Domain — implement bucket + sampled estimation method
-depends_on: [task-098]
+depends_on: [task-098, task-113]
 description: |
   Implement the second estimation method — **bucket + sampled
   three-point** — behind the SPI introduced in task-097. This is
@@ -18,19 +18,30 @@ description: |
     `io.github.theestimator.method.threepoint` — the two methods
     interact only via the SPI in
     `io.github.theestimator.method`.
-  - **Leaf item shape.** New sealed subclass
-    `BucketedEstimationItem : EstimationItem` with:
-      * `bucketId: String` (non-null on a fully-edited item;
-        the domain assumes it — validation happens at the DTO
-        layer in task-100)
+  - **Leaf item shape.** New subclass
+    `BucketedEstimationItem : EstimationItem` living in
+    `io.github.theestimator.method.bucketsampled` — this is now legal
+    because task-113 opened `EstimationItem` from `sealed` to
+    `abstract`, so leaf types may live in their own method package (a
+    hard dependency: task-102 CANNOT compile without task-113).
+    Follow the SAME underscore-forwarding constructor + `@JsExport
+    @DomainEntity` pattern as `FixedEstimationItem` (which now lives in
+    `io.github.theestimator.method.threepoint`): private `_`-prefixed
+    constructor params forwarded to `EstimationItem(...)`, PLUS the
+    bucket-specific fields. `EstimationItem` has `description` (no
+    `title` — that is `EstimationGroup`), so do NOT add a `title` field.
+    Bucket fields:
+      * `bucketId: String` (non-null on a fully-edited item; the domain
+        assumes it — DTO-layer validation is task-100)
       * `isSample: Boolean`
-      * Optional `optimistic: Double? = null`,
-        `likely: Double? = null`,
-        `pessimistic: Double? = null` — required when
-        `isSample = true`.
-    Keep the sealed hierarchy shape used by
-    `FixedEstimationItem` / `TimeRelativeEstimationItem`; do
-    not introduce a second inheritance level.
+      * Optional `optimistic: Double? = null`, `likely: Double? = null`,
+        `pessimistic: Double? = null` — required when `isSample = true`.
+    It MUST implement the abstract
+    `override fun withCalculationParameters(params): EstimationItem`
+    (like the other leaves). Do not introduce a second inheritance
+    level. Kotlin/JS: inline any parent formula, never `super.<computed
+    prop>`; annotate `@JsExport` and give secondary constructors
+    `@JsName("…")` — see `TimeRelativeEstimationItem.kt`.
   - **Reducer semantics.** For each bucket, average the
     per-sample PERT-derived `mean` across the bucket's sample
     items; assign the bucket's mean to every non-sample item
@@ -54,6 +65,27 @@ description: |
     change). Bucket module overrides `calculateAll`. Document
     the extension in the SPI file with a one-line comment; NO
     change to the PERT module needed.
+  - **Wiring into `EstimationVersion.calculate()` (REQUIRED — else the
+    reducer is dead code).** `EstimationVersion.calculate()` today applies
+    values per-leaf: `roots.map { it.withCalculationParameters(params) }`.
+    That cannot work for bucketed leaves (a single item has no view of its
+    bucket's siblings), so the reducer must be invoked from `calculate()`.
+    Approach: a version has exactly one method (task-099), and all its
+    leaves are that method's leaf type. Detect the method from the leaf
+    types — if any flattened leaf `is BucketedEstimationItem` use
+    `BUCKET_SAMPLED_PERT`, else `THREE_POINT_PERT` — then run the batch
+    hook once over the flat leaves:
+    `EstimationMethodRegistry.require(method).calculateAll(leaves, params)`,
+    and substitute the returned calculated leaves back into the tree
+    before the group accumulation. PERT stays byte-identical because the
+    SPI's DEFAULT `calculateAll` just maps `withCalculationParameters`
+    per leaf. This adds a `model → method` reference from
+    `EstimationVersion` to `EstimationMethodRegistry`; that is acceptable
+    and consistent with task-113 (`DomainFactory` already references the
+    method packages) — it is NOT a method-to-method reference. Add
+    `EstimationVersion.kt` to the changes and prove it with a test that a
+    bucketed tree computes end-to-end via `calculate()` (not just the
+    module in isolation).
   - **Registry.** The bucket module registers itself via
     `EstimationMethodRegistry.installStandardMethods()` — extend
     the same bootstrap point task-098 added.
@@ -143,8 +175,23 @@ steps:
     `EstimationMethodRegistry.installStandardMethods()` (added by
     task-098) to also register `BucketMethodModule`.
   - |
-    Add unit tests in
-    `src/domain/src/commonTest/kotlin/io/github/theestimator/method/bucketsampled/`:
+    Wire the reducer into
+    `src/domain/src/main/kotlin/io/github/theestimator/model/EstimationVersion.kt`:
+    in `calculate()`, replace the per-leaf
+    `roots.map { it.withCalculationParameters(params) }` with a batch
+    dispatch — detect the method from the flattened leaf types (any
+    `BucketedEstimationItem` → `BUCKET_SAMPLED_PERT`, else
+    `THREE_POINT_PERT`), call
+    `EstimationMethodRegistry.require(method).calculateAll(leaves, params)`,
+    and rebuild the tree from the calculated leaves. PERT output must stay
+    byte-identical (the default `calculateAll` is per-leaf
+    `withCalculationParameters`).
+  - |
+    Add JUnit 5 unit tests (JVM `src/test` source set,
+    `org.junit.jupiter.api` — the `:domain` module has NO `commonTest`)
+    in `src/domain/src/test/kotlin/io/github/theestimator/method/bucketsampled/`,
+    resetting the registry with `EstimationMethodRegistry.clear()` in
+    `@BeforeEach`/`@AfterEach` where the registry is used:
       * `BucketedEstimationItemTest.kt` — construction; sample
         row PERT math; `withCalculatedFromBucket` copy semantics.
       * `ComputeBucketAveragesTest.kt` — three sample items in
@@ -155,6 +202,16 @@ steps:
         expected mean on every leaf; `exportColumnHeaders().size
         == exportRow(item).size`; module is registered after
         `installStandardMethods()`.
+      * Add an end-to-end assertion (here or in an existing
+        `EstimationVersion` test) that a bucketed tree computes correct
+        totals via `EstimationVersion.calculate()`.
+  - |
+    Update CLAUDE.md "Pluggable estimation methods (SPI)" subsection:
+    add bucket+sampled as method #2 (`BucketMethodModule` /
+    `BucketedEstimationItem` in `io.github.theestimator.method.bucketsampled`),
+    and note the SPI now has a `calculateAll(items, params)` batch hook
+    (default = per-leaf `calculate`) that `EstimationVersion.calculate()`
+    dispatches through so batch methods get per-bucket context.
   - |
     Build the domain module and rebuild the frontend so the
     updated `domain.d.mts` is fresh:
@@ -181,19 +238,28 @@ validation:
     Bucket module logs on registration:
       grep -q "logger.info" src/domain/src/main/kotlin/io/github/theestimator/method/bucketsampled/BucketMethodModule.kt
   - |
-    Bucket-averages unit tests exist:
-      test -f src/domain/src/commonTest/kotlin/io/github/theestimator/method/bucketsampled/ComputeBucketAveragesTest.kt
-      test -f src/domain/src/commonTest/kotlin/io/github/theestimator/method/bucketsampled/BucketMethodModuleTest.kt
+    Bucket unit tests exist in the JVM src/test source set (not commonTest):
+      test -f src/domain/src/test/kotlin/io/github/theestimator/method/bucketsampled/ComputeBucketAveragesTest.kt
+      test -f src/domain/src/test/kotlin/io/github/theestimator/method/bucketsampled/BucketMethodModuleTest.kt
+      grep -q "org.junit.jupiter.api" src/domain/src/test/kotlin/io/github/theestimator/method/bucketsampled/BucketMethodModuleTest.kt
   - |
-    Domain build (JVM + JS + tests) and frontend :check pass:
-      ./gradlew :domain:build :frontend:check
+    calculate() dispatches through the SPI batch hook:
+      grep -q "calculateAll" src/domain/src/main/kotlin/io/github/theestimator/model/EstimationVersion.kt
+  - |
+    CLAUDE.md documents method #2:
+      grep -q "bucketsampled" CLAUDE.md
+  - |
+    Full-stack build is green (domain calculate() is consumed by the backend):
+      ./gradlew build
 
 outputs:
   - modified: src/domain/src/main/kotlin/io/github/theestimator/method/EstimationMethodModule.kt
   - modified: src/domain/src/main/kotlin/io/github/theestimator/method/EstimationMethodRegistry.kt
+  - modified: src/domain/src/main/kotlin/io/github/theestimator/model/EstimationVersion.kt
   - created: src/domain/src/main/kotlin/io/github/theestimator/method/bucketsampled/BucketedEstimationItem.kt
   - created: src/domain/src/main/kotlin/io/github/theestimator/method/bucketsampled/computeBucketAverages.kt
   - created: src/domain/src/main/kotlin/io/github/theestimator/method/bucketsampled/BucketMethodModule.kt
-  - created: src/domain/src/commonTest/kotlin/io/github/theestimator/method/bucketsampled/BucketedEstimationItemTest.kt
-  - created: src/domain/src/commonTest/kotlin/io/github/theestimator/method/bucketsampled/ComputeBucketAveragesTest.kt
-  - created: src/domain/src/commonTest/kotlin/io/github/theestimator/method/bucketsampled/BucketMethodModuleTest.kt
+  - created: src/domain/src/test/kotlin/io/github/theestimator/method/bucketsampled/BucketedEstimationItemTest.kt
+  - created: src/domain/src/test/kotlin/io/github/theestimator/method/bucketsampled/ComputeBucketAveragesTest.kt
+  - created: src/domain/src/test/kotlin/io/github/theestimator/method/bucketsampled/BucketMethodModuleTest.kt
+  - modified: CLAUDE.md

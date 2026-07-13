@@ -1,5 +1,6 @@
 package io.github.theestimator.model
 
+import io.github.theestimator.method.threepoint.FixedEstimationItem
 import io.github.theestimator.service.EstimationCalculator
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test

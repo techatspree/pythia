@@ -8,10 +8,9 @@ import io.github.theestimator.model.EstimationItem
 /**
  * Three-point PERT estimation method (method #1) behind the SPI. A thin wrapper
  * over the existing per-leaf PERT mapping ([EstimationItem.withCalculationParameters])
- * and the PERT export column shape. The leaf types (`FixedEstimationItem` /
- * `TimeRelativeEstimationItem`) stay in `io.github.theestimator.model` because they
- * are subclasses of the sealed `EstimationItem` (Kotlin pins sealed subclasses
- * to the sealed root's package).
+ * and the PERT export column shape. This package also owns the PERT leaf types
+ * `FixedEstimationItem` / `TimeRelativeEstimationItem` (task-113 opened
+ * `EstimationItem` from `sealed` to `abstract` so each method owns its leaf).
  */
 class ThreePointMethodModule : EstimationMethodModule {
     override val method: EstimationMethod = EstimationMethod.THREE_POINT_PERT
