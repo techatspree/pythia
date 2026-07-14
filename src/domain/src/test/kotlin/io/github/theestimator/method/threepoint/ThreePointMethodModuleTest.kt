@@ -15,9 +15,18 @@ class ThreePointMethodModuleTest {
     private val delta = 0.001
 
     @BeforeEach
-    @AfterEach
-    fun reset() {
+    fun startEmpty() {
         EstimationMethodRegistry.clear()
+    }
+
+    @AfterEach
+    fun restoreStandard() {
+        // EstimationVersion.calculate() now reads this process-wide singleton, so
+        // leave the standard methods installed — otherwise a later test class (the
+        // class order is non-deterministic) would run calculate() against an empty
+        // registry and fail with "No estimation method module registered".
+        EstimationMethodRegistry.clear()
+        EstimationMethodRegistry.installStandardMethods()
     }
 
     @Test

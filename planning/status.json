@@ -609,9 +609,9 @@
       "notes": "Frontend: method registry + lazy-loaded editor modules; extract PERT editor"
     },
     "task-102": {
-      "status": "pending",
-      "started_at": null,
-      "completed_at": null,
+      "status": "done",
+      "started_at": "2026-07-13T19:23:03+00:00",
+      "completed_at": "2026-07-14T06:32:58+00:00",
       "notes": "Domain: implement bucket+sampled method (BucketedEstimationItem, per-bucket mean reducer)"
     },
     "task-103": {

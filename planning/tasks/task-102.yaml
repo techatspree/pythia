@@ -51,11 +51,10 @@ description: |
     the assigned mean.
   - **Where the reducer lives.** A dedicated top-level function
     `computeBucketAverages(items): Map<bucketId, BucketAverages>`
-    in the same package. The `BucketMethodModule.calculate()`
-    hook receives the whole flat list of leaves it produced
-    (the SPI addition arrives via task-097's already-in-place
-    calculate), consumes `computeBucketAverages`, and returns
-    the per-leaf calculated values.
+    in the same package. `BucketMethodModule.calculateAll(items, params)`
+    (the batch SPI hook — see SPI ADJUSTMENT) receives the whole flat
+    leaf list, consumes `computeBucketAverages`, and returns the per-leaf
+    calculated values.
   - **SPI ADJUSTMENT.** task-097's SPI was per-leaf
     (`calculate(item, params)`). The bucket method needs
     per-BUCKET context — extend the SPI here with a batch hook
@@ -89,10 +88,12 @@ description: |
   - **Registry.** The bucket module registers itself via
     `EstimationMethodRegistry.installStandardMethods()` — extend
     the same bootstrap point task-098 added.
-  - **Export writer.** `BucketMethodModule.exportColumnHeaders()`
-    returns `[..., "Bucket", "Is Sample", "Optimistic",
-    "Likely", "Pessimistic"]`. `.exportRow(item)` returns
-    matching cells; non-sample rows have empty PT cells.
+  - **Export writer.** Like `ThreePointMethodModule` (task-098),
+    `exportColumnHeaders()` returns ONLY the method-specific columns:
+    `["Bucket", "Is Sample", "Optimistic", "Likely", "Pessimistic"]`.
+    `.exportRow(item)` returns matching cells; non-sample rows have empty
+    Optimistic/Likely/Pessimistic cells. `exportColumnHeaders().size ==
+    exportRow(item).size`.
   - **Kotlin/JS pitfall.** `BucketedEstimationItem` will have
     computed getters for the shared neutral values. INLINE the
     parent formulas — do NOT reference `super.mean` /
@@ -127,26 +128,46 @@ steps:
   - |
     Create package
       src/domain/src/main/kotlin/io/github/theestimator/method/bucketsampled/
-    Add `BucketedEstimationItem.kt`:
-      * `@JsExport @DomainEntity data class BucketedEstimationItem(
-           override val id: String,
-           override val title: String,
-           val bucketId: String,
-           val isSample: Boolean,
-           val optimistic: Double? = null,
-           val likely: Double? = null,
-           val pessimistic: Double? = null
-         ) : EstimationItem()`
-      * Provide computed neutral getters (`mean`, `variance`,
-        `offerPT`, `cost`, `offerPrice`) that INLINE the PERT
-        formula for sample rows and RETURN the bucket-derived
-        values for non-sample rows. Since a single item cannot
-        derive its bucket's average alone, add a
-        `withCalculatedFromBucket(mean, variance, offerPT):
-        BucketedEstimationItem` helper the module calls from
+    Add `BucketedEstimationItem.kt` following the EXACT underscore-
+    forwarding pattern of `FixedEstimationItem` (there is NO `title`, no
+    `override val id`, and no no-arg `EstimationItem()` constructor —
+    `EstimationItem`'s params are `description, code, minEffort,
+    expectedEffort, maxEffort, assumptions, phase, logicalId,
+    calculationParameters, id, createdAt, updatedAt`). Shape:
+      @JsExport @DomainEntity
+      data class BucketedEstimationItem(
+          val bucketId: String,
+          val isSample: Boolean = false,
+          val optimistic: Double? = null,
+          val likely: Double? = null,
+          val pessimistic: Double? = null,
+          private val _description: String = "",
+          private val _logicalId: String = newId(),
+          private val _phase: ProjectPhase? = null,
+          private val _calculationParameters: CalculationParameters = CalculationParameters(),
+          // bucket-derived values stored by withCalculatedFromBucket for
+          // non-sample rows (a single item can't derive its bucket average):
+          private val _bucketMean: Double? = null,
+          private val _bucketVariance: Double? = null,
+          private val _bucketOfferPT: Double? = null
+      ) : EstimationItem(_description, _code = "", _minEffort = 0.0, /* … forward the rest … */
+                         _phase = _phase, _logicalId = _logicalId,
+                         _calculationParameters = _calculationParameters) { … }
+    (forward every `EstimationItem` param via `_`-prefixed constructor
+    params exactly as `FixedEstimationItem` does; the sketch above is
+    abbreviated). Then:
+      * Computed neutral getters (`mean`, `variance`, `offerPT`, `cost`,
+        `offerPrice`) that INLINE the PERT formula for sample rows
+        (`optimistic`/`likely`/`pessimistic`) and RETURN the stored
+        `_bucket*` values for non-sample rows. Never `super.mean` /
+        `super.variance` / `super.offerPT` (Kotlin/JS pitfall — see
+        `TimeRelativeEstimationItem.kt`).
+      * `override fun withCalculationParameters(params): BucketedEstimationItem
+        = copy(_calculationParameters = params)` (mandatory abstract).
+      * `fun withCalculatedFromBucket(mean, variance, offerPT):
+        BucketedEstimationItem = copy(_bucketMean = mean, _bucketVariance =
+        variance, _bucketOfferPT = offerPT)` — the module calls this from
         `calculateAll` after computing per-bucket averages.
-    Follow the Kotlin/JS pitfall guidance from
-    `TimeRelativeEstimationItem.kt`.
   - |
     Add `computeBucketAverages.kt` with:
       internal data class BucketAverages(
@@ -182,10 +203,13 @@ steps:
     dispatch — detect the method from the flattened leaf types (any
     `BucketedEstimationItem` → `BUCKET_SAMPLED_PERT`, else
     `THREE_POINT_PERT`), call
-    `EstimationMethodRegistry.require(method).calculateAll(leaves, params)`,
-    and rebuild the tree from the calculated leaves. PERT output must stay
-    byte-identical (the default `calculateAll` is per-leaf
-    `withCalculationParameters`).
+    `EstimationMethodRegistry.require(method).calculateAll(leaves, params)`.
+    `calculateAll` returns a FLAT `List<EstimationItem>`, so rebuild the
+    tree preserving group structure: index the calculated leaves by
+    `logicalId`, then map `roots` recursively — a group maps its children,
+    a leaf is replaced by its calculated version from the index. PERT
+    output must stay byte-identical (the default `calculateAll` is per-leaf
+    `withCalculationParameters`, so the PERT path is unchanged).
   - |
     Add JUnit 5 unit tests (JVM `src/test` source set,
     `org.junit.jupiter.api` — the `:domain` module has NO `commonTest`)

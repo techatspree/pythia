@@ -2,6 +2,9 @@
 
 package io.github.theestimator.model
 
+import io.github.theestimator.method.EstimationMethod
+import io.github.theestimator.method.EstimationMethodRegistry
+import io.github.theestimator.method.bucketsampled.BucketedEstimationItem
 import io.github.oshai.kotlinlogging.KotlinLogging
 import kotlin.js.ExperimentalJsExport
 import kotlin.js.JsExport
@@ -43,11 +46,34 @@ data class EstimationVersion(
 
         val params = CalculationParameters(riskFactor, totalDriverFactor, dailyRate, salesSurcharge)
 
-        val newRoots = roots.map { it.withCalculationParameters(params) }
+        // Dispatch through the estimation method's batch hook so bucket+sampled
+        // leaves get per-bucket context. A version has exactly one method, so the
+        // method is detected from the leaf types; PERT's default calculateAll is
+        // per-leaf withCalculationParameters, so the PERT path is byte-identical.
+        val method = if (leaves.any { it is BucketedEstimationItem }) {
+            EstimationMethod.BUCKET_SAMPLED_PERT
+        } else {
+            EstimationMethod.THREE_POINT_PERT
+        }
+        val calculatedLeaves = EstimationMethodRegistry.require(method)
+            .calculateAll(leaves, params)
+            .associateBy { it.logicalId }
+
+        val newRoots = roots.map { substituteCalculated(it, calculatedLeaves) }
         val newTotalEffort = newRoots.sumOf { it.offerPT }
 
-        logger.debug { "calculate(): ${leaves.size} leaves, totalMean=$totalMean, totalEffort=$newTotalEffort" }
+        logger.debug { "calculate(): ${leaves.size} leaves, method=$method, totalEffort=$newTotalEffort" }
 
         return copy(roots = newRoots, totalEffort = newTotalEffort)
+    }
+
+    // Rebuild the tree with each leaf replaced by its calculated version (indexed
+    // by logicalId), preserving the group structure.
+    private fun substituteCalculated(
+        node: EstimationNode,
+        calculated: Map<String, EstimationItem>
+    ): EstimationNode = when (node) {
+        is EstimationGroup -> node.copy(children = node.children.map { substituteCalculated(it, calculated) })
+        is EstimationItem -> calculated[node.logicalId] ?: node
     }
 }

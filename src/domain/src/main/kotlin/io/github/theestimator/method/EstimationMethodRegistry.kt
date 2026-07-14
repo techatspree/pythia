@@ -1,5 +1,6 @@
 package io.github.theestimator.method
 
+import io.github.theestimator.method.bucketsampled.BucketMethodModule
 import io.github.theestimator.method.threepoint.ThreePointMethodModule
 import io.github.oshai.kotlinlogging.KotlinLogging
 
@@ -38,6 +39,7 @@ object EstimationMethodRegistry {
     /** Register the built-in method modules. Idempotent (register overwrites). */
     fun installStandardMethods() {
         register(ThreePointMethodModule())
+        register(BucketMethodModule())
         logger.info { "Installed standard estimation methods: ${modules.keys}" }
     }
 
