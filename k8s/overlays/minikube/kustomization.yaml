@@ -10,3 +10,9 @@ patches:
     target:
       kind: ConfigMap
       name: backend-config
+  # Verbose, plain-text backend logs in minikube (overrides the %prod JSON+INFO
+  # defaults). Merges into the same backend-config ConfigMap.
+  - path: backend-logging.yaml
+    target:
+      kind: ConfigMap
+      name: backend-config

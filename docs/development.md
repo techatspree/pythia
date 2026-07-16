@@ -227,3 +227,35 @@ Or step by step:
    ```bash
    ./scripts/minikube-reset.sh
    ```
+
+### Viewing backend logs on Minikube
+
+The backend runs the packaged **`prod`** profile in the cluster (no
+`QUARKUS_PROFILE` is set), whose defaults are structured **JSON** at **INFO** —
+so `Log.debug(...)` is suppressed and the output can look empty if you only skim
+it. Fetch logs from the `estimation` namespace and the `backend` deployment:
+
+```bash
+kubectl -n estimation logs -f deploy/backend            # follow
+kubectl -n estimation logs deploy/backend --previous     # after a crash-loop
+```
+
+To make minikube logs developer-friendly, the minikube overlay
+(`k8s/overlays/minikube/backend-logging.yaml`) merges two env vars into the
+`backend-config` ConfigMap, overriding the image's `%prod` defaults with a
+**plain-text console** and **DEBUG** for the application package:
+
+```
+QUARKUS_LOG_CONSOLE_JSON_ENABLED=false
+QUARKUS_LOG_CATEGORY__IO_GITHUB_THEESTIMATOR__LEVEL=DEBUG   # quarkus.log.category."io.github.theestimator".level
+```
+
+Env-var config outranks `application.properties`, so this wins over the baked
+`%prod` settings; it is scoped to the minikube overlay only (production keeps
+JSON/INFO). A running pod won't pick up ConfigMap changes until it restarts:
+
+```bash
+kubectl apply -k k8s/overlays/minikube        # or ./scripts/minikube-deploy.sh
+kubectl -n estimation rollout restart deploy/backend
+kubectl -n estimation exec deploy/backend -- printenv | grep QUARKUS_LOG   # verify
+```

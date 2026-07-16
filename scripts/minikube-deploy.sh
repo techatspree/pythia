@@ -93,3 +93,6 @@ echo "Access the backend with:"
 echo "  kubectl -n estimation port-forward svc/backend 8080:8080"
 echo "Access the frontend with:"
 echo "  kubectl -n estimation port-forward svc/frontend 8080:80"
+echo "Access the backend logs with:"
+echo "  kubectl -n estimation logs deploy/backend"
+
