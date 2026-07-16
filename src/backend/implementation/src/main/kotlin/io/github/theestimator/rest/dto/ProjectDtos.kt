@@ -63,5 +63,13 @@ data class EstimationDetailDto(
     val latestVersionNumber: Int?,
     val hasDraft: Boolean,
     val createdAt: Instant?,
-    val versions: List<EstimationVersionSummaryDto>
+    val versions: List<EstimationVersionSummaryDto>,
+    // Buckets of the bucket + sampled method (task-103); empty for PERT.
+    val buckets: List<EstimationBucketDto> = emptyList()
+)
+
+data class EstimationBucketDto(
+    val id: UUID?,
+    val position: Int,
+    val label: String
 )

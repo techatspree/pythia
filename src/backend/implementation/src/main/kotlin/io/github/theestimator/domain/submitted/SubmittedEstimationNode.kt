@@ -1,5 +1,6 @@
 package io.github.theestimator.domain.submitted
 
+import io.github.theestimator.domain.EstimationBucket
 import jakarta.persistence.CascadeType
 import jakarta.persistence.Column
 import jakarta.persistence.DiscriminatorColumn
@@ -102,3 +103,18 @@ class SubmittedFixedItemNode : SubmittedEstimationNode()
 @Entity
 @DiscriminatorValue("TIME_RELATIVE")
 class SubmittedTimeRelativeItemNode : SubmittedEstimationNode()
+
+// Bucket + sampled leaf (task-103). Immutable snapshot: the sample's
+// optimistic/likely/pessimistic triple is stored in the inherited
+// min/expected/max columns, alongside the calculated neutral values.
+@Entity
+@DiscriminatorValue("BUCKETED")
+class SubmittedBucketedItemNode : SubmittedEstimationNode() {
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "bucket_id")
+    var bucket: EstimationBucket? = null
+
+    @Column(name = "is_sample")
+    var isSample: Boolean? = null
+}

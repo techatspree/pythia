@@ -112,6 +112,8 @@ fun DraftEstimationNode.toDtoWithCalc(calcMap: Map<String, EstimationNode>): Est
             children = children.map { it.toDtoWithCalc(calcMap) }
         )
         is DraftTimeRelativeItemNode -> leafDto(calc, "TIME_RELATIVE", unit)
+        is DraftBucketedItemNode -> leafDto(calc, "BUCKETED", null)
+            .copy(bucketId = bucket?.id?.toString(), isSample = isSample ?: false)
         is DraftFixedItemNode -> leafDto(calc, "FIXED", null)
         else -> error("Unknown node type: ${this::class.simpleName}")
     }
@@ -190,6 +192,29 @@ fun SubmittedEstimationNode.toDto(): EstimationNodeDto = when (this) {
         unit = null,
         phaseAbbreviation = null,
         children = children.map { it.toDto() }
+    )
+    is SubmittedBucketedItemNode -> EstimationNodeDto(
+        logicalId = logicalId,
+        type = "BUCKETED",
+        title = null,
+        description = description,
+        code = code,
+        minEffort = minEffort,
+        expectedEffort = expectedEffort,
+        maxEffort = maxEffort,
+        assumptions = assumptions,
+        mean = mean,
+        variance = variance,
+        riskSurcharge = riskSurcharge,
+        driverSurcharge = driverSurcharge,
+        offerPT = offerPT,
+        cost = cost,
+        offerPrice = offerPrice,
+        unit = null,
+        phaseAbbreviation = phaseAbbreviation,
+        children = emptyList(),
+        bucketId = bucket?.id?.toString(),
+        isSample = isSample ?: false
     )
     else -> EstimationNodeDto(
         logicalId = logicalId,

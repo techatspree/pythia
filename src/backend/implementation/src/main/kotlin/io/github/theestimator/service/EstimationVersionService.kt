@@ -5,6 +5,7 @@ import io.github.theestimator.domain.draft.DraftEffortDriver
 import io.github.theestimator.domain.draft.DraftEstimationNode
 import io.github.theestimator.domain.draft.DraftEstimationParameter
 import io.github.theestimator.domain.draft.DraftEstimationVersion
+import io.github.theestimator.domain.draft.DraftBucketedItemNode
 import io.github.theestimator.domain.draft.DraftFixedItemNode
 import io.github.theestimator.domain.draft.DraftGroupNode
 import io.github.theestimator.domain.draft.DraftProjectPhase
@@ -14,10 +15,12 @@ import io.github.theestimator.domain.submitted.SubmittedEffortDriver
 import io.github.theestimator.domain.submitted.SubmittedEstimationNode
 import io.github.theestimator.domain.submitted.SubmittedEstimationParameter
 import io.github.theestimator.domain.submitted.SubmittedEstimationVersion
+import io.github.theestimator.domain.submitted.SubmittedBucketedItemNode
 import io.github.theestimator.domain.submitted.SubmittedFixedItemNode
 import io.github.theestimator.domain.submitted.SubmittedGroupNode
 import io.github.theestimator.domain.submitted.SubmittedProjectPhase
 import io.github.theestimator.domain.submitted.SubmittedTimeRelativeItemNode
+import io.github.theestimator.method.bucketsampled.BucketedEstimationItem
 import io.github.theestimator.method.threepoint.FixedEstimationItem
 import io.github.theestimator.method.threepoint.TimeRelativeEstimationItem
 import io.github.theestimator.model.EstimationGroup
@@ -128,7 +131,11 @@ class EstimationVersionService(
             "SUBMIT", "version=${submitted.versionNumber}"
         )
 
-        Log.info("Submitted estimation $estimationId as version ${submitted.versionNumber}")
+        val leafCount = countLeaves(submitted.roots)
+        Log.info(
+            "Submitted estimation $estimationId as version ${submitted.versionNumber} " +
+                "(method=${draft.estimation?.method}, leaves=$leafCount)"
+        )
         return submitted
     }
 
@@ -197,6 +204,9 @@ class EstimationVersionService(
         return submitted
     }
 
+    private fun countLeaves(nodes: List<SubmittedEstimationNode>): Int =
+        nodes.sumOf { if (it is SubmittedGroupNode) countLeaves(it.children) else 1 }
+
     private fun indexDraftNodes(roots: List<DraftEstimationNode>): Map<String, DraftEstimationNode> {
         val byId = mutableMapOf<String, DraftEstimationNode>()
         fun index(node: DraftEstimationNode) {
@@ -218,6 +228,10 @@ class EstimationVersionService(
         val node: SubmittedEstimationNode = when (domainNode) {
             is EstimationGroup -> SubmittedGroupNode().apply { title = domainNode.title }
             is TimeRelativeEstimationItem -> SubmittedTimeRelativeItemNode().apply { unit = domainNode.unit }
+            is BucketedEstimationItem -> SubmittedBucketedItemNode().apply {
+                bucket = submitted.estimation?.buckets?.find { it.id?.toString() == domainNode.bucketId }
+                isSample = domainNode.isSample
+            }
             is FixedEstimationItem -> SubmittedFixedItemNode()
             // EstimationItem is now abstract (task-113): the when is no longer
             // exhaustive, so fail loudly on a leaf type this side can't persist.
@@ -244,6 +258,14 @@ class EstimationVersionService(
                 assumptions = domainNode.assumptions
                 phaseAbbreviation = domainNode.phase?.abbreviation
                     ?: draftNode?.phase?.abbreviation
+            }
+            if (domainNode is BucketedEstimationItem) {
+                // A bucketed sample stores its optimistic/likely/pessimistic
+                // triple in the shared min/expected/max columns (non-samples
+                // leave them NULL and carry only the bucket-averaged neutrals).
+                minEffort = domainNode.optimistic
+                expectedEffort = domainNode.likely
+                maxEffort = domainNode.pessimistic
             }
         }
         if (domainNode is EstimationGroup) {
@@ -322,6 +344,10 @@ class EstimationVersionService(
         val draftNode: DraftEstimationNode = when (submittedNode) {
             is SubmittedGroupNode -> DraftGroupNode().apply { title = submittedNode.title }
             is SubmittedTimeRelativeItemNode -> DraftTimeRelativeItemNode().apply { unit = submittedNode.unit }
+            is SubmittedBucketedItemNode -> DraftBucketedItemNode().apply {
+                bucket = submittedNode.bucket
+                isSample = submittedNode.isSample
+            }
             is SubmittedFixedItemNode -> DraftFixedItemNode()
             else -> error("Unknown submitted node type: ${submittedNode::class.simpleName}")
         }

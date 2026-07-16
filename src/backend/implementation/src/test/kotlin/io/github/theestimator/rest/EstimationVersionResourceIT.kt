@@ -2,9 +2,11 @@ package io.github.theestimator.rest
 
 import io.github.theestimator.domain.Estimation
 import io.github.theestimator.domain.Project
+import io.github.theestimator.method.EstimationMethod
 import io.github.theestimator.repository.EstimationRepository
 import io.github.theestimator.auth.DevAdminAuth
 import io.github.theestimator.repository.ProjectRepository
+import io.quarkus.narayana.jta.QuarkusTransaction
 import io.quarkus.test.junit.QuarkusTest
 import org.junit.jupiter.api.extension.ExtendWith
 import io.restassured.RestAssured.given
@@ -850,6 +852,141 @@ class EstimationVersionResourceIT {
             """.trimIndent())
             .put("/api/estimations/$estimationId/versions/draft")
             .then().statusCode(200)
+    }
+
+    // ---- Bucket + sampled method (task-103) ----------------------------------
+
+    // Bucket ids are global primary keys; each test mints fresh ones so the rows
+    // (which the endpoint commits and never rolls back) don't collide across tests.
+
+    // Uses an explicit transaction rather than @Transactional: a self-call from a
+    // test method would bypass the CDI interceptor and run without a transaction.
+    private fun createBucketEstimation(): UUID = QuarkusTransaction.requiringNew().call {
+        val project = Project().apply { name = "Bucket Project" }
+        projectRepository.persist(project)
+        val estimation = Estimation().apply {
+            offer = "BUCKET-001"
+            this.project = project
+            method = EstimationMethod.BUCKET_SAMPLED_PERT
+        }
+        estimationRepository.persist(estimation)
+        estimation.id!!
+    }
+
+    // Two buckets, 4 leaves (2 samples, 2 non-samples). With
+    // Standardabweichungsfaktor=0 the risk factor is 0, so offerPT == mean.
+    // b1 sample mean = PERT(1,2,a1Max); b2 sample mean = PERT(2,4,6) = 4.0.
+    private fun bucketDraftBody(b1: String, b2: String, a1Max: Double = 3.0) = """
+        {
+            "parameters": [{"name": "Standardabweichungsfaktor", "value": 0.0}],
+            "buckets": [
+                {"id": "$b1", "position": 0, "label": "Frontend"},
+                {"id": "$b2", "position": 1, "label": "Backend"}
+            ],
+            "roots": [
+                {"type": "BUCKETED", "description": "Sample A1", "bucketId": "$b1", "isSample": true, "minEffort": 1.0, "expectedEffort": 2.0, "maxEffort": $a1Max},
+                {"type": "BUCKETED", "description": "NonSample A2", "bucketId": "$b1", "isSample": false},
+                {"type": "BUCKETED", "description": "Sample B1", "bucketId": "$b2", "isSample": true, "minEffort": 2.0, "expectedEffort": 4.0, "maxEffort": 6.0},
+                {"type": "BUCKETED", "description": "NonSample B2", "bucketId": "$b2", "isSample": false}
+            ]
+        }
+    """.trimIndent()
+
+    @Test
+    fun `bucket draft computes per-bucket averages on non-sample leaves`() {
+        val eid = createBucketEstimation()
+        val b1 = UUID.randomUUID().toString()
+        val b2 = UUID.randomUUID().toString()
+        given().post("/api/estimations/$eid/versions").then().statusCode(201)
+
+        given()
+            .contentType(ContentType.JSON)
+            .body(bucketDraftBody(b1, b2))
+            .`when`().put("/api/estimations/$eid/versions/draft")
+            .then()
+            .statusCode(200)
+            .body("roots.size()", equalTo(4))
+            .body("roots.find { it.description == 'Sample A1' }.type", equalTo("BUCKETED"))
+            .body("roots.find { it.description == 'Sample A1' }.isSample", equalTo(true))
+            .body("roots.find { it.description == 'Sample A1' }.bucketId", equalTo(b1))
+            .body("roots.find { it.description == 'Sample A1' }.mean", equalTo(2.0f))
+            // Non-sample rows inherit their bucket's sample average.
+            .body("roots.find { it.description == 'NonSample A2' }.isSample", equalTo(false))
+            .body("roots.find { it.description == 'NonSample A2' }.mean", equalTo(2.0f))
+            .body("roots.find { it.description == 'NonSample A2' }.offerPT", equalTo(2.0f))
+            .body("roots.find { it.description == 'NonSample A2' }.bucketId", equalTo(b1))
+            .body("roots.find { it.description == 'NonSample B2' }.mean", equalTo(4.0f))
+            // 2 + 2 + 4 + 4
+            .body("totalEffort", equalTo(12.0f))
+
+        // The estimation detail exposes the bucket labels.
+        given()
+            .`when`().get("/api/estimations/$eid")
+            .then()
+            .statusCode(200)
+            .body("method", equalTo("BUCKET_SAMPLED_PERT"))
+            .body("buckets.size()", equalTo(2))
+            .body("buckets[0].label", equalTo("Frontend"))
+            .body("buckets[1].label", equalTo("Backend"))
+    }
+
+    @Test
+    fun `submitting a bucket estimation persists neutral and raw bucket columns`() {
+        val eid = createBucketEstimation()
+        val b1 = UUID.randomUUID().toString()
+        val b2 = UUID.randomUUID().toString()
+        given().post("/api/estimations/$eid/versions").then().statusCode(201)
+        given().contentType(ContentType.JSON).body(bucketDraftBody(b1, b2))
+            .put("/api/estimations/$eid/versions/draft").then().statusCode(200)
+
+        given().post("/api/estimations/$eid/versions/draft/submit").then().statusCode(200)
+
+        given()
+            .`when`().get("/api/estimations/$eid/versions/1")
+            .then()
+            .statusCode(200)
+            // Non-sample row: bucket-derived neutral values + raw bucket columns.
+            .body("roots.find { it.description == 'NonSample A2' }.type", equalTo("BUCKETED"))
+            .body("roots.find { it.description == 'NonSample A2' }.mean", equalTo(2.0f))
+            .body("roots.find { it.description == 'NonSample A2' }.offerPT", equalTo(2.0f))
+            .body("roots.find { it.description == 'NonSample A2' }.bucketId", equalTo(b1))
+            .body("roots.find { it.description == 'NonSample A2' }.isSample", equalTo(false))
+            // Sample row: keeps its three-point triple (min/expected/max).
+            .body("roots.find { it.description == 'Sample A1' }.isSample", equalTo(true))
+            .body("roots.find { it.description == 'Sample A1' }.minEffort", equalTo(1.0f))
+            .body("roots.find { it.description == 'Sample A1' }.maxEffort", equalTo(3.0f))
+            .body("roots.find { it.description == 'Sample A1' }.bucketId", equalTo(b1))
+    }
+
+    @Test
+    fun `undo and redo round-trip a bucketed draft`() {
+        val eid = createBucketEstimation()
+        val b1 = UUID.randomUUID().toString()
+        val b2 = UUID.randomUUID().toString()
+        given().post("/api/estimations/$eid/versions").then().statusCode(201)
+
+        // First state: Sample A1 = PERT(1,2,3) = 2.0.
+        given().contentType(ContentType.JSON).body(bucketDraftBody(b1, b2, a1Max = 3.0))
+            .put("/api/estimations/$eid/versions/draft").then().statusCode(200)
+
+        // Second state: Sample A1 = PERT(1,2,9) = 3.0.
+        given().contentType(ContentType.JSON).body(bucketDraftBody(b1, b2, a1Max = 9.0))
+            .put("/api/estimations/$eid/versions/draft").then().statusCode(200)
+            .body("roots.find { it.description == 'Sample A1' }.mean", equalTo(3.0f))
+
+        // Undo restores the first state — with the buckets intact.
+        given().post("/api/estimations/$eid/versions/draft/undo")
+            .then()
+            .statusCode(200)
+            .body("roots.find { it.description == 'Sample A1' }.mean", equalTo(2.0f))
+            .body("roots.find { it.description == 'Sample A1' }.bucketId", equalTo(b1))
+            .body("roots.find { it.description == 'NonSample A2' }.mean", equalTo(2.0f))
+
+        // Redo re-applies the second state.
+        given().post("/api/estimations/$eid/versions/draft/redo")
+            .then()
+            .statusCode(200)
+            .body("roots.find { it.description == 'Sample A1' }.mean", equalTo(3.0f))
     }
 
     @Test

@@ -1,6 +1,7 @@
 package io.github.theestimator.domain.draft
 
 import io.github.theestimator.domain.BaseEntity
+import io.github.theestimator.domain.EstimationBucket
 import jakarta.persistence.CascadeType
 import jakarta.persistence.Column
 import jakarta.persistence.DiscriminatorColumn
@@ -76,3 +77,18 @@ class DraftFixedItemNode : DraftEstimationNode()
 @Entity
 @DiscriminatorValue("TIME_RELATIVE")
 class DraftTimeRelativeItemNode : DraftEstimationNode()
+
+// Bucket + sampled leaf (task-103). Reuses the inherited min/expected/max
+// columns for a sample's optimistic/likely/pessimistic triple; non-samples
+// leave them NULL and inherit the bucket average via calculate().
+@Entity
+@DiscriminatorValue("BUCKETED")
+class DraftBucketedItemNode : DraftEstimationNode() {
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "bucket_id")
+    var bucket: EstimationBucket? = null
+
+    @Column(name = "is_sample")
+    var isSample: Boolean? = null
+}

@@ -7,73 +7,123 @@ description: |
   the submitted side so a `BUCKET_SAMPLED_PERT` estimation can be
   edited, submitted, undone, and re-read end-to-end.
 
+  ## Actual code layout (verified 2026-07-15)
+
+  - Persistence entities live under `io.github.theestimator.domain`
+    (NOT `.model`): `domain/Estimation.kt`,
+    `domain/draft/DraftEstimationNode.kt` (abstract + `DraftGroupNode`
+    / `DraftFixedItemNode` / `DraftTimeRelativeItemNode`),
+    `domain/submitted/SubmittedEstimationNode.kt` (mirror).
+    Panache repos live under `io.github.theestimator.repository`.
+  - There is NO `SubmittedVersionMapper`. The domain→submitted-entity
+    snapshot is built by `service/EstimationVersionService.kt`
+    (`buildSubmittedNode`, a `when(domainNode)` with an
+    `else -> error(...)`); the submitted-clone-to-draft is
+    `cloneSubmittedNode` in the same file. Entity→DTO (both draft and
+    submitted) is `rest/dto/EstimationVersionMapper.kt`.
+  - The leaf DTOs are **flat** (task-100), NOT polymorphic. There is
+    NO `BucketedNodeUpdateDto`. `EstimationNodeUpdateDto` and
+    `EstimationNodeDto` (in `rest/dto/EstimationVersionDtos.kt`)
+    already carry `type: String` (`enumeration` includes `BUCKETED`),
+    plus `bucketId: String? = null` and `isSample: Boolean = false`.
+    A bucketed **sample** reuses the existing
+    `minEffort`/`expectedEffort`/`maxEffort` fields/columns for its
+    optimistic/likely/pessimistic three-point values (the DTO already
+    documents this). `DraftMutationJackson` serialises the flat
+    `DraftUpdateDto` with the Kotlin-aware ObjectMapper, so bucketed
+    rows already round-trip through the undo log with no change there.
+  - The estimation read DTO is `EstimationDetailDto` (+
+    `EstimationSummaryDto`) in `rest/dto/ProjectDtos.kt`, mapped by
+    `rest/dto/ProjectMapper.kt`. There is NO `EstimationDto`.
+
   ## Frozen decisions (from task-096)
 
-  - **Submitted side is method-specific.** The submitted-side
-    tables carry the raw method-specific columns
-    (`bucket_id`, `is_sample`, sample-only PT values) so an
-    export or a detail view of a submitted version can reproduce
-    the input. The neutral effort columns
-    (`mean`/`variance`/`offerPT`/`cost`/`offerPrice`) stay
-    populated by calculate — those are what aggregate reads
-    (comparison, list, dashboard) use.
-  - **Buckets are per-estimation.** New `estimation_buckets`
-    table shared across draft and submitted rows: columns `id`,
-    `estimation_id`, `position`, `label`. Ordered by `position`
-    like node children.
-  - **Flyway migration.** `V10__bucket_sampled_method.sql`:
+  - **Submitted side is method-specific.** The submitted node rows
+    carry the raw method-specific columns (`bucket_id`, `is_sample`,
+    and the sample three-point values in
+    `min_effort`/`expected_effort`/`max_effort`) so an export or a
+    detail view of a submitted version can reproduce the input. The
+    neutral effort columns (`mean`/`variance`/`offer_pt`/`cost`/
+    `offer_price`) stay populated by `EstimationVersion.calculate()`
+    — those are what aggregate reads (comparison, list) use. The
+    backend never recomputes on read.
+  - **Buckets are per-estimation.** New `estimation_buckets` table
+    shared across draft and submitted rows: columns `id`,
+    `estimation_id`, `position`, `label`, `created_at`, `updated_at`.
+    Ordered by `position` like node children.
+  - **Flyway migration `V10__bucket_sampled_method.sql`** (V9 is the
+    latest; V10 is next):
       * `CREATE TABLE estimation_buckets(...)` with a
-        `UNIQUE (estimation_id, position)` constraint and an
-        FK to `estimations(id)` (`ON DELETE CASCADE`).
+        `UNIQUE (estimation_id, position)` constraint and an FK to
+        `estimations(id) ON DELETE CASCADE`.
       * On BOTH `draft_estimation_nodes` and
         `submitted_estimation_nodes`:
-          - add `bucket_id uuid REFERENCES estimation_buckets(id)
-            ON DELETE RESTRICT` (nullable — non-`BUCKETED` rows
-            leave it NULL);
-          - add `is_sample boolean` (nullable — non-`BUCKETED`
+          - `ADD COLUMN bucket_id UUID NULL REFERENCES
+            estimation_buckets(id) ON DELETE RESTRICT` (non-BUCKETED
             rows leave it NULL);
-          - allow the existing PT columns
-            (`optimistic`/`likely`/`pessimistic`) to remain
-            nullable (they already are for non-`FIXED`/`TIME_RELATIVE`
-            rows).
-      * Extend the node-type CHECK constraint (if the migration
-        history has one) to include `BUCKETED`.
-  - **JPA.** New `EstimationBucket` entity mapped to
-    `estimation_buckets`, with a `@ManyToOne` on `Estimation`.
-    Add `@DiscriminatorValue("BUCKETED")` subclasses on both
-    `DraftEstimationNode` and `SubmittedEstimationNode`, holding
-    the bucket reference, `isSample`, and the (nullable) PT
-    columns. Preserve the ordered-children shape (`@OrderColumn`
-    on `position`).
-  - **Draft mapper & applier.** `DraftUpdateApplier`, previously
-    rejecting `BucketedNodeUpdateDto` (task-100), now accepts it
-    ONLY when the owning estimation's `method` is
-    `BUCKET_SAMPLED_PERT` — a mismatch still yields `400`.
-    `DraftVersionMapper` and `EstimationVersionMapper` handle the
-    new leaf type. `DraftSnapshotMapper.toUpdateDto()` produces
-    a `BucketedNodeUpdateDto` for bucketed rows.
-  - **Undo log.** `DraftMutationJackson` already registers
-    `BucketedNodeUpdateDto` (task-100). Verify a round-trip
-    integration test with a real bucketed change persisted and
-    then undone.
-  - **Submitted snapshot.** When submitting a
-    `BUCKET_SAMPLED_PERT` draft, mirror the bucketed leaves into
-    the submitted table with the method-specific columns
-    populated AND the neutral columns populated by
-    `EstimationVersion.calculate()`. The `SubmittedVersionMapper`
-    already writes the neutral columns; extend it to also copy
-    the method-specific ones for `BUCKETED` rows.
-  - **Reading submitted versions.** `EstimationVersionMapper`
-    reconstructs a domain `BucketedEstimationItem` from the
-    submitted row (using the persisted PT columns for sample
-    rows). The neutral columns are then trusted as-is (the
-    backend does NOT recompute on read — per CLAUDE.md).
-  - **Logging.** `Log.info` on submit with method + item counts;
-    `Log.debug` on per-node persistence in the mapper if useful;
-    `Log.warn` on the applier's rejected mismatched-method case.
+          - `ADD COLUMN is_sample BOOLEAN NULL` (non-BUCKETED rows
+            leave it NULL).
+      * The node tables use a `VARCHAR` `node_type` discriminator with
+        NO CHECK constraint, so nothing to extend there. The PT columns
+        (`min_effort`/`expected_effort`/`max_effort`) are already
+        nullable — bucketed samples reuse them, non-samples leave them
+        NULL.
+  - **JPA.** New `EstimationBucket` entity (`domain/EstimationBucket.kt`,
+    extends `BaseEntity`) mapped to `estimation_buckets`, with a
+    `@ManyToOne` on `Estimation`. Add `@DiscriminatorValue("BUCKETED")`
+    subclasses `DraftBucketedItemNode` (in
+    `domain/draft/DraftEstimationNode.kt`) and `SubmittedBucketedItemNode`
+    (in `domain/submitted/SubmittedEstimationNode.kt`), each holding a
+    `@ManyToOne bucket` (`@JoinColumn("bucket_id")`) and an
+    `isSample: Boolean?`. They inherit the `min/expected/max` columns
+    (reused for the sample triple) and the ordered-children shape.
+  - **Estimation.buckets.** Add
+    `@OneToMany(mappedBy = "estimation", cascade = ALL,
+    orphanRemoval = true) @OrderBy("position")
+    buckets: MutableList<EstimationBucket>`.
+  - **Draft applier & DTO.** `DraftUpdateApplier.buildDraftNode`,
+    previously rejecting `type == "BUCKETED"` with `400`, now accepts
+    it ONLY when `draft.estimation.method == BUCKET_SAMPLED_PERT`
+    (`Log.warn` + `400` on a mismatch), resolving the
+    `EstimationBucket` by `dto.bucketId` from `draft.estimation.buckets`
+    (a `400` if unknown) and setting `isSample` + the reused
+    min/expected/max. Add a `BucketUpdateDto(id, position, label)` and
+    a nullable `buckets: List<BucketUpdateDto>?` on `DraftUpdateDto`;
+    `applyBuckets` upserts `estimation.buckets` by id (create missing,
+    update label/position, remove-absent — mirrors the phases
+    upsert-not-clear pattern, since node rows FK-reference buckets).
+    `applyBuckets` MUST run before `applyRoots` so bucketed leaves can
+    resolve their bucket. (Removing a bucket still referenced by a
+    submitted version is a client error and will surface as a DB
+    RESTRICT violation; that is acceptable pre-task-104.)
+  - **Mappers.** `DraftVersionMapper.toDomain` maps
+    `DraftBucketedItemNode` → domain `BucketedEstimationItem`
+    (`bucketId = bucket.id.toString()`, `isSample`,
+    `optimistic = minEffort`, `likely = expectedEffort`,
+    `pessimistic = maxEffort`). `EstimationVersionService.buildSubmittedNode`
+    gains an `is BucketedEstimationItem ->` branch that creates a
+    `SubmittedBucketedItemNode` (resolving the bucket via
+    `submitted.estimation.buckets`), sets `isSample`, and persists the
+    sample triple into `min/expected/max` plus the neutral columns.
+    `cloneSubmittedNode` gains the mirror branch (submitted→draft
+    clone on new-draft). `EstimationVersionMapper` gains BUCKETED
+    branches for both `DraftEstimationNode.toDtoWithCalc` and
+    `SubmittedEstimationNode.toDto` (emit `type = "BUCKETED"`,
+    `bucketId`, `isSample`). `DraftSnapshotMapper.toUpdateDto` emits
+    `type = "BUCKETED"` + `bucketId`/`isSample` for bucketed rows.
+  - **Estimation detail DTO.** Add `EstimationBucketDto(id, position,
+    label)` and a `buckets: List<EstimationBucketDto>` field on
+    `EstimationDetailDto` (`ProjectDtos.kt`), populated in
+    `ProjectMapper.toEstimationDetailDto` from `estimation.buckets`
+    (empty for PERT estimations).
+  - **Logging.** `Log.info` on submit already exists in
+    `EstimationVersionService`; extend its message with the method +
+    leaf count. `Log.warn` on the applier's rejected mismatched-method
+    case. `Log.debug` on per-bucketed-node persistence if useful.
   - **CLAUDE.md.** Update "Persistence shape" to describe
-    `estimation_buckets`, the `BUCKETED` discriminator on both
-    node tables, and the method-specific submitted columns.
+    `estimation_buckets`, the `BUCKETED` discriminator on both node
+    tables, the reused min/expected/max sample columns, and the
+    `EstimationBucket` per-estimation ownership.
 
   ## What does NOT belong in this task
 
@@ -83,72 +133,80 @@ description: |
 
 steps:
   - |
-    Read current entities:
-      src/backend/implementation/src/main/kotlin/io/github/theestimator/model/DraftEstimationNode.kt
-      src/backend/implementation/src/main/kotlin/io/github/theestimator/model/SubmittedEstimationNode.kt
-      src/backend/implementation/src/main/kotlin/io/github/theestimator/model/Estimation.kt
+    Read the current entities and mappers:
+      src/backend/implementation/src/main/kotlin/io/github/theestimator/domain/draft/DraftEstimationNode.kt
+      src/backend/implementation/src/main/kotlin/io/github/theestimator/domain/submitted/SubmittedEstimationNode.kt
+      src/backend/implementation/src/main/kotlin/io/github/theestimator/domain/Estimation.kt
       src/backend/implementation/src/main/kotlin/io/github/theestimator/service/DraftVersionMapper.kt
-      src/backend/implementation/src/main/kotlin/io/github/theestimator/service/SubmittedVersionMapper.kt
+      src/backend/implementation/src/main/kotlin/io/github/theestimator/service/EstimationVersionService.kt
       src/backend/implementation/src/main/kotlin/io/github/theestimator/service/DraftUpdateApplier.kt
-      src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/dto/EstimationVersionMapper.kt
       src/backend/implementation/src/main/kotlin/io/github/theestimator/service/DraftSnapshotMapper.kt
-    Read migrations V6/V7/V8/V9 for the pattern to follow.
+      src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/dto/EstimationVersionMapper.kt
+      src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/dto/EstimationVersionDtos.kt
+      src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/dto/ProjectDtos.kt
+      src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/dto/ProjectMapper.kt
+    Read migrations V6/V7/V9 for the pattern to follow.
   - |
     Create Flyway
     `src/backend/implementation/src/main/resources/db/migration/V10__bucket_sampled_method.sql`
-    with all DDL described above (buckets table + columns on
-    both node tables + CHECK adjustment if applicable).
+    with the `estimation_buckets` table (UNIQUE(estimation_id,
+    position), FK to estimations ON DELETE CASCADE) and the
+    `bucket_id` (FK ON DELETE RESTRICT) + `is_sample` columns on both
+    `draft_estimation_nodes` and `submitted_estimation_nodes`, plus a
+    supporting index on each `bucket_id`.
   - |
-    Add JPA entities/subclasses:
-      src/backend/implementation/src/main/kotlin/io/github/theestimator/model/EstimationBucket.kt
-      DraftBucketedItemNode (@DiscriminatorValue("BUCKETED") on DraftEstimationNode)
-      SubmittedBucketedItemNode (@DiscriminatorValue("BUCKETED") on SubmittedEstimationNode)
-    Add a Panache repository for buckets:
-      src/backend/implementation/src/main/kotlin/io/github/theestimator/repository/EstimationBucketRepository.kt
+    Add `domain/EstimationBucket.kt` (extends `BaseEntity`, `@Table
+    "estimation_buckets"`, `@ManyToOne estimation`, `position: Int`,
+    `label: String`). Add a Panache repository
+    `repository/EstimationBucketRepository.kt`
+    (`PanacheRepositoryBase<EstimationBucket, UUID>`, finder
+    `findByEstimationId`).
   - |
-    Extend Estimation entity with `buckets: List<EstimationBucket>`
-    ordered by `position`. Serialise the bucket collection on
-    the `Estimation` DTO (extend `EstimationDto` with
-    `buckets: List<EstimationBucketDto>?` — nullable so PERT
-    estimations serialise as null/empty).
+    Add `@DiscriminatorValue("BUCKETED")` subclasses in the two node
+    files: `DraftBucketedItemNode` (in
+    `domain/draft/DraftEstimationNode.kt`) and
+    `SubmittedBucketedItemNode` (in
+    `domain/submitted/SubmittedEstimationNode.kt`), each with
+    `@ManyToOne bucket` (`@JoinColumn("bucket_id")`) and
+    `isSample: Boolean?`.
+  - |
+    Extend `Estimation` with the ordered `buckets` collection.
   - |
     Update `DraftUpdateApplier`:
-      * Remove the blanket rejection of `BucketedNodeUpdateDto`
-        (task-100). Accept it ONLY when
-        `draft.estimation.method == BUCKET_SAMPLED_PERT`; else
-        respond `400` with a message naming the mismatch.
-      * Support bucket collection changes (add/remove/rename/
-        reorder buckets) via a new `BucketsUpdateDto` (nested in
-        `DraftUpdateDto`) — use the same clear-and-rebuild shape
-        as the other collections in this file.
-      * `Log.warn` on the rejected mismatched-method case.
+      * `buildDraftNode`: replace the blanket BUCKETED rejection with
+        method-gated acceptance (`400` + `Log.warn` when
+        `draft.estimation.method != BUCKET_SAMPLED_PERT`), resolving
+        the bucket by id from `draft.estimation.buckets` (`400` if
+        unknown) into a `DraftBucketedItemNode`. The existing
+        non-GROUP block already copies min/expected/max + assumptions.
+      * Add `BucketUpdateDto` + `buckets` on `DraftUpdateDto`
+        (`EstimationVersionDtos.kt`) and an `applyBuckets` that
+        upserts `estimation.buckets` by id (create/update/remove-absent),
+        invoked BEFORE `applyRoots`.
   - |
-    Update `DraftVersionMapper`, `SubmittedVersionMapper`,
-    `EstimationVersionMapper`, and `DraftSnapshotMapper` to
-    handle the new leaf type. On the submitted side, populate
-    BOTH the method-specific columns and the neutral columns
-    (already computed by `EstimationVersion.calculate()`).
-    `Log.info` on submit with method + item counts.
+    Update `DraftVersionMapper`, `EstimationVersionService`
+    (`buildSubmittedNode` + `cloneSubmittedNode`),
+    `EstimationVersionMapper`, and `DraftSnapshotMapper` to handle the
+    bucketed leaf on every path. Populate BOTH the method-specific
+    columns and the neutral columns on the submitted side. Extend the
+    submit `Log.info` with the method + leaf count.
   - |
-    Confirm `DraftMutationJackson` already handles
-    `BucketedNodeUpdateDto` (task-100). Add a
-    `@QuarkusTest` that goes through the full apply → undo →
-    redo cycle on a bucketed draft.
+    Add `EstimationBucketDto` + `buckets` on `EstimationDetailDto`
+    (`ProjectDtos.kt`) and populate it in
+    `ProjectMapper.toEstimationDetailDto`.
   - |
     Add `@QuarkusTest`s in
-    `.../rest/EstimationVersionResourceIT.kt`:
-      * Create an estimation with `method =
-        BUCKET_SAMPLED_PERT`, PUT a draft with 2 buckets and 4
-        leaves (2 samples, 2 non-samples). GET returns
-        calculated values with per-bucket average on non-sample
-        rows.
-      * Submit the draft. GET the submitted version — non-sample
-        rows carry the bucket-derived neutral values AND the raw
-        `bucket_id` + `is_sample` on the wire (verify via the
-        response DTO shape).
-      * Compare draft → submitted and submitted → submitted for a
-        bucket estimation returns a coherent diff (spot-check;
-        deep comparison-suite coverage is out of scope).
+    `src/backend/implementation/src/test/kotlin/io/github/theestimator/rest/EstimationVersionResourceIT.kt`:
+      * Create an estimation with `method = BUCKET_SAMPLED_PERT`, PUT a
+        draft with 2 buckets and 4 leaves (2 samples, 2 non-samples).
+        GET the draft returns calculated values with the per-bucket
+        average on the non-sample rows and `bucketId`/`isSample` on the
+        wire.
+      * Submit the draft. GET the submitted version — non-sample rows
+        carry the bucket-derived neutral values AND the raw `bucketId`
+        + `isSample`.
+      * Full apply → undo → redo cycle on a bucketed draft restores the
+        bucketed state (proves the flat DTO round-trips the undo log).
   - |
     Update `CLAUDE.md` "Persistence shape" section.
   - |
@@ -164,20 +222,19 @@ validation:
       grep -q "bucket_id" src/backend/implementation/src/main/resources/db/migration/V10__bucket_sampled_method.sql
       grep -q "is_sample" src/backend/implementation/src/main/resources/db/migration/V10__bucket_sampled_method.sql
   - |
-    JPA subclasses for BUCKETED on both draft and submitted sides
-    exist:
-      grep -q "DiscriminatorValue(\"BUCKETED\")" src/backend/implementation/src/main/kotlin/io/github/theestimator/model/DraftEstimationNode.kt \
-        || test -f src/backend/implementation/src/main/kotlin/io/github/theestimator/model/DraftBucketedItemNode.kt
-      grep -q "DiscriminatorValue(\"BUCKETED\")" src/backend/implementation/src/main/kotlin/io/github/theestimator/model/SubmittedEstimationNode.kt \
-        || test -f src/backend/implementation/src/main/kotlin/io/github/theestimator/model/SubmittedBucketedItemNode.kt
+    JPA BUCKETED subclasses exist on both draft and submitted sides:
+      grep -q "DiscriminatorValue(\"BUCKETED\")" src/backend/implementation/src/main/kotlin/io/github/theestimator/domain/draft/DraftEstimationNode.kt
+      grep -q "DiscriminatorValue(\"BUCKETED\")" src/backend/implementation/src/main/kotlin/io/github/theestimator/domain/submitted/SubmittedEstimationNode.kt
   - |
     EstimationBucket entity + repository exist:
-      test -f src/backend/implementation/src/main/kotlin/io/github/theestimator/model/EstimationBucket.kt
+      test -f src/backend/implementation/src/main/kotlin/io/github/theestimator/domain/EstimationBucket.kt
       test -f src/backend/implementation/src/main/kotlin/io/github/theestimator/repository/EstimationBucketRepository.kt
   - |
-    Applier logs and rejects method mismatches:
-      grep -q "Log.warn\|Log.info" src/backend/implementation/src/main/kotlin/io/github/theestimator/service/DraftUpdateApplier.kt
+    Applier logs + method-gates BUCKETED, and the submit path handles
+    the bucketed leaf:
+      grep -q "Log.warn" src/backend/implementation/src/main/kotlin/io/github/theestimator/service/DraftUpdateApplier.kt
       grep -q "BUCKET_SAMPLED_PERT" src/backend/implementation/src/main/kotlin/io/github/theestimator/service/DraftUpdateApplier.kt
+      grep -q "BucketedEstimationItem" src/backend/implementation/src/main/kotlin/io/github/theestimator/service/EstimationVersionService.kt
   - |
     CLAUDE.md documents the new persistence:
       grep -q "estimation_buckets" CLAUDE.md
@@ -187,16 +244,18 @@ validation:
 
 outputs:
   - created: src/backend/implementation/src/main/resources/db/migration/V10__bucket_sampled_method.sql
-  - created: src/backend/implementation/src/main/kotlin/io/github/theestimator/model/EstimationBucket.kt
+  - created: src/backend/implementation/src/main/kotlin/io/github/theestimator/domain/EstimationBucket.kt
   - created: src/backend/implementation/src/main/kotlin/io/github/theestimator/repository/EstimationBucketRepository.kt
-  - modified: src/backend/implementation/src/main/kotlin/io/github/theestimator/model/DraftEstimationNode.kt
-  - modified: src/backend/implementation/src/main/kotlin/io/github/theestimator/model/SubmittedEstimationNode.kt
-  - modified: src/backend/implementation/src/main/kotlin/io/github/theestimator/model/Estimation.kt
+  - modified: src/backend/implementation/src/main/kotlin/io/github/theestimator/domain/draft/DraftEstimationNode.kt
+  - modified: src/backend/implementation/src/main/kotlin/io/github/theestimator/domain/submitted/SubmittedEstimationNode.kt
+  - modified: src/backend/implementation/src/main/kotlin/io/github/theestimator/domain/Estimation.kt
   - modified: src/backend/implementation/src/main/kotlin/io/github/theestimator/service/DraftUpdateApplier.kt
   - modified: src/backend/implementation/src/main/kotlin/io/github/theestimator/service/DraftVersionMapper.kt
-  - modified: src/backend/implementation/src/main/kotlin/io/github/theestimator/service/SubmittedVersionMapper.kt
+  - modified: src/backend/implementation/src/main/kotlin/io/github/theestimator/service/EstimationVersionService.kt
   - modified: src/backend/implementation/src/main/kotlin/io/github/theestimator/service/DraftSnapshotMapper.kt
   - modified: src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/dto/EstimationVersionMapper.kt
-  - modified: src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/dto/EstimationDto.kt
+  - modified: src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/dto/EstimationVersionDtos.kt
+  - modified: src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/dto/ProjectDtos.kt
+  - modified: src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/dto/ProjectMapper.kt
   - modified: src/backend/implementation/src/test/kotlin/io/github/theestimator/rest/EstimationVersionResourceIT.kt
   - modified: CLAUDE.md

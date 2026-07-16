@@ -1,10 +1,12 @@
 package io.github.theestimator.service
 
+import io.github.theestimator.domain.draft.DraftBucketedItemNode
 import io.github.theestimator.domain.draft.DraftEstimationNode
 import io.github.theestimator.domain.draft.DraftEstimationVersion
 import io.github.theestimator.domain.draft.DraftGroupNode
 import io.github.theestimator.domain.draft.DraftTimeRelativeItemNode
 import io.github.theestimator.rest.dto.AdditionalCostUpdateDto
+import io.github.theestimator.rest.dto.BucketUpdateDto
 import io.github.theestimator.rest.dto.DraftUpdateDto
 import io.github.theestimator.rest.dto.EffortDriverDto
 import io.github.theestimator.rest.dto.EstimationNodeUpdateDto
@@ -28,6 +30,11 @@ fun DraftEstimationVersion.toUpdateDto(): DraftUpdateDto = DraftUpdateDto(
     phases = phases.map {
         PhaseUpdateDto(name = it.name, abbreviation = it.abbreviation, durationWeeks = it.durationWeeks)
     },
+    // Buckets live on the estimation (shared across versions); capture them so
+    // an undo/redo restores the bucket set (empty for PERT estimations).
+    buckets = estimation?.buckets?.map {
+        BucketUpdateDto(id = it.id, position = it.position, label = it.label)
+    } ?: emptyList(),
     roots = roots.map { it.toUpdateDto() },
     additionalCosts = additionalCosts.map {
         AdditionalCostUpdateDto(
@@ -44,6 +51,7 @@ private fun DraftEstimationNode.toUpdateDto(): EstimationNodeUpdateDto {
     val nodeType = when (this) {
         is DraftGroupNode -> "GROUP"
         is DraftTimeRelativeItemNode -> "TIME_RELATIVE"
+        is DraftBucketedItemNode -> "BUCKETED"
         else -> "FIXED"
     }
     return EstimationNodeUpdateDto(
@@ -58,6 +66,8 @@ private fun DraftEstimationNode.toUpdateDto(): EstimationNodeUpdateDto {
         assumptions = assumptions,
         unit = unit,
         phaseAbbreviation = phase?.abbreviation,
-        children = children.map { it.toUpdateDto() }
+        children = children.map { it.toUpdateDto() },
+        bucketId = (this as? DraftBucketedItemNode)?.bucket?.id?.toString(),
+        isSample = (this as? DraftBucketedItemNode)?.isSample ?: false
     )
 }

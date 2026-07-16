@@ -44,6 +44,12 @@ class Estimation : BaseEntity() {
     @OrderBy("versionNumber DESC")
     var submittedVersions: MutableList<SubmittedEstimationVersion> = mutableListOf()
 
+    // Buckets of the bucket + sampled method (task-103); empty for PERT.
+    // Shared across the draft and every submitted version of this estimation.
+    @OneToMany(mappedBy = "estimation", cascade = [CascadeType.ALL], orphanRemoval = true)
+    @OrderBy("position ASC")
+    var buckets: MutableList<EstimationBucket> = mutableListOf()
+
     val latestSubmittedVersion: SubmittedEstimationVersion?
         get() = submittedVersions.maxByOrNull { it.versionNumber }
 }

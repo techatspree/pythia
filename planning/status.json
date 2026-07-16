@@ -615,9 +615,9 @@
       "notes": "Domain: implement bucket+sampled method (BucketedEstimationItem, per-bucket mean reducer)"
     },
     "task-103": {
-      "status": "pending",
-      "started_at": null,
-      "completed_at": null,
+      "status": "done",
+      "started_at": "2026-07-14T22:14:06+00:00",
+      "completed_at": "2026-07-14T22:33:44+00:00",
       "notes": "Backend: persist buckets + bucketed leaves (Flyway V10) on draft and submitted sides"
     },
     "task-104": {

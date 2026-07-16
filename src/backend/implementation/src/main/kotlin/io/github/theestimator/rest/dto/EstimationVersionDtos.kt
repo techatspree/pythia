@@ -104,8 +104,17 @@ data class DraftUpdateDto(
     val parameters: List<EstimationParameterDto>? = null,
     val effortDrivers: List<EffortDriverDto>? = null,
     val phases: List<PhaseUpdateDto>? = null,
+    // Applied before roots so bucketed leaves can resolve their bucket
+    // (bucket + sampled method only; null/empty for PERT).
+    val buckets: List<BucketUpdateDto>? = null,
     val roots: List<EstimationNodeUpdateDto>? = null,
     val additionalCosts: List<AdditionalCostUpdateDto>? = null
+)
+
+data class BucketUpdateDto(
+    val id: UUID? = null,
+    val position: Int,
+    val label: String
 )
 
 data class EstimationNodeUpdateDto(

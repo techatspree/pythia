@@ -53,6 +53,7 @@ fun Estimation.toEstimationDetailDto(draftTotalEffort: Double? = null): Estimati
         latestVersionNumber = latestSubmittedVersion?.versionNumber,
         hasDraft = draftVersion != null,
         createdAt = createdAt,
-        versions = versionList
+        versions = versionList,
+        buckets = buckets.map { EstimationBucketDto(id = it.id, position = it.position, label = it.label) }
     )
 }

@@ -5,11 +5,15 @@ import io.github.theestimator.domain.draft.DraftEffortDriver
 import io.github.theestimator.domain.draft.DraftEstimationNode
 import io.github.theestimator.domain.draft.DraftEstimationParameter
 import io.github.theestimator.domain.draft.DraftEstimationVersion
+import io.github.theestimator.domain.EstimationBucket
+import io.github.theestimator.domain.draft.DraftBucketedItemNode
 import io.github.theestimator.domain.draft.DraftFixedItemNode
 import io.github.theestimator.domain.draft.DraftGroupNode
 import io.github.theestimator.domain.draft.DraftProjectPhase
 import io.github.theestimator.domain.draft.DraftTimeRelativeItemNode
+import io.github.theestimator.method.EstimationMethod
 import io.github.theestimator.rest.dto.AdditionalCostUpdateDto
+import io.github.theestimator.rest.dto.BucketUpdateDto
 import io.github.theestimator.rest.dto.DraftUpdateDto
 import io.github.theestimator.rest.dto.EffortDriverDto
 import io.github.theestimator.rest.dto.EstimationNodeUpdateDto
@@ -31,8 +35,34 @@ class DraftUpdateApplier {
         update.parameters?.let { applyParameters(draft, it) }
         update.effortDrivers?.let { applyEffortDrivers(draft, it) }
         update.phases?.let { applyPhases(draft, it) }
+        // Buckets before roots: a bucketed leaf resolves its bucket by id.
+        update.buckets?.let { applyBuckets(draft, it) }
         update.roots?.let { applyRoots(draft, it) }
         update.additionalCosts?.let { applyAdditionalCosts(draft, it) }
+    }
+
+    private fun applyBuckets(draft: DraftEstimationVersion, bucketDtos: List<BucketUpdateDto>) {
+        val estimation = draft.estimation ?: return
+        // Upsert by id (not clear-and-rebuild): node rows FK-reference buckets
+        // with ON DELETE RESTRICT, so orphan-removing a referenced bucket would
+        // fail. Ids are client-assigned, so the snapshot round-trips undo/redo.
+        val keptIds = bucketDtos.mapNotNull { it.id }.toSet()
+        estimation.buckets.removeAll { it.id !in keptIds }
+        val byId = estimation.buckets.associateBy { it.id }
+        bucketDtos.forEach { dto ->
+            val existing = dto.id?.let { byId[it] }
+            if (existing != null) {
+                existing.position = dto.position
+                existing.label = dto.label
+            } else {
+                estimation.buckets.add(EstimationBucket().apply {
+                    id = dto.id
+                    this.estimation = estimation
+                    position = dto.position
+                    label = dto.label
+                })
+            }
+        }
     }
 
     private fun applyParameters(draft: DraftEstimationVersion, params: List<EstimationParameterDto>) {
@@ -98,16 +128,10 @@ class DraftUpdateApplier {
         parentNode: DraftEstimationNode?,
         pos: Int
     ): DraftEstimationNode {
-        // BUCKETED is reserved on the wire (task-100) but has no persistence
-        // path yet (task-103). Reject it loudly rather than silently coercing
-        // it to a fixed leaf.
-        if (dto.type == "BUCKETED") {
-            Log.warn("Rejected BUCKETED leaf ${dto.logicalId}: not yet supported for this estimation method")
-            throw BadRequestException("BUCKETED leaves are not yet supported for this estimation method")
-        }
         val node: DraftEstimationNode = when (dto.type) {
             "GROUP" -> DraftGroupNode().apply { title = dto.title }
             "TIME_RELATIVE" -> DraftTimeRelativeItemNode().apply { unit = dto.unit ?: "h/Woche" }
+            "BUCKETED" -> buildBucketedNode(draft, dto)
             else -> DraftFixedItemNode()
         }
         node.apply {
@@ -131,6 +155,30 @@ class DraftUpdateApplier {
             node.children.add(buildDraftNode(draft, childDto, node, idx))
         }
         return node
+    }
+
+    private fun buildBucketedNode(draft: DraftEstimationVersion, dto: EstimationNodeUpdateDto): DraftBucketedItemNode {
+        // A BUCKETED leaf is only valid when the owning estimation opted into the
+        // bucket + sampled method; otherwise it is a client/method mismatch (400).
+        if (draft.estimation?.method != EstimationMethod.BUCKET_SAMPLED_PERT) {
+            Log.warn(
+                "Rejected BUCKETED leaf ${dto.logicalId}: estimation method is " +
+                    "${draft.estimation?.method}, not BUCKET_SAMPLED_PERT"
+            )
+            throw BadRequestException("BUCKETED leaves are only allowed for a BUCKET_SAMPLED_PERT estimation")
+        }
+        val bucketUuid = dto.bucketId?.let { runCatching { UUID.fromString(it) }.getOrNull() }
+        val bucket = bucketUuid?.let { uuid -> draft.estimation?.buckets?.find { it.id == uuid } }
+            ?: run {
+                Log.warn("Rejected BUCKETED leaf ${dto.logicalId}: unknown bucketId ${dto.bucketId}")
+                throw BadRequestException("Unknown bucketId ${dto.bucketId} for BUCKETED leaf")
+            }
+        // min/expected/max (the sample triple) + assumptions are copied by the
+        // shared non-GROUP block in buildDraftNode.
+        return DraftBucketedItemNode().apply {
+            this.bucket = bucket
+            this.isSample = dto.isSample
+        }
     }
 
     private fun applyAdditionalCosts(draft: DraftEstimationVersion, costDtos: List<AdditionalCostUpdateDto>) {
