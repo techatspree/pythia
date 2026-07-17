@@ -17,6 +17,9 @@
 	import { loadEditorModule } from '$lib/methods/registry';
 
 	type EstimationMethod = components['schemas']['EstimationMethod'];
+	// Bucket + sampled method (task-104). Read untyped from the estimation
+	// detail; ids are client-assigned so leaves reference them by id.
+	type Bucket = { id: string; position: number; label: string };
 
 	let versionData = $state<ApiVersionResponse | null>(null);
 	let loading = $state(true);
@@ -30,6 +33,8 @@
 	let currentDrivers = $state<any[]>([]);
 	let currentPhases = $state<any[]>([]);
 	let currentAdditionalCosts = $state<ApiAdditionalCost[]>([]);
+	// Buckets of the bucket+sampled method; empty for PERT estimations (task-104).
+	let currentBuckets = $state<Bucket[]>([]);
 
 	// The estimation's method drives which editor module is lazy-loaded
 	// (task-101). The version response carries no method, so loadVersion also
@@ -104,12 +109,32 @@
 				: `/api/estimations/${estimationId}/versions/${versionNumber}`;
 			const res = await apiFetch(url);
 			if (!res.ok) throw new Error(`Failed to load version (${res.status})`);
-			applyVersionData(await res.json());
+			const data = await res.json();
+			// Read the estimation detail first: it carries the method (which module
+			// to load) and, for bucket estimations, the buckets. Setting
+			// currentBuckets BEFORE applyVersionData folds them into the autosave
+			// baseline, so loading buckets never triggers a spurious PUT.
+			const estRes = await apiFetch(`/api/estimations/${estimationId}`);
+			if (estRes.ok) {
+				const est = await estRes.json();
+				currentMethod = (est.method ?? currentMethod) as EstimationMethod;
+				currentBuckets = ((est.buckets ?? []) as Bucket[])
+					.map((b) => ({ id: b.id, position: b.position ?? 0, label: b.label ?? '' }))
+					.sort((a, b) => a.position - b.position);
+			}
+			applyVersionData(data);
+			// Fresh bucket draft: seed default sizes so the estimator can assign
+			// items right away. AFTER the baseline, so the autosave effect persists
+			// them (new client-assigned ids).
+			if (data.isDraft && currentMethod === 'BUCKET_SAMPLED_PERT' && currentBuckets.length === 0) {
+				currentBuckets = ['XS', 'S', 'M', 'L', 'XL'].map((label, i) => ({
+					id: crypto.randomUUID(),
+					position: i,
+					label
+				}));
+			}
 			// Load the mutation log so undo/redo availability is known up front.
 			if (versionData?.isDraft) await undoStore.refresh();
-			// Read the estimation's method and lazy-load its editor module.
-			const estRes = await apiFetch(`/api/estimations/${estimationId}`);
-			if (estRes.ok) currentMethod = (await estRes.json()).method as EstimationMethod;
 			EditorComponent = (await loadEditorModule(currentMethod)).default;
 		} catch (e: any) {
 			bannerMessage = e.message;
@@ -178,6 +203,7 @@
 			effortDrivers: $state.snapshot(currentDrivers),
 			phases: $state.snapshot(currentPhases),
 			additionalCosts: $state.snapshot(currentAdditionalCosts),
+			buckets: $state.snapshot(currentBuckets),
 			roots: $state.snapshot(currentRoots)
 		});
 	}
@@ -206,6 +232,7 @@
 					body: JSON.stringify({
 						notes: currentNotes,
 						phases: currentPhases,
+						buckets: currentBuckets,
 						roots: currentRoots,
 						parameters: currentParameters,
 						effortDrivers: currentDrivers,
@@ -336,6 +363,7 @@
 				bind:effortDrivers={currentDrivers}
 				bind:phases={currentPhases}
 				bind:additionalCosts={currentAdditionalCosts}
+				bind:buckets={currentBuckets}
 				{calcMap}
 				editable={versionData.isDraft}
 			/>

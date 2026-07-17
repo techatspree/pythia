@@ -3,6 +3,7 @@ import {
 	createGroup,
 	createFixedItem,
 	createTimeRelativeItem,
+	createBucketedItem,
 	ProjectPhase,
 	EstimationParameter,
 	EffortDriver,
@@ -11,6 +12,9 @@ import {
 } from './domain/domain.mjs';
 
 export interface CalcEntry {
+	// `mean` is the pre-surcharge effort; the bucket editor shows it read-only on
+	// non-sample rows (the domain reducer derives it from the bucket's samples).
+	mean: number;
 	offerPT: number;
 	cost: number;
 	offerPrice: number;
@@ -24,7 +28,7 @@ export interface EditingPhase {
 
 interface EditingLeaf {
 	logicalId: string;
-	type: 'FIXED' | 'TIME_RELATIVE';
+	type: 'FIXED' | 'TIME_RELATIVE' | 'BUCKETED';
 	description: string;
 	minEffort: number | null;
 	expectedEffort: number | null;
@@ -32,6 +36,10 @@ interface EditingLeaf {
 	assumptions: string | null;
 	unit: string | null;
 	phaseAbbreviation: string | null;
+	// Bucket + sampled (task-104): a sample's optimistic/likely/pessimistic
+	// reuse min/expected/max; non-samples inherit the bucket mean in the domain.
+	bucketId?: string | null;
+	isSample?: boolean;
 }
 
 interface EditingGroup {
@@ -91,6 +99,19 @@ export function computeCalcMap(
 				phaseByAbbr.get(node.phaseAbbreviation ?? '') ?? null
 			);
 		}
+		if (node.type === 'BUCKETED') {
+			// The domain reducer (task-102) derives the per-bucket mean; the
+			// adapter only plumbs the leaf in. Sample values reuse min/expected/max.
+			return createBucketedItem(
+				node.description,
+				node.bucketId ?? '',
+				node.isSample ?? false,
+				node.minEffort ?? 0,
+				node.expectedEffort ?? 0,
+				node.maxEffort ?? 0,
+				node.logicalId
+			);
+		}
 		return createFixedItem(
 			node.description,
 			node.minEffort ?? 0,
@@ -108,6 +129,7 @@ export function computeCalcMap(
 	const m = new Map<string, CalcEntry>();
 	function walk(node: EstimationNode): void {
 		m.set(node.logicalId, {
+			mean: node.mean,
 			offerPT: node.offerPT,
 			cost: node.cost,
 			offerPrice: node.offerPrice

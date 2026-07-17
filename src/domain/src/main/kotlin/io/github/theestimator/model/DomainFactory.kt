@@ -6,6 +6,7 @@
 
 package io.github.theestimator.model
 
+import io.github.theestimator.method.bucketsampled.BucketedEstimationItem
 import io.github.theestimator.method.threepoint.FixedEstimationItem
 import io.github.theestimator.method.threepoint.TimeRelativeEstimationItem
 import kotlin.js.ExperimentalJsExport
@@ -47,6 +48,25 @@ fun createTimeRelativeItem(
     _assumptions = assumptions,
     _logicalId = logicalId,
     _phase = phase
+)
+
+@JsExport
+fun createBucketedItem(
+    description: String,
+    bucketId: String,
+    isSample: Boolean = false,
+    optimistic: Double = 0.0,
+    likely: Double = 0.0,
+    pessimistic: Double = 0.0,
+    logicalId: String = newId()
+): BucketedEstimationItem = BucketedEstimationItem(
+    bucketId = bucketId,
+    isSample = isSample,
+    optimistic = optimistic,
+    likely = likely,
+    pessimistic = pessimistic,
+    _description = description,
+    _logicalId = logicalId
 )
 
 @JsExport

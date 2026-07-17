@@ -4,7 +4,7 @@
 
 export type Leaf = {
 	logicalId: string;
-	type: 'FIXED' | 'TIME_RELATIVE';
+	type: 'FIXED' | 'TIME_RELATIVE' | 'BUCKETED';
 	description: string;
 	minEffort: number | null;
 	expectedEffort: number | null;
@@ -12,6 +12,11 @@ export type Leaf = {
 	assumptions: string | null;
 	phaseAbbreviation: string | null;
 	unit: string | null;
+	// Bucket + sampled method (task-104). Optional so FIXED/TIME_RELATIVE leaf
+	// literals elsewhere still typecheck. A sample stores its three-point values
+	// in minEffort/expectedEffort/maxEffort (reused columns, matching task-103).
+	bucketId?: string | null;
+	isSample?: boolean;
 };
 
 export type Group = {
@@ -25,7 +30,7 @@ export type Node = Leaf | Group;
 
 export type NodePath = number[];
 
-export type CalcEntry = { offerPT: number; cost: number; offerPrice: number };
+export type CalcEntry = { mean: number; offerPT: number; cost: number; offerPrice: number };
 
 export function newId(): string {
 	return crypto.randomUUID();
@@ -44,6 +49,8 @@ type RawNode = {
 	assumptions?: string | null;
 	phaseAbbreviation?: string | null;
 	unit?: string | null;
+	bucketId?: string | null;
+	isSample?: boolean;
 };
 
 function initNode(n: RawNode): Node {
@@ -55,16 +62,20 @@ function initNode(n: RawNode): Node {
 			children: (n.children ?? []).map(initNode)
 		};
 	}
+	const leafType: Leaf['type'] =
+		n.type === 'TIME_RELATIVE' ? 'TIME_RELATIVE' : n.type === 'BUCKETED' ? 'BUCKETED' : 'FIXED';
 	return {
 		logicalId: n.logicalId ?? newId(),
-		type: n.type === 'TIME_RELATIVE' ? 'TIME_RELATIVE' : 'FIXED',
+		type: leafType,
 		description: n.description ?? '',
 		minEffort: n.minEffort ?? null,
 		expectedEffort: n.expectedEffort ?? null,
 		maxEffort: n.maxEffort ?? null,
 		assumptions: n.assumptions ?? null,
 		phaseAbbreviation: n.phaseAbbreviation ?? null,
-		unit: n.unit ?? null
+		unit: n.unit ?? null,
+		bucketId: n.bucketId ?? null,
+		isSample: n.isSample ?? false
 	};
 }
 

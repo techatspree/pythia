@@ -1,0 +1,311 @@
+id: task-114
+phase: phase-14
+title: Build — auto-regenerate frontend OpenAPI client on backend change
+depends_on: [task-094]
+description: |
+  Wire the backend-generated OpenAPI document into the frontend
+  build so the typed client (`schema.d.ts`) can never drift from
+  the actual backend contract. Today the two-hop pipeline is
+  half-manual — the freshness of the frontend types depends on
+  the developer remembering to copy the schema.
+
+  ## Current state (the staleness)
+
+  1. The backend produces the OpenAPI document during its build.
+     `src/backend/implementation/src/main/resources/application.properties`
+     sets `quarkus.smallrye-openapi.store-schema-directory=target/openapi`,
+     so SmallRye writes
+     `src/backend/implementation/target/openapi/openapi.json`
+     (and `.yaml`) whenever the backend is built.
+  2. The **frontend consumes a committed copy** at
+     `src/frontend/src/lib/api/openapi.json`. The
+     `npm run gen:api` script (`openapi-typescript
+     src/lib/api/openapi.json -o src/lib/api/schema.d.ts`)
+     regenerates `schema.d.ts` **from that committed file**, NOT
+     from the fresh backend output.
+  3. The frontend Gradle task `genApi` (in
+     `src/frontend/build.gradle.kts`) runs `npm run gen:api` on
+     every `npmCheck` / `npmBuild`, but reads the same stale
+     committed file. Nothing in the Gradle graph copies the
+     fresh backend output into the frontend tree.
+  4. Refreshing the committed copy is a manual, error-prone
+     ritual (documented in CLAUDE.md as
+     `cp src/backend/implementation/target/openapi/openapi.json
+      src/frontend/src/lib/api/openapi.json &&
+      cd src/frontend && npm run gen:api`). Right now the two
+     files ARE diverged — a spot-check shows `diff` reports the
+     backend `target/openapi/openapi.json` and the committed
+     frontend copy differ. A developer who tweaks a DTO but
+     forgets the copy step ships a frontend that compiles
+     against a stale contract.
+
+  ## Target state
+
+  After this task:
+
+  - The committed `src/frontend/src/lib/api/openapi.json` is a
+    **build artifact** that the Gradle graph refreshes on every
+    build. It stays version-controlled (so PR reviews still see
+    contract diffs and offline `:frontend:check` still works
+    once anyone has done one full build) but the build itself
+    keeps it in sync.
+  - Any change to a REST DTO, a JAX-RS annotation, or a domain
+    type that surfaces on the wire causes
+    `src/frontend/src/lib/api/schema.d.ts` to be regenerated
+    without a developer touching anything besides
+    `./gradlew build`.
+  - CI catches the drift explicitly: if the committed
+    `openapi.json` in the working tree differs from what the
+    build produces, the build fails with a clear message telling
+    the developer to run `./gradlew build` and commit the
+    regenerated file. No silent "green build, stale schema"
+    outcome.
+
+  ## Frozen decisions (do not re-open in implementation)
+
+  - **Pattern.** Mirror the existing `:domain` →
+    `typescriptDist` consumable-configuration pattern (see
+    `src/domain/build.gradle.kts` lines 142–152 and
+    `src/frontend/build.gradle.kts` lines 18–33). This is the
+    project's precedent for module-to-module artifact flow via
+    Gradle. Do NOT introduce a `Copy` task using a hardcoded
+    relative path from `:frontend` back into `:backend` — use
+    the artifact model so Gradle handles ordering and
+    up-to-date checking.
+  - **Backend side.** In
+    `src/backend/implementation/build.gradle.kts`:
+      * Add a small `generateOpenApiSchema` Gradle task that
+        `dependsOn(tasks.quarkusBuild)` (or whichever
+        Quarkus-plugin task materialises `target/openapi/`) and
+        exposes `src/backend/implementation/target/openapi/openapi.json`
+        as its single output. If a suitable output already
+        exists on `quarkusBuild` for the openapi file, just
+        register the file as a `configurations.artifacts` entry
+        of the new consumable configuration; do NOT wrap
+        `quarkusBuild` in a `Copy`.
+      * Register a consumable configuration
+        `openapiSchema` (`isCanBeResolved = false;
+        isCanBeConsumed = true`) with the openapi.json file as
+        its single artifact.
+      * Wire `generateOpenApiSchema` (or the direct
+        `quarkusBuild`-provided file) into `openapiSchema` via
+        `artifacts { add(openapiSchema.name, …) }`.
+  - **Frontend side.** In `src/frontend/build.gradle.kts`:
+      * Add a resolvable configuration
+        `backendOpenapi` (`isCanBeResolved = true;
+        isCanBeConsumed = false`) that
+        `dependencies { backendOpenapi(project(mapOf("path" to
+        ":backend:implementation", "configuration" to
+        "openapiSchema"))) }`.
+      * Register a `Sync` task `syncBackendOpenapi` that copies
+        the resolved file into
+        `src/lib/api/openapi.json`. Use the same
+        `configurations["backendOpenapi"].elements.map { … }`
+        idiom used by `unpackDomainTypescript`, so the
+        dependency is expressed lazily and Gradle handles the
+        task dependency correctly.
+      * Make the existing `genApi` task
+        `dependsOn(syncBackendOpenapi)` so `npm run gen:api`
+        always runs against the freshly synced schema.
+      * The existing `npmBuild` / `npmCheck` already depend on
+        `genApi`; leave that wiring untouched.
+      * `clean` should NOT delete the committed
+        `openapi.json` (offline dev needs it to survive `git
+        clean` or a `clean` build). The `Sync` task will
+        overwrite in place; the file stays committed.
+  - **CI drift gate.** Add a Gradle task
+    `verifyOpenApiSchemaCommitted` (in
+    `src/frontend/build.gradle.kts`) that
+    `dependsOn(syncBackendOpenapi)` and checks whether the
+    working-tree state of `src/frontend/src/lib/api/openapi.json`
+    is dirty relative to `HEAD`. Implementation:
+    `Runtime.getRuntime().exec("git diff --exit-code
+    src/frontend/src/lib/api/openapi.json")` (or use a small
+    Gradle exec spec) — fail the task with a clear message
+    ("OpenAPI schema has drifted — run `./gradlew build` and
+    commit the regenerated `src/lib/api/openapi.json` and
+    `src/lib/api/schema.d.ts`."). Wire it into `check`:
+    `tasks.named("check") { dependsOn(verifyOpenApiSchemaCommitted) }`.
+    Guard the task with a small "skip if we're not inside a git
+    working tree" fallback so CI containers that ship without
+    `.git` (unlikely, but possible) don't wedge.
+  - **`schema.d.ts` regen also gates on drift.** After the sync,
+    `genApi` regenerates `schema.d.ts`; the same drift gate
+    check applies to that file. Extend the diff check to cover
+    both `openapi.json` AND `schema.d.ts` — one message, one
+    failure.
+  - **Don't refactor the openapi-typescript invocation itself.**
+    `npm run gen:api` stays exactly as it is. The change is
+    Gradle wiring around it, not tool selection.
+  - **Don't move the committed file out of source control.**
+    Keep `src/lib/api/openapi.json` in `git`; the build just
+    guarantees it is fresh. Rationale: PR contract diffs stay
+    visible; offline `:frontend:check` after a fresh clone
+    keeps working; no operational impact on the deployed
+    frontend.
+  - **CLAUDE.md.** Update the "Build & run" or "REST API
+    surface" section to state the new invariant: "The backend's
+    OpenAPI schema is copied into the frontend by the Gradle
+    build; the committed copy at
+    `src/frontend/src/lib/api/openapi.json` is a build artifact
+    and is verified by CI to be in sync with the backend."
+
+  ## Non-goals
+
+  - No change to `openapi-typescript` version or configuration.
+  - No move of frontend components onto the generated
+    `schema.d.ts` — the hand-written `$lib/api/types.ts`
+    migration is a separate follow-up (mentioned in CLAUDE.md).
+  - No new backend or REST endpoints — this is pure build
+    plumbing.
+  - No change to the SmallRye storage location; it stays at
+    `src/backend/implementation/target/openapi/`.
+
+steps:
+  - |
+    Read the current build files so the diff stays minimal:
+      src/domain/build.gradle.kts  (the typescriptDist pattern to mirror — lines 105 packageTypescript, 145 typescriptDist configuration, 151 artifacts wiring)
+      src/frontend/build.gradle.kts (existing unpackDomainTypescript at lines 18–33, and the genApi task at line 39)
+      src/backend/implementation/build.gradle.kts (identify the Quarkus plugin task that writes the openapi file — usually `quarkusBuild`; run `./gradlew :backend:implementation:tasks --group=quarkus` if unsure)
+      src/backend/implementation/src/main/resources/application.properties (confirm store-schema-directory)
+  - |
+    In `src/backend/implementation/build.gradle.kts`, register:
+      * A consumable configuration `openapiSchema`:
+          val openapiSchema = configurations.create("openapiSchema") {
+              isCanBeResolved = false
+              isCanBeConsumed = true
+          }
+      * A small task (or a direct provider expression) that names
+        the generated file as its output and depends on the
+        Quarkus task that produces it. Example (adjust to the
+        actual Quarkus task discovered in step 1):
+          val openapiFile = layout.projectDirectory.file("target/openapi/openapi.json")
+          tasks.register("openApiSchemaArtifact") {
+              dependsOn(tasks.named("quarkusBuild"))
+              inputs.file(openapiFile)
+              outputs.file(openapiFile)
+          }
+      * Wire the artifact:
+          artifacts {
+              add(openapiSchema.name, openapiFile) {
+                  builtBy(tasks.named("openApiSchemaArtifact"))
+              }
+          }
+  - |
+    In `src/frontend/build.gradle.kts`:
+      * Declare a resolvable configuration + dependency:
+          val backendOpenapi = configurations.create("backendOpenapi") {
+              isCanBeConsumed = false
+              isCanBeResolved = true
+          }
+          dependencies {
+              backendOpenapi(project(mapOf(
+                  "path" to ":backend:implementation",
+                  "configuration" to "openapiSchema"
+              )))
+          }
+      * Register a `Sync` task that copies the resolved file
+        into the committed frontend location:
+          val syncBackendOpenapi = tasks.register<Sync>("syncBackendOpenapi") {
+              from(backendOpenapi.elements.map { locs -> locs.map { it.asFile } })
+              into(layout.projectDirectory.dir("src/lib/api"))
+              rename { "openapi.json" }
+          }
+      * Make `genApi` depend on it:
+          tasks.named<NpmTask>("genApi") { dependsOn(syncBackendOpenapi) }
+  - |
+    Add the drift gate. In `src/frontend/build.gradle.kts`:
+        val verifyOpenApiSchemaCommitted = tasks.register<Exec>("verifyOpenApiSchemaCommitted") {
+            dependsOn(tasks.named("genApi"))
+            workingDir = rootProject.projectDir
+            commandLine = listOf(
+                "git", "diff", "--exit-code",
+                "src/frontend/src/lib/api/openapi.json",
+                "src/frontend/src/lib/api/schema.d.ts"
+            )
+            isIgnoreExitValue = false
+            doFirst {
+                // Skip the gate when there is no git working tree (e.g. distributions
+                // built from a source tarball).
+                if (!rootProject.file(".git").exists()) enabled = false
+            }
+        }
+        tasks.named("check") { dependsOn(verifyOpenApiSchemaCommitted) }
+    On failure, emit a `doLast` failure message via a
+    `try {} catch` wrapper OR (simpler) rely on the non-zero
+    `git diff` exit code — the Gradle failure message already
+    names the task. Prefer a small `doFirst` echo hint
+    ("OpenAPI schema drift — run ./gradlew build and commit
+    src/lib/api/openapi.json + src/lib/api/schema.d.ts").
+  - |
+    Prove it end-to-end:
+      * `./gradlew clean :frontend:clean :backend:implementation:build :frontend:check`
+        — verify `src/lib/api/openapi.json` and `schema.d.ts`
+        are freshly written and match the backend.
+      * Introduce a temporary DTO tweak (add a nullable field
+        to any DTO), run `./gradlew build`, confirm
+        `openapi.json` and `schema.d.ts` change on disk. Revert
+        the tweak.
+      * Make `openapi.json` dirty (`echo "" >> …`), run
+        `./gradlew :frontend:check` — expect
+        `verifyOpenApiSchemaCommitted` to fail with a diff.
+        Restore the file.
+  - |
+    Update `CLAUDE.md` (the "Build & run" or "REST API surface"
+    section — pick the one that already mentions the manual
+    `gen:api` step) to state: "The backend OpenAPI schema is
+    consumed by the frontend via the `openapiSchema` Gradle
+    configuration; `./gradlew build` regenerates
+    `src/frontend/src/lib/api/openapi.json` and
+    `schema.d.ts` from the backend. CI fails the build if
+    those files drift from `HEAD`; run `./gradlew build` and
+    commit the regenerated files." Remove the stale
+    "regenerated from it via `cd src/frontend && npm run
+    gen:api`" wording — that step is no longer manual.
+  - |
+    Build (the mandatory gate):
+      ./gradlew build
+
+validation:
+  - |
+    Backend exposes the consumable configuration + artifact
+    naming:
+      grep -q "openapiSchema" src/backend/implementation/build.gradle.kts
+      grep -q "isCanBeConsumed = true" src/backend/implementation/build.gradle.kts
+  - |
+    Frontend declares the resolvable configuration, sync task,
+    and drift gate:
+      grep -q "backendOpenapi" src/frontend/build.gradle.kts
+      grep -q "syncBackendOpenapi" src/frontend/build.gradle.kts
+      grep -q "verifyOpenApiSchemaCommitted" src/frontend/build.gradle.kts
+  - |
+    `genApi` gains the sync-task dependency (schema.d.ts always
+    from fresh openapi.json):
+      grep -q "genApi" src/frontend/build.gradle.kts
+      grep -q "dependsOn(syncBackendOpenapi)" src/frontend/build.gradle.kts \
+        || grep -q "genApi.*dependsOn" src/frontend/build.gradle.kts
+  - |
+    Post-build the two files match the backend-generated one:
+      ./gradlew :backend:implementation:build :frontend:check
+      diff -q src/backend/implementation/target/openapi/openapi.json \
+              src/frontend/src/lib/api/openapi.json
+  - |
+    Drift gate fires on a dirty file (positive negative test).
+    Temporarily corrupt the file, run the gate, expect FAIL,
+    then restore:
+      cp src/frontend/src/lib/api/openapi.json /tmp/openapi.orig
+      echo '{"__drift__":true}' >> src/frontend/src/lib/api/openapi.json
+      ! ./gradlew :frontend:verifyOpenApiSchemaCommitted
+      cp /tmp/openapi.orig src/frontend/src/lib/api/openapi.json
+      rm /tmp/openapi.orig
+  - |
+    CLAUDE.md is updated (mentions the automated wiring):
+      grep -q "openapiSchema\|syncBackendOpenapi" CLAUDE.md
+  - |
+    Full-stack build is green:
+      ./gradlew build
+
+outputs:
+  - modified: src/backend/implementation/build.gradle.kts
+  - modified: src/frontend/build.gradle.kts
+  - modified: CLAUDE.md

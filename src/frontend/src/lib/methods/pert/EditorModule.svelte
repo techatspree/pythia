@@ -17,6 +17,10 @@
 		effortDrivers = $bindable(),
 		phases = $bindable(),
 		additionalCosts = $bindable(),
+		// PERT has no buckets; declared only so the route can bind uniformly
+		// across method modules (bind:buckets). Unused here.
+		// eslint-disable-next-line no-useless-assignment
+		buckets: _buckets = $bindable(),
 		calcMap,
 		editable
 	}: {
@@ -25,6 +29,7 @@
 		effortDrivers: any[];
 		phases: any[];
 		additionalCosts: ApiAdditionalCost[];
+		buckets?: unknown[];
 		calcMap: Map<string, CalcEntry>;
 		editable: boolean;
 	} = $props();
