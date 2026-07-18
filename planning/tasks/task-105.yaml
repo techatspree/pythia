@@ -1,13 +1,29 @@
 id: task-105
 phase: phase-15
 title: Session SPI + PERT session-support module
-depends_on: [task-101]
+depends_on: [task-062, task-064, task-101]
 description: |
   Refactor the phase-11 collaborative-estimation-session code so
   per-method behaviour lives behind a
   `EstimationMethodSessionSupport` interface. Wrap the current
   PERT session flow as the `THREE_POINT_PERT` implementation
   without changing session UX for existing PERT estimations.
+
+  ## Prerequisite — BLOCKED until phase-11 is implemented
+
+  This task **refactors existing collaborative-session code; it does not
+  create the session feature.** That feature (phase-11, tasks 062–067) is
+  currently unimplemented — there is no `EstimationSession` / estimator-
+  vote / session-reducer code anywhere in `src/`. task-105 therefore
+  cannot start until at least:
+    * **task-062** — the domain estimator-vote aggregation math (the
+      pure-function core this task extracts into
+      `ThreePointSessionSupport.reduce`), and
+    * **task-064** — the backend session lifecycle service + REST API
+      (the reduction call site this task reroutes through the registry)
+  are done. Do NOT run `/implement-task task-105` before those exist; the
+  "grep for the phase-11 code / locate the reducer call site" steps below
+  return nothing today.
 
   ## Frozen decisions (from task-096)
 
@@ -58,10 +74,13 @@ description: |
     dispatch is invisible to the user for PERT.
   - **Kotlin/JS pitfall.** No `super.<computed prop>` usages
     should appear in the session code.
-  - **CLAUDE.md.** No new section needed (the phase-11 area is
-    lightly documented). Add a one-line pointer in
-    "Collaborative Estimation Sessions" if such a subsection
-    exists; otherwise skip.
+  - **CLAUDE.md.** Document the session SPI as a second SPI in the
+    existing **"Pluggable estimation methods (SPI)"** subsection (there is
+    no "Collaborative Estimation Sessions" subsection) — a one-line note
+    that `EstimationMethodSessionSupport` is a sibling SPI to
+    `EstimationMethodModule`, registered via
+    `EstimationMethodRegistry.registerSessionSupport` /
+    `requireSession`.
 
   ## What does NOT belong in this task
 
@@ -97,16 +116,19 @@ steps:
     instead of the current in-place PERT reduction. Log INFO on
     session start with method + estimation id.
   - |
-    Add domain unit tests in
-    `src/domain/src/commonTest/kotlin/io/github/theestimator/method/threepoint/ThreePointSessionSupportTest.kt`.
+    Add domain unit tests in the JVM `src/test` source set (JUnit 5,
+    `org.junit.jupiter.api` — the `:domain` module has NO `commonTest`),
+    at
+    `src/domain/src/test/kotlin/io/github/theestimator/method/threepoint/ThreePointSessionSupportTest.kt`,
+    mirroring `ThreePointMethodModuleTest`.
   - |
     Add a backend `@QuarkusTest` that runs a full PERT session
     round-trip (via the existing session integration harness) —
     parity check to prove behaviour is unchanged.
   - |
-    If `CLAUDE.md` has a "Collaborative Estimation Sessions"
-    subsection, add a one-line mention of the new
-    `EstimationMethodSessionSupport` SPI. Otherwise skip.
+    In `CLAUDE.md`'s "Pluggable estimation methods (SPI)" subsection, add
+    a one-line note that `EstimationMethodSessionSupport` is a sibling SPI
+    (registered via `registerSessionSupport` / `requireSession`).
   - |
     Build:
       ./gradlew :domain:build
@@ -138,6 +160,6 @@ validation:
 outputs:
   - created: src/domain/src/main/kotlin/io/github/theestimator/method/EstimationMethodSessionSupport.kt
   - created: src/domain/src/main/kotlin/io/github/theestimator/method/threepoint/ThreePointSessionSupport.kt
-  - created: src/domain/src/commonTest/kotlin/io/github/theestimator/method/threepoint/ThreePointSessionSupportTest.kt
+  - created: src/domain/src/test/kotlin/io/github/theestimator/method/threepoint/ThreePointSessionSupportTest.kt
   - modified: src/domain/src/main/kotlin/io/github/theestimator/method/EstimationMethodRegistry.kt
   - modified: CLAUDE.md

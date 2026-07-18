@@ -669,9 +669,9 @@
       "notes": "Plan phase-16: i18n — English source language + per-user language switch with DE/EN modules"
     },
     "task-112": {
-      "status": "in_progress",
+      "status": "done",
       "started_at": "2026-07-17T11:40:33+00:00",
-      "completed_at": null,
+      "completed_at": "2026-07-18T20:31:10+00:00",
       "notes": "Frontend: create new estimation in GUI (dialog + POST + navigate), backed by e2e/backend IT"
     },
     "task-113": {
