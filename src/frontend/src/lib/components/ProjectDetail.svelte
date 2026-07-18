@@ -1,6 +1,24 @@
 <script lang="ts">
 	import { resolve } from '$app/paths';
+	import { goto } from '$app/navigation';
+	import RequiredRole from '$lib/auth/RequiredRole.svelte';
+	import CreateEstimationDialog from '$lib/components/CreateEstimationDialog.svelte';
+	import type { components } from '$lib/api/schema';
+
+	type EstimationSummaryDto = components['schemas']['EstimationSummaryDto'];
+
 	let { project, loading, error }: { project: any | null; loading: boolean; error: string } = $props();
+
+	let dialogOpen = $state(false);
+
+	function handleCreated(created: EstimationSummaryDto) {
+		if (project && Array.isArray(project.estimations)) {
+			project.estimations = [...project.estimations, created];
+		}
+		if (created.id) {
+			goto(resolve('/estimations/[id]', { id: created.id }));
+		}
+	}
 </script>
 
 {#if loading}
@@ -23,7 +41,18 @@
 		{/if}
 	</div>
 
-	<h2 class="text-lg font-semibold mb-3">Estimations</h2>
+	<div class="flex items-center justify-between mb-3">
+		<h2 class="text-lg font-semibold">Estimations</h2>
+		<RequiredRole role="ESTIMATOR">
+			<button
+				type="button"
+				onclick={() => (dialogOpen = true)}
+				class="px-4 py-2 text-sm bg-brand-green text-white rounded hover:bg-[#007a45]"
+			>
+				Neue Kalkulation
+			</button>
+		</RequiredRole>
+	</div>
 
 	{#if project.estimations.length === 0}
 		<p class="text-gray-500">No estimations yet.</p>
@@ -63,4 +92,6 @@
 			</table>
 		</div>
 	{/if}
+
+	<CreateEstimationDialog bind:open={dialogOpen} projectId={project.id} oncreated={handleCreated} />
 {/if}

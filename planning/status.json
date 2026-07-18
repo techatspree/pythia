@@ -669,8 +669,8 @@
       "notes": "Plan phase-16: i18n — English source language + per-user language switch with DE/EN modules"
     },
     "task-112": {
-      "status": "pending",
-      "started_at": null,
+      "status": "in_progress",
+      "started_at": "2026-07-17T11:40:33+00:00",
       "completed_at": null,
       "notes": "Frontend: create new estimation in GUI (dialog + POST + navigate), backed by e2e/backend IT"
     },
@@ -685,6 +685,12 @@
       "started_at": null,
       "completed_at": null,
       "notes": "Auto-regenerate frontend OpenAPI client on backend build (never stale on domain/DTO change)"
+    },
+    "task-115": {
+      "status": "pending",
+      "started_at": null,
+      "completed_at": null,
+      "notes": "Adapt the dev TestDataSeeder to include a bucket + sampled estimation so the bucket editor has real data on dev.sh"
     }
   }
 }

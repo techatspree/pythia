@@ -66,6 +66,8 @@ if ! command -v envsubst >/dev/null 2>&1; then
     echo "Error: envsubst is required (install gettext, e.g. 'brew install gettext')." >&2
     exit 1
 fi
+# shellcheck disable=SC2016  # single quotes are intentional: this literal is
+# envsubst's allow-list of variable NAMES, not a shell expansion.
 kubectl kustomize "$K8S_OVERLAY" \
     | envsubst '${ENTRA_TENANT_ID} ${ENTRA_API_CLIENT_ID}' \
     | kubectl apply -f -
@@ -80,11 +82,42 @@ kubectl -n estimation rollout restart deployment/backend deployment/frontend
 echo "Waiting for PostgreSQL to be ready..."
 kubectl -n estimation wait --for=condition=ready pod -l app=postgres --timeout=120s
 
-echo "Waiting for backend to be ready..."
-kubectl -n estimation wait --for=condition=ready pod -l app=backend --timeout=120s
+# Wait on the ROLLOUT (not just "a pod is ready"): `rollout status` blocks until
+# the new ReplicaSet is fully available and the old pods are gone, so we never
+# declare success on a still-terminating old pod mid-rollout.
+echo "Waiting for the new backend rollout to complete..."
+kubectl -n estimation rollout status deployment/backend --timeout=180s
+echo "Waiting for the new frontend rollout to complete..."
+kubectl -n estimation rollout status deployment/frontend --timeout=180s
 
-echo "Waiting for frontend to be ready..."
-kubectl -n estimation wait --for=condition=ready pod -l app=frontend --timeout=120s
+# Freshness safety net: confirm the pod is running the image currently tagged
+# INSIDE minikube (i.e. the rollout picked up the reload). Both digests below are
+# the classic docker config digest, so they are directly comparable.
+#
+# Do NOT compare against the host `docker inspect .Id`: when Docker Desktop uses
+# the containerd image store, `.Id` there is the MANIFEST digest, which never
+# equals minikube's classic config digest — the same image reads as two
+# different hashes and the check false-positives every time.
+verify_image() {
+    app="$1"; tag="$2"
+    # `|| true`: with `set -e -o pipefail`, a grep with no match would otherwise
+    # abort the whole deploy on this best-effort verification step.
+    incluster="$(minikube ssh -- "docker inspect --format '{{.Id}}' $tag" 2>/dev/null | grep -oE '[0-9a-f]{64}' | head -1 || true)"
+    running="$(kubectl -n estimation get pod -l "app=$app" \
+        -o jsonpath='{.items[0].status.containerStatuses[0].imageID}' 2>/dev/null \
+        | grep -oE '[0-9a-f]{64}' | head -1 || true)"
+    if [ -n "$incluster" ] && [ -n "$running" ] && [ "$incluster" != "$running" ]; then
+        echo "WARNING: $app pod is not running the image currently tagged in minikube" >&2
+        echo "  in minikube: $incluster" >&2
+        echo "  in pod:      $running" >&2
+        echo "  The rollout may not have picked up the reloaded image; re-run this script." >&2
+    else
+        echo "  $app pod runs the in-cluster image (${incluster:-unknown})"
+    fi
+}
+echo "Verifying pods run the freshly built images..."
+verify_image backend  theestimator/estimation-backend:1.0.0-SNAPSHOT
+verify_image frontend theestimator/estimation-frontend:1.0.0-SNAPSHOT
 
 echo "Deployment complete."
 kubectl -n estimation get pods
@@ -94,5 +127,5 @@ echo "  kubectl -n estimation port-forward svc/backend 8080:8080"
 echo "Access the frontend with:"
 echo "  kubectl -n estimation port-forward svc/frontend 8080:80"
 echo "Access the backend logs with:"
-echo "  kubectl -n estimation logs deploy/backend"
+echo "  kubectl -n estimation logs -f deploy/backend"
 

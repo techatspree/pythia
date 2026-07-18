@@ -1,6 +1,6 @@
 id: task-112
 phase: phase-14
-title: Frontend — create new estimation via project detail dialog
+title: Frontend — create new estimation dialog (project detail)
 depends_on: [task-090]
 description: |
   Add the missing "create new estimation" flow to the project
@@ -74,10 +74,14 @@ description: |
     original build-out.
   - **Where the dialog lives.** New component
     `src/frontend/src/lib/components/CreateEstimationDialog.svelte`.
-    Modal shell follows the existing dialog idiom already in the
-    repo (`UndoConflictDialog.svelte`) — same overlay + centred
-    card + focus trap semantics. Reuse Tailwind classes from
-    that component; do NOT introduce a new modal primitive.
+    Mirror the sibling `src/lib/components/CreateProjectDialog.svelte`
+    EXACTLY — same POST-form shape: `open = $bindable(false)` +
+    `oncreated` callback + `apiFetch` + `ErrorBanner` + Tailwind
+    overlay/card classes (`fixed inset-0 bg-black/50 …` /
+    `bg-white rounded-lg shadow-xl p-6 w-full max-w-md`). Do
+    NOT introduce a new modal primitive; do NOT model this on
+    `UndoConflictDialog.svelte` (that is a notice dialog, not
+    a form).
   - **State pattern.** SvelteKit 5 runes — `$state` for the two
     form fields, `$derived` for `canSubmit`, standard
     `$bindable` NOT needed (this is a leaf modal, not an
@@ -88,12 +92,14 @@ description: |
     forbids raw `fetch`. Types come from
     `$lib/api/schema.d.ts`, following the same pattern the undo
     store uses.
-  - **Authorization gate on the button.** Read the user's roles
-    from `getAuthProvider().getAccount()` — reuse whatever the
-    current auth account exposes (`account.roles: string[]`) —
-    and show the button only when the array contains
-    `"ESTIMATOR"`. Do NOT probe the backend just to hide/show
-    the button.
+  - **Authorization gate on the button.** Wrap the button in
+    the existing `<RequiredRole role="ESTIMATOR">…</RequiredRole>`
+    from `src/lib/auth/RequiredRole.svelte` — the shared
+    component that already reads
+    `getAuthProvider().getAccount()` and gates on
+    `account.roles.includes(role)`. Do NOT hand-roll the check
+    on the project-detail page; do NOT probe the backend just
+    to hide/show the button.
   - **Navigation on success.** Use `goto()` from
     `$app/navigation` with a resolved
     `/estimations/{newEstimation.id}` path.
@@ -104,18 +110,25 @@ description: |
     appended with the returned `EstimationSummaryDto` so if the
     user cancels navigation (unlikely) the row still appears.
   - **Backend integration test.** A `@QuarkusTest` in the
-    existing `ProjectResourceIT` (or a new one alongside)
-    covering: (a) authenticated ESTIMATOR POSTs
+    existing `ProjectResourceIT` covering the happy path:
+    (a) authenticated ESTIMATOR POSTs
     `EstimationCreateDto{offer:"E-2026-042"}` — response 201,
     the returned summary carries the offer, and a follow-up
     `GET /api/projects/{id}` shows the estimation in the
     project's estimation list; (b) omitted `description`
     accepted; (c) `method` omitted defaults to
-    `THREE_POINT_PERT`; (d) VIEWER POST rejected with 403;
-    (e) invalid project id → 404. Tests authenticate via the
-    `DevAdminAuth` extension (per CLAUDE.md; use a helper
-    `DevRoleAuth("VIEWER")` if the extension already supports
-    role parameterisation — else stick to ADMIN vs anonymous).
+    `THREE_POINT_PERT`; (d) invalid project id → 404. Tests
+    authenticate via the `DevAdminAuth` extension (per
+    CLAUDE.md; only `DevAdminAuth` exists in
+    `DevAuthTestSupport.kt` — do NOT invent
+    `DevRoleAuth("VIEWER")`).
+    **Role-guard coverage (VIEWER→403 / anonymous→401) is
+    NOT re-asserted here** — it is already covered broadly
+    by `EndpointAuthorizationIT.kt` (task-091), which
+    exercises `@RolesAllowed` across every REST resource
+    including `POST /api/projects/{id}/estimations`. This
+    task's validation asserts that IT names the endpoint via
+    a grep, so we do not silently lose the coverage.
   - **Playwright e2e.** New spec
     `src/frontend/e2e/create-estimation.spec.ts`. Uses the dev
     stack. Navigates to `/projects/{id}` for a seeded project
@@ -153,25 +166,29 @@ steps:
   - |
     Read the current bits so nothing gets missed:
       src/frontend/src/lib/components/ProjectDetail.svelte
-      src/frontend/src/lib/components/UndoConflictDialog.svelte  (modal reference)
+      src/frontend/src/lib/components/CreateProjectDialog.svelte  (PRIMARY precedent — same POST-form shape, mirror it)
+      src/frontend/src/lib/auth/RequiredRole.svelte               (role-gate wrapper — reuse it)
       src/frontend/src/lib/components/ErrorBanner.svelte
-      src/frontend/src/lib/api/fetch.ts                          (apiFetch)
-      src/frontend/src/lib/api/schema.d.ts                       (EstimationCreateDto)
+      src/frontend/src/lib/api/fetch.ts                           (apiFetch)
+      src/frontend/src/lib/api/schema.d.ts                        (EstimationCreateDto)
       src/frontend/src/routes/projects/[id]/+page.svelte
+      src/frontend/src/routes/projects/+page.svelte               (see how CreateProjectDialog is wired: bind:open + oncreated)
       src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/ProjectResource.kt   (create endpoint)
-      src/backend/implementation/src/test/kotlin/io/github/theestimator/rest/ProjectResourceIT.kt  (if it exists — else find the closest resource IT)
-      src/backend/implementation/src/main/kotlin/io/github/theestimator/testdata/TestDataSeeder.kt (which project id to hit in e2e)
+      src/backend/implementation/src/test/kotlin/io/github/theestimator/rest/ProjectResourceIT.kt
+      src/backend/implementation/src/test/kotlin/io/github/theestimator/rest/EndpointAuthorizationIT.kt (task-091's cross-endpoint role-guard coverage — the 401/403 assertions live here)
+      src/backend/implementation/src/main/kotlin/io/github/theestimator/testdata/TestDataSeeder.kt   (which project id to hit in e2e)
   - |
     Create
-    `src/frontend/src/lib/components/CreateEstimationDialog.svelte`:
-      * Props: `projectId: string`,
-        `onCreated: (created: EstimationSummaryDto) => void`,
-        `onClose: () => void`.
+    `src/frontend/src/lib/components/CreateEstimationDialog.svelte`
+    by mirroring `CreateProjectDialog.svelte`:
+      * Props: `open = $bindable(false)`, `projectId: string`,
+        `oncreated: (created: EstimationSummaryDto) => void`
+        (callback, no `onClose` — the parent flips `open` via
+        the two-way binding, same as `CreateProjectDialog`).
       * `$state` for `offer` (string, required), `description`
-        (string, optional), `submitting` (boolean), `error`
-        (string | null).
-      * `$derived` `canSubmit = offer.trim().length > 0 &&
-        !submitting`.
+        (string, optional), `loading` (boolean), `bannerMessage`
+        (string | null) — same names as CreateProjectDialog for
+        consistency.
       * Submit handler:
         ```
         const res = await apiFetch(`/api/projects/${projectId}/estimations`, {
@@ -180,41 +197,56 @@ steps:
           body: JSON.stringify({ offer: offer.trim(), description: description.trim() || null })
         });
         ```
-        On 201, call `onCreated(await res.json())`; on non-2xx
-        set `error` from the response body (`error.message` if
-        JSON, else `response.statusText`). `log.debug` on
-        start; `log.error` on non-2xx.
-      * Modal shell mirrors `UndoConflictDialog.svelte` (fixed
-        overlay + centred card, close on Escape).
+        On 201, capture `const created = await res.json()`,
+        reset the inputs, `open = false`, `oncreated(created)`.
+        On non-2xx set `bannerMessage` from the response body
+        (`error.message` if JSON, else `response.statusText`).
+        `log.debug` on start; `log.error` on non-2xx.
+      * Tailwind classes for overlay + card copy exactly from
+        `CreateProjectDialog.svelte` (`fixed inset-0 bg-black/50
+        flex items-center justify-center z-50` overlay,
+        `bg-white rounded-lg shadow-xl p-6 w-full max-w-md`
+        card).
       * German labels: "Neue Kalkulation" (title), "Angebot"
         (offer input), "Beschreibung" (description textarea),
         "Speichern" (submit), "Abbrechen" (cancel).
   - |
     Update
     `src/frontend/src/lib/components/ProjectDetail.svelte`:
-      * Read the current user's roles via
-        `getAuthProvider().getAccount()` (or the existing
-        surface the code uses to check roles — inspect the
-        existing components for the pattern).
-      * Add a "Neue Kalkulation" button next to the
-        "Estimations" heading — visible only when the user has
-        `ESTIMATOR`. Wrap the button and the modal in a single
-        `$state` `dialogOpen`.
-      * When the dialog fires `onCreated(created)`: optimistic
-        append to `project.estimations`, then
+      * Import `RequiredRole` from `$lib/auth/RequiredRole.svelte`
+        and `CreateEstimationDialog` from
+        `$lib/components/CreateEstimationDialog.svelte`.
+      * Add a `let dialogOpen = $state(false)`.
+      * Next to the "Estimations" heading, add the trigger
+        button wrapped in `<RequiredRole role="ESTIMATOR">…
+        </RequiredRole>` (the wrapper renders nothing for a
+        viewer, so the button never appears for them).
+      * Render the dialog:
+        `<CreateEstimationDialog bind:open={dialogOpen}
+          projectId={project.id}
+          oncreated={(created) => { /* optimistic append,
+          then goto */ }} />`.
+      * `oncreated` handler: optimistic append to
+        `project.estimations`, then
         `goto(resolve('/estimations/[id]', { id: created.id }))`.
   - |
     Frontend build + type-check + lint:
       ./gradlew :frontend:check
   - |
     Backend integration test. Extend the existing
-    `ProjectResourceIT` (or add a new `EstimationCreationIT` if
-    the codebase pattern prefers per-endpoint ITs — inspect
-    other ITs to decide) with tests (a) through (e) from the
-    frozen decisions above. Use `DevAdminAuth` for authenticated
-    calls; anonymous / wrong-role calls exercise the auth
-    guard. Do NOT stub the repository — this is a `@QuarkusTest`
-    running against the Dev Services PostgreSQL, per CLAUDE.md.
+    `ProjectResourceIT` with the happy-path tests (a) through
+    (d) from the frozen decisions above. Use `DevAdminAuth`
+    for authenticated calls (only extension in the codebase;
+    do NOT invent a viewer variant). Do NOT stub the
+    repository — this is a `@QuarkusTest` running against the
+    Dev Services PostgreSQL, per CLAUDE.md.
+    Verify (do not re-implement) that role-guard coverage for
+    this endpoint already lives in
+    `EndpointAuthorizationIT.kt` (task-091): open the file and
+    confirm the POST create-estimation path is exercised (and,
+    if it is not, add ONE line there naming the endpoint so
+    the guard stays covered — this is the ONLY change allowed
+    to that file).
   - |
     Playwright e2e in
     `src/frontend/e2e/create-estimation.spec.ts`. Dev stack
@@ -244,29 +276,33 @@ steps:
 
 validation:
   - |
-    Dialog component exists and uses apiFetch (not raw fetch):
+    Dialog component exists, uses apiFetch (not raw fetch),
+    and follows the sibling `CreateProjectDialog` idiom
+    (`open = $bindable(false)` + `oncreated` callback):
       test -f src/frontend/src/lib/components/CreateEstimationDialog.svelte
       grep -q "apiFetch" src/frontend/src/lib/components/CreateEstimationDialog.svelte
       ! grep -nE "^\\s*fetch\\(" src/frontend/src/lib/components/CreateEstimationDialog.svelte
+      grep -q "open = \\\$bindable(false)" src/frontend/src/lib/components/CreateEstimationDialog.svelte
+      grep -q "oncreated" src/frontend/src/lib/components/CreateEstimationDialog.svelte
   - |
     Dialog uses the shared log facade and never bare console.*,
     and errors surface via ErrorBanner:
       grep -q "from '\$lib/log'" src/frontend/src/lib/components/CreateEstimationDialog.svelte
       ! grep -nE "^\\s*console\\." src/frontend/src/lib/components/CreateEstimationDialog.svelte
   - |
-    Project detail exposes the trigger button and wires the
-    dialog:
+    Project detail wires the dialog and gates the trigger with
+    the shared RequiredRole component (not hand-rolled):
       grep -q "Neue Kalkulation" src/frontend/src/lib/components/ProjectDetail.svelte
       grep -q "CreateEstimationDialog" src/frontend/src/lib/components/ProjectDetail.svelte
+      grep -q "RequiredRole" src/frontend/src/lib/components/ProjectDetail.svelte
+      ! grep -q "getAuthProvider" src/frontend/src/lib/components/ProjectDetail.svelte
   - |
-    Backend integration test asserts a 201 create + role gate:
-      grep -rq "POST.*projects.*estimations\|createEstimation" src/backend/implementation/src/test/kotlin/io/github/theestimator/rest/
-      grep -rq "201\|CREATED" src/backend/implementation/src/test/kotlin/io/github/theestimator/rest/ProjectResourceIT.kt \
-        || grep -rq "201\|CREATED" src/backend/implementation/src/test/kotlin/io/github/theestimator/rest/EstimationCreationIT.kt \
-        || { echo "no ProjectResourceIT/EstimationCreationIT covers 201"; exit 1; }
-      grep -rq "403\|FORBIDDEN" src/backend/implementation/src/test/kotlin/io/github/theestimator/rest/ProjectResourceIT.kt \
-        || grep -rq "403\|FORBIDDEN" src/backend/implementation/src/test/kotlin/io/github/theestimator/rest/EstimationCreationIT.kt \
-        || { echo "role gate not asserted"; exit 1; }
+    Backend integration test asserts a 201 create in
+    ProjectResourceIT, and the role guard for the endpoint is
+    covered by EndpointAuthorizationIT (task-091):
+      grep -q "POST.*projects.*estimations\|createEstimation\|/estimations" src/backend/implementation/src/test/kotlin/io/github/theestimator/rest/ProjectResourceIT.kt
+      grep -q "201\|CREATED" src/backend/implementation/src/test/kotlin/io/github/theestimator/rest/ProjectResourceIT.kt
+      grep -qE "/api/projects/.*estimations|createEstimation" src/backend/implementation/src/test/kotlin/io/github/theestimator/rest/EndpointAuthorizationIT.kt
   - |
     Playwright e2e file exists and covers the key steps:
       test -f src/frontend/e2e/create-estimation.spec.ts
@@ -286,3 +322,5 @@ outputs:
   - modified: src/frontend/src/lib/components/ProjectDetail.svelte
   - created: src/frontend/e2e/create-estimation.spec.ts
   - modified: src/backend/implementation/src/test/kotlin/io/github/theestimator/rest/ProjectResourceIT.kt
+  # Modified ONLY if it does not already exercise the POST create-estimation endpoint (add one line naming it):
+  - modified: src/backend/implementation/src/test/kotlin/io/github/theestimator/rest/EndpointAuthorizationIT.kt

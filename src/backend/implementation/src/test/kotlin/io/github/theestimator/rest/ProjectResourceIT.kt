@@ -143,6 +143,41 @@ class ProjectResourceIT {
     }
 
     @Test
+    fun `create estimation appears under the parent project`() {
+        val projectId = given()
+            .contentType(ContentType.JSON)
+            .body("""{"name": "Frontend Create Project"}""")
+            .post("/api/projects")
+            .then().statusCode(201)
+            .extract().path<String>("id")
+
+        given()
+            .contentType(ContentType.JSON)
+            .body("""{"offer": "E-2026-042"}""")
+            .`when`().post("/api/projects/$projectId/estimations")
+            .then()
+            .statusCode(201)
+            .body("offer", equalTo("E-2026-042"))
+            .body("id", notNullValue())
+
+        given()
+            .`when`().get("/api/projects/$projectId")
+            .then()
+            .statusCode(200)
+            .body("estimations.find { it.offer == 'E-2026-042' }", notNullValue())
+    }
+
+    @Test
+    fun `create estimation for unknown project returns 404`() {
+        given()
+            .contentType(ContentType.JSON)
+            .body("""{"offer": "E-2026-404"}""")
+            .`when`().post("/api/projects/${UUID.randomUUID()}/estimations")
+            .then()
+            .statusCode(404)
+    }
+
+    @Test
     fun `filter by status returns only matching projects`() {
         given()
             .contentType(ContentType.JSON)

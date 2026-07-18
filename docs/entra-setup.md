@@ -16,13 +16,40 @@ Two app registrations under the same Entra tenant:
    - Set the **Application ID URI** to `api://<api-client-id>`.
    - Expose a custom scope **`access`**; full identifier
      `api://<api-client-id>/access`.
-   - Define three **app roles** with values matching the domain
-     `Role` enum exactly:
+   - **Set the accepted access-token version to v2.0.** In the app
+     registration **Manifest**, set `"accessTokenAcceptedVersion": 2`
+     (Graph app-manifest format: `"api": { "requestedAccessTokenVersion":
+     2 }`). This is **required**: the backend uses the v2.0 authority
+     (`quarkus.oidc.auth-server-url=…/v2.0`) and therefore expects the
+     issuer `https://login.microsoftonline.com/<tenant>/v2.0`. By default
+     Azure issues **v1.0** access tokens for an API (issuer
+     `https://sts.windows.net/<tenant>/`), even when the SPA logs in via
+     the v2.0 endpoint — so without this setting every call fails token
+     validation with:
+     `Issuer (iss) claim value (https://sts.windows.net/<tenant>/) doesn't
+     match expected value of https://login.microsoftonline.com/<tenant>/v2.0`
+     (visible as a 401 on the frontend, and in the backend
+     `io.quarkus.oidc` DEBUG log). After changing it, users must
+     re-acquire a token (log out / clear the SPA's `localStorage`) since
+     the old v1.0 token is cached.
+   - Define three **app roles** whose **`value`** matches the domain
+     `Role` enum EXACTLY:
      - `VIEWER`
      - `ESTIMATOR`
      - `ADMIN`
+
+     The `value` field is what lands in the token's `roles` claim. The
+     mapper (`EntraRoleMapper.entraRolesToDomain`) is case-insensitive but
+     **silently drops any unrecognised value** — so a typo or a different
+     naming convention (e.g. `Viewer.All`) leaves the user with **no role**:
+     they authenticate fine but every write returns 403. (Display name and
+     description are free-form; only `value` matters.)
    - Allowed member types: **Users/Groups** (so test users can be
      assigned to the roles via the Enterprise Application page).
+   - Defining a role does **not** grant it. Assign users under
+     *Enterprise Applications → estimation-api → Users and groups* (see
+     step 3). Role/manifest changes only take effect in a **new** token, so
+     the user must log out / clear the SPA's `localStorage` afterward.
 
 2. **`estimation-spa`** — the SvelteKit SPA.
    - Platform type: **Single-page application**. This is critical:
@@ -43,6 +70,15 @@ Two app registrations under the same Entra tenant:
      - `https://estimation.<your-domain>` (production)
    - **API permissions** → Add → My APIs → `estimation-api` →
      Delegated `access`. Grant admin consent.
+   - **App roles for the SPA UI (recommended).** The frontend reads roles
+     from the **ID token** (issued for THIS app), so role-gated UI
+     (`RequiredRole.svelte`, the user menu) only sees roles that are defined
+     as app roles on `estimation-spa` **and assigned to the user here**.
+     Backend enforcement does NOT need this (it uses the access token →
+     `estimation-api` roles), but without it the UI shows the user as having
+     no roles even though the API accepts their writes. Define the same
+     `VIEWER`/`ESTIMATOR`/`ADMIN` app roles here and assign the same users.
+     See [Roles: enforcement vs. UI display](#roles-enforcement-vs-ui-display).
 
 3. Assign at least one **test user per role** to `estimation-api` via
    the tenant's *Enterprise Applications → estimation-api → Users
@@ -53,6 +89,31 @@ Two app registrations under the same Entra tenant:
    - `ENTRA_TENANT_ID` — the tenant GUID.
    - `ENTRA_API_CLIENT_ID` — `estimation-api`'s Application (client) ID.
    - `ENTRA_SPA_CLIENT_ID` — `estimation-spa`'s Application (client) ID.
+
+## Roles: enforcement vs. UI display
+
+Roles live in **two** places because two different tokens carry them, and
+app roles only appear in a token whose **audience is the app they are
+defined on**:
+
+- **Backend enforcement** (`@RolesAllowed`, the 401/403 decision) reads the
+  **access token**, whose audience is `estimation-api`. So authorization is
+  driven by app roles defined **and assigned** on **`estimation-api`**.
+  This is mandatory and sufficient for the app to enforce access.
+- **Frontend UI** (`RequiredRole.svelte`, the user menu) reads the **ID
+  token**, whose audience is `estimation-spa`. So the roles the UI shows
+  come from app roles defined **and assigned** on **`estimation-spa`**.
+
+Consequences:
+
+- Define the same `VIEWER`/`ESTIMATOR`/`ADMIN` app roles on **both**
+  registrations, and assign each test user in **both**, or the UI will show
+  no roles even while the API correctly accepts the user's requests.
+- (The `dev` auth module doesn't show this split — it builds the account
+  with roles directly — which is why it only surfaces under Entra.)
+- A cleaner long-term alternative is to have the SPA source roles from the
+  backend (`GET /api/auth/me`) instead of the ID token, so roles live only
+  on `estimation-api`; that is a frontend change, not done yet.
 
 ## Backend wiring
 
@@ -169,14 +230,66 @@ cd src/frontend && npm run dev
 building the backend and frontend container images with Gradle
 (`./gradlew :backend:implementation:imageBuild -Dquarkus.container-image.build=true
 :frontend:dockerBuildImage -x test` — backend image via Quarkus/Jib, frontend
-via the Gradle Docker task), loading them into minikube (`minikube image load`),
-and applying the Kustomize overlay (`kubectl apply -k`). The Pod
+via the Gradle Docker task), loading them into minikube via
+`docker save <img> | minikube ssh -- docker load` (deliberately **not**
+`minikube image load`, which caches the exported tarball and, for a
+fixed tag like `1.0.0-SNAPSHOT`, silently reuses the STALE copy so a
+rebuilt image never reaches the cluster), then applying the Kustomize
+overlay (`kubectl apply -k`) and forcing a `kubectl rollout restart` so
+pods pick up the reloaded image and current config. The Pod
 inherits these env vars via the existing Deployment manifest's `env:`
 forwarding (no manifest edits required); Quarkus resolves
 `${ENTRA_TENANT_ID}` etc. in `application.properties` at startup from
 process env. If you operate a non-minikube cluster, set the same env
 vars on the backend Deployment via your cluster's Secret / ConfigMap
 plumbing and the substitution still happens at runtime.
+
+## Troubleshooting
+
+First, **see the reason** rather than guessing. The backend logs the exact
+token-rejection cause under the `io.quarkus.oidc` category at DEBUG; the
+`dev-minikube` profile enables it (see `docs/development.md` → "Viewing
+backend logs on Minikube"). Then reproduce the request and read
+`kubectl -n estimation logs -f deploy/backend`. In the browser, DevTools →
+Network → the failing `/api/...` request → **Request Headers** tells you
+whether an `Authorization: Bearer …` header is even being sent.
+
+Common failures seen during setup:
+
+- **`AADSTS9002326: Cross-origin token redemption is permitted only for the
+  'Single-Page Application' client-type`** (during login, in the browser).
+  The redirect URI is registered under the **Web** platform on
+  `estimation-spa`. Remove it there and add it under **Single-page
+  application** (see the `estimation-spa` step above).
+
+- **401 on every `/api/...` call, backend DEBUG shows `Issuer (iss) claim
+  value (https://sts.windows.net/<tenant>/) doesn't match expected value of
+  https://login.microsoftonline.com/<tenant>/v2.0`.** The API is issuing
+  **v1.0** access tokens. Set `accessTokenAcceptedVersion: 2` on
+  `estimation-api` (see the `estimation-api` step), then re-acquire a token
+  (log out / clear `localStorage`). Audience (`aud`) and scope (`scp:
+  access`) being correct while the issuer is wrong is the tell-tale sign.
+
+- **401 and DevTools shows NO `Authorization` header on the request.** The
+  SPA isn't logged in or didn't attach a token — check that login completed
+  (the user menu shows an account) and the browser console for MSAL errors.
+  Not a backend problem.
+
+- **401 and the header IS present but the backend DEBUG says "Bearer access
+  token is not available".** The proxy stripped it — confirm nginx forwards
+  `Authorization` (it does by default; the frontend `nginx.conf` does not
+  clear it).
+
+- **Authenticated but every write returns 403, or the UI shows no roles.**
+  The role `value` on the app registration doesn't exactly match
+  `VIEWER`/`ESTIMATOR`/`ADMIN`, the user isn't assigned the role, or the
+  token predates the assignment (re-acquire it). For the UI specifically,
+  see [Roles: enforcement vs. UI display](#roles-enforcement-vs-ui-display)
+  — roles must be assigned on `estimation-spa`, not only `estimation-api`.
+
+- **Frontend can't reach the backend at all** (`backend could not be
+  resolved`, minikube). Not an Entra issue — an nginx/DNS problem; see
+  `docs/development.md`.
 
 ## Cross-references
 

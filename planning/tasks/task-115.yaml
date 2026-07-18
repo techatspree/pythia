@@ -1,0 +1,158 @@
+id: task-115
+phase: phase-15
+title: Dev seed — add a bucket + sampled estimation
+depends_on: [task-103]
+description: |
+  The dev-only `TestDataSeeder`
+  (`src/backend/implementation/src/main/kotlin/io/github/theestimator/testdata/TestDataSeeder.kt`,
+  `@IfBuildProfile("dev")`, runs on `StartupEvent` when the DB is
+  empty) currently seeds two estimations — "Webshop Redesign" and
+  "Mobile App MVP" — BOTH created via `estimationService.create(offer,
+  project, description)` without a method, so both default to
+  `THREE_POINT_PERT`. It only has `fixedLeaf` / `timeRelativeLeaf` /
+  `group` builders — no buckets and no bucketed leaves.
+
+  Result: after task-104 a developer running `./scripts/dev.sh` has a
+  working bucket + sampled editor but NO bucket estimation to open in
+  it. This task adds a third seeded estimation that uses
+  `BUCKET_SAMPLED_PERT`, so the bucket editor has realistic local data.
+
+  ## What exists to build on (verified)
+
+  - `EstimationService.create(offer, project, description,
+    method = EstimationMethod.THREE_POINT_PERT)` already accepts a
+    `method` argument — pass `EstimationMethod.BUCKET_SAMPLED_PERT`.
+  - task-103 persistence: `EstimationBucket`
+    (`io.github.theestimator.domain.EstimationBucket`; client-assignable
+    `id`, `@ManyToOne estimation`, `position: Int`, `label: String`;
+    `@PrePersist` assigns a random `id` when null) is owned by the
+    `Estimation` via `Estimation.buckets`
+    (`@OneToMany(mappedBy="estimation", cascade=ALL, orphanRemoval=true)`,
+    ordered by `position`). The bucketed leaf entity is
+    `DraftBucketedItemNode`
+    (`io.github.theestimator.domain.draft`, `@DiscriminatorValue("BUCKETED")`)
+    with `@ManyToOne bucket` + `isSample: Boolean?`, and it REUSES the
+    inherited `minEffort`/`expectedEffort`/`maxEffort` columns for a
+    sample's optimistic/likely/pessimistic triple (non-samples leave
+    them null and inherit the bucket mean via `calculate()`).
+
+  ## Target state
+
+  A new `seed…()` method (e.g. `seedDataPlatform()`), called from
+  `seed(@Observes StartupEvent)` alongside `seedWebshop()` /
+  `seedMobileApp()`, that creates ONE project + ONE
+  `BUCKET_SAMPLED_PERT` estimation with a single **draft** version
+  (left as a draft, NOT submitted, so it opens directly in the editor):
+
+  - The estimation is created with
+    `method = EstimationMethod.BUCKET_SAMPLED_PERT`.
+  - 3 buckets on the estimation (e.g. `S`, `M`, `L`) with contiguous
+    `position` 0..2, added to `estimation.buckets` (cascade-persisted).
+  - A FLAT list of root-level `DraftBucketedItemNode` leaves (buckets
+    are the grouping — no `DraftGroupNode` wrapper, matching how the
+    task-104 editor renders), each assigned to a bucket, with a mix of
+    sample and non-sample rows so the per-bucket averaging is visible
+    (each bucket has at least one sample so its non-samples get a
+    non-zero mean).
+  - The usual estimation parameters (`Tagessatz`,
+    `Standardabweichungsfaktor`, `Vertriebszuschlag`) so `calculate()`
+    produces meaningful numbers.
+
+  ## Key design decisions
+
+  - **Flat roots, not groups.** Add the bucketed leaves directly to
+    `version.roots` (they are `DraftEstimationNode`s); do NOT wrap them
+    in a `DraftGroupNode`. The existing `addRoots(version,
+    List<DraftGroupNode>)` helper is group-typed, so add a small helper
+    for root-level leaves (set `position` per index, `version = …`,
+    `parent = null`) or inline it.
+  - **Bucket wiring.** Build `EstimationBucket` with an explicit
+    `id = UUID.randomUUID()` (deterministic ordering; `@PrePersist`
+    would otherwise assign one), `estimation`, `position`, `label`;
+    add each to `estimation.buckets` BEFORE persisting the draft.
+    Set `DraftBucketedItemNode.bucket` to the bucket ENTITY reference
+    (Hibernate resolves the FK on flush; `Estimation.buckets` cascade
+    inserts the bucket rows before the node rows).
+  - **Sample vs non-sample.** A sample row: `isSample = true` +
+    `minEffort`/`expectedEffort`/`maxEffort` (its three-point values).
+    A non-sample row: `isSample = false`, leave the three effort
+    fields null (its mean is derived from the bucket's samples).
+  - **Draft only.** Do NOT call `estimationVersionService.submitDraft`
+    for this estimation — a draft is what the editor opens. This also
+    avoids the draft1→draft2 flush-ordering dance in `seedWebshop`
+    (single draft, distinct project/estimation, no unique-constraint
+    conflict).
+  - This is a pure dev-fixture addition; no REST, domain, migration, or
+    frontend change. The suppressions already on the class
+    (`MagicNumber`, `LongMethod`, `CyclomaticComplexMethod`,
+    `LongParameterList`) cover the new fixture code.
+
+  ## What does NOT belong in this task
+
+  - Any change to the bucket persistence entities, mappers, or REST
+    (task-103) — this only assembles existing entities into seed data.
+  - Any frontend change (task-104).
+  - Seeding a *submitted* bucket version or export data (out of scope).
+
+steps:
+  - |
+    In `TestDataSeeder.kt`, add imports for
+    `io.github.theestimator.domain.EstimationBucket`,
+    `io.github.theestimator.domain.draft.DraftBucketedItemNode`,
+    `io.github.theestimator.method.EstimationMethod`, and `java.util.UUID`.
+  - |
+    Add leaf/bucket builder helpers alongside `fixedLeaf` /
+    `timeRelativeLeaf`:
+      * `bucket(estimation, position, label): EstimationBucket` — sets
+        `id = UUID.randomUUID()`, `estimation`, `position`, `label`.
+      * `bucketedLeaf(version, description, bucket, isSample, min?, exp?,
+        max?): DraftBucketedItemNode` — sets `version`, `description`,
+        `bucket`, `isSample`, and (for samples) `minEffort`/
+        `expectedEffort`/`maxEffort`.
+      * a helper to attach root-level leaves, e.g.
+        `addRootLeaves(version, leaves: List<DraftEstimationNode>)`
+        that assigns `position` per index and adds them to
+        `version.roots`.
+  - |
+    Add `private fun seedDataPlatform()` that:
+      * creates a project (e.g. "Data Platform Migration") and an
+        estimation via `estimationService.create(offer = "DP-2026-001",
+        project = …, description = …, method =
+        EstimationMethod.BUCKET_SAMPLED_PERT)`;
+      * builds 3 `EstimationBucket`s (S/M/L, positions 0..2) and adds
+        them to `estimation.buckets`;
+      * creates a single `DraftEstimationVersion` (versionNumber = 1)
+        with `Tagessatz` / `Standardabweichungsfaktor` /
+        `Vertriebszuschlag` parameters;
+      * adds a flat list of `DraftBucketedItemNode` root leaves — for
+        each bucket at least one sample (with a three-point triple) and
+        at least one non-sample — via `addRootLeaves`;
+      * `draftRepository.persist(draft)` (do NOT submit);
+      * emits a `Log.info(...)` naming the estimation id and method
+        (add `import io.quarkus.logging.Log`).
+  - |
+    Call `seedDataPlatform()` from
+    `seed(@Observes @Priority(1) event: StartupEvent)` after
+    `seedMobileApp()`.
+  - |
+    Build:
+      ./gradlew :backend:implementation:test
+
+validation:
+  - |
+    The seeder gains a bucket + sampled seed method and uses the
+    bucket entities + method:
+      grep -q "seedDataPlatform" src/backend/implementation/src/main/kotlin/io/github/theestimator/testdata/TestDataSeeder.kt
+      grep -q "BUCKET_SAMPLED_PERT" src/backend/implementation/src/main/kotlin/io/github/theestimator/testdata/TestDataSeeder.kt
+      grep -q "DraftBucketedItemNode" src/backend/implementation/src/main/kotlin/io/github/theestimator/testdata/TestDataSeeder.kt
+      grep -q "EstimationBucket" src/backend/implementation/src/main/kotlin/io/github/theestimator/testdata/TestDataSeeder.kt
+  - |
+    The new seed is wired into startup and logs:
+      grep -q "seedDataPlatform()" src/backend/implementation/src/main/kotlin/io/github/theestimator/testdata/TestDataSeeder.kt
+      grep -q "Log.info" src/backend/implementation/src/main/kotlin/io/github/theestimator/testdata/TestDataSeeder.kt
+  - |
+    Backend compiles and its tests pass:
+      ./gradlew :backend:implementation:test
+
+outputs:
+  - modified: src/backend/implementation/src/main/kotlin/io/github/theestimator/testdata/TestDataSeeder.kt

@@ -230,32 +230,49 @@ Or step by step:
 
 ### Viewing backend logs on Minikube
 
-The backend runs the packaged **`prod`** profile in the cluster (no
-`QUARKUS_PROFILE` is set), whose defaults are structured **JSON** at **INFO** —
-so `Log.debug(...)` is suppressed and the output can look empty if you only skim
-it. Fetch logs from the `estimation` namespace and the `backend` deployment:
+Minikube runs the dedicated **`dev-minikube`** profile — the overlay sets
+`QUARKUS_PROFILE: dev-minikube` in the `backend-config` ConfigMap
+(`k8s/overlays/minikube/backend-oidc.yaml`). That profile gives **plain-text**
+console logs (JSON is only enabled under `%prod`) and **DEBUG** for the
+application package. Fetch logs from the `estimation` namespace and the
+`backend` deployment:
 
 ```bash
 kubectl -n estimation logs -f deploy/backend            # follow
 kubectl -n estimation logs deploy/backend --previous     # after a crash-loop
 ```
 
-To make minikube logs developer-friendly, the minikube overlay
-(`k8s/overlays/minikube/backend-logging.yaml`) merges two env vars into the
-`backend-config` ConfigMap, overriding the image's `%prod` defaults with a
-**plain-text console** and **DEBUG** for the application package:
+The DEBUG level lives in `application.properties`, not in a k8s env var, and it
+takes **two** properties:
 
-```
-QUARKUS_LOG_CONSOLE_JSON_ENABLED=false
-QUARKUS_LOG_CATEGORY__IO_GITHUB_THEESTIMATOR__LEVEL=DEBUG   # quarkus.log.category."io.github.theestimator".level
+```properties
+%dev-minikube.quarkus.log.category."io.github.theestimator".level=DEBUG
+quarkus.log.category."io.github.theestimator".min-level=DEBUG   # unprofiled — see below
 ```
 
-Env-var config outranks `application.properties`, so this wins over the baked
-`%prod` settings; it is scoped to the minikube overlay only (production keeps
-JSON/INFO). A running pod won't pick up ConfigMap changes until it restarts:
+**Why `min-level` too?** `.level` is a runtime property, but `min-level` is the
+build-time floor below which a category can never log, and it is fixed under the
+profile active when the image is **packaged** — which is `prod`, not
+`dev-minikube`. Without an **unprofiled** `min-level=DEBUG`, the runtime
+`.level=DEBUG` gets clamped back up to the `prod`-baked INFO floor and DEBUG
+lines never appear (this is why `%dev` works — dev mode augments and runs under
+the same profile — but the packaged `dev-minikube` image did not). Keeping
+`min-level` unprofiled lowers the floor at build time; `prod` still logs at INFO
+because its `.level` stays INFO.
+
+**Why not an env var?** `quarkus.log.category."io.github.theestimator".level` has
+dots inside the quoted category name, and an environment variable turns every
+dot into `_` — Quarkus then can't tell `io.github.theestimator` from
+`io_github_theestimator`, so `QUARKUS_LOG_CATEGORY__IO_GITHUB_THEESTIMATOR__LEVEL` is
+silently ignored. (Simple keys like `QUARKUS_LOG_CONSOLE_JSON_ENABLED` map fine.)
+Selecting the profile via the dot-free `QUARKUS_PROFILE` env var and keeping the
+dotted category level in `application.properties` sidesteps the limitation.
+
+Since the level is baked into the image, changing it means a rebuild + redeploy
+(`./scripts/minikube-deploy.sh`). A running pod also won't pick up a changed
+ConfigMap until it restarts:
 
 ```bash
-kubectl apply -k k8s/overlays/minikube        # or ./scripts/minikube-deploy.sh
 kubectl -n estimation rollout restart deploy/backend
-kubectl -n estimation exec deploy/backend -- printenv | grep QUARKUS_LOG   # verify
+kubectl -n estimation exec deploy/backend -- printenv | grep QUARKUS_PROFILE   # verify dev-minikube
 ```

@@ -68,4 +68,14 @@ class EndpointAuthorizationIT {
             .`when`().get("/api/projects")
             .then().statusCode(200)
     }
+
+    @Test
+    fun `create estimation as viewer is 403`() {
+        given()
+            .header("Authorization", "Dev dev-viewer")
+            .contentType(ContentType.JSON)
+            .body("""{"offer":"VIEWER-EST"}""")
+            .`when`().post("/api/projects/${java.util.UUID.randomUUID()}/estimations")
+            .then().statusCode(403)
+    }
 }
