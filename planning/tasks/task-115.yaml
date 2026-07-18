@@ -17,6 +17,12 @@ description: |
   it. This task adds a third seeded estimation that uses
   `BUCKET_SAMPLED_PERT`, so the bucket editor has realistic local data.
 
+  **Scope — local `dev.sh` only.** `TestDataSeeder` is
+  `@IfBuildProfile("dev")`, so it seeds ONLY under the `dev` profile
+  (`./scripts/dev.sh`). It does NOT run in minikube (which uses the
+  `dev-minikube` profile) or prod. Getting bucket data into the minikube
+  cluster is a different mechanism and is explicitly out of scope here.
+
   ## What exists to build on (verified)
 
   - `EstimationService.create(offer, project, description,
@@ -57,6 +63,23 @@ description: |
   - The usual estimation parameters (`Tagessatz`,
     `Standardabweichungsfaktor`, `Vertriebszuschlag`) so `calculate()`
     produces meaningful numbers.
+
+  ## Concrete fixture (use these exact values for predictable means)
+
+  Three buckets, six leaves (one sample + one non-sample each). PERT mean
+  = (o + 4·l + p) / 6; the non-sample inherits its bucket's sample mean:
+
+  | bucket | leaf                 | isSample | min/exp/max | mean |
+  |--------|----------------------|----------|-------------|------|
+  | S      | "Ingest connector A" | true     | 1 / 2 / 3   | 2.0  |
+  | S      | "Ingest connector B" | false    | — / — / —   | 2.0  |
+  | M      | "Transform pipeline X"| true    | 3 / 5 / 8   | 5.17 |
+  | M      | "Transform pipeline Y"| false   | — / — / —   | 5.17 |
+  | L      | "Reporting dashboard"| true     | 5 / 8 / 13  | 8.33 |
+  | L      | "Data catalog"       | false    | — / — / —   | 8.33 |
+
+  These make a manual sanity check trivial (each non-sample row must show
+  its sibling sample's mean in the editor's derived-mean column).
 
   ## Key design decisions
 
@@ -124,9 +147,9 @@ steps:
       * creates a single `DraftEstimationVersion` (versionNumber = 1)
         with `Tagessatz` / `Standardabweichungsfaktor` /
         `Vertriebszuschlag` parameters;
-      * adds a flat list of `DraftBucketedItemNode` root leaves — for
-        each bucket at least one sample (with a three-point triple) and
-        at least one non-sample — via `addRootLeaves`;
+      * adds the flat list of `DraftBucketedItemNode` root leaves from
+        the "Concrete fixture" table above (3 buckets × [1 sample + 1
+        non-sample]) via `addRootLeaves`;
       * `draftRepository.persist(draft)` (do NOT submit);
       * emits a `Log.info(...)` naming the estimation id and method
         (add `import io.quarkus.logging.Log`).
@@ -153,6 +176,13 @@ validation:
   - |
     Backend compiles and its tests pass:
       ./gradlew :backend:implementation:test
+  - |
+    Manual (not gated — the `dev`-only seeder isn't active under `%test`,
+    so tests only prove it compiles, they never run it): start
+    `./scripts/dev.sh`, open the frontend, and confirm a
+    `BUCKET_SAMPLED_PERT` estimation ("Data Platform Migration") appears
+    and opens in the bucket editor with each non-sample row showing its
+    bucket's sample mean (S→2.0, M→5.17, L→8.33).
 
 outputs:
   - modified: src/backend/implementation/src/main/kotlin/io/github/theestimator/testdata/TestDataSeeder.kt

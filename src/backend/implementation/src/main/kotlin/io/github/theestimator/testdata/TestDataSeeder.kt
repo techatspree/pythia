@@ -1,7 +1,10 @@
 package io.github.theestimator.testdata
 
 import io.github.theestimator.domain.AdditionalCostType
+import io.github.theestimator.domain.Estimation
+import io.github.theestimator.domain.EstimationBucket
 import io.github.theestimator.domain.draft.DraftAdditionalCost
+import io.github.theestimator.domain.draft.DraftBucketedItemNode
 import io.github.theestimator.domain.draft.DraftEffortDriver
 import io.github.theestimator.domain.draft.DraftEstimationNode
 import io.github.theestimator.domain.draft.DraftEstimationParameter
@@ -10,26 +13,30 @@ import io.github.theestimator.domain.draft.DraftFixedItemNode
 import io.github.theestimator.domain.draft.DraftGroupNode
 import io.github.theestimator.domain.draft.DraftProjectPhase
 import io.github.theestimator.domain.draft.DraftTimeRelativeItemNode
+import io.github.theestimator.method.EstimationMethod
 import io.github.theestimator.repository.DraftEstimationVersionRepository
 import io.github.theestimator.repository.ProjectRepository
 import io.github.theestimator.service.EstimationService
 import io.github.theestimator.service.EstimationVersionService
 import io.github.theestimator.service.ProjectService
 import io.quarkus.arc.profile.IfBuildProfile
+import io.quarkus.logging.Log
 import io.quarkus.runtime.StartupEvent
 import jakarta.annotation.Priority
 import jakarta.enterprise.context.ApplicationScoped
 import jakarta.enterprise.event.Observes
 import jakarta.persistence.EntityManager
 import jakarta.transaction.Transactional
+import java.util.UUID
 
 // This dev-only seeder is a wall of illustrative demo data — effort estimates,
 // prices, durations, week counts. Those literals ARE the data; extracting each
 // into a named constant would obscure rather than clarify (MagicNumber). For the
 // same reason the seed methods are intentionally long, flat fixture builders
-// (LongMethod / CyclomaticComplexMethod) and the leaf-builder helpers take the
-// fields positionally (LongParameterList) — all suppressed for this fixture class.
-@Suppress("MagicNumber", "LongMethod", "CyclomaticComplexMethod", "LongParameterList")
+// (LongMethod / CyclomaticComplexMethod), the leaf-builder helpers take the
+// fields positionally (LongParameterList), and the per-scenario seed + builder
+// methods add up (TooManyFunctions) — all suppressed for this fixture class.
+@Suppress("MagicNumber", "LongMethod", "CyclomaticComplexMethod", "LongParameterList", "TooManyFunctions")
 @ApplicationScoped
 @IfBuildProfile("dev")
 class TestDataSeeder(
@@ -49,6 +56,7 @@ class TestDataSeeder(
         if (projectRepository.count() > 0L) return
         seedWebshop()
         seedMobileApp()
+        seedDataPlatform()
     }
 
     private fun fixedLeaf(
@@ -105,6 +113,39 @@ class TestDataSeeder(
     private fun addRoots(version: DraftEstimationVersion, roots: List<DraftGroupNode>) {
         roots.forEachIndexed { idx, root -> root.position = idx }
         version.roots.addAll(roots)
+    }
+
+    private fun bucket(estimation: Estimation, position: Int, label: String) =
+        EstimationBucket().apply {
+            this.id = UUID.randomUUID()
+            this.estimation = estimation
+            this.position = position
+            this.label = label
+        }
+
+    private fun bucketedLeaf(
+        version: DraftEstimationVersion,
+        description: String,
+        bucket: EstimationBucket,
+        isSample: Boolean,
+        min: Double? = null,
+        exp: Double? = null,
+        max: Double? = null
+    ) = DraftBucketedItemNode().apply {
+        this.version = version
+        this.description = description
+        this.bucket = bucket
+        this.isSample = isSample
+        this.minEffort = min
+        this.expectedEffort = exp
+        this.maxEffort = max
+    }
+
+    // Root-level leaves (no group wrapper): for the bucket + sampled method the
+    // buckets are the grouping, matching how the task-104 editor renders.
+    private fun addRootLeaves(version: DraftEstimationVersion, leaves: List<DraftEstimationNode>) {
+        leaves.forEachIndexed { idx, leaf -> leaf.position = idx }
+        version.roots.addAll(leaves)
     }
 
     private fun seedWebshop() {
@@ -483,5 +524,56 @@ class TestDataSeeder(
                 version = draft
             }
         ))
+    }
+
+    private fun seedDataPlatform() {
+        val project = projectService.create(
+            name = "Data Platform Migration",
+            description = "Migration der Datenplattform auf ein Lakehouse",
+            client = "DataWorks AG"
+        )
+        val estimation = estimationService.create(
+            offer = "DP-2026-001",
+            project = project,
+            description = "Bucket-Schätzung Datenplattform",
+            method = EstimationMethod.BUCKET_SAMPLED_PERT
+        )
+
+        val bucketS = bucket(estimation, 0, "S")
+        val bucketM = bucket(estimation, 1, "M")
+        val bucketL = bucket(estimation, 2, "L")
+        estimation.buckets.addAll(listOf(bucketS, bucketM, bucketL))
+
+        val draft = DraftEstimationVersion().apply {
+            this.estimation = estimation
+            this.versionNumber = 1
+        }
+
+        draft.parameters.addAll(
+            listOf(
+            DraftEstimationParameter().apply { name = "Tagessatz"; value = 950.0; version = draft },
+            DraftEstimationParameter().apply { name = "Standardabweichungsfaktor"; value = 2.0; version = draft },
+            DraftEstimationParameter().apply { name = "Vertriebszuschlag"; value = 0.12; version = draft }
+        ))
+
+        // Each bucket: one sample (three-point) + one non-sample that inherits the
+        // bucket's sample mean via EstimationVersion.calculate().
+        addRootLeaves(
+            draft, listOf(
+                bucketedLeaf(draft, "Ingest connector A", bucketS, isSample = true, min = 1.0, exp = 2.0, max = 3.0),
+                bucketedLeaf(draft, "Ingest connector B", bucketS, isSample = false),
+                bucketedLeaf(draft, "Transform pipeline X", bucketM, isSample = true, min = 3.0, exp = 5.0, max = 8.0),
+                bucketedLeaf(draft, "Transform pipeline Y", bucketM, isSample = false),
+                bucketedLeaf(draft, "Reporting dashboard", bucketL, isSample = true, min = 5.0, exp = 8.0, max = 13.0),
+                bucketedLeaf(draft, "Data catalog", bucketL, isSample = false)
+            )
+        )
+
+        draftRepository.persist(draft)
+
+        Log.info(
+            "Seeded bucket+sampled estimation ${estimation.id} " +
+                "(method=${estimation.method}, buckets=${estimation.buckets.size})"
+        )
     }
 }
