@@ -1,0 +1,456 @@
+id: task-117
+phase: phase-14
+title: Playwright — Page Object Model + data-testid selectors
+depends_on: [task-112]
+description: |
+  Refactor the Playwright e2e suite so tests describe user
+  intent, not the DOM. Selectors move behind Page Object
+  classes; components ship stable `data-testid` attributes; no
+  test file references a translated label directly.
+
+  ## Current state (the fragility)
+
+  Every e2e spec today reaches into the DOM with translated
+  labels. A handful of examples:
+
+  - `src/frontend/e2e/create-estimation.spec.ts` line 21:
+    `await page.getByRole('button', { name: 'New Offer' }).click();`
+    — the SAME spec has a second test that still uses `'Neue
+    Kalkulation'` on line 51, because a recent linter/user
+    edit renamed the trigger button in
+    `ProjectDetail.svelte` from "Neue Kalkulation" to "New
+    Offer" and only patched half the spec. Result: two tests
+    in one file now disagree on the button's name; the second
+    will start failing the next time the suite runs.
+  - `src/frontend/e2e/endpoint-authorization.test.ts` lines
+    53/55: `'New Project'` and `'Create'` — the exact strings
+    from `CreateProjectDialog.svelte`.
+  - `src/frontend/e2e/undo.test.ts` lines 106/115/139/193/201:
+    `'Rückgängig'`, `'Wiederholen'`, `'Verlauf anzeigen'`,
+    `'Aktuellen Stand neu laden'` — every rename touches the
+    spec.
+  - `src/frontend/e2e/user-menu.test.ts`,
+    `src/frontend/e2e/tree-table*.test.ts`, and
+    `src/frontend/e2e/treetable-responsive.test.ts` scatter
+    German role/badge labels (VIEWER/ESTIMATOR/ADMIN,
+    "Stückpreis", …).
+
+  This tightly couples the test suite to two things it should
+  NOT know: (a) the human-readable label of every clickable
+  thing, and (b) the ACTIVE UI LANGUAGE. When phase-16
+  (task-111, i18n) lands and the same page renders EN or DE
+  depending on the user's preference, every spec that greps
+  for a German label breaks under EN — the exact class of
+  failure this task exists to prevent.
+
+  ## Target state
+
+  1. Every Svelte component that the e2e suite currently
+     targets carries stable `data-testid` attributes on its
+     interactive elements (dialogs, buttons, inputs, badges).
+     Testids are English, dot-separated, `<screen>.<element>`
+     — e.g. `create-estimation.open`, `create-estimation.dialog`,
+     `create-estimation.offer-input`, `create-estimation.submit`,
+     `create-estimation.cancel`.
+  2. A **Page Object Model** layer lives under
+     `src/frontend/e2e/pages/`. One class per screen or
+     modal, e.g. `ProjectDetailPage`,
+     `CreateEstimationDialog` (page object, not to be confused
+     with the Svelte component of the same name),
+     `ProjectsListPage`, `CreateProjectDialog` (PO),
+     `VersionEditorPage`, `UndoToolbar`, `UserMenu`. Each PO
+     exposes intent-level methods (`openCreateEstimationDialog()`,
+     `fillOffer(text)`, `submit()`, `expectDialogVisible()`)
+     and hides all selectors internally. Selectors inside POs
+     use `data-testid` FIRST, falling back to `getByRole` +
+     an English aria-label ONLY when a testid is not
+     structurally possible.
+  3. Test spec files import POs and drive them —
+     `.getByRole` / `.getByText` / raw locators / string
+     labels no longer appear in `*.spec.ts` / `*.test.ts`
+     bodies.
+  4. Every existing e2e spec is migrated. No half-migration.
+     A test suite that mixes styles is worse than either
+     extreme: the codebase-wide validation gate (below)
+     enforces the ban on raw selectors.
+
+  ## Frozen decisions (do not re-open in implementation)
+
+  - **Testid naming.** All testids use the form
+    `<screen>.<element>` in dot-separated lower-kebab —
+    English only, present tense, no translations. Examples:
+      * `projects.new` (button on projects list)
+      * `create-project.dialog`, `create-project.name-input`,
+        `create-project.submit`, `create-project.cancel`
+      * `project-detail.new-offer` (trigger button — the same
+        one currently reading "New Offer" / previously "Neue
+        Kalkulation"; the LABEL keeps changing, the testid
+        does not)
+      * `create-estimation.dialog`,
+        `create-estimation.offer-input`,
+        `create-estimation.description-input`,
+        `create-estimation.submit`,
+        `create-estimation.cancel`
+      * `undo-toolbar.undo`, `undo-toolbar.redo`,
+        `undo-toolbar.show-history`
+      * `undo-conflict.reload`
+      * `user-menu.logout`, `user-menu.roles.viewer`,
+        `user-menu.roles.estimator`, `user-menu.roles.admin`
+    Add the `data-testid` on the OUTERMOST interactive
+    element (the `<button>`, `<input>`, `<dialog>`, etc.), NOT
+    on a wrapper `<div>`.
+  - **Where POs live.** `src/frontend/e2e/pages/` — a new
+    folder. One `.ts` file per screen or modal. `index.ts`
+    barrel export so specs import `import { ProjectDetailPage
+    } from './pages';` (relative import — no `$lib` alias in
+    e2e).
+  - **PO shape.** Each PO takes a `Page` (Playwright) in its
+    constructor and exposes intent-level `async` methods.
+    Assertions belong on the PO as `expect*()` methods when
+    they are stable ("`expectDialogVisible()`"); ad-hoc
+    assertions on returned locators are fine when the spec
+    is asserting something one-off (e.g. a unique row appears
+    after a create). POs return domain-shaped data
+    (`fillOffer`, `submit()`), not Playwright locators, when
+    possible — but exposing a locator via a getter is
+    acceptable when the spec must assert absence/visibility
+    that the PO does not natively cover.
+  - **NO shared base class.** Each PO is a stand-alone class;
+    avoid the "abstract BasePage with `.page` and generic
+    utilities" antipattern. Keep them flat and readable.
+  - **Locator strategy inside POs.**
+      1. `page.getByTestId('foo.bar')` — first choice.
+      2. `page.getByRole(...)` with an English aria-label —
+         only where a testid cannot be attached (e.g.
+         a wrapping component author does not own the
+         markup).
+      3. `page.locator('[data-x=y]')` — last resort, only if
+         (1) and (2) do not fit.
+      Never grep by translated text inside a PO — if a
+      component's text is the only handle, add a testid to
+      the component in the same task.
+  - **Existing testids stay.** `data-testid="logout-button"`
+    (already on the header logout button, exercised by
+    `user-menu.test.ts` line 14) stays; the new
+    `user-menu.logout` is an ALIAS added alongside via a
+    second attribute if renaming is expensive. Simpler:
+    rename to `user-menu.logout` and update `user-menu.test.ts`
+    (the ONLY consumer) in the same commit. Do the rename.
+  - **NO backend / domain / plumbing changes.** This task
+    only touches Svelte components (to add testids) and
+    Playwright specs (to migrate). No REST, no Kotlin.
+  - **ESLint rule enforces the ban.** Add a
+    `no-restricted-syntax` (or similar) ESLint rule scoped
+    to `src/frontend/e2e/**` (excluding
+    `src/frontend/e2e/pages/**`) that bans
+    `getByRole('button', { name: ... })` and `getByText(...)`
+    and raw `locator('text=...')`. When the rule fires on a
+    spec file the ESLint message says "e2e specs must go
+    through Page Objects (see src/frontend/e2e/pages/); do
+    not reach into the DOM by translated label." This is
+    what keeps the invariant true after landing.
+  - **`e2e/helpers.ts`.** Keep as is (`loginAsDev`,
+    `logoutDev`); those are auth-provider utilities, not UI
+    selectors.
+  - **Playwright config.** No change to
+    `src/frontend/playwright.config.ts`. Test discovery
+    already picks up both `*.test.ts` and `*.spec.ts`.
+  - **File-rename policy.** Do not rename existing spec files;
+    only refactor their bodies. The new naming variant
+    (`*.spec.ts` vs `*.test.ts`) is inconsistent in the tree
+    but unrelated to this task; a cleanup pass is a
+    follow-up.
+  - **CLAUDE.md.** Add a new short subsection under
+    "Frontend" (or wherever the Playwright e2e is currently
+    documented) — one paragraph explaining the POM
+    convention: "e2e specs drive Page Objects
+    (`src/frontend/e2e/pages/`); components carry
+    `data-testid="<screen>.<element>"` attributes; specs
+    never reach into the DOM by translated label. This
+    keeps the suite stable when task-115 lands i18n."
+
+  ## Migration scope (all files)
+
+  - **Svelte components (add `data-testid`):**
+      * `src/frontend/src/lib/components/CreateEstimationDialog.svelte`
+      * `src/frontend/src/lib/components/CreateProjectDialog.svelte`
+      * `src/frontend/src/lib/components/ProjectDetail.svelte`
+      * `src/frontend/src/lib/components/ErrorBanner.svelte`
+        (add `data-testid="error-banner"` on the outer
+        `role="alert"` div)
+      * `src/frontend/src/lib/components/UndoHistoryPanel.svelte`
+      * `src/frontend/src/lib/components/UndoConflictDialog.svelte`
+      * `src/frontend/src/lib/components/DevLoginDialog.svelte`
+      * `src/frontend/src/lib/components/ProjectList.svelte`
+        (row-level testids driven by the estimation offer /
+        project name so the tests can grep for
+        `data-testid="project-list.row.<id>"`)
+      * `src/frontend/src/lib/components/EstimationGrid.svelte`
+        AND any TreeTable-adjacent piece already exercised
+        by `tree-table*.test.ts` (add testids only where
+        specs currently grep for text; do NOT scattergun
+        the entire grid).
+      * Header/user-menu region — locate the component and
+        add `user-menu.logout`, `user-menu.roles.<viewer|
+        estimator|admin>` testids.
+      * `src/frontend/src/routes/estimations/[id]/versions/[versionNumber]/+page.svelte`
+        (undo/redo toolbar buttons — `undo-toolbar.undo`,
+        `undo-toolbar.redo`, `undo-toolbar.show-history`).
+
+  - **e2e specs to migrate through the new POs:**
+      * `src/frontend/e2e/create-estimation.spec.ts`
+      * `src/frontend/e2e/endpoint-authorization.test.ts`
+      * `src/frontend/e2e/auth-gate.test.ts`
+      * `src/frontend/e2e/auth.test.ts`
+      * `src/frontend/e2e/smoke.test.ts`
+      * `src/frontend/e2e/user-menu.test.ts`
+      * `src/frontend/e2e/undo.test.ts`
+      * `src/frontend/e2e/tree-table.test.ts`
+      * `src/frontend/e2e/tree-table-alignment.test.ts`
+      * `src/frontend/e2e/tree-table-dnd-mouse.test.ts`
+      * `src/frontend/e2e/treetable-responsive.test.ts`
+
+  - **New PO files under `src/frontend/e2e/pages/`:**
+      * `index.ts` (barrel)
+      * `ProjectsListPage.ts`
+      * `ProjectDetailPage.ts`
+      * `CreateProjectDialog.ts`
+      * `CreateEstimationDialog.ts`
+      * `VersionEditorPage.ts`
+      * `UndoToolbar.ts`
+      * `UndoConflictDialog.ts`
+      * `UndoHistoryPanel.ts`
+      * `UserMenu.ts`
+      * `TreeTable.ts` (shared helper for the tree-table
+        specs — column-header lookup + row-cell locator by
+        row testid)
+
+  - **ESLint rule.** Extend
+    `src/frontend/eslint.config.js` (or wherever the
+    frontend ESLint config lives — grep it) with a
+    `no-restricted-syntax` rule that fires on the banned
+    call patterns inside `src/frontend/e2e/**` but not
+    inside `src/frontend/e2e/pages/**`. Rule message quoted
+    above.
+
+  ## Non-goals
+
+  - No i18n integration in this task — task-115 will provide
+    the DE/EN catalogs; this task's contract is that the
+    e2e suite will not care.
+  - No changes to backend, domain, or REST DTOs.
+  - No changes to any hand-written or generated frontend
+    non-e2e code beyond adding testid attributes.
+  - No new e2e coverage. Existing specs migrate; no scope
+    creep.
+  - Do NOT fix the currently-failing second test in
+    `create-estimation.spec.ts` (the "Neue Kalkulation"
+    leftover) BEFORE migrating it; the migration REPLACES
+    the label with `create-estimation.open` and the bug
+    disappears as a side effect.
+
+steps:
+  - |
+    Read what already exists (parallel):
+      src/frontend/e2e/                                     (all specs + helpers.ts + playwright.config.ts)
+      src/frontend/src/lib/components/CreateEstimationDialog.svelte
+      src/frontend/src/lib/components/CreateProjectDialog.svelte
+      src/frontend/src/lib/components/ProjectDetail.svelte
+      src/frontend/src/lib/components/UndoHistoryPanel.svelte
+      src/frontend/src/lib/components/UndoConflictDialog.svelte
+      src/frontend/src/lib/components/DevLoginDialog.svelte
+      src/frontend/src/lib/components/ProjectList.svelte
+      src/frontend/src/lib/components/EstimationGrid.svelte
+      src/frontend/src/routes/estimations/[id]/versions/[versionNumber]/+page.svelte
+      src/frontend/eslint.config.js                         (locate the current rule set — the file may be named .cjs or .ts)
+    Existing `data-testid` inventory (grep is the audit):
+      grep -rn "data-testid" src/frontend/src/ | head -30
+  - |
+    Add `data-testid` attributes to every component listed in
+    "Migration scope". Follow the frozen naming convention
+    `<screen>.<element>`. Add ONE testid per interactive
+    element (button, input, textarea, dialog root, badge,
+    row). Do NOT add testids to purely presentational
+    wrappers. Keep the existing `data-testid="logout-button"`
+    OR rename it to `user-menu.logout` in the same edit —
+    per the frozen decision, rename and update
+    `user-menu.test.ts` (only consumer) in the same commit.
+    (This step ends without touching e2e files yet — it just
+    lands testids on the components.)
+  - |
+    Create the PO infrastructure. New folder
+    `src/frontend/e2e/pages/` with one file per screen /
+    modal from the "Migration scope" list plus `index.ts`
+    barrel. Each PO:
+      * Constructor: `constructor(private readonly page: Page) {}`
+      * `async` intent-level methods only (no exposed
+        Locator getters where a method fits).
+      * Internally uses `this.page.getByTestId(...)` first,
+        `getByRole` (with an English aria-label) second.
+      * Never references a German string.
+    Example skeleton for `CreateEstimationDialog.ts`:
+      ```ts
+      import type { Page } from '@playwright/test';
+      import { expect } from '@playwright/test';
+
+      export class CreateEstimationDialog {
+        constructor(private readonly page: Page) {}
+        async fillOffer(offer: string) {
+          await this.page.getByTestId('create-estimation.offer-input').fill(offer);
+        }
+        async fillDescription(desc: string) {
+          await this.page.getByTestId('create-estimation.description-input').fill(desc);
+        }
+        async submit() {
+          await this.page.getByTestId('create-estimation.submit').click();
+        }
+        async cancel() {
+          await this.page.getByTestId('create-estimation.cancel').click();
+        }
+        async expectVisible() {
+          await expect(this.page.getByTestId('create-estimation.dialog')).toBeVisible();
+        }
+      }
+      ```
+    Draft POs for every screen in the migration scope. Keep
+    them short — usually 5–10 methods each.
+  - |
+    Migrate every existing e2e spec (`.spec.ts` and
+    `.test.ts`) to drive the POs. Delete every raw
+    `getByRole('button', { name: … })`,
+    `getByText(<German label>)`, and
+    `locator('text=<German label>')` call. Replace with a
+    PO method call. Where a test asserts visibility of an
+    ad-hoc element (e.g. a unique row) that has no natural
+    PO method, add a testid to the row and expose a small
+    PO method (`getRowByOffer(offer)` returning a locator)
+    — do not fall back to raw text greps.
+    Pay explicit attention to
+    `src/frontend/e2e/create-estimation.spec.ts` where the
+    "New Offer" / "Neue Kalkulation" divergence hides: after
+    migration both tests must go through
+    `ProjectDetailPage.openCreateEstimationDialog()` and
+    `CreateEstimationDialog.submit()` — the German/English
+    labels are gone from the test body.
+  - |
+    Extend the frontend ESLint config to ban the raw
+    selectors in test files. Add a `no-restricted-syntax`
+    rule (or a targeted `overrides` block) that fires on
+    files under `src/frontend/e2e/**` but not under
+    `src/frontend/e2e/pages/**`. Ban:
+      * `CallExpression[callee.property.name='getByRole']`
+        whose second argument object contains a `name`
+        property with a string literal value.
+      * `CallExpression[callee.property.name='getByText']`
+        with a string-literal argument.
+      * `CallExpression[callee.property.name='locator']`
+        whose first argument matches `/^\s*text=/`.
+    Error message (single line):
+      "e2e specs must go through Page Objects (see
+      src/frontend/e2e/pages/); do not reach into the DOM by
+      translated label."
+  - |
+    Update `CLAUDE.md` — add a short subsection about the
+    Playwright POM under the Frontend architecture area
+    (or under "Build & run" if that section documents test
+    invocation). Cover: where POs live, the testid naming
+    convention, the ESLint ban, and the i18n motivation
+    (why raw label selectors are forbidden).
+  - |
+    Build and prove the migration is complete:
+      ./gradlew :frontend:check
+      ./gradlew build
+    Then run the full Playwright suite against a live dev
+    stack:
+      cd src/frontend && npx playwright test
+
+validation:
+  - |
+    Page Object folder exists with an index barrel:
+      test -d src/frontend/e2e/pages
+      test -f src/frontend/e2e/pages/index.ts
+      test -f src/frontend/e2e/pages/CreateEstimationDialog.ts
+      test -f src/frontend/e2e/pages/ProjectDetailPage.ts
+  - |
+    Every migration-scope Svelte component carries at least
+    one `data-testid`:
+      for f in \
+        src/frontend/src/lib/components/CreateEstimationDialog.svelte \
+        src/frontend/src/lib/components/CreateProjectDialog.svelte \
+        src/frontend/src/lib/components/ProjectDetail.svelte \
+        src/frontend/src/lib/components/UndoHistoryPanel.svelte \
+        src/frontend/src/lib/components/UndoConflictDialog.svelte \
+        src/frontend/src/lib/components/ErrorBanner.svelte \
+        src/frontend/src/lib/components/DevLoginDialog.svelte \
+      ; do grep -q "data-testid=" "$f" || { echo "missing testid: $f"; exit 1; }; done
+  - |
+    Specs no longer reach into the DOM by translated label.
+    NO test file may call `getByRole('button', { name: ... })`
+    or `getByText(<literal>)` or `locator('text=...')`:
+      ! grep -rnE "getByRole\\('button',\\s*\\{\\s*name:" src/frontend/e2e/*.spec.ts src/frontend/e2e/*.test.ts
+      ! grep -rnE "getByText\\(" src/frontend/e2e/*.spec.ts src/frontend/e2e/*.test.ts
+      ! grep -rnE "locator\\(['\"]text=" src/frontend/e2e/*.spec.ts src/frontend/e2e/*.test.ts
+  - |
+    Every spec imports its PO(s) from ./pages:
+      for f in src/frontend/e2e/*.spec.ts src/frontend/e2e/*.test.ts; do
+        [ "$(basename "$f")" = "helpers.ts" ] && continue
+        grep -q "from './pages" "$f" \
+          || grep -q "from './pages/" "$f" \
+          || { echo "spec has no POM import: $f"; exit 1; }
+      done
+  - |
+    ESLint rule fires on a raw selector in a spec (positive
+    negative test). Add a temporary raw selector, run
+    ESLint, expect non-zero exit, then revert:
+      cp src/frontend/e2e/create-estimation.spec.ts /tmp/spec.orig
+      printf "\n// forbidden\nawait page.getByText('X');\n" \
+        >> src/frontend/e2e/create-estimation.spec.ts
+      ! (cd src/frontend && npx eslint e2e/create-estimation.spec.ts)
+      cp /tmp/spec.orig src/frontend/e2e/create-estimation.spec.ts
+      rm /tmp/spec.orig
+  - |
+    CLAUDE.md documents the POM convention:
+      grep -q "Page Object\|e2e/pages" CLAUDE.md
+  - |
+    Full-stack build is green:
+      ./gradlew build
+  - |
+    Full Playwright suite passes against the dev stack
+    (`./scripts/dev.sh` running):
+      cd src/frontend && npx playwright test
+
+outputs:
+  - created: src/frontend/e2e/pages/index.ts
+  - created: src/frontend/e2e/pages/ProjectsListPage.ts
+  - created: src/frontend/e2e/pages/ProjectDetailPage.ts
+  - created: src/frontend/e2e/pages/CreateProjectDialog.ts
+  - created: src/frontend/e2e/pages/CreateEstimationDialog.ts
+  - created: src/frontend/e2e/pages/VersionEditorPage.ts
+  - created: src/frontend/e2e/pages/UndoToolbar.ts
+  - created: src/frontend/e2e/pages/UndoConflictDialog.ts
+  - created: src/frontend/e2e/pages/UndoHistoryPanel.ts
+  - created: src/frontend/e2e/pages/UserMenu.ts
+  - created: src/frontend/e2e/pages/TreeTable.ts
+  - modified: src/frontend/e2e/create-estimation.spec.ts
+  - modified: src/frontend/e2e/endpoint-authorization.test.ts
+  - modified: src/frontend/e2e/auth-gate.test.ts
+  - modified: src/frontend/e2e/auth.test.ts
+  - modified: src/frontend/e2e/smoke.test.ts
+  - modified: src/frontend/e2e/user-menu.test.ts
+  - modified: src/frontend/e2e/undo.test.ts
+  - modified: src/frontend/e2e/tree-table.test.ts
+  - modified: src/frontend/e2e/tree-table-alignment.test.ts
+  - modified: src/frontend/e2e/tree-table-dnd-mouse.test.ts
+  - modified: src/frontend/e2e/treetable-responsive.test.ts
+  - modified: src/frontend/src/lib/components/CreateEstimationDialog.svelte
+  - modified: src/frontend/src/lib/components/CreateProjectDialog.svelte
+  - modified: src/frontend/src/lib/components/ProjectDetail.svelte
+  - modified: src/frontend/src/lib/components/UndoHistoryPanel.svelte
+  - modified: src/frontend/src/lib/components/UndoConflictDialog.svelte
+  - modified: src/frontend/src/lib/components/ErrorBanner.svelte
+  - modified: src/frontend/src/lib/components/DevLoginDialog.svelte
+  - modified: src/frontend/src/lib/components/ProjectList.svelte
+  - modified: src/frontend/src/lib/components/EstimationGrid.svelte
+  - modified: src/frontend/src/routes/estimations/[id]/versions/[versionNumber]/+page.svelte
+  - modified: src/frontend/eslint.config.js
+  - modified: CLAUDE.md

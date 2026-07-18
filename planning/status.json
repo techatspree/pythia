@@ -691,6 +691,18 @@
       "started_at": "2026-07-18T14:17:08+00:00",
       "completed_at": "2026-07-18T14:24:14+00:00",
       "notes": "Adapt the dev TestDataSeeder to include a bucket + sampled estimation so the bucket editor has real data on dev.sh"
+    },
+    "task-116": {
+      "status": "done",
+      "started_at": "2026-07-18T20:52:10+00:00",
+      "completed_at": "2026-07-18T20:59:39+00:00",
+      "notes": "Let the user choose the estimation method (from all registered method modules) when creating a new estimation, instead of always defaulting to PERT three-point"
+    },
+    "task-117": {
+      "status": "pending",
+      "started_at": null,
+      "completed_at": null,
+      "notes": "Playwright: introduce Page Object Model — abstract dialog/button labels from tests"
     }
   }
 }

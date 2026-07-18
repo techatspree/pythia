@@ -16,6 +16,21 @@ const methodRegistry: Record<EstimationMethod, () => Promise<EditorModule>> = {
 	BUCKET_SAMPLED_PERT: () => import('./bucketSampled/EditorModule.svelte')
 };
 
+// Human-readable (German) label per method. Typed as a full Record so the
+// compiler forces a label whenever a new method is added to methodRegistry.
+const methodLabels: Record<EstimationMethod, string> = {
+	THREE_POINT_PERT: '3-Punkt-PERT',
+	BUCKET_SAMPLED_PERT: 'Bucket + Stichprobe'
+};
+
+// The methods offered in the create-estimation picker, DERIVED from the
+// registered editor modules — a newly registered (fully-supported) method
+// appears here automatically. Registering a method in methodRegistry implies
+// it is supported end-to-end (backend persistence + editor).
+export const availableMethods: { method: EstimationMethod; label: string }[] = (
+	Object.keys(methodRegistry) as EstimationMethod[]
+).map((m) => ({ method: m, label: methodLabels[m] }));
+
 // Resolve the editor module for a method. Logs on success; on a missing entry
 // it logs and throws so the caller's ErrorBanner surfaces the failure.
 export async function loadEditorModule(method: EstimationMethod): Promise<EditorModule> {

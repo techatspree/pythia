@@ -2,9 +2,11 @@
 	import ErrorBanner from '$lib/components/ErrorBanner.svelte';
 	import { apiFetch } from '$lib/api/fetch';
 	import { log } from '$lib/log';
+	import { availableMethods } from '$lib/methods/registry';
 	import type { components } from '$lib/api/schema';
 
 	type EstimationSummaryDto = components['schemas']['EstimationSummaryDto'];
+	type EstimationMethod = components['schemas']['EstimationMethod'];
 
 	let {
 		open = $bindable(false),
@@ -18,6 +20,7 @@
 
 	let offer = $state('');
 	let description = $state('');
+	let method = $state<EstimationMethod>('THREE_POINT_PERT');
 	let loading = $state(false);
 	let bannerMessage = $state<string | null>(null);
 
@@ -28,14 +31,15 @@
 		}
 		loading = true;
 		bannerMessage = null;
-		log.debug('CreateEstimationDialog: POST /api/projects/', projectId, '/estimations');
+		log.debug('CreateEstimationDialog: POST /api/projects/', projectId, '/estimations', 'method', method);
 		try {
 			const res = await apiFetch(`/api/projects/${projectId}/estimations`, {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
 				body: JSON.stringify({
 					offer: offer.trim(),
-					description: description.trim() || null
+					description: description.trim() || null,
+					method
 				})
 			});
 			if (!res.ok) {
@@ -60,6 +64,7 @@
 			const created = (await res.json()) as EstimationSummaryDto;
 			offer = '';
 			description = '';
+			method = 'THREE_POINT_PERT';
 			open = false;
 			oncreated(created);
 		} catch (e: unknown) {
@@ -80,7 +85,7 @@
 {#if open}
 	<div class="fixed inset-0 bg-black/50 flex items-center justify-center z-50" role="dialog">
 		<div class="bg-white rounded-lg shadow-xl p-6 w-full max-w-md">
-			<h2 class="text-lg font-semibold mb-4">Neue Kalkulation</h2>
+			<h2 class="text-lg font-semibold mb-4">New Offer</h2>
 
 			<ErrorBanner message={bannerMessage} ondismiss={() => (bannerMessage = null)} />
 
@@ -93,6 +98,18 @@
 						class="w-full border rounded px-3 py-2 text-sm"
 						required
 					/>
+				</div>
+				<div class="mb-3">
+					<label class="block text-sm font-medium mb-1" for="method">Methode</label>
+					<select
+						id="method"
+						bind:value={method}
+						class="w-full border rounded px-3 py-2 text-sm"
+					>
+						{#each availableMethods as m (m.method)}
+							<option value={m.method}>{m.label}</option>
+						{/each}
+					</select>
 				</div>
 				<div class="mb-4">
 					<label class="block text-sm font-medium mb-1" for="description">Beschreibung</label>

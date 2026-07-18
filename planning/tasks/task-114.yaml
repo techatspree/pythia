@@ -68,10 +68,11 @@ description: |
     `src/domain/build.gradle.kts` lines 142–152 and
     `src/frontend/build.gradle.kts` lines 18–33). This is the
     project's precedent for module-to-module artifact flow via
-    Gradle. Do NOT introduce a `Copy` task using a hardcoded
-    relative path from `:frontend` back into `:backend` — use
-    the artifact model so Gradle handles ordering and
-    up-to-date checking.
+    Gradle. The sync task itself is a `Copy` (see frontend side
+    below), but it MUST source from the resolved `backendOpenapi`
+    configuration — do NOT hardcode a relative path from
+    `:frontend` back into `:backend`. Use the artifact model so
+    Gradle handles ordering and up-to-date checking.
   - **Backend side.** In
     `src/backend/implementation/build.gradle.kts`:
       * Add a small `generateOpenApiSchema` Gradle task that
@@ -97,13 +98,18 @@ description: |
         `dependencies { backendOpenapi(project(mapOf("path" to
         ":backend:implementation", "configuration" to
         "openapiSchema"))) }`.
-      * Register a `Sync` task `syncBackendOpenapi` that copies
-        the resolved file into
-        `src/lib/api/openapi.json`. Use the same
-        `configurations["backendOpenapi"].elements.map { … }`
-        idiom used by `unpackDomainTypescript`, so the
-        dependency is expressed lazily and Gradle handles the
-        task dependency correctly.
+      * Register a **`Copy`** task `syncBackendOpenapi` that copies
+        the resolved file into `src/lib/api/openapi.json`. Use the
+        same `configurations["backendOpenapi"].elements.map { … }`
+        idiom used by `unpackDomainTypescript` so the dependency is
+        expressed lazily and Gradle handles ordering — BUT the task
+        type MUST be `Copy`, NOT `Sync`. `unpackDomainTypescript`
+        can use `Sync` only because it targets the dedicated
+        `src/lib/domain` directory; `src/lib/api` also holds
+        hand-written `fetch.ts`/`types.ts` and the generated
+        `schema.d.ts`, and a `Sync` would DELETE every sibling not
+        in its source. `Copy` overwrites `openapi.json` in place and
+        leaves the siblings untouched.
       * Make the existing `genApi` task
         `dependsOn(syncBackendOpenapi)` so `npm run gen:api`
         always runs against the freshly synced schema.
@@ -204,9 +210,12 @@ steps:
                   "configuration" to "openapiSchema"
               )))
           }
-      * Register a `Sync` task that copies the resolved file
-        into the committed frontend location:
-          val syncBackendOpenapi = tasks.register<Sync>("syncBackendOpenapi") {
+      * Register a `Copy` task that copies the resolved file
+        into the committed frontend location. It MUST be `Copy`,
+        not `Sync` — `src/lib/api` also contains hand-written
+        `fetch.ts`/`types.ts` and generated `schema.d.ts`, which a
+        `Sync` would delete:
+          val syncBackendOpenapi = tasks.register<Copy>("syncBackendOpenapi") {
               from(backendOpenapi.elements.map { locs -> locs.map { it.asFile } })
               into(layout.projectDirectory.dir("src/lib/api"))
               rename { "openapi.json" }
@@ -224,19 +233,34 @@ steps:
                 "src/frontend/src/lib/api/schema.d.ts"
             )
             isIgnoreExitValue = false
+            // Skip the gate when there is no git working tree (e.g. distributions
+            // built from a source tarball). MUST be `onlyIf` (evaluated before the
+            // task runs) — setting `enabled = false` inside `doFirst` is too late,
+            // the task has already started executing.
+            onlyIf { rootProject.file(".git").exists() }
             doFirst {
-                // Skip the gate when there is no git working tree (e.g. distributions
-                // built from a source tarball).
-                if (!rootProject.file(".git").exists()) enabled = false
+                logger.lifecycle(
+                    "Verifying the committed OpenAPI client is in sync with the backend; " +
+                        "on failure run `./gradlew build` and commit " +
+                        "src/lib/api/openapi.json + src/lib/api/schema.d.ts."
+                )
             }
         }
         tasks.named("check") { dependsOn(verifyOpenApiSchemaCommitted) }
-    On failure, emit a `doLast` failure message via a
-    `try {} catch` wrapper OR (simpler) rely on the non-zero
-    `git diff` exit code — the Gradle failure message already
-    names the task. Prefer a small `doFirst` echo hint
-    ("OpenAPI schema drift — run ./gradlew build and commit
-    src/lib/api/openapi.json + src/lib/api/schema.d.ts").
+    Rely on the non-zero `git diff` exit code to fail the build — the
+    Gradle failure names the task, and the `doFirst` hint above tells the
+    developer how to fix it.
+
+    NOTE (deliberate friction): wiring this into `check` means that after
+    ANY change to a REST DTO / on-wire type, `./gradlew build` and
+    `:frontend:check` will FAIL until the regenerated `openapi.json` +
+    `schema.d.ts` are committed — including the mandatory build gate of
+    every future DTO-touching `/implement-task`. That is the intended
+    drift safety. If that proves too aggressive for local dev, scope the
+    `check` wiring behind a property/env (e.g. only add the dependency
+    when `providers.environmentVariable("CI").isPresent` or a
+    `-PopenApiGate` project property is set) so the gate runs in CI but
+    local builds only WARN. Pick one and state it in CLAUDE.md.
   - |
     Prove it end-to-end:
       * `./gradlew clean :frontend:clean :backend:implementation:build :frontend:check`
@@ -246,10 +270,12 @@ steps:
         to any DTO), run `./gradlew build`, confirm
         `openapi.json` and `schema.d.ts` change on disk. Revert
         the tweak.
-      * Make `openapi.json` dirty (`echo "" >> …`), run
-        `./gradlew :frontend:check` — expect
-        `verifyOpenApiSchemaCommitted` to fail with a diff.
-        Restore the file.
+      * The DTO tweak above is also the real drift demonstration:
+        with the DTO changed (and not yet committed), `./gradlew
+        :frontend:check` fails on `verifyOpenApiSchemaCommitted`.
+        Do NOT try to demonstrate drift by hand-corrupting
+        `openapi.json` — `syncBackendOpenapi` overwrites it from the
+        backend before the diff, so that would never fail.
   - |
     Update `CLAUDE.md` (the "Build & run" or "REST API surface"
     section — pick the one that already mentions the manual
@@ -290,14 +316,20 @@ validation:
       diff -q src/backend/implementation/target/openapi/openapi.json \
               src/frontend/src/lib/api/openapi.json
   - |
-    Drift gate fires on a dirty file (positive negative test).
-    Temporarily corrupt the file, run the gate, expect FAIL,
-    then restore:
-      cp src/frontend/src/lib/api/openapi.json /tmp/openapi.orig
-      echo '{"__drift__":true}' >> src/frontend/src/lib/api/openapi.json
+    Drift gate fires when the BACKEND contract changes but the
+    committed schema hasn't been regenerated + committed. NOTE:
+    corrupting the committed file directly does NOT test the gate —
+    its `syncBackendOpenapi`/`genApi` dependencies overwrite the file
+    from the backend before the `git diff` runs. Drive it from the
+    backend side instead: add a temporary nullable field to any REST
+    DTO, expect the gate to FAIL, then revert:
+      # (edit a DTO, e.g. add `val __drift: String? = null` to a *Dto)
       ! ./gradlew :frontend:verifyOpenApiSchemaCommitted
-      cp /tmp/openapi.orig src/frontend/src/lib/api/openapi.json
-      rm /tmp/openapi.orig
+      # (revert the DTO edit)
+    (Since the committed openapi.json is currently already diverged
+    from the backend, the gate will also fail on the very first run
+    until the regenerated openapi.json + schema.d.ts are committed —
+    that is the expected first-run behaviour, not a bug.)
   - |
     CLAUDE.md is updated (mentions the automated wiring):
       grep -q "openapiSchema\|syncBackendOpenapi" CLAUDE.md
@@ -309,3 +341,7 @@ outputs:
   - modified: src/backend/implementation/build.gradle.kts
   - modified: src/frontend/build.gradle.kts
   - modified: CLAUDE.md
+  # Regenerated + re-committed by the new build wiring (currently diverged from
+  # the backend, so the first run will legitimately update them):
+  - modified: src/frontend/src/lib/api/openapi.json
+  - modified: src/frontend/src/lib/api/schema.d.ts

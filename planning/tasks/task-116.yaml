@@ -1,0 +1,182 @@
+id: task-116
+phase: phase-15
+title: Frontend — choose estimation method in create dialog
+depends_on: [task-101, task-104, task-112]
+description: |
+  Let the user pick the estimation method when creating a new
+  estimation, instead of it always being three-point PERT.
+
+  ## Current state (the gap)
+
+  - The backend create endpoint already supports it:
+    `POST /api/projects/{id}/estimations` takes
+    `EstimationCreateDto(offer, description?, method: EstimationMethod
+    = THREE_POINT_PERT)` and honours the chosen method (immutable
+    after create). `ProjectResourceIT` already covers "explicit
+    method returns that method" and "omitted method defaults to
+    THREE_POINT_PERT" (task-112), so no backend change is needed.
+  - The generated client already exposes the enum:
+    `components['schemas']['EstimationMethod']` =
+    `'THREE_POINT_PERT' | 'BUCKET_SAMPLED_PERT'`, and
+    `EstimationCreateDto.method` is optional in `schema.d.ts`.
+  - The gap is purely the GUI: `CreateEstimationDialog.svelte`
+    (task-112) has only "Angebot" + "Beschreibung" and POSTs
+    `{ offer, description }` with NO `method`, so every
+    GUI-created estimation is silently `THREE_POINT_PERT`. task-112
+    explicitly deferred the picker to "the phase-15 frontend
+    registry" — this is that task.
+  - `src/frontend/src/lib/methods/registry.ts` already enumerates
+    the methods that have a working editor module
+    (`methodRegistry`: `THREE_POINT_PERT` → PERT editor,
+    `BUCKET_SAMPLED_PERT` → bucket editor) but carries no
+    human-readable labels.
+
+  ## Target state
+
+  - The create dialog shows a "Methode" dropdown listing **all
+    registered estimation modules** (whatever `registry.ts`
+    exposes), defaulting to `THREE_POINT_PERT`. Selecting a method
+    and submitting sends it in the POST body; the created
+    estimation carries the chosen method and its editor (PERT vs
+    bucket) is what opens for that estimation's versions.
+  - Adding a future method module (register it in `registry.ts`
+    with a label) makes it appear in the picker automatically — the
+    dropdown is derived from the registry, not a hand-maintained
+    second list.
+
+  ## Key design decisions (do not re-open)
+
+  - **Frontend-only.** No backend, DTO, domain, or migration
+    change — the endpoint, the immutable `method` column, and its
+    IT coverage already exist. This is UI wiring plus an e2e.
+  - **Registering a method in the picker implies full-stack support.**
+    `availableMethods` derives from the FRONTEND `methodRegistry`, i.e.
+    methods that have an editor module. Only add a method there once it
+    is supported end-to-end (backend persistence + editor), or the picker
+    would offer a method that fails at create or edit time. Both current
+    methods (`THREE_POINT_PERT`, `BUCKET_SAMPLED_PERT`) are fully
+    supported (tasks 098/102/103/104).
+  - **Registry is the single source of available methods.** Extend
+    `src/frontend/src/lib/methods/registry.ts` with a
+    `methodLabels: Record<EstimationMethod, string>` and an exported
+    ordered `availableMethods: { method: EstimationMethod; label:
+    string }[]` **derived from `methodRegistry`'s keys** (e.g.
+    `(Object.keys(methodRegistry) as EstimationMethod[]).map(m => ({
+    method: m, label: methodLabels[m] }))`). Because
+    `methodRegistry` is typed `Record<EstimationMethod, …>`,
+    `methodLabels` must also be `Record<EstimationMethod, string>`,
+    so the compiler forces a label for every method — a new method
+    can't silently appear label-less. German labels (consistent
+    with the German-first UI, raw strings for now; i18n extraction
+    is task-115's separate concern): `THREE_POINT_PERT` →
+    `'3-Punkt-PERT'`, `BUCKET_SAMPLED_PERT` → `'Bucket + Stichprobe'`.
+  - **Dialog stays the task-112 idiom.** Keep `open = $bindable`,
+    `oncreated`, `apiFetch`, `ErrorBanner`, and the `log` facade.
+    Add `let method = $state<EstimationMethod>('THREE_POINT_PERT')`,
+    a labelled `<select>` bound to it (options from
+    `availableMethods`), include `method` in the POST body, and
+    reset it to the default after a successful create (alongside
+    the existing `offer`/`description` reset). Add the chosen
+    `method` to the existing `log.debug` line. Never bare
+    `console.*`; errors keep surfacing via `ErrorBanner`.
+  - **Method type.** Import
+    `type EstimationMethod = components['schemas']['EstimationMethod']`
+    from `$lib/api/schema` (same pattern the version-editor route
+    uses) so the `<select>` and POST body are typed, not stringly.
+
+  ## What does NOT belong in this task
+
+  - No backend/DTO/endpoint change (already done).
+  - No i18n catalog migration (task-115) — raw German strings.
+  - No change to how an estimation's editor is resolved once
+    created (the version-editor route already lazy-loads by
+    `estimation.method` — task-101).
+
+steps:
+  - |
+    Read the current bits so the change stays minimal and idiomatic:
+      src/frontend/src/lib/components/CreateEstimationDialog.svelte  (form + POST body to extend)
+      src/frontend/src/lib/methods/registry.ts                      (methodRegistry — add labels + availableMethods)
+      src/frontend/e2e/create-estimation.spec.ts                    (extend with a method-selection scenario)
+      src/frontend/src/lib/api/schema.d.ts                          (EstimationMethod, EstimationCreateDto.method)
+      src/frontend/src/routes/estimations/[id]/versions/[versionNumber]/+page.svelte  (how EstimationMethod is typed/used — mirror it)
+  - |
+    Extend `src/frontend/src/lib/methods/registry.ts`:
+      * Add `const methodLabels: Record<EstimationMethod, string> = {
+          THREE_POINT_PERT: '3-Punkt-PERT',
+          BUCKET_SAMPLED_PERT: 'Bucket + Stichprobe'
+        }`.
+      * Export `const availableMethods: { method: EstimationMethod;
+        label: string }[] = (Object.keys(methodRegistry) as
+        EstimationMethod[]).map((m) => ({ method: m, label:
+        methodLabels[m] }))`.
+      Do not otherwise change `methodRegistry` / `loadEditorModule`.
+  - |
+    Update `src/frontend/src/lib/components/CreateEstimationDialog.svelte`:
+      * Import `availableMethods` from `$lib/methods/registry` and
+        `type EstimationMethod` from `$lib/api/schema`.
+      * Add `let method = $state<EstimationMethod>('THREE_POINT_PERT')`.
+      * Add a labelled `<select>` ("Methode") bound to `method`,
+        rendering an `<option>` per entry in `availableMethods`
+        (value = `method`, text = `label`), placed between the
+        "Angebot" and "Beschreibung" fields or below them.
+      * Include `method` in the POST body:
+        `body: JSON.stringify({ offer: offer.trim(),
+        description: description.trim() || null, method })`.
+      * Add `method` to the existing `log.debug(...)` submit line.
+      * On successful create reset `method = 'THREE_POINT_PERT'`
+        alongside the existing `offer`/`description` resets.
+  - |
+    Frontend build + type-check + lint:
+      ./gradlew :frontend:check
+  - |
+    Extend `src/frontend/e2e/create-estimation.spec.ts` with a
+    scenario that:
+      * opens the dialog on a seeded project's detail page,
+      * fills "Angebot", selects the non-default method
+        ("Bucket + Stichprobe" / `BUCKET_SAMPLED_PERT`) in the
+        "Methode" dropdown, clicks "Speichern",
+      * asserts the browser lands on `/estimations/<id>`, then
+        verifies via an API GET (`request.get('/api/estimations/'+id)`
+        with the dev-admin `Authorization` header, mirroring the
+        existing spec's `request` usage) that the created estimation's
+        `method` is `BUCKET_SAMPLED_PERT`.
+  - |
+    Update `CLAUDE.md`'s frontend `$lib/methods/…` bullet with a
+    one-line note that `registry.ts` also exports `availableMethods`
+    (derived from the registered modules) which drives the
+    create-estimation method picker.
+  - |
+    Full build + the e2e spec:
+      ./gradlew build
+      cd src/frontend && npm run test:e2e -- create-estimation.spec.ts
+
+validation:
+  - |
+    Registry exposes the derived method list + labels:
+      grep -q "availableMethods" src/frontend/src/lib/methods/registry.ts
+      grep -q "methodLabels" src/frontend/src/lib/methods/registry.ts
+  - |
+    Create dialog renders a method picker, sends the chosen method,
+    and stays on the log facade (no bare console):
+      grep -q "availableMethods" src/frontend/src/lib/components/CreateEstimationDialog.svelte
+      grep -qE "Methode" src/frontend/src/lib/components/CreateEstimationDialog.svelte
+      grep -q "method" src/frontend/src/lib/components/CreateEstimationDialog.svelte
+      grep -q "from '\$lib/log'" src/frontend/src/lib/components/CreateEstimationDialog.svelte
+      ! grep -nE "^\\s*console\\." src/frontend/src/lib/components/CreateEstimationDialog.svelte
+  - |
+    e2e covers selecting a non-default method:
+      grep -q "Methode\|BUCKET_SAMPLED_PERT" src/frontend/e2e/create-estimation.spec.ts
+  - |
+    CLAUDE.md documents availableMethods:
+      grep -q "availableMethods" CLAUDE.md
+  - |
+    Full-stack build is green and the create-estimation e2e passes:
+      ./gradlew build
+      cd src/frontend && npm run test:e2e -- create-estimation.spec.ts
+
+outputs:
+  - modified: src/frontend/src/lib/methods/registry.ts
+  - modified: src/frontend/src/lib/components/CreateEstimationDialog.svelte
+  - modified: src/frontend/e2e/create-estimation.spec.ts
+  - modified: CLAUDE.md

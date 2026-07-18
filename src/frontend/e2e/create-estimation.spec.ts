@@ -19,7 +19,7 @@ test('create new estimation via the project detail dialog', async ({ page, reque
 	await page.goto(`/projects/${project.id}`);
 	await page.waitForLoadState('networkidle');
 
-	await page.getByRole('button', { name: 'Neue Kalkulation' }).click();
+	await page.getByRole('button', { name: 'New Offer' }).click();
 	await expect(page.getByRole('dialog')).toBeVisible();
 
 	await page.getByLabel('Angebot *').fill(uniqueOffer);
@@ -48,7 +48,7 @@ test('submitting with an empty Angebot is prevented', async ({ page, request }) 
 	await page.goto(`/projects/${project.id}`);
 	await page.waitForLoadState('networkidle');
 
-	await page.getByRole('button', { name: 'Neue Kalkulation' }).click();
+	await page.getByRole('button', { name: 'New Offer' }).click();
 	await expect(page.getByRole('dialog')).toBeVisible();
 
 	// Click Speichern without filling Angebot — the native `required`
@@ -57,4 +57,40 @@ test('submitting with an empty Angebot is prevented', async ({ page, request }) 
 
 	await expect(page.getByRole('dialog')).toBeVisible();
 	await expect(page).toHaveURL(new RegExp(`/projects/${project.id}$`));
+});
+
+test('create estimation with a chosen non-default method (bucket + sampled)', async ({
+	page,
+	request
+}) => {
+	const created = await request.post('/api/projects', {
+		headers: { 'Content-Type': 'application/json', Authorization: 'Dev dev-admin' },
+		data: { name: `E2E Method ${Date.now()}` }
+	});
+	expect(created.status()).toBe(201);
+	const project = await created.json();
+
+	const uniqueOffer = `E2E-METHOD-${Date.now()}`;
+
+	await page.goto(`/projects/${project.id}`);
+	await page.waitForLoadState('networkidle');
+
+	await page.getByRole('button', { name: 'New Offer' }).click();
+	await expect(page.getByRole('dialog')).toBeVisible();
+
+	await page.getByLabel('Angebot *').fill(uniqueOffer);
+	// Pick the non-default method from the "Methode" dropdown (option value is
+	// the EstimationMethod enum name).
+	await page.getByLabel('Methode').selectOption('BUCKET_SAMPLED_PERT');
+	await page.getByRole('button', { name: 'Speichern', exact: true }).click();
+
+	await expect(page).toHaveURL(/\/estimations\/[a-f0-9-]+/);
+	const estimationId = page.url().split('/estimations/')[1];
+
+	// Verify the created estimation actually carries the chosen method.
+	const detail = await request.get(`/api/estimations/${estimationId}`, {
+		headers: { Authorization: 'Dev dev-admin' }
+	});
+	expect(detail.status()).toBe(200);
+	expect((await detail.json()).method).toBe('BUCKET_SAMPLED_PERT');
 });

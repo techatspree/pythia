@@ -49,7 +49,7 @@
 				onclick={() => (dialogOpen = true)}
 				class="px-4 py-2 text-sm bg-brand-green text-white rounded hover:bg-[#007a45]"
 			>
-				Neue Kalkulation
+				New Offer
 			</button>
 		</RequiredRole>
 	</div>
