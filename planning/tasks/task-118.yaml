@@ -1,5 +1,5 @@
 id: task-118
-phase: phase-16
+phase: phase-14
 title: Frontend — show the chosen estimation method in the GUI
 depends_on: [task-101, task-112]
 description: |
@@ -59,9 +59,8 @@ description: |
   2. **Estimation detail header**
      (`EstimationDetail.svelte`) — a second badge next to
      the existing "Latest: v…" badge, showing the method.
-     Testid `estimation-detail.method`.
-     A click on this badge should display a description in English about the details 
-     of the estimation method. this descritpion should be part of the server-side estimation module.  
+     Testid `estimation-detail.method`. (Click-to-open
+     method-detail popover is out of scope — see task-119.)
   3. **Version editor header** (the version editor
      `+page.svelte`) — a badge in the header/toolbar row.
      Reads the existing `currentMethod` state; no new fetch.

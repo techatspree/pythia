@@ -1,0 +1,304 @@
+id: task-119
+phase: phase-14
+title: Method-detail popover — SPI description + backend field + click UI
+depends_on: [task-097, task-098, task-102, task-118]
+description: |
+  Extend task-118's method badge on the estimation-detail
+  header so a click opens a small popover showing an English
+  description of the chosen estimation method (e.g. "PERT
+  three-point estimation: for each item, capture optimistic /
+  most-likely / pessimistic values …"). The description is
+  the **single source of truth** — it lives on the
+  server-side estimation method module in `:domain` and is
+  surfaced through the existing REST layer.
+
+  ## Current state
+
+  - task-118 renders the method badge on
+    `EstimationDetail.svelte` with testid
+    `estimation-detail.method`, using
+    `formatMethodLabel(m)` (`src/lib/methods/labels.ts`) —
+    label only, no descriptive text.
+  - `io.github.theestimator.method.EstimationMethodModule`
+    (`src/domain/src/main/kotlin/…/EstimationMethodModule.kt`,
+    task-097) carries `method`, `calculate*`, and export
+    hooks — no `description` field.
+  - The concrete method modules
+    (`ThreePointMethodModule` — task-098;
+    `BucketMethodModule` — task-102) do not expose a human-
+    readable description.
+  - `EstimationDetailDto` (`src/backend/…/rest/dto/ProjectDtos.kt`)
+    carries `method: EstimationMethod` (task-099) but no
+    description; frontend cannot get one without a new fetch.
+
+  ## Target state
+
+  1. **Domain SPI** — `EstimationMethodModule` gains
+     `val description: String` (a plain, immutable English
+     description). Both concrete modules populate it:
+       * `ThreePointMethodModule.description`: 2–4 sentences
+         explaining the classic PERT three-point method.
+       * `BucketMethodModule.description`: 2–4 sentences
+         explaining bucket assignment + per-bucket sampled
+         PERT reduction.
+  2. **Backend** — `EstimationDetailDto` gains
+     `methodDescription: String`, populated from
+     `EstimationMethodRegistry.require(estimation.method).description`
+     in `ProjectMapper.toEstimationDetailDto`. No new
+     endpoint, no new URL — the field ships alongside the
+     existing method field on the same response. OpenAPI
+     regeneration (task-114's build wiring) then propagates
+     it into `schema.d.ts`.
+  3. **Frontend** — a new component
+     `src/frontend/src/lib/methods/MethodDetailPopover.svelte`
+     renders the description in a small floating popover.
+     `EstimationDetail.svelte` wraps its method badge in a
+     click trigger; clicking the badge toggles the popover;
+     Escape and outside-click close it.
+     Testid `estimation-detail.method-detail-popover`.
+     The badge itself keeps `estimation-detail.method` and
+     gets `role="button"` + `tabindex="0"` so it is
+     keyboard-accessible (Enter/Space to open, Escape to
+     close).
+
+  ## Frozen decisions (do not re-open in implementation)
+
+  - **Single source of truth = `:domain`.** The description
+    text lives in the Kotlin method module class as a plain
+    `val description: String`. English only. Two to four
+    sentences. Backend and frontend never rewrite or extend
+    it — they render it verbatim.
+  - **How it reaches the wire = existing DTO.** Extend
+    `EstimationDetailDto` (`.../rest/dto/ProjectDtos.kt`)
+    with `methodDescription: String`. Populate in
+    `ProjectMapper.toEstimationDetailDto` via
+    `EstimationMethodRegistry.require(estimation.method).description`.
+    Do NOT introduce a `GET /api/methods/{method}` endpoint —
+    a second round-trip for one string is not worth the
+    plumbing when the estimation-detail response is already
+    fetched on entry.
+  - **SPI extension is backwards-compatible.** The default
+    for `description` on the SPI can be a `TODO()` — but
+    both concrete modules SHIP a real description in this
+    same task, so nothing hits the default in practice.
+    Assign a concrete stub for any hypothetical future
+    method that reaches `require(...)` without a description
+    → covered by an SPI-level unit test.
+  - **KMP export.** `description` is a plain `val String`
+    on an `@JsExport`-adjacent module class; no additional
+    export gymnastics. Rebuild via `./gradlew :domain:build`
+    so the JVM jar the backend consumes carries the field.
+    (The frontend never reads the domain description
+    directly — it reads `methodDescription` from the wire —
+    so no TypeScript regeneration concern beyond task-114's
+    normal OpenAPI wiring.)
+  - **Popover placement.** Simple absolutely-positioned
+    `<div>` anchored below the badge (`class="absolute z-50
+    …"`), no library dependency, no headless-UI. Close on
+    outside click via a `window` `click` listener installed
+    in an `$effect` that removes itself on cleanup; close
+    on Escape via a `keydown` listener.
+  - **Popover styling.** Match the app palette: card with
+    `bg-white rounded-lg shadow-xl border p-4 max-w-sm
+    text-sm text-gray-700`. Header line inside the popover
+    repeats the method label (from `formatMethodLabel`) in
+    `font-semibold text-brand-green` so the popover is
+    unambiguous when triggered.
+  - **Testid.** Popover container carries
+    `data-testid="estimation-detail.method-detail-popover"`.
+    Consistent with task-117's naming convention.
+  - **Logging.** Backend `ProjectResource.getEstimation`
+    already logs at INFO on the fetch path — no new
+    endpoint, so nothing new to log there. Frontend:
+    `log.debug` from `$lib/log.ts` when the popover opens
+    (helps trace UI issues). No `try/catch` on the
+    frontend side (no fetch here — description ships on
+    the existing detail response), so no `ErrorBanner`
+    surfacing needed. NEVER bare `console.*`.
+  - **Documentation.** Update `CLAUDE.md`:
+      * "Pluggable estimation methods (SPI)" or "Domain
+        model" subsection: add a one-line note that
+        `EstimationMethodModule.description` carries a
+        human-readable English description consumed by the
+        UI.
+      * "REST API surface" subsection: add
+        `methodDescription` to the fields on
+        `GET /api/estimations/{id}`.
+
+  ## What does NOT belong in this task
+
+  - No new REST endpoint (`/api/methods` etc.) — the
+    description ships on the existing estimation-detail
+    response.
+  - No i18n / translation of the description text
+    (task-115 will handle localisation of user-facing
+    strings; for now the English description is the wire
+    contract).
+  - No changes to badges on the project-detail table or
+    the version-editor header — those stay as label-only
+    per task-118.
+  - No Flyway migration (no schema change).
+
+steps:
+  - |
+    Read the current bits (parallel):
+      src/domain/src/main/kotlin/io/github/theestimator/method/EstimationMethodModule.kt (task-097)
+      src/domain/src/main/kotlin/io/github/theestimator/method/threepoint/ThreePointMethodModule.kt (task-098)
+      src/domain/src/main/kotlin/io/github/theestimator/method/bucketsampled/BucketMethodModule.kt (task-102)
+      src/domain/src/main/kotlin/io/github/theestimator/method/EstimationMethodRegistry.kt
+      src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/dto/ProjectDtos.kt
+      src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/dto/ProjectMapper.kt
+      src/frontend/src/lib/methods/labels.ts       (task-118)
+      src/frontend/src/lib/components/EstimationDetail.svelte  (task-118)
+      src/frontend/src/lib/api/types.ts             (extend ApiEstimationDetail with methodDescription)
+      src/frontend/src/lib/api/schema.d.ts          (post-task-114 regen — verify field appears)
+      src/frontend/src/lib/log.ts
+  - |
+    Extend the SPI. In
+    `src/domain/src/main/kotlin/io/github/theestimator/method/EstimationMethodModule.kt`:
+      * Add `val description: String` to the interface (or
+        abstract member if it is abstract — mirror the
+        shape of `method`).
+    In `ThreePointMethodModule.kt`: override
+      `override val description: String =
+       "PERT three-point estimation: for each work item,
+        capture optimistic, most-likely, and pessimistic
+        estimates. Mean and variance follow the classic
+        PERT formulas; group totals accumulate from the
+        leaves."`
+    In `BucketMethodModule.kt`: override with a similar
+    2–4-sentence English description explaining bucket
+    assignment + sampled PERT reduction.
+    Add JUnit 5 unit tests (JVM `src/test` source set) in
+    `src/domain/src/test/kotlin/io/github/theestimator/method/EstimationMethodModuleDescriptionTest.kt`
+    asserting both concrete modules ship a non-blank
+    description.
+  - |
+    Wire the description onto the wire. In
+    `src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/dto/ProjectDtos.kt`:
+      * Add `val methodDescription: String` to
+        `EstimationDetailDto` (place it right after
+        `method`).
+    In
+    `src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/dto/ProjectMapper.kt`
+    (`Estimation.toEstimationDetailDto`):
+      * Populate the new field via
+        `EstimationMethodRegistry.require(this.method).description`.
+      * Add an import for `EstimationMethodRegistry` if not
+        already present.
+    Extend an existing `@QuarkusTest` (or add a small one
+    in `EstimationResourceIT` if that file exists — else in
+    `ProjectResourceIT`) that hits
+    `GET /api/estimations/{id}` and asserts
+    `methodDescription` is non-blank for a PERT estimation.
+  - |
+    Regenerate the frontend OpenAPI schema. Task-114 wires
+    this into the Gradle graph, so `./gradlew :frontend:check`
+    (or `./gradlew build`) will re-run
+    `syncBackendOpenapi` + `npm run gen:api` and update
+    `src/frontend/src/lib/api/schema.d.ts` with the new
+    field. Confirm via `grep methodDescription
+    src/frontend/src/lib/api/schema.d.ts`.
+    Extend the hand-written `src/lib/api/types.ts` —
+    `ApiEstimationDetail` gains `methodDescription: string`.
+  - |
+    Create
+    `src/frontend/src/lib/methods/MethodDetailPopover.svelte`:
+      * Props: `method: EstimationMethod` (for the
+        `formatMethodLabel` header), `description: string`
+        (the wire content), `open = $bindable(false)`,
+        `onclose: () => void` (optional).
+      * When `open`, render a positioned popover container
+        with the header (label in
+        `font-semibold text-brand-green`) and the
+        description in `text-sm text-gray-700`.
+      * Register `window` `click` + `keydown` listeners in
+        an `$effect` — outside click OR Escape → `open =
+        false` + `onclose?.()`. Deregister on cleanup.
+      * Testid `estimation-detail.method-detail-popover` on
+        the outer container.
+      * `log.debug('MethodDetailPopover: opened')` inside
+        the `$effect` when `open` transitions to `true`.
+      * NO bare `console.*`.
+  - |
+    Wire the popover into
+    `src/frontend/src/lib/components/EstimationDetail.svelte`:
+      * Import `MethodDetailPopover`.
+      * Wrap the existing method badge (currently a
+        `<span>` per task-118) in a `<button
+        type="button">` (or make the `<span>` clickable
+        with `role="button"`, `tabindex="0"`, and a
+        keyboard handler that responds to Enter/Space —
+        prefer a `<button>` for accessibility). Preserve
+        the existing `data-testid="estimation-detail.method"`.
+      * Use `let popoverOpen = $state(false)` and bind it
+        via `<MethodDetailPopover bind:open={popoverOpen}
+        method={estimation.method}
+        description={estimation.methodDescription} />`.
+      * The button toggles `popoverOpen`.
+  - |
+    Update `CLAUDE.md`:
+      * "Domain model" or "Pluggable estimation methods
+        (SPI)" — one line noting
+        `EstimationMethodModule.description: String`.
+      * "REST API surface" — add `methodDescription` to the
+        fields on `GET /api/estimations/{id}`.
+  - |
+    Build (cross-module):
+      ./gradlew :domain:build
+      ./gradlew :backend:implementation:test
+      ./gradlew :frontend:check
+      ./gradlew build
+
+validation:
+  - |
+    Domain SPI carries the description, and both concrete
+    modules ship a non-blank one:
+      grep -q "val description" src/domain/src/main/kotlin/io/github/theestimator/method/EstimationMethodModule.kt
+      grep -q "override val description" src/domain/src/main/kotlin/io/github/theestimator/method/threepoint/ThreePointMethodModule.kt
+      grep -q "override val description" src/domain/src/main/kotlin/io/github/theestimator/method/bucketsampled/BucketMethodModule.kt
+      test -f src/domain/src/test/kotlin/io/github/theestimator/method/EstimationMethodModuleDescriptionTest.kt
+  - |
+    Backend DTO + mapper populate the wire field:
+      grep -q "methodDescription" src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/dto/ProjectDtos.kt
+      grep -q "EstimationMethodRegistry.require" src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/dto/ProjectMapper.kt
+      grep -q "methodDescription" src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/dto/ProjectMapper.kt
+  - |
+    Backend IT asserts the field ships:
+      grep -rqE "methodDescription" src/backend/implementation/src/test/kotlin/io/github/theestimator/rest/
+  - |
+    Frontend types and schema carry the field; popover
+    component exists and follows conventions:
+      grep -q "methodDescription" src/frontend/src/lib/api/schema.d.ts
+      grep -q "methodDescription" src/frontend/src/lib/api/types.ts
+      test -f src/frontend/src/lib/methods/MethodDetailPopover.svelte
+      grep -q 'data-testid="estimation-detail.method-detail-popover"' src/frontend/src/lib/methods/MethodDetailPopover.svelte
+      grep -q "from '\$lib/log'" src/frontend/src/lib/methods/MethodDetailPopover.svelte
+      ! grep -nE "^\s*console\." src/frontend/src/lib/methods/MethodDetailPopover.svelte
+  - |
+    Estimation-detail badge is now interactive and wires the
+    popover:
+      grep -q "MethodDetailPopover" src/frontend/src/lib/components/EstimationDetail.svelte
+      grep -q "popoverOpen\|bind:open" src/frontend/src/lib/components/EstimationDetail.svelte
+      grep -q 'data-testid="estimation-detail.method"' src/frontend/src/lib/components/EstimationDetail.svelte
+  - |
+    CLAUDE.md documents the SPI + DTO extension:
+      grep -q "methodDescription\|description: String" CLAUDE.md
+  - |
+    Full-stack build is green:
+      ./gradlew build
+
+outputs:
+  - modified: src/domain/src/main/kotlin/io/github/theestimator/method/EstimationMethodModule.kt
+  - modified: src/domain/src/main/kotlin/io/github/theestimator/method/threepoint/ThreePointMethodModule.kt
+  - modified: src/domain/src/main/kotlin/io/github/theestimator/method/bucketsampled/BucketMethodModule.kt
+  - created: src/domain/src/test/kotlin/io/github/theestimator/method/EstimationMethodModuleDescriptionTest.kt
+  - modified: src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/dto/ProjectDtos.kt
+  - modified: src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/dto/ProjectMapper.kt
+  - modified: src/backend/implementation/src/test/kotlin/io/github/theestimator/rest/ProjectResourceIT.kt
+  - modified: src/frontend/src/lib/api/openapi.json
+  - modified: src/frontend/src/lib/api/schema.d.ts
+  - modified: src/frontend/src/lib/api/types.ts
+  - created: src/frontend/src/lib/methods/MethodDetailPopover.svelte
+  - modified: src/frontend/src/lib/components/EstimationDetail.svelte
+  - modified: CLAUDE.md

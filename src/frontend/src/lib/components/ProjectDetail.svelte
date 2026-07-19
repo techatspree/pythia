@@ -3,6 +3,7 @@
 	import { goto } from '$app/navigation';
 	import RequiredRole from '$lib/auth/RequiredRole.svelte';
 	import CreateEstimationDialog from '$lib/components/CreateEstimationDialog.svelte';
+	import { formatMethodLabel } from '$lib/methods/labels';
 	import type { components } from '$lib/api/schema';
 
 	type EstimationSummaryDto = components['schemas']['EstimationSummaryDto'];
@@ -63,6 +64,7 @@
 					<tr>
 						<th class="px-4 py-3">Offer</th>
 						<th class="px-4 py-3">Description</th>
+						<th class="px-4 py-3">Method</th>
 						<th class="px-4 py-3">Versions</th>
 						<th class="px-4 py-3">Current Version</th>
 						<th class="px-4 py-3">Created</th>
@@ -75,6 +77,12 @@
 								<a href={resolve('/estimations/[id]', { id: estimation.id })} class="text-brand-green hover:underline">{estimation.offer}</a>
 							</td>
 							<td class="px-4 py-3 text-gray-600">{estimation.description || '—'}</td>
+							<td class="px-4 py-3">
+								<span
+									data-testid="project-detail.estimation-method"
+									class="px-2 py-0.5 text-xs rounded-full bg-brand-green/20 text-brand-green"
+								>{formatMethodLabel(estimation.method)}</span>
+							</td>
 							<td class="px-4 py-3">{estimation.versionCount}</td>
 							<td class="px-4 py-3">
 								{#if estimation.latestVersionNumber}

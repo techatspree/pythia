@@ -705,10 +705,16 @@
       "notes": "Playwright: introduce Page Object Model — abstract dialog/button labels from tests"
     },
     "task-118": {
+      "status": "in_progress",
+      "started_at": "2026-07-19T14:25:36+00:00",
+      "completed_at": null,
+      "notes": "Frontend: show the chosen estimation method in the GUI (badge on project detail + version editor)"
+    },
+    "task-119": {
       "status": "pending",
       "started_at": null,
       "completed_at": null,
-      "notes": "Frontend: show the chosen estimation method in the GUI (badge on project detail + version editor)"
+      "notes": "Click-to-open method-detail popover on the estimation-detail method badge (SPI description + backend + frontend)"
     }
   }
 }

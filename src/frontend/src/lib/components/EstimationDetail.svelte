@@ -1,5 +1,6 @@
 <script lang="ts">
 	import type { ApiEstimationDetail } from '$lib/api/types.js';
+	import { formatMethodLabel } from '$lib/methods/labels';
 	let { estimation }: { estimation: ApiEstimationDetail } = $props();
 </script>
 
@@ -11,6 +12,10 @@
 				Latest: v{estimation.latestVersionNumber}
 			</span>
 		{/if}
+		<span
+			data-testid="estimation-detail.method"
+			class="px-2 py-0.5 text-xs rounded-full bg-brand-green/20 text-brand-green"
+		>{formatMethodLabel(estimation.method)}</span>
 	</div>
 	{#if estimation.description}
 		<p class="text-gray-600">{estimation.description}</p>

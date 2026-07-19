@@ -16,6 +16,7 @@
 	import { UndoStore } from '$lib/stores/undo.svelte';
 	import { installUndoShortcuts } from '$lib/stores/undoKeyboard.svelte';
 	import { loadEditorModule } from '$lib/methods/registry';
+	import { formatMethodLabel } from '$lib/methods/labels';
 
 	type EstimationMethod = components['schemas']['EstimationMethod'];
 	// Bucket + sampled method (task-104). Read untyped from the estimation
@@ -342,7 +343,13 @@
 			</div>
 		</div>
 
-		<h1 class="text-2xl font-bold mb-2">Version {versionData.versionNumber}</h1>
+		<div class="flex items-center gap-3 mb-2">
+			<h1 class="text-2xl font-bold">Version {versionData.versionNumber}</h1>
+			<span
+				data-testid="version-editor.method"
+				class="px-2 py-0.5 text-xs rounded-full bg-brand-green/20 text-brand-green"
+			>{formatMethodLabel(currentMethod)}</span>
+		</div>
 
 		{#if !versionData.isDraft}
 			<div

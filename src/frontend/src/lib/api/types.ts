@@ -1,3 +1,7 @@
+import type { components } from './schema';
+
+type EstimationMethod = components['schemas']['EstimationMethod'];
+
 export interface ApiParameter {
 	id: string | null;
 	name: string;
@@ -93,6 +97,7 @@ export interface ApiEstimationSummary {
 	id: string | null;
 	offer: string | null;
 	description: string | null;
+	method: EstimationMethod;
 	latestVersionNumber: number | null;
 	versionCount: number;
 	hasDraft: boolean;
@@ -103,6 +108,7 @@ export interface ApiEstimationDetail {
 	id: string | null;
 	offer: string | null;
 	description: string | null;
+	method: EstimationMethod;
 	projectId: string | null;
 	projectName: string | null;
 	latestVersionNumber: number | null;
