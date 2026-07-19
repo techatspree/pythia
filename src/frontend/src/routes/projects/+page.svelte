@@ -4,6 +4,8 @@
 	import CreateProjectDialog from '$lib/components/CreateProjectDialog.svelte';
 	import ErrorBanner from '$lib/components/ErrorBanner.svelte';
 	import { apiFetch } from '$lib/api/fetch';
+	import { assertOk } from '$lib/api/errors';
+	import { log } from '$lib/log';
 
 	let projects = $state<any[]>([]);
 	let loading = $state(true);
@@ -16,9 +18,10 @@
 		bannerMessage = null;
 		try {
 			const res = await apiFetch('/api/projects');
-			if (!res.ok) throw new Error('Failed to load projects');
+			await assertOk(res, 'Failed to load projects');
 			projects = await res.json();
 		} catch (e: any) {
+			log.error('loadProjects failed:', e);
 			bannerMessage = e.message;
 		} finally {
 			loading = false;

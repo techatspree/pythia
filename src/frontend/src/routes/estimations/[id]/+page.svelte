@@ -7,6 +7,8 @@
 	import ErrorBanner from '$lib/components/ErrorBanner.svelte';
 	import type { ApiEstimationDetail } from '$lib/api/types.js';
 	import { apiFetch } from '$lib/api/fetch';
+	import { assertOk } from '$lib/api/errors';
+	import { log } from '$lib/log';
 
 	let estimation = $state<ApiEstimationDetail | null>(null);
 	let loading = $state(true);
@@ -18,9 +20,10 @@
 		bannerMessage = null;
 		try {
 			const res = await apiFetch(`/api/estimations/${id}`);
-			if (!res.ok) throw new Error('Estimation not found');
+			await assertOk(res, 'Estimation not found');
 			estimation = await res.json();
 		} catch (e: any) {
+			log.error('loadEstimation failed:', e);
 			bannerMessage = e.message;
 		} finally {
 			loading = false;
@@ -33,9 +36,10 @@
 		if (!estimation) return;
 		try {
 			const res = await apiFetch(`/api/estimations/${estimation.id ?? ''}/versions`, { method: 'POST' });
-			if (!res.ok) throw new Error('Failed to create version');
+			await assertOk(res, 'Failed to create version');
 			await loadEstimation();
 		} catch (e: any) {
+			log.error('createVersion failed:', e);
 			bannerMessage = e.message;
 		}
 	}
@@ -44,9 +48,10 @@
 		if (!estimation) return;
 		try {
 			const res = await apiFetch(`/api/estimations/${estimation.id ?? ''}/versions/draft/submit`, { method: 'POST' });
-			if (!res.ok) throw new Error('Failed to submit version');
+			await assertOk(res, 'Failed to submit version');
 			await loadEstimation();
 		} catch (e: any) {
+			log.error('submitVersion failed:', e);
 			bannerMessage = e.message;
 		}
 	}

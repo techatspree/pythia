@@ -1,0 +1,247 @@
+id: task-118
+phase: phase-16
+title: Frontend — show the chosen estimation method in the GUI
+depends_on: [task-101, task-112]
+description: |
+  Surface every estimation's `method` in the GUI so a user
+  can see at a glance whether an estimation is running under
+  the classic three-point PERT flow or the bucket + sampled
+  variant. Today the field is on the wire in every relevant
+  DTO but never rendered.
+
+  ## Current state (what's already there — and what's missing)
+
+  On the WIRE:
+  - `EstimationSummaryDto` (the row shape rendered in the
+    project-detail estimations table) carries
+    `method: EstimationMethod` (see
+    `src/frontend/src/lib/api/schema.d.ts`, generated from
+    the backend by task-114).
+  - `EstimationDetailDto` (the response of
+    `GET /api/estimations/{id}`) carries `method` too.
+  - The version editor route already fetches the estimation
+    detail via `apiFetch('/api/estimations/{id}')` and stores
+    the method as `currentMethod: EstimationMethod` (task-101,
+    `+page.svelte` line 42) to drive the method-registry
+    lazy-load.
+
+  In the UI:
+  - `src/frontend/src/lib/components/ProjectDetail.svelte`
+    renders the estimations table with columns Offer /
+    Description / Versions / Current Version / Created —
+    NO method column.
+  - `src/frontend/src/lib/components/EstimationDetail.svelte`
+    renders a header with the offer + a "Latest: v…" badge —
+    NO method badge.
+  - The version editor page
+    (`src/frontend/src/routes/estimations/[id]/versions/[versionNumber]/+page.svelte`)
+    has `currentMethod` in state but only uses it to load
+    the editor module — the user never sees which method
+    they are in.
+
+  Result: a user looking at a project detail or an
+  estimation cannot tell which method it uses without
+  navigating into the editor AND recognising the UI shape.
+  For a mixed portfolio (some PERT, some bucket-sampled)
+  this is a real ergonomics gap.
+
+  ## Target state
+
+  Three surfaces, in order of visibility:
+
+  1. **Project-detail estimations table**
+     (`ProjectDetail.svelte`) — a new "Method" column,
+     placed between "Description" and "Versions". Each cell
+     renders a small pill/badge (Tailwind
+     `px-2 py-0.5 text-xs rounded-full …`) with the human-
+     readable method label. Testid
+     `project-detail.estimation-method`.
+  2. **Estimation detail header**
+     (`EstimationDetail.svelte`) — a second badge next to
+     the existing "Latest: v…" badge, showing the method.
+     Testid `estimation-detail.method`.
+     A click on this badge should display a description in English about the details 
+     of the estimation method. this descritpion should be part of the server-side estimation module.  
+  3. **Version editor header** (the version editor
+     `+page.svelte`) — a badge in the header/toolbar row.
+     Reads the existing `currentMethod` state; no new fetch.
+     Testid `version-editor.method`.
+
+  ## Frozen decisions (do not re-open in implementation)
+
+  - **Human-readable labels.** A small helper
+    `src/frontend/src/lib/methods/labels.ts` exports:
+      ```ts
+      import type { components } from '$lib/api/schema';
+      type EstimationMethod = components['schemas']['EstimationMethod'];
+      export function formatMethodLabel(m: EstimationMethod): string {
+        switch (m) {
+          case 'THREE_POINT_PERT': return '3-Point PERT';
+          case 'BUCKET_SAMPLED_PERT': return 'Bucket + Sampled 3-Point';
+        }
+      }
+      ```
+    The `switch` is exhaustive; the TypeScript compiler
+    fails if a new method arrives without a label. Unit-
+    testable pure function — no i18n gymnastics (task-115
+    will migrate the strings; the shape stays).
+  - **Where the helper lives.** `src/lib/methods/labels.ts`
+    joins the existing `src/lib/methods/registry.ts` under
+    the same folder task-101 established for method-scoped
+    frontend code.
+  - **Badge component / styling.** Reuse the existing
+    Tailwind badge idiom from
+    `EstimationDetail.svelte`'s "Latest" badge
+    (`px-2 py-0.5 text-xs rounded-full bg-brand-green/20
+    text-brand-green`). Do NOT create a new `<Badge/>`
+    component — three call sites don't justify one.
+    Consistency of style with the existing "Latest" badge
+    is the point.
+  - **DTO surface consumed on the frontend.** The
+    hand-written `src/lib/api/types.ts`'s
+    `ApiEstimationDetail` and `ApiEstimationSummary`
+    interfaces (the ones the components currently
+    consume) gain a `method: EstimationMethod` field. Type
+    the field via `import type { components } from
+    '$lib/api/schema'` at the top of `types.ts` — no
+    duplicate string-literal union. This preserves the
+    established pattern that components read
+    `types.ts` (not `schema.d.ts`) for shape.
+  - **No new backend, DTO, or API changes.** The `method`
+    is already on every relevant response.
+  - **Testids.** Follow task-117's naming convention
+    (`<screen>.<element>`, English, dot-separated,
+    lower-kebab):
+      * `project-detail.estimation-method` on the table
+        cell for a leaf row.
+      * `estimation-detail.method` on the header badge.
+      * `version-editor.method` on the toolbar badge.
+    NO test-file changes here — task-117 owns the POM
+    migration. This task only ships the testids.
+  - **Logging.** Pure rendering — no service, no domain op,
+    no data-mutation flow. The CLAUDE.md logging
+    obligations do NOT apply.
+  - **CLAUDE.md.** Update the "Frontend" area (either the
+    architecture bullet for `src/frontend` or the tree-shape
+    subsection, whichever documents the surfaces this
+    changes) with a one-line note: "Estimation method is
+    surfaced in the project-detail estimations table, the
+    estimation-detail header, and the version editor header
+    via `src/lib/methods/labels.ts::formatMethodLabel`."
+
+  ## What does NOT belong in this task
+
+  - No i18n / label translation — task-115.
+  - No editor-time method PICKER — the create-estimation
+    dialog stays method-less (backend default). The picker
+    is a separate follow-up.
+  - No changes to the method registry (task-101), method
+    modules (task-102), or bucket editor UI (task-104).
+  - No REST DTO or backend changes.
+  - No changes to any e2e spec — task-117 (Page Object
+    Model migration) will consume the new testids; this
+    task only PROVIDES them.
+
+steps:
+  - |
+    Read what's already there (parallel):
+      src/frontend/src/lib/components/ProjectDetail.svelte
+      src/frontend/src/lib/components/EstimationDetail.svelte
+      src/frontend/src/routes/estimations/[id]/versions/[versionNumber]/+page.svelte
+      src/frontend/src/lib/api/types.ts       (add method to ApiEstimationDetail + ApiEstimationSummary)
+      src/frontend/src/lib/api/schema.d.ts    (source of the generated EstimationMethod union)
+      src/frontend/src/lib/methods/registry.ts (the folder task-101 established for method-scoped code)
+  - |
+    Add `src/frontend/src/lib/methods/labels.ts` exporting
+    `formatMethodLabel(m: EstimationMethod): string` with the
+    exhaustive `switch` shown in the frozen decisions.
+  - |
+    Extend `src/frontend/src/lib/api/types.ts` — add
+    `method: EstimationMethod` to both `ApiEstimationSummary`
+    (the row shape) and `ApiEstimationDetail` (the header
+    shape). Type via `import type { components } from
+    './schema'` and derive `type EstimationMethod =
+    components['schemas']['EstimationMethod']` at the top of
+    the file (mirror the pattern used elsewhere for
+    generated types).
+  - |
+    Update `src/frontend/src/lib/components/ProjectDetail.svelte`:
+      * Import `formatMethodLabel` from `$lib/methods/labels`.
+      * Add a `<th>Method</th>` column header between
+        Description and Versions.
+      * In each row, add a matching `<td>` that renders a
+        badge:
+          <span
+            data-testid="project-detail.estimation-method"
+            class="px-2 py-0.5 text-xs rounded-full bg-brand-green/20 text-brand-green"
+          >{formatMethodLabel(estimation.method)}</span>
+  - |
+    Update `src/frontend/src/lib/components/EstimationDetail.svelte`:
+      * Import `formatMethodLabel`.
+      * Add a second badge in the header `flex` row, right
+        after the "Latest" badge:
+          <span
+            data-testid="estimation-detail.method"
+            class="px-2 py-0.5 text-xs rounded-full bg-brand-green/20 text-brand-green"
+          >{formatMethodLabel(estimation.method)}</span>
+  - |
+    Update the version editor page
+    `src/frontend/src/routes/estimations/[id]/versions/[versionNumber]/+page.svelte`:
+      * Import `formatMethodLabel`.
+      * In the header/toolbar area (near the existing
+        Rückgängig/Wiederholen buttons or the page title —
+        inspect the file to pick a home consistent with the
+        rest of the header), render one badge:
+          <span
+            data-testid="version-editor.method"
+            class="px-2 py-0.5 text-xs rounded-full bg-brand-green/20 text-brand-green"
+          >{formatMethodLabel(currentMethod)}</span>
+        Do NOT add another fetch — `currentMethod` is already
+        in state.
+  - |
+    Update `CLAUDE.md`'s Frontend section with the one-line
+    note from the frozen decisions.
+  - |
+    Full-stack build + frontend check (frontend-only task):
+      ./gradlew :frontend:check
+      ./gradlew build
+
+validation:
+  - |
+    Labels helper exists and exhaustively covers both
+    methods:
+      test -f src/frontend/src/lib/methods/labels.ts
+      grep -q "formatMethodLabel" src/frontend/src/lib/methods/labels.ts
+      grep -q "THREE_POINT_PERT" src/frontend/src/lib/methods/labels.ts
+      grep -q "BUCKET_SAMPLED_PERT" src/frontend/src/lib/methods/labels.ts
+  - |
+    Every surface renders the badge with the task-117 testid
+    convention:
+      grep -q 'data-testid="project-detail.estimation-method"' src/frontend/src/lib/components/ProjectDetail.svelte
+      grep -q 'data-testid="estimation-detail.method"' src/frontend/src/lib/components/EstimationDetail.svelte
+      grep -q 'data-testid="version-editor.method"' src/frontend/src/routes/estimations/\[id\]/versions/\[versionNumber\]/+page.svelte
+  - |
+    `formatMethodLabel` is used at all three call sites (not
+    a raw enum spelled out into the DOM):
+      grep -q "formatMethodLabel" src/frontend/src/lib/components/ProjectDetail.svelte
+      grep -q "formatMethodLabel" src/frontend/src/lib/components/EstimationDetail.svelte
+      grep -q "formatMethodLabel" src/frontend/src/routes/estimations/\[id\]/versions/\[versionNumber\]/+page.svelte
+  - |
+    Types.ts carries the method field on both interfaces:
+      grep -q "method:" src/frontend/src/lib/api/types.ts
+      grep -q "ApiEstimationSummary" src/frontend/src/lib/api/types.ts
+      grep -q "ApiEstimationDetail" src/frontend/src/lib/api/types.ts
+  - |
+    CLAUDE.md documents the surfaces + helper:
+      grep -q "formatMethodLabel\|estimation method" CLAUDE.md
+  - |
+    Full-stack build is green:
+      ./gradlew build
+
+outputs:
+  - created: src/frontend/src/lib/methods/labels.ts
+  - modified: src/frontend/src/lib/api/types.ts
+  - modified: src/frontend/src/lib/components/ProjectDetail.svelte
+  - modified: src/frontend/src/lib/components/EstimationDetail.svelte
+  - modified: src/frontend/src/routes/estimations/[id]/versions/[versionNumber]/+page.svelte
+  - modified: CLAUDE.md

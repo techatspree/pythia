@@ -55,8 +55,18 @@ description: |
       request seam `src/lib/api/fetch.ts` (`apiFetch`).
     - The CLAUDE.md error-surfacing rule still holds: failures surface via
       `ErrorBanner` (they already do at every touched call site); the new
-      helper only improves the message. Keep every `log.error(...)` that
-      is already at the call sites; never introduce bare `console.*`.
+      helper only improves the message. NOT every call site currently has
+      a `log.error(...)` (e.g. `projects/+page.svelte` and
+      `CreateProjectDialog.svelte` catch blocks only set `bannerMessage`) —
+      keep the ones that exist, and ADD `log.error(...)` in any touched
+      catch that lacks it (import `log` from `$lib/log`), so every touched
+      call site both surfaces via `ErrorBanner` and logs. Never introduce
+      bare `console.*`.
+    - The create-project button on `/projects` is intentionally NOT
+      role-gated, so a VIEWER can open the dialog and submit — which is
+      exactly how the e2e triggers a real 403 through the UI. This task
+      improves the error MESSAGE only; role-gating that button is a
+      separate concern and out of scope here.
     - No new REST endpoint, no schema change, no `schema.d.ts`
       regeneration: the mappers only change the body of existing error
       responses, which are not part of the typed openapi paths.
@@ -149,6 +159,16 @@ steps:
     message, not a generic one. Mirror the storageState/login setup used
     in `endpoint-authorization.test.ts`.
   - |
+    Update `CLAUDE.md`: in the "REST API surface" section note that
+    authorization failures now return a structured `{ "message": …,
+    "status": … }` JSON body via the `ForbiddenExceptionMapper` /
+    `UnauthorizedExceptionMapper` (401/403); and in the
+    "Frontend — error surfacing rule" note that
+    `src/frontend/src/lib/api/errors.ts` (`assertOk` / `messageForStatus`)
+    is the single seam that turns an HTTP failure into a user-facing
+    message (401/403 → the fixed authorization strings), complementing the
+    `apiFetch` request seam.
+  - |
     Build & verify (full stack): run
       ./gradlew build
       ./gradlew :frontend:check
@@ -200,3 +220,4 @@ outputs:
   - modified: src/frontend/src/routes/estimations/[id]/versions/[versionNumber]/+page.svelte
   - modified: src/frontend/src/routes/estimations/[id]/compare/+page.svelte
   - modified: src/frontend/src/lib/components/CreateProjectDialog.svelte
+  - modified: CLAUDE.md

@@ -5,6 +5,8 @@
 	import ProjectDetail from '$lib/components/ProjectDetail.svelte';
 	import ErrorBanner from '$lib/components/ErrorBanner.svelte';
 	import { apiFetch } from '$lib/api/fetch';
+	import { assertOk } from '$lib/api/errors';
+	import { log } from '$lib/log';
 
 	let project = $state<any | null>(null);
 	let loading = $state(true);
@@ -14,9 +16,10 @@
 		const id = page.params.id;
 		try {
 			const res = await apiFetch(`/api/projects/${id}`);
-			if (!res.ok) throw new Error('Project not found');
+			await assertOk(res, 'Project not found');
 			project = await res.json();
 		} catch (e: any) {
+			log.error('load project failed:', e);
 			bannerMessage = e.message;
 		} finally {
 			loading = false;

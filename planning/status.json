@@ -555,9 +555,9 @@
       "notes": "Harden auth: fail-closed default + no dev module in prod"
     },
     "task-093": {
-      "status": "pending",
-      "started_at": null,
-      "completed_at": null,
+      "status": "done",
+      "started_at": "2026-07-19T09:16:28+00:00",
+      "completed_at": "2026-07-19T09:27:15+00:00",
       "notes": "Show a meaningful, user-facing error when an operation is denied for lack of authorization (403), instead of a generic error"
     },
     "task-094": {
@@ -703,6 +703,12 @@
       "started_at": null,
       "completed_at": null,
       "notes": "Playwright: introduce Page Object Model — abstract dialog/button labels from tests"
+    },
+    "task-118": {
+      "status": "pending",
+      "started_at": null,
+      "completed_at": null,
+      "notes": "Frontend: show the chosen estimation method in the GUI (badge on project detail + version editor)"
     }
   }
 }

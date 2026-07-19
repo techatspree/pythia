@@ -1,6 +1,8 @@
 <script lang="ts">
 	import ErrorBanner from '$lib/components/ErrorBanner.svelte';
 	import { apiFetch } from '$lib/api/fetch';
+	import { assertOk } from '$lib/api/errors';
+	import { log } from '$lib/log';
 
 	let { open = $bindable(false), oncreated }: { open: boolean; oncreated: () => void } = $props();
 
@@ -23,13 +25,14 @@
 				headers: { 'Content-Type': 'application/json' },
 				body: JSON.stringify({ name: name.trim(), description: description.trim() || null, client: client.trim() || null })
 			});
-			if (!res.ok) throw new Error('Failed to create project');
+			await assertOk(res, 'Failed to create project');
 			name = '';
 			description = '';
 			client = '';
 			open = false;
 			oncreated();
 		} catch (e: any) {
+			log.error('CreateProjectDialog: create failed', e);
 			bannerMessage = e.message;
 		} finally {
 			loading = false;

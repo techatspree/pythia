@@ -12,6 +12,7 @@
 	import type { ApiVersionResponse, ApiAdditionalCost } from '$lib/api/types.js';
 	import type { components } from '$lib/api/schema';
 	import { apiFetch } from '$lib/api/fetch';
+	import { assertOk } from '$lib/api/errors';
 	import { UndoStore } from '$lib/stores/undo.svelte';
 	import { installUndoShortcuts } from '$lib/stores/undoKeyboard.svelte';
 	import { loadEditorModule } from '$lib/methods/registry';
@@ -108,7 +109,7 @@
 				? `/api/estimations/${estimationId}/versions/draft`
 				: `/api/estimations/${estimationId}/versions/${versionNumber}`;
 			const res = await apiFetch(url);
-			if (!res.ok) throw new Error(`Failed to load version (${res.status})`);
+			await assertOk(res, 'Failed to load version');
 			const data = await res.json();
 			// Read the estimation detail first: it carries the method (which module
 			// to load) and, for bucket estimations, the buckets. Setting
@@ -239,7 +240,7 @@
 						additionalCosts: currentAdditionalCosts
 					})
 				});
-				if (!res.ok) throw new Error('Save failed');
+				await assertOk(res, 'Save failed');
 				saveStatus = 'saved';
 				// A successful PUT records a new mutation; refresh so undo/redo
 				// availability tracks the latest state.
@@ -254,10 +255,16 @@
 
 	async function submitVersion() {
 		const id = page.params.id!;
-		const res = await apiFetch(`/api/estimations/${id}/versions/draft/submit`, {
-			method: 'POST'
-		});
-		if (res.ok) goto(resolve('/estimations/[id]', { id }));
+		try {
+			const res = await apiFetch(`/api/estimations/${id}/versions/draft/submit`, {
+				method: 'POST'
+			});
+			await assertOk(res, 'Failed to submit version');
+			goto(resolve('/estimations/[id]', { id }));
+		} catch (e: any) {
+			log.error('submitVersion failed:', e);
+			bannerMessage = e.message;
+		}
 	}
 </script>
 

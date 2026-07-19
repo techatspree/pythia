@@ -5,6 +5,8 @@
 	import ErrorBanner from '$lib/components/ErrorBanner.svelte';
 	import type { ApiVersionComparison, ApiVersionResponse } from '$lib/api/types.js';
 	import { apiFetch } from '$lib/api/fetch';
+	import { assertOk } from '$lib/api/errors';
+	import { log } from '$lib/log';
 
 	let comparison = $state<ApiVersionComparison | null>(null);
 	let versionA = $state<ApiVersionResponse | null>(null);
@@ -64,14 +66,15 @@
 				apiFetch(urlB),
 				apiFetch(`/api/estimations/${id}/versions/${a}/compare/${b}`)
 			]);
-			if (!resA.ok) throw new Error(`Failed to load version ${a} (${resA.status})`);
-			if (!resB.ok) throw new Error(`Failed to load version ${b} (${resB.status})`);
-			if (!resCmp.ok) throw new Error(`Failed to load comparison (${resCmp.status})`);
+			await assertOk(resA, `Failed to load version ${a}`);
+			await assertOk(resB, `Failed to load version ${b}`);
+			await assertOk(resCmp, 'Failed to load comparison');
 
 			versionA = await resA.json();
 			versionB = await resB.json();
 			comparison = await resCmp.json();
 		} catch (e: any) {
+			log.error('compare load failed:', e);
 			bannerMessage = e.message;
 		} finally {
 			loading = false;
