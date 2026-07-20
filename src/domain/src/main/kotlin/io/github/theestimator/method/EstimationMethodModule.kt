@@ -16,6 +16,14 @@ interface EstimationMethodModule {
     val method: EstimationMethod
 
     /**
+     * Human-readable English description of the method, shown in the UI when the
+     * user clicks the method badge (task-119). Single source of truth: the
+     * backend serialises this verbatim on `GET /api/estimations/{id}` as
+     * `methodDescription`; the frontend renders it verbatim.
+     */
+    val description: String
+
+    /**
      * Apply [params] to a single leaf produced by this module, returning the
      * leaf with the shared neutral values (`mean`, `variance`, `offerPT`,
      * `cost`, `offerPrice`) populated — mirrors

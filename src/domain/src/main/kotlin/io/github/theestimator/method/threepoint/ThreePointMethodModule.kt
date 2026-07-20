@@ -15,6 +15,12 @@ import io.github.theestimator.model.EstimationItem
 class ThreePointMethodModule : EstimationMethodModule {
     override val method: EstimationMethod = EstimationMethod.THREE_POINT_PERT
 
+    override val description: String =
+        "PERT three-point estimation: for each work item, capture " +
+            "optimistic, most-likely, and pessimistic estimates. Mean and " +
+            "variance follow the classic PERT formulas; group totals " +
+            "accumulate from the leaves."
+
     override fun calculate(item: EstimationItem, params: CalculationParameters): EstimationItem =
         item.withCalculationParameters(params)
 

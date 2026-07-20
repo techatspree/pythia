@@ -68,7 +68,17 @@ class EntraAuthProviderImpl implements AuthProvider {
 		};
 		this.msal = new PublicClientApplication(config);
 		await this.msal.initialize();
-		await this.msal.handleRedirectPromise();
+		// Process the auth-code response IN PLACE on `redirectUri` instead of
+		// bouncing the browser back to the page login started on. Our redirectUri
+		// is the SPA root (`/`) while login is triggered from `/projects` (the root
+		// route `goto()`s there); with the default `navigateToLoginRequestUrl: true`
+		// MSAL navigates `/` -> `/projects?state=…` to finish the exchange — which
+		// races our own `goto('/projects')` and drops the redirect response, leaving
+		// an account but no cached access token (anonymous /api calls → 401). With
+		// `false` the exchange completes here on `/`, caches the token, and our
+		// router then navigates normally. (In msal-browser v5 this is a
+		// handleRedirectPromise option, not a Configuration.auth field.)
+		await this.msal.handleRedirectPromise({ navigateToLoginRequestUrl: false });
 		this.initialized = true;
 	}
 

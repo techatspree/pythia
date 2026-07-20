@@ -82,6 +82,26 @@
         },
         "required" : [ "description", "type" ]
       },
+      "BucketUpdateDto" : {
+        "type" : "object",
+        "properties" : {
+          "id" : {
+            "anyOf" : [ {
+              "$ref" : "#/components/schemas/UUID"
+            }, {
+              "type" : "null"
+            } ]
+          },
+          "position" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "label" : {
+            "type" : "string"
+          }
+        },
+        "required" : [ "position", "label" ]
+      },
       "ComparisonNodeDto" : {
         "type" : "object",
         "required" : [ "logicalId", "type", "title", "description", "path", "minEffort", "expectedEffort", "maxEffort", "offerPT" ],
@@ -199,6 +219,12 @@
               "$ref" : "#/components/schemas/PhaseUpdateDto"
             }
           },
+          "buckets" : {
+            "type" : [ "array", "null" ],
+            "items" : {
+              "$ref" : "#/components/schemas/BucketUpdateDto"
+            }
+          },
           "roots" : {
             "type" : [ "array", "null" ],
             "items" : {
@@ -236,6 +262,26 @@
         },
         "required" : [ "description", "factor" ]
       },
+      "EstimationBucketDto" : {
+        "type" : "object",
+        "required" : [ "id", "position", "label" ],
+        "properties" : {
+          "id" : {
+            "anyOf" : [ {
+              "$ref" : "#/components/schemas/UUID"
+            }, {
+              "type" : "null"
+            } ]
+          },
+          "position" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "label" : {
+            "type" : "string"
+          }
+        }
+      },
       "EstimationCreateDto" : {
         "type" : "object",
         "required" : [ "offer" ],
@@ -253,7 +299,7 @@
       },
       "EstimationDetailDto" : {
         "type" : "object",
-        "required" : [ "id", "offer", "description", "method", "projectId", "projectName", "latestVersionNumber", "hasDraft", "createdAt", "versions" ],
+        "required" : [ "id", "offer", "description", "method", "methodDescription", "projectId", "projectName", "latestVersionNumber", "hasDraft", "createdAt", "versions" ],
         "properties" : {
           "id" : {
             "anyOf" : [ {
@@ -270,6 +316,9 @@
           },
           "method" : {
             "$ref" : "#/components/schemas/EstimationMethod"
+          },
+          "methodDescription" : {
+            "type" : "string"
           },
           "projectId" : {
             "anyOf" : [ {
@@ -299,6 +348,12 @@
             "type" : "array",
             "items" : {
               "$ref" : "#/components/schemas/EstimationVersionSummaryDto"
+            }
+          },
+          "buckets" : {
+            "type" : "array",
+            "items" : {
+              "$ref" : "#/components/schemas/EstimationBucketDto"
             }
           }
         }

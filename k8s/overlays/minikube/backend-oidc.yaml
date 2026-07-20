@@ -18,4 +18,10 @@ data:
   QUARKUS_OIDC_ENABLED: "true"
   QUARKUS_OIDC_AUTH_SERVER_URL: "https://login.microsoftonline.com/${ENTRA_TENANT_ID}/v2.0"
   QUARKUS_OIDC_CLIENT_ID: "${ENTRA_API_CLIENT_ID}"
-  QUARKUS_OIDC_TOKEN_AUDIENCE: "api://${ENTRA_API_CLIENT_ID}"
+  # Accept BOTH audience forms. v1.0 access tokens carry aud=api://<client-id>;
+  # v2.0 tokens (accessTokenAcceptedVersion=2 on the API app registration) carry
+  # the bare aud=<client-id>. Listing both (comma-separated) makes the backend
+  # agnostic to the token version. NOTE: this env var OVERRIDES the image's baked
+  # application.properties value, so the audience must be kept correct HERE too —
+  # editing only application.properties has no effect on minikube.
+  QUARKUS_OIDC_TOKEN_AUDIENCE: "api://${ENTRA_API_CLIENT_ID},${ENTRA_API_CLIENT_ID}"

@@ -9,7 +9,10 @@ import io.quarkus.test.junit.QuarkusTest
 import io.restassured.RestAssured.given
 import jakarta.inject.Inject
 import jakarta.transaction.Transactional
+import org.hamcrest.Matchers.containsString
+import org.hamcrest.Matchers.emptyOrNullString
 import org.hamcrest.Matchers.equalTo
+import org.hamcrest.Matchers.not
 import org.hamcrest.Matchers.notNullValue
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
@@ -53,6 +56,8 @@ class EstimationResourceIT {
             .body("offer", equalTo("EST-IT-001"))
             .body("description", equalTo("Integration test estimation"))
             .body("method", equalTo("THREE_POINT_PERT"))
+            .body("methodDescription", not(emptyOrNullString()))
+            .body("methodDescription", containsString("PERT"))
             .body("hasDraft", equalTo(false))
             .body("versions.size()", equalTo(0))
     }

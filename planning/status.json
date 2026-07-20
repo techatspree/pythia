@@ -705,16 +705,22 @@
       "notes": "Playwright: introduce Page Object Model — abstract dialog/button labels from tests"
     },
     "task-118": {
-      "status": "in_progress",
+      "status": "done",
       "started_at": "2026-07-19T14:25:36+00:00",
-      "completed_at": null,
+      "completed_at": "2026-07-19T19:27:34+00:00",
       "notes": "Frontend: show the chosen estimation method in the GUI (badge on project detail + version editor)"
     },
     "task-119": {
+      "status": "done",
+      "started_at": "2026-07-19T19:00:41+00:00",
+      "completed_at": "2026-07-19T19:27:34+00:00",
+      "notes": "Click-to-open method-detail popover on the estimation-detail method badge (SPI description + backend + frontend)"
+    },
+    "task-120": {
       "status": "pending",
       "started_at": null,
       "completed_at": null,
-      "notes": "Click-to-open method-detail popover on the estimation-detail method badge (SPI description + backend + frontend)"
+      "notes": "Frontend derives user roles from the backend (GET /api/auth/me) instead of the Entra id token, so roles live only on estimation-api (single source of truth)"
     }
   }
 }

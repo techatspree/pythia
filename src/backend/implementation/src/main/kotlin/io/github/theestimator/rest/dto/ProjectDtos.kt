@@ -58,6 +58,10 @@ data class EstimationDetailDto(
     val offer: String?,
     val description: String?,
     val method: EstimationMethod,
+    // Human-readable English description of `method`, sourced from
+    // EstimationMethodModule.description (task-119). Rendered verbatim in the
+    // frontend method-detail popover.
+    val methodDescription: String,
     val projectId: UUID?,
     val projectName: String?,
     val latestVersionNumber: Int?,

@@ -23,6 +23,15 @@ class BucketMethodModule : EstimationMethodModule {
 
     override val method: EstimationMethod = EstimationMethod.BUCKET_SAMPLED_PERT
 
+    override val description: String =
+        "Bucket + Sampled Three-Point estimation: place every work item " +
+            "into a user-defined bucket (e.g. XS to XL); for each bucket, " +
+            "PERT-estimate a small sample of items with optimistic, " +
+            "most-likely, and pessimistic values. The average of the " +
+            "sample's derived means becomes the effort assigned to every " +
+            "non-sample item in the same bucket. Group totals accumulate " +
+            "from the leaves as usual."
+
     override fun calculate(item: EstimationItem, params: CalculationParameters): EstimationItem =
         item.withCalculationParameters(params)
 

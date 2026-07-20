@@ -44,6 +44,10 @@ test.describe('creating a project through the UI sends the auth header', () => {
 	test('a UI create carries Authorization and succeeds', async ({ page }) => {
 		await loginAsDev(page, 'dev-estimator');
 
+		// Unique per run — the dev-stack DB persists across runs, so a fixed
+		// name accumulates rows and trips Playwright's strict-mode locator.
+		const projectName = `E2E Auth Project ${Date.now()}`;
+
 		const [postRequest] = await Promise.all([
 			page.waitForRequest(
 				(r) => r.url().includes('/api/projects') && r.method() === 'POST'
@@ -51,7 +55,7 @@ test.describe('creating a project through the UI sends the auth header', () => {
 			(async () => {
 				await page.goto('/projects');
 				await page.getByRole('button', { name: 'New Project' }).click();
-				await page.getByLabel('Name *').fill('E2E Auth Project');
+				await page.getByLabel('Name *').fill(projectName);
 				await page.getByRole('button', { name: 'Create' }).click();
 			})()
 		]);
@@ -62,6 +66,6 @@ test.describe('creating a project through the UI sends the auth header', () => {
 
 		// And because writes require ESTIMATOR, a successful create proves the
 		// header was accepted end-to-end.
-		await expect(page.getByText('E2E Auth Project')).toBeVisible();
+		await expect(page.getByText(projectName)).toBeVisible();
 	});
 });

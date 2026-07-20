@@ -6,7 +6,24 @@ const API = 'http://localhost:8080';
 // bypass the frontend's apiFetch, so authenticate the request context as
 // dev-admin (all roles) — the UI navigations already run as dev-admin via the
 // global storageState.
-test.use({ extraHTTPHeaders: { Authorization: 'Dev dev-admin' } });
+//
+// The header is attached via `page.route(**/api/**, …)` (below) instead of
+// `test.use({ extraHTTPHeaders })` because the latter also decorates the
+// browser's cross-origin requests (including font fetches to
+// fonts.gstatic.com), which then trigger a CORS preflight the CDN rejects —
+// the failure surfaces as spurious "Access to font … blocked by CORS policy"
+// console errors that trip the `collectErrors` assertions.
+const API_HEADERS = { Authorization: 'Dev dev-admin' } as const;
+
+test.beforeEach(async ({ page }) => {
+	// Attach Authorization ONLY to backend `/api/**` requests the browser makes.
+	// `page.request.*` calls from the helpers below still need the header — we
+	// pass it there explicitly via the `headers` option.
+	await page.route('**/api/**', async (route) => {
+		const headers = { ...route.request().headers(), ...API_HEADERS };
+		await route.continue({ headers });
+	});
+});
 
 /** Minimal shape of an estimation node as returned by the REST API, used to
     type the JSON traversal in assertions below. */
@@ -21,6 +38,7 @@ type FetchedNode = {
 
 async function createProject(page: Page): Promise<string> {
 	const res = await page.request.post(`${API}/api/projects`, {
+		headers: API_HEADERS,
 		data: { name: 'Smoke Project', description: 'e2e smoke', client: 'Tester' }
 	});
 	expect(res.status(), `POST /api/projects failed: ${await res.text()}`).toBe(201);
@@ -29,6 +47,7 @@ async function createProject(page: Page): Promise<string> {
 
 async function createEstimation(page: Page, projectId: string): Promise<string> {
 	const res = await page.request.post(`${API}/api/projects/${projectId}/estimations`, {
+		headers: API_HEADERS,
 		data: { offer: 'SMOKE-001', description: 'smoke estimation' }
 	});
 	expect(res.status(), `POST estimations failed: ${await res.text()}`).toBe(201);
@@ -36,13 +55,16 @@ async function createEstimation(page: Page, projectId: string): Promise<string> 
 }
 
 async function createDraft(page: Page, estimationId: string): Promise<number> {
-	const res = await page.request.post(`${API}/api/estimations/${estimationId}/versions`);
+	const res = await page.request.post(`${API}/api/estimations/${estimationId}/versions`, {
+		headers: API_HEADERS
+	});
 	expect(res.status(), `POST versions failed: ${await res.text()}`).toBe(201);
 	return (await res.json()).versionNumber;
 }
 
 async function populateDraft(page: Page, estimationId: string) {
 	const res = await page.request.put(`${API}/api/estimations/${estimationId}/versions/draft`, {
+		headers: API_HEADERS,
 		data: {
 			notes: 'smoke test notes',
 			parameters: [
@@ -67,6 +89,7 @@ async function populateDraft(page: Page, estimationId: string) {
 async function populateDraftWithTree(page: Page, estimationId: string) {
 	// Backend > Auth > {Token, Session} — three levels deep.
 	const res = await page.request.put(`${API}/api/estimations/${estimationId}/versions/draft`, {
+		headers: API_HEADERS,
 		data: {
 			parameters: [
 				{ name: 'Tagessatz', value: 900 },
@@ -92,7 +115,9 @@ async function populateDraftWithTree(page: Page, estimationId: string) {
 }
 
 async function submitDraft(page: Page, estimationId: string): Promise<number> {
-	const res = await page.request.post(`${API}/api/estimations/${estimationId}/versions/draft/submit`);
+	const res = await page.request.post(`${API}/api/estimations/${estimationId}/versions/draft/submit`, {
+		headers: API_HEADERS
+	});
 	expect(res.status(), `POST submit failed: ${await res.text()}`).toBe(200);
 	return (await res.json()).versionNumber;
 }
@@ -251,7 +276,7 @@ test('three-level tree round-trips through the draft REST API', async ({ page })
 	await expectNoUiError(page, `three-level draft ${versionNumber}`);
 
 	// Re-fetch the draft and verify the depth-3 shape survives.
-	const fetched = await page.request.get(`${API}/api/estimations/${estimationId}/versions/draft`).then((r) => r.json());
+	const fetched = await page.request.get(`${API}/api/estimations/${estimationId}/versions/draft`, { headers: API_HEADERS }).then((r) => r.json());
 	expect(fetched.roots).toHaveLength(1);
 	expect(fetched.roots[0].type).toBe('GROUP');
 	expect(fetched.roots[0].title).toBe('Backend');
@@ -268,6 +293,7 @@ test('three-level tree round-trips through the draft REST API', async ({ page })
 /** PUT a custom roots tree to the draft. */
 async function putRoots(page: Page, estimationId: string, roots: unknown[]) {
 	const res = await page.request.put(`${API}/api/estimations/${estimationId}/versions/draft`, {
+		headers: API_HEADERS,
 		data: { roots }
 	});
 	expect(res.status(), `PUT roots failed: ${await res.text()}`).toBe(200);
@@ -327,7 +353,7 @@ test('build a three-level tree via UI buttons', async ({ page }) => {
 	// Reload and verify via the REST API that the structure survived.
 	await page.reload();
 	await page.waitForLoadState('networkidle');
-	const fetched = await page.request.get(`${API}/api/estimations/${estimationId}/versions/draft`).then((r) => r.json());
+	const fetched = await page.request.get(`${API}/api/estimations/${estimationId}/versions/draft`, { headers: API_HEADERS }).then((r) => r.json());
 	expect(fetched.roots).toHaveLength(1);
 	expect(fetched.roots[0].type).toBe('GROUP');
 	// Default root group contains a default leaf (from addRootGroup) + the new sub-group with its leaf.
@@ -362,7 +388,7 @@ test('drag a leaf into a different group reparents it', async ({ page }) => {
 	const targetZone = page.locator('[aria-label="Children of G2"]');
 	await keyboardReparent(page, sourceRow, targetZone);
 
-	const fetched = await page.request.get(`${API}/api/estimations/${estimationId}/versions/draft`).then((r) => r.json());
+	const fetched = await page.request.get(`${API}/api/estimations/${estimationId}/versions/draft`, { headers: API_HEADERS }).then((r) => r.json());
 	const g1 = fetched.roots.find((r: FetchedNode) => r.title === 'G1');
 	const g2 = fetched.roots.find((r: FetchedNode) => r.title === 'G2');
 	expect(g1.children).toHaveLength(0);
@@ -395,7 +421,7 @@ test('drag a leaf onto another leaf reorders siblings', async ({ page }) => {
 	// Reorder A down past B via keyboard.
 	await keyboardReorder(page, a, 'down');
 
-	const fetched = await page.request.get(`${API}/api/estimations/${estimationId}/versions/draft`).then((r) => r.json());
+	const fetched = await page.request.get(`${API}/api/estimations/${estimationId}/versions/draft`, { headers: API_HEADERS }).then((r) => r.json());
 	const g1 = fetched.roots[0];
 	expect(g1.children).toHaveLength(2);
 	const descriptions = g1.children.map((c: FetchedNode) => c.description);
@@ -430,7 +456,7 @@ test('dragging a group onto its own descendant is a no-op (cycle protection)', a
 	await keyboardReparent(page, g1Row, innerGZone);
 
 	// Tree must be unchanged — cycle protection restored the snapshot.
-	const fetched = await page.request.get(`${API}/api/estimations/${estimationId}/versions/draft`).then((r) => r.json());
+	const fetched = await page.request.get(`${API}/api/estimations/${estimationId}/versions/draft`, { headers: API_HEADERS }).then((r) => r.json());
 	expect(fetched.roots).toHaveLength(1);
 	expect(fetched.roots[0].title).toBe('G1');
 	expect(fetched.roots[0].children).toHaveLength(1);
@@ -480,7 +506,7 @@ test('drag a subgroup into a deeper nested subgroup reparents it', async ({ page
 	const deepZone = page.locator('[aria-label="Children of Deep"]');
 	await keyboardReparent(page, subRow, deepZone);
 
-	const fetched = await page.request.get(`${API}/api/estimations/${estimationId}/versions/draft`).then((r) => r.json());
+	const fetched = await page.request.get(`${API}/api/estimations/${estimationId}/versions/draft`, { headers: API_HEADERS }).then((r) => r.json());
 	const g1 = fetched.roots.find((r: FetchedNode) => r.title === 'G1');
 	const g2 = fetched.roots.find((r: FetchedNode) => r.title === 'G2');
 	// Sub left G1 entirely...

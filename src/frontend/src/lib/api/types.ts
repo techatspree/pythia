@@ -109,6 +109,9 @@ export interface ApiEstimationDetail {
 	offer: string | null;
 	description: string | null;
 	method: EstimationMethod;
+	// Human-readable English description of the method, sourced from the
+	// server-side EstimationMethodModule (task-119).
+	methodDescription: string;
 	projectId: string | null;
 	projectName: string | null;
 	latestVersionNumber: number | null;

@@ -16,6 +16,8 @@ class EstimationMethodRegistryTest {
     // Minimal module: the registry tests only exercise register/get/require/all,
     // so calculate/export just satisfy the interface.
     private class FakeModule(override val method: EstimationMethod) : EstimationMethodModule {
+        override val description: String = "fake"
+
         override fun calculate(item: EstimationItem, params: CalculationParameters): EstimationItem =
             item.withCalculationParameters(params)
 

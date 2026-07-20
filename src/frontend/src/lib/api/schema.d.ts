@@ -1229,6 +1229,12 @@ export interface components {
             amountPerWeek?: number | null;
             phaseAbbreviation?: string | null;
         };
+        BucketUpdateDto: {
+            id?: components["schemas"]["UUID"] | null;
+            /** Format: int32 */
+            position: number;
+            label: string;
+        };
         ComparisonNodeDto: {
             logicalId: components["schemas"]["UUID"];
             type: string;
@@ -1267,6 +1273,7 @@ export interface components {
             parameters?: components["schemas"]["EstimationParameterDto"][] | null;
             effortDrivers?: components["schemas"]["EffortDriverDto"][] | null;
             phases?: components["schemas"]["PhaseUpdateDto"][] | null;
+            buckets?: components["schemas"]["BucketUpdateDto"][] | null;
             roots?: components["schemas"]["EstimationNodeUpdateDto"][] | null;
             additionalCosts?: components["schemas"]["AdditionalCostUpdateDto"][] | null;
         };
@@ -1276,6 +1283,12 @@ export interface components {
             /** Format: double */
             factor: number;
             comment?: string | null;
+        };
+        EstimationBucketDto: {
+            id: components["schemas"]["UUID"] | null;
+            /** Format: int32 */
+            position: number;
+            label: string;
         };
         EstimationCreateDto: {
             offer: string;
@@ -1287,6 +1300,7 @@ export interface components {
             offer: string | null;
             description: string | null;
             method: components["schemas"]["EstimationMethod"];
+            methodDescription: string;
             projectId: components["schemas"]["UUID"] | null;
             projectName: string | null;
             /** Format: int32 */
@@ -1294,6 +1308,7 @@ export interface components {
             hasDraft: boolean;
             createdAt: components["schemas"]["Instant"] | null;
             versions: components["schemas"]["EstimationVersionSummaryDto"][];
+            buckets?: components["schemas"]["EstimationBucketDto"][];
         };
         /** @enum {string} */
         EstimationMethod: "THREE_POINT_PERT" | "BUCKET_SAMPLED_PERT";

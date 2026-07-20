@@ -149,9 +149,15 @@ Under `%prod` and `%dev-minikube`:
 quarkus.oidc.auth-server-url=https://login.microsoftonline.com/${ENTRA_TENANT_ID}/v2.0
 quarkus.oidc.client-id=${ENTRA_API_CLIENT_ID}
 quarkus.oidc.application-type=service
-quarkus.oidc.token.audience=api://${ENTRA_API_CLIENT_ID}
+quarkus.oidc.token.audience=api://${ENTRA_API_CLIENT_ID},${ENTRA_API_CLIENT_ID}
 quarkus.oidc.roles.role-claim-path=roles
 ```
+
+The audience is listed **twice on purpose**: v1.0 access tokens carry
+`aud=api://<api-client-id>`, but v2.0 tokens (`accessTokenAcceptedVersion: 2`)
+carry the bare `aud=<api-client-id>`. Listing both makes the backend accept a
+token regardless of its version — the token is accepted if `aud` matches any
+configured value.
 
 `%dev` and `%test` keep `quarkus.oidc.enabled=false`
 because the dev module covers those paths.
@@ -269,6 +275,23 @@ Common failures seen during setup:
   `estimation-api` (see the `estimation-api` step), then re-acquire a token
   (log out / clear `localStorage`). Audience (`aud`) and scope (`scp:
   access`) being correct while the issuer is wrong is the tell-tale sign.
+
+- **401, backend DEBUG shows `Audience (aud) claim [<api-client-id>] doesn't
+  contain an acceptable identifier. Expected api://<api-client-id> as an aud
+  value`.** The flip side of setting `accessTokenAcceptedVersion: 2`: v2.0
+  access tokens carry the **bare** `aud=<api-client-id>` (a GUID), whereas
+  v1.0 tokens carried `aud=api://<api-client-id>`. The audience must list
+  **both** forms (`api://${ENTRA_API_CLIENT_ID},${ENTRA_API_CLIENT_ID}`). On
+  **minikube this lives in the k8s overlay env var**
+  `QUARKUS_OIDC_TOKEN_AUDIENCE` (`k8s/overlays/minikube/backend-oidc.yaml`),
+  which **overrides** the image's baked `application.properties` — so editing
+  only `application.properties` has no effect on the cluster; fix the overlay
+  and re-apply (`./scripts/minikube-deploy.sh`, or re-apply the ConfigMap +
+  `kubectl -n estimation rollout restart deployment/backend`). No image rebuild
+  is needed for an env-var change. The token reaching the OIDC layer
+  (issuer/scope correct) while only the audience is rejected is the tell-tale
+  sign — and note this is a *validation* failure (the token IS read), distinct
+  from `Bearer access token is not available` (no token at all).
 
 - **401 and DevTools shows NO `Authorization` header on the request.** The
   SPA isn't logged in or didn't attach a token — check that login completed

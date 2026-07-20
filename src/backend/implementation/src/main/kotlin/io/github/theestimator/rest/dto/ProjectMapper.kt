@@ -2,6 +2,7 @@ package io.github.theestimator.rest.dto
 
 import io.github.theestimator.domain.Estimation
 import io.github.theestimator.domain.Project
+import io.github.theestimator.method.EstimationMethodRegistry
 
 fun Project.toSummaryDto() = ProjectSummaryDto(
     id = id,
@@ -48,6 +49,7 @@ fun Estimation.toEstimationDetailDto(draftTotalEffort: Double? = null): Estimati
         offer = offer,
         description = description,
         method = method,
+        methodDescription = EstimationMethodRegistry.require(method).description,
         projectId = project?.id,
         projectName = project?.name,
         latestVersionNumber = latestSubmittedVersion?.versionNumber,

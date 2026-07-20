@@ -1,0 +1,298 @@
+id: task-120
+phase: phase-2
+title: Backend-authoritative roles — frontend reads /api/auth/me
+depends_on: [task-093, task-007]
+description: |
+  Make the backend the single source of truth for a user's
+  roles. Today the frontend derives roles CLIENT-SIDE from the
+  Entra **id token** (`EntraAuthProvider.toAuthAccount` reads
+  `idTokenClaims.roles`), while the backend enforces roles from
+  the Entra **access token** (`aud = estimation-api`, roles via
+  `quarkus.oidc.roles.role-claim-path=roles`). Because an Entra
+  app role only appears in a token whose audience is the app it
+  is defined on, this forces every user to be assigned the same
+  role on BOTH app registrations — `estimation-spa` (for the id
+  token / UI) AND `estimation-api` (for the access token /
+  backend). That dual assignment drifts: the UI can show ADMIN
+  while the backend sees VIEWER, or vice-versa.
+
+  After this task the frontend derives the account — and
+  crucially its `roles` — from the backend endpoint
+  `GET /api/auth/me` (which already returns roles computed from
+  the access token). The backend becomes authoritative, the UI
+  adapts from the exact roles the backend enforces (they can
+  never disagree), and app roles only need to live on
+  `estimation-api`. The `estimation-spa` app-role assignment is
+  no longer required for the UI.
+
+  This is a **frontend-only** code change plus documentation:
+  `GET /api/auth/me` already returns
+  `CurrentUserDto{ subjectId, email?, displayName?, roles:
+  List<Role>, providerName }` (see `MeResource.kt`), and the
+  Entra augmentor already populates those roles from the access
+  token. No backend, DTO, or migration change.
+
+  ## Current state
+
+  - `src/frontend/src/lib/auth/AuthProvider.ts` — the
+    `AuthProvider` interface has a synchronous
+    `getAccount(): AuthAccount | null`.
+  - `EntraAuthProvider.getAccount()` reads the MSAL account's
+    `idTokenClaims` and maps `roles` from the **id token**
+    (`toAuthAccount`). This is the client-side role source.
+  - `DevAuthProvider.getAccount()` returns a hard-wired
+    `DEV_USERS[...]` account whose roles match what the backend
+    dev augmentor derives from the `Dev <subject>` header — so
+    dev has no dual-source problem.
+  - `src/frontend/src/routes/+layout.svelte` `onMount` does
+    `await provider.init(); account = provider.getAccount();`
+    and passes `account` to `RequireAuth` + `UserMenu`;
+    `refresh()` re-reads `provider.getAccount()`.
+  - `RequiredRole.svelte` reads roles via
+    `getAuthProvider().getAccount()`.
+  - `GET /api/auth/me` (`MeResource.kt`) returns the
+    authoritative `CurrentUserDto` (and provisions the user);
+    `401` when no user is populated. The frontend does NOT
+    currently call it.
+
+  ## Target state
+
+  1. **Interface** — add
+     `loadAccount(): Promise<AuthAccount | null>` to
+     `AuthProvider`. This is the async, provider-specific way to
+     resolve the current account (the sync `getAccount()` stays
+     for cheap re-reads of the already-resolved account).
+  2. **Entra** — `EntraAuthProvider.loadAccount()`:
+       * `await this.init()`; if MSAL has no account
+         (`getAllAccounts().length === 0`) set the cached
+         account to `null` and return `null` (drives login).
+       * otherwise fetch `GET /api/auth/me` and map the
+         `CurrentUserDto` to `AuthAccount` (roles straight from
+         the backend). A `401` → `null` (treated as "not signed
+         in", NOT an error). Cache the result in a private
+         `cachedAccount` field.
+     `EntraAuthProvider.getAccount()` now returns
+     `this.cachedAccount` (the backend-derived account), NOT the
+     id-token-derived one. The id-token role mapping
+     (`toAuthAccount`'s `roles`) is removed as the authoritative
+     source.
+  3. **Dev** — `DevAuthProvider.loadAccount()` returns
+     `this.getAccount()` (unchanged client-side behavior; no
+     `/me` round-trip). Dev stays fully offline-capable and its
+     e2e path is untouched.
+  4. **Shared helper** — new
+     `src/frontend/src/lib/auth/currentUser.ts` exporting
+     `fetchCurrentUserAccount(): Promise<AuthAccount | null>`
+     that `apiFetch`es `/api/auth/me`, returns `null` on `401`,
+     `assertOk`s other failures, and maps the response to
+     `AuthAccount`. This isolates the fetch (and keeps
+     `EntraAuthProvider` from importing `api/fetch` directly).
+  5. **Layout** — `+layout.svelte` `onMount` calls
+     `account = await provider.loadAccount()`; `refresh()`
+     becomes `async` and calls `loadAccount()`. The existing
+     `try/catch` → `initError` → `ErrorBanner` still surfaces a
+     hard `/me` failure.
+
+  ## Frozen decisions (do not re-open in implementation)
+
+  - **Backend is authoritative; no backend change.**
+    `GET /api/auth/me` already returns roles from the access
+    token. Do NOT add/alter any backend code, DTO, endpoint, or
+    migration. If a step tempts you to "also change the
+    backend", stop — the endpoint is complete.
+  - **Scope = Entra only.** Only the Entra path switches to
+    `/api/auth/me`. The dev provider KEEPS building the account
+    client-side (its roles already agree with the backend dev
+    augmentor, and this keeps the 50-test e2e suite — which runs
+    under dev auth — unchanged). Routing dev through `/me` is
+    explicitly out of scope.
+  - **`getAccount()` stays synchronous.** Do NOT change its
+    signature. For Entra it returns the cached
+    backend-resolved account (populated by `loadAccount()`,
+    which the layout awaits before `ready` gates the UI), so
+    `RequiredRole.svelte` keeps working unchanged.
+  - **No raw `fetch`.** The `/me` call goes through `apiFetch`
+    (ESLint bans bare `fetch`). `apiFetch` already attaches the
+    `Bearer` header via `getAuthorizationHeader()`. An ES-module
+    import cycle (`auth/index` → `EntraAuthProvider` →
+    `currentUser` → `api/fetch` → `auth/index`) is fine because
+    every edge is a function referenced at call time, not at
+    module init — but keeping the fetch in the small
+    `currentUser.ts` helper keeps it contained.
+  - **Error surfacing.** `fetchCurrentUserAccount` returns
+    `null` on `401` (not signed in — not an error). Any OTHER
+    non-ok response goes through `assertOk(res, 'Failed to load
+    your account')` and throws; the layout `onMount` `try/catch`
+    turns it into `initError` shown via `ErrorBanner`, plus
+    `log.error(...)` from `$lib/log`. NEVER bare `console.*`.
+  - **Types.** Prefer the generated
+    `components['schemas']['CurrentUserDto']` from
+    `$lib/api/schema` for the `/me` response shape; map its
+    `roles` to the `('VIEWER'|'ESTIMATOR'|'ADMIN')[]` union with
+    the same filter `toAuthAccount` uses (uppercase + keep only
+    the three known roles).
+
+  ## What does NOT belong in this task
+
+  - No backend / Kotlin changes, no new endpoint, no migration.
+  - No change to the dev auth flow or the dev e2e fixtures.
+  - No removal of the Entra `login()` scope
+    (`api://<api-client-id>/access`) — the access token is still
+    what authorizes; we only change where the FRONTEND reads
+    roles from.
+  - No new frontend unit-test runner (the repo has Playwright
+    e2e only) — the Entra path is validated by type-check +
+    structural assertions + the manual Entra smoke described in
+    validation; the dev e2e suite guards the shared plumbing.
+
+steps:
+  - |
+    Read the current bits (parallel):
+      src/frontend/src/lib/auth/AuthProvider.ts
+      src/frontend/src/lib/auth/EntraAuthProvider.ts
+      src/frontend/src/lib/auth/DevAuthProvider.ts
+      src/frontend/src/lib/auth/RequiredRole.svelte
+      src/frontend/src/routes/+layout.svelte
+      src/frontend/src/lib/api/fetch.ts
+      src/frontend/src/lib/api/errors.ts
+      src/frontend/src/lib/api/schema.d.ts   (confirm CurrentUserDto is present)
+      src/frontend/src/lib/log.ts
+      src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/MeResource.kt (reference only — no change)
+  - |
+    Extend the SPI. In
+    `src/frontend/src/lib/auth/AuthProvider.ts` add to the
+    `AuthProvider` interface:
+      `loadAccount(): Promise<AuthAccount | null>;`
+    Leave `getAccount(): AuthAccount | null` as-is.
+  - |
+    Create `src/frontend/src/lib/auth/currentUser.ts`:
+      * Import `apiFetch` from `$lib/api/fetch`, `assertOk` from
+        `$lib/api/errors`, `log` from `$lib/log`, and the
+        `AuthAccount` type from `./AuthProvider`.
+      * Optionally type the response as
+        `components['schemas']['CurrentUserDto']` from
+        `$lib/api/schema`.
+      * Export
+        `async function fetchCurrentUserAccount(): Promise<AuthAccount | null>`:
+          - `const res = await apiFetch('/api/auth/me');`
+          - `if (res.status === 401) return null;`
+          - `await assertOk(res, 'Failed to load your account');`
+          - parse the body and return an `AuthAccount`:
+            `subjectId`, `email`, `displayName`, `providerName`
+            straight from the body; `roles` mapped via
+            `.map((r) => String(r).toUpperCase()).filter(...)`
+            keeping only `'VIEWER' | 'ESTIMATOR' | 'ADMIN'`
+            (mirror the existing filter in
+            `EntraAuthProvider.toAuthAccount`).
+      * `log.debug(...)` a one-liner on success is fine; NEVER
+        bare `console.*`. Do NOT swallow errors — let
+        `assertOk`'s throw propagate to the caller.
+  - |
+    Update `EntraAuthProvider.ts`:
+      * Add a private field `private cachedAccount: AuthAccount | null = null;`.
+      * Implement
+        `async loadAccount(): Promise<AuthAccount | null>`:
+          - `await this.init();`
+          - `if (this.msal!.getAllAccounts().length === 0) { this.cachedAccount = null; return null; }`
+          - `this.cachedAccount = await fetchCurrentUserAccount();`
+          - `return this.cachedAccount;`
+      * Change `getAccount()` to `return this.cachedAccount;`
+        (drop the `toAuthAccount(accounts[0])` id-token path as
+        the authoritative source). `toAuthAccount` may be
+        deleted if it becomes unused, or kept only if still
+        referenced — do not leave an unused symbol (ESLint).
+      * Import `fetchCurrentUserAccount` from `./currentUser`.
+  - |
+    Update `DevAuthProvider.ts`:
+      * Implement `async loadAccount(): Promise<AuthAccount | null> { return this.getAccount(); }`
+        (unchanged client-side behavior).
+  - |
+    Update `src/frontend/src/routes/+layout.svelte`:
+      * In `onMount`, replace `account = provider.getAccount();`
+        with `account = await provider.loadAccount();` (init is
+        still awaited first).
+      * Make `refresh()` `async` and have it do
+        `account = await provider.loadAccount();`. Verify its
+        call sites (`UserMenu` `onlogout`, `DevLoginDialog`
+        `onlogin`) still compile — they invoke `refresh` as a
+        callback and do not need to await it (the reactive
+        `account` reassignment drives the UI). Adjust the
+        callback prop types only if the type-check demands it.
+  - |
+    Verify `RequiredRole.svelte` still resolves roles: it reads
+    `getAuthProvider().getAccount()`, which for Entra now returns
+    the cached backend account (populated by the awaited
+    `loadAccount()` before the layout sets `ready = true`, which
+    gates rendering). No code change expected; confirm the
+    type-check passes and it is not rendered before `ready`.
+  - |
+    Update documentation:
+      * `CLAUDE.md` "Modular authentication and authorization"
+        section — the note that "the frontend builds its account
+        client-side and does NOT call `/api/auth/me`" is no
+        longer true for Entra. State that the Entra frontend now
+        resolves its account (and authoritative roles) from
+        `GET /api/auth/me` via `AuthProvider.loadAccount()`, so
+        Entra app roles only need to live on `estimation-api`;
+        the dev provider still builds its account client-side.
+      * `docs/entra-setup.md` "Roles: enforcement vs. UI display"
+        — roles now only need to be defined+assigned on
+        `estimation-api`; the `estimation-spa` app-role
+        assignment is no longer required for the UI (the UI reads
+        `/api/auth/me`). Downgrade the "App roles for the SPA UI"
+        step to optional/removable and adjust the related
+        troubleshooting bullet.
+  - |
+    Build (frontend):
+      ./gradlew :frontend:check
+    Then run the full e2e suite (dev stack up per the
+    implement-task protocol):
+      cd src/frontend && npm run test:e2e
+
+validation:
+  - |
+    Interface + helper exist and follow conventions:
+      grep -q "loadAccount(): Promise<AuthAccount | null>" src/frontend/src/lib/auth/AuthProvider.ts
+      test -f src/frontend/src/lib/auth/currentUser.ts
+      grep -q "apiFetch('/api/auth/me')" src/frontend/src/lib/auth/currentUser.ts
+      grep -q "assertOk" src/frontend/src/lib/auth/currentUser.ts
+      grep -q "from '\$lib/log'" src/frontend/src/lib/auth/currentUser.ts
+      ! grep -nE "^\s*console\." src/frontend/src/lib/auth/currentUser.ts
+  - |
+    Entra provider is backend-authoritative; dev unchanged:
+      grep -q "loadAccount" src/frontend/src/lib/auth/EntraAuthProvider.ts
+      grep -q "fetchCurrentUserAccount" src/frontend/src/lib/auth/EntraAuthProvider.ts
+      grep -q "cachedAccount" src/frontend/src/lib/auth/EntraAuthProvider.ts
+      grep -q "loadAccount" src/frontend/src/lib/auth/DevAuthProvider.ts
+  - |
+    Layout resolves the account via loadAccount:
+      grep -q "await provider.loadAccount()" src/frontend/src/routes/+layout.svelte
+  - |
+    No raw fetch was introduced (apiFetch only):
+      ! grep -nE "[^.]fetch\(" src/frontend/src/lib/auth/currentUser.ts
+  - |
+    Docs updated:
+      grep -q "/api/auth/me" CLAUDE.md
+      grep -qiE "estimation-api" docs/entra-setup.md
+  - |
+    Frontend type-check + lint are clean on the touched files
+    (per the static-analysis gate), and the full e2e suite
+    passes under dev auth (the dev path is unchanged):
+      ./gradlew :frontend:check
+      cd src/frontend && npm run test:e2e
+  - |
+    Manual Entra smoke (documented, not scripted — the Entra
+    path needs a real tenant): after deploying, assign the user a
+    role on `estimation-api` ONLY (not `estimation-spa`),
+    re-acquire the token, and confirm the UI shows the role and
+    `/api/projects` returns 200. This proves the single-source
+    (estimation-api) role now drives both UI and backend.
+
+outputs:
+  - modified: src/frontend/src/lib/auth/AuthProvider.ts
+  - modified: src/frontend/src/lib/auth/EntraAuthProvider.ts
+  - modified: src/frontend/src/lib/auth/DevAuthProvider.ts
+  - created: src/frontend/src/lib/auth/currentUser.ts
+  - modified: src/frontend/src/routes/+layout.svelte
+  - modified: CLAUDE.md
+  - modified: docs/entra-setup.md

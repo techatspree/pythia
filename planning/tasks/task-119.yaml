@@ -1,7 +1,7 @@
 id: task-119
 phase: phase-14
 title: Method-detail popover — SPI description + backend field + click UI
-depends_on: [task-097, task-098, task-102, task-118]
+depends_on: [task-118, task-097, task-098, task-102]
 description: |
   Extend task-118's method badge on the estimation-detail
   header so a click opens a small popover showing an English
@@ -11,6 +11,12 @@ description: |
   the **single source of truth** — it lives on the
   server-side estimation method module in `:domain` and is
   surfaced through the existing REST layer.
+
+  **Prerequisite**: do NOT run `/implement-task task-119`
+  before task-118 is marked `done`. task-119 wraps the badge
+  that task-118 renders in `EstimationDetail.svelte`; if
+  that badge is not yet present, this task's wire-up step
+  has nothing to attach the popover to.
 
   ## Current state
 
@@ -166,9 +172,16 @@ steps:
         estimates. Mean and variance follow the classic
         PERT formulas; group totals accumulate from the
         leaves."`
-    In `BucketMethodModule.kt`: override with a similar
-    2–4-sentence English description explaining bucket
-    assignment + sampled PERT reduction.
+    In `BucketMethodModule.kt`: override
+      `override val description: String =
+       "Bucket + Sampled Three-Point estimation: place every
+        work item into a user-defined bucket (e.g. XS to XL);
+        for each bucket, PERT-estimate a small sample of
+        items with optimistic, most-likely, and pessimistic
+        values. The average of the sample's derived means
+        becomes the effort assigned to every non-sample item
+        in the same bucket. Group totals accumulate from the
+        leaves as usual."`
     Add JUnit 5 unit tests (JVM `src/test` source set) in
     `src/domain/src/test/kotlin/io/github/theestimator/method/EstimationMethodModuleDescriptionTest.kt`
     asserting both concrete modules ship a non-blank
@@ -224,13 +237,13 @@ steps:
     Wire the popover into
     `src/frontend/src/lib/components/EstimationDetail.svelte`:
       * Import `MethodDetailPopover`.
-      * Wrap the existing method badge (currently a
-        `<span>` per task-118) in a `<button
-        type="button">` (or make the `<span>` clickable
-        with `role="button"`, `tabindex="0"`, and a
-        keyboard handler that responds to Enter/Space —
-        prefer a `<button>` for accessibility). Preserve
-        the existing `data-testid="estimation-detail.method"`.
+      * Replace the existing method-badge `<span>` (rendered
+        by task-118) with a `<button type="button">` that
+        keeps the same visual classes and the SAME
+        `data-testid="estimation-detail.method"`. A real
+        `<button>` gives Enter/Space activation, focus ring,
+        and a11y semantics for free — do NOT reinvent
+        keyboard handling on a clickable `<span>`.
       * Use `let popoverOpen = $state(false)` and bind it
         via `<MethodDetailPopover bind:open={popoverOpen}
         method={estimation.method}
@@ -253,10 +266,13 @@ steps:
 validation:
   - |
     Domain SPI carries the description, and both concrete
-    modules ship a non-blank one:
+    modules ship a non-blank one. The two per-module greps use
+    an awk range so multi-line Kotlin string initialisers
+    match; the length contract (>=20 non-blank chars) is
+    enforced at runtime by EstimationMethodModuleDescriptionTest.
       grep -q "val description" src/domain/src/main/kotlin/io/github/theestimator/method/EstimationMethodModule.kt
-      grep -q "override val description" src/domain/src/main/kotlin/io/github/theestimator/method/threepoint/ThreePointMethodModule.kt
-      grep -q "override val description" src/domain/src/main/kotlin/io/github/theestimator/method/bucketsampled/BucketMethodModule.kt
+      awk '/override val description/,/^\s*$/' src/domain/src/main/kotlin/io/github/theestimator/method/threepoint/ThreePointMethodModule.kt | grep -qE '"[^"]{20,}'
+      awk '/override val description/,/^\s*$/' src/domain/src/main/kotlin/io/github/theestimator/method/bucketsampled/BucketMethodModule.kt | grep -qE '"[^"]{20,}'
       test -f src/domain/src/test/kotlin/io/github/theestimator/method/EstimationMethodModuleDescriptionTest.kt
   - |
     Backend DTO + mapper populate the wire field:

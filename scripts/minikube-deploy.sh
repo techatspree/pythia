@@ -1,4 +1,33 @@
 #!/bin/bash
+
+# Refuse to be sourced. This script exports APP_AUTH_PROVIDER=entra (plus the
+# ENTRA_*/VITE_* build vars) so its child gradle/docker builds pick the Entra
+# auth module. Those exports are meant for THIS process and its children only —
+# when the script is executed (./scripts/minikube-deploy.sh) they stay in the
+# subshell and never touch your interactive shell. If you `source` it instead,
+# APP_AUTH_PROVIDER=entra leaks into your shell, and a later `./gradlew build`
+# in the same shell then augments the OIDC-less test profile with the Entra
+# provider — EntraAuthFilter can't resolve its JsonWebToken and the build fails
+# with a cryptic ArC UnsatisfiedResolutionException. Detect sourcing under both
+# bash and zsh and bail BEFORE `set -e`/`export`, so a sourced call leaks
+# nothing at all (not the auth var, not the shell options).
+_sourced=0
+if [ -n "${ZSH_EVAL_CONTEXT:-}" ]; then
+    case "$ZSH_EVAL_CONTEXT" in *:file*) _sourced=1 ;; esac
+elif [ -n "${BASH_SOURCE:-}" ]; then
+    [ "${BASH_SOURCE[0]}" != "${0}" ] && _sourced=1
+fi
+if [ "$_sourced" = 1 ]; then
+    echo "Error: do not 'source' this script — run it directly:" >&2
+    echo "  ./scripts/minikube-deploy.sh" >&2
+    echo "Sourcing leaks APP_AUTH_PROVIDER=entra into your shell and then breaks './gradlew build'." >&2
+    # SC2317: `return` succeeds when sourced (short-circuiting the `||`); the
+    # `exit` only runs in the executed case. Dual-mode idiom, not dead code.
+    # shellcheck disable=SC2317
+    return 1 2>/dev/null || exit 1
+fi
+unset _sourced
+
 set -e
 set -o pipefail
 

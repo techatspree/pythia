@@ -1,4 +1,31 @@
 #!/bin/bash
+
+# Refuse to be sourced. This script exports APP_AUTH_PROVIDER=dev and
+# QUARKUS_PROFILE=dev so its child gradle/vite processes pick the dev auth
+# module and dev run profile. Those exports are meant for THIS process and its
+# children only — when the script is executed (./scripts/dev.sh) they stay in
+# the subshell and never touch your interactive shell. If you `source` it
+# instead, QUARKUS_PROFILE=dev (and APP_AUTH_PROVIDER=dev) leak into your shell
+# and then silently steer a later `./gradlew build` in the same shell. Detect
+# sourcing under both bash and zsh and bail BEFORE `set -e`/`export`, so a
+# sourced call leaks nothing at all (not the env vars, not the shell options).
+_sourced=0
+if [ -n "${ZSH_EVAL_CONTEXT:-}" ]; then
+    case "$ZSH_EVAL_CONTEXT" in *:file*) _sourced=1 ;; esac
+elif [ -n "${BASH_SOURCE:-}" ]; then
+    [ "${BASH_SOURCE[0]}" != "${0}" ] && _sourced=1
+fi
+if [ "$_sourced" = 1 ]; then
+    echo "Error: do not 'source' this script — run it directly:" >&2
+    echo "  ./scripts/dev.sh" >&2
+    echo "Sourcing leaks QUARKUS_PROFILE=dev / APP_AUTH_PROVIDER=dev into your shell and steers './gradlew build'." >&2
+    # SC2317: `return` succeeds when sourced (short-circuiting the `||`); the
+    # `exit` only runs in the executed case. Dual-mode idiom, not dead code.
+    # shellcheck disable=SC2317
+    return 1 2>/dev/null || exit 1
+fi
+unset _sourced
+
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
