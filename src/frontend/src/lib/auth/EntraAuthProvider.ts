@@ -1,10 +1,10 @@
 import {
 	PublicClientApplication,
 	InteractionRequiredAuthError,
-	type AccountInfo,
 	type Configuration
 } from '@azure/msal-browser';
 import type { AuthAccount, AuthProvider } from './AuthProvider';
+import { fetchCurrentUserAccount } from './currentUser';
 
 function requireEnv(name: keyof ImportMetaEnv): string {
 	const v = import.meta.env[name];
@@ -14,41 +14,17 @@ function requireEnv(name: keyof ImportMetaEnv): string {
 	return v as string;
 }
 
-function toAuthAccount(account: AccountInfo): AuthAccount {
-	const claims = (account.idTokenClaims ?? {}) as Record<string, unknown>;
-	const subjectId =
-		(claims.oid as string | undefined) ??
-		(claims.sub as string | undefined) ??
-		account.localAccountId ??
-		account.homeAccountId;
-	const email =
-		(claims.email as string | undefined) ??
-		(claims.preferred_username as string | undefined) ??
-		account.username;
-	const displayName = (claims.name as string | undefined) ?? account.name;
-	const rolesClaim = claims.roles;
-	const roles: ('VIEWER' | 'ESTIMATOR' | 'ADMIN')[] = Array.isArray(rolesClaim)
-		? rolesClaim
-				.map((r) => String(r).toUpperCase())
-				.filter((r): r is 'VIEWER' | 'ESTIMATOR' | 'ADMIN' =>
-					r === 'VIEWER' || r === 'ESTIMATOR' || r === 'ADMIN'
-				)
-		: [];
-	return {
-		subjectId,
-		email,
-		displayName,
-		roles,
-		providerName: 'entra'
-	};
-}
-
 class EntraAuthProviderImpl implements AuthProvider {
 	readonly name = 'entra' as const;
 
 	private msal: PublicClientApplication | null = null;
 	private initialized = false;
 	private apiScope = '';
+	// The authoritative account, resolved from GET /api/auth/me by loadAccount().
+	// getAccount() returns this synchronously; roles come from the backend (the
+	// access token), NOT the id token — so app roles only need to live on
+	// estimation-api, and the UI can never disagree with backend enforcement.
+	private cachedAccount: AuthAccount | null = null;
 
 	async init(): Promise<void> {
 		if (this.initialized) return;
@@ -92,11 +68,21 @@ class EntraAuthProviderImpl implements AuthProvider {
 		await this.msal!.logoutRedirect();
 	}
 
+	async loadAccount(): Promise<AuthAccount | null> {
+		await this.init();
+		// No MSAL account means the user is not signed in — return null so
+		// RequireAuth triggers the login redirect. Only fetch /api/auth/me once
+		// MSAL has an account (so apiFetch can attach the bearer token).
+		if (this.msal!.getAllAccounts().length === 0) {
+			this.cachedAccount = null;
+			return null;
+		}
+		this.cachedAccount = await fetchCurrentUserAccount();
+		return this.cachedAccount;
+	}
+
 	getAccount(): AuthAccount | null {
-		if (!this.initialized || this.msal == null) return null;
-		const accounts = this.msal.getAllAccounts();
-		if (accounts.length === 0) return null;
-		return toAuthAccount(accounts[0]);
+		return this.cachedAccount;
 	}
 
 	async getAuthorizationHeader(): Promise<string | null> {

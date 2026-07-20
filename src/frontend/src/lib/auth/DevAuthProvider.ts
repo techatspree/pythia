@@ -63,6 +63,13 @@ class DevAuthProviderImpl implements AuthProvider {
 		}
 	}
 
+	// The dev provider's hard-wired roles already agree with the backend dev
+	// augmentor (both derive from the Dev <subject> header), so it resolves the
+	// account client-side without a /api/auth/me round-trip.
+	async loadAccount(): Promise<AuthAccount | null> {
+		return this.getAccount();
+	}
+
 	getAccount(): AuthAccount | null {
 		const subject = readSubject();
 		if (subject == null) return null;

@@ -70,15 +70,13 @@ Two app registrations under the same Entra tenant:
      - `https://estimation.<your-domain>` (production)
    - **API permissions** → Add → My APIs → `estimation-api` →
      Delegated `access`. Grant admin consent.
-   - **App roles for the SPA UI (recommended).** The frontend reads roles
-     from the **ID token** (issued for THIS app), so role-gated UI
-     (`RequiredRole.svelte`, the user menu) only sees roles that are defined
-     as app roles on `estimation-spa` **and assigned to the user here**.
-     Backend enforcement does NOT need this (it uses the access token →
-     `estimation-api` roles), but without it the UI shows the user as having
-     no roles even though the API accepts their writes. Define the same
-     `VIEWER`/`ESTIMATOR`/`ADMIN` app roles here and assign the same users.
-     See [Roles: enforcement vs. UI display](#roles-enforcement-vs-ui-display).
+   - **App roles for the SPA UI — no longer required (task-120).** The
+     frontend now reads roles from the backend (`GET /api/auth/me`), not from
+     the SPA's ID token, so roles only need to be defined and assigned on
+     `estimation-api` (below). You do **not** need to define or assign app
+     roles on `estimation-spa` for the UI to show them. (Defining them here is
+     harmless but redundant.) See
+     [Roles: enforcement vs. UI display](#roles-enforcement-vs-ui-display).
 
 3. Assign at least one **test user per role** to `estimation-api` via
    the tenant's *Enterprise Applications → estimation-api → Users
@@ -92,28 +90,27 @@ Two app registrations under the same Entra tenant:
 
 ## Roles: enforcement vs. UI display
 
-Roles live in **two** places because two different tokens carry them, and
-app roles only appear in a token whose **audience is the app they are
-defined on**:
+**Single source of truth — `estimation-api` (task-120).** Both backend
+enforcement and the frontend UI now derive roles from the **access token**
+(audience `estimation-api`):
 
 - **Backend enforcement** (`@RolesAllowed`, the 401/403 decision) reads the
-  **access token**, whose audience is `estimation-api`. So authorization is
-  driven by app roles defined **and assigned** on **`estimation-api`**.
-  This is mandatory and sufficient for the app to enforce access.
-- **Frontend UI** (`RequiredRole.svelte`, the user menu) reads the **ID
-  token**, whose audience is `estimation-spa`. So the roles the UI shows
-  come from app roles defined **and assigned** on **`estimation-spa`**.
+  access token directly.
+- **Frontend UI** (`RequiredRole.svelte`, the user menu) reads roles from the
+  backend via `GET /api/auth/me` (the Entra provider's `loadAccount()` in
+  `EntraAuthProvider.ts` → `$lib/auth/currentUser.ts`), which the backend
+  computes from that same access token.
 
 Consequences:
 
-- Define the same `VIEWER`/`ESTIMATOR`/`ADMIN` app roles on **both**
-  registrations, and assign each test user in **both**, or the UI will show
-  no roles even while the API correctly accepts the user's requests.
-- (The `dev` auth module doesn't show this split — it builds the account
-  with roles directly — which is why it only surfaces under Entra.)
-- A cleaner long-term alternative is to have the SPA source roles from the
-  backend (`GET /api/auth/me`) instead of the ID token, so roles live only
-  on `estimation-api`; that is a frontend change, not done yet.
+- Define and assign the `VIEWER`/`ESTIMATOR`/`ADMIN` app roles **only on
+  `estimation-api`**. The UI and the backend can never disagree because they
+  read the same roles.
+- The `estimation-spa` app-role assignment is **no longer required** for the
+  UI (it was, before task-120, when the UI read the ID token).
+- (The `dev` auth module builds its account with roles client-side, which
+  already agrees with the backend dev augmentor — so this was never an issue
+  under dev.)
 
 ## Backend wiring
 
@@ -304,11 +301,12 @@ Common failures seen during setup:
   clear it).
 
 - **Authenticated but every write returns 403, or the UI shows no roles.**
-  The role `value` on the app registration doesn't exactly match
-  `VIEWER`/`ESTIMATOR`/`ADMIN`, the user isn't assigned the role, or the
-  token predates the assignment (re-acquire it). For the UI specifically,
-  see [Roles: enforcement vs. UI display](#roles-enforcement-vs-ui-display)
-  — roles must be assigned on `estimation-spa`, not only `estimation-api`.
+  The role `value` on the `estimation-api` app registration doesn't exactly
+  match `VIEWER`/`ESTIMATOR`/`ADMIN`, the user isn't assigned the role on
+  `estimation-api`, or the token predates the assignment (re-acquire it).
+  Since task-120 the UI reads roles from `GET /api/auth/me` (same access
+  token as the backend), so assigning on `estimation-api` covers both — see
+  [Roles: enforcement vs. UI display](#roles-enforcement-vs-ui-display).
 
 - **Frontend can't reach the backend at all** (`backend could not be
   resolved`, minikube). Not an Entra issue — an nginx/DNS problem; see

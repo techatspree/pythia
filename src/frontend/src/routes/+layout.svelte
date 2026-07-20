@@ -7,6 +7,7 @@
 	import ErrorBanner from '$lib/components/ErrorBanner.svelte';
 	import { getAuthProvider } from '$lib/auth';
 	import type { AuthAccount } from '$lib/auth/AuthProvider';
+	import { log } from '$lib/log';
 	import { resolve } from '$app/paths';
 
 	let { children } = $props();
@@ -16,18 +17,21 @@
 	let ready = $state(false);
 	let initError = $state<string | null>(null);
 
-	function refresh() {
-		account = provider.getAccount();
+	async function refresh() {
+		account = await provider.loadAccount();
 	}
 
 	onMount(async () => {
 		try {
 			// Entra/MSAL must be initialized before reading the account (init()
 			// also processes the post-login redirect); the dev module's init() is
-			// a no-op. Runs client-side only (ssr is disabled for this layout).
+			// a no-op. loadAccount() then resolves the authoritative account —
+			// for Entra from GET /api/auth/me (roles from the backend), for dev
+			// client-side. Runs client-side only (ssr is disabled for this layout).
 			await provider.init();
-			account = provider.getAccount();
+			account = await provider.loadAccount();
 		} catch (e) {
+			log.error('loadAccount failed:', e);
 			initError = e instanceof Error ? e.message : String(e);
 		} finally {
 			ready = true;

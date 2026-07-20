@@ -717,9 +717,9 @@
       "notes": "Click-to-open method-detail popover on the estimation-detail method badge (SPI description + backend + frontend)"
     },
     "task-120": {
-      "status": "pending",
-      "started_at": null,
-      "completed_at": null,
+      "status": "done",
+      "started_at": "2026-07-20T15:32:54+00:00",
+      "completed_at": "2026-07-20T15:39:17+00:00",
       "notes": "Frontend derives user roles from the backend (GET /api/auth/me) instead of the Entra id token, so roles live only on estimation-api (single source of truth)"
     }
   }

@@ -211,13 +211,26 @@ steps:
       * In `onMount`, replace `account = provider.getAccount();`
         with `account = await provider.loadAccount();` (init is
         still awaited first).
+      * Import `log` from `$lib/log` and add
+        `log.error('loadAccount failed:', e)` inside the existing
+        `onMount` `catch` (which currently only sets
+        `initError`). This is the mandated logging for the `/me`
+        route-load path per the CLAUDE.md logging convention —
+        `log.error` is IN ADDITION to the `ErrorBanner`
+        surfacing via `initError`, not instead of it. NEVER bare
+        `console.*`.
       * Make `refresh()` `async` and have it do
-        `account = await provider.loadAccount();`. Verify its
-        call sites (`UserMenu` `onlogout`, `DevLoginDialog`
-        `onlogin`) still compile — they invoke `refresh` as a
-        callback and do not need to await it (the reactive
-        `account` reassignment drives the UI). Adjust the
-        callback prop types only if the type-check demands it.
+        `account = await provider.loadAccount();`. Its call
+        sites (`UserMenu` `onlogout`, `DevLoginDialog` `onlogin`,
+        and the `refresh: () => void` prop on `RequireAuth`) need
+        NO signature change: TypeScript assigns an
+        `async () => Promise<void>` to a `() => void` parameter
+        type (a promise-returning function is assignable where a
+        void-returning one is expected). So do NOT touch
+        `UserMenu.svelte` / `DevLoginDialog.svelte` /
+        `RequireAuth.svelte` — they are correctly absent from
+        `outputs`. Only revisit if `./gradlew :frontend:check`
+        actually reports a type error.
   - |
     Verify `RequiredRole.svelte` still resolves roles: it reads
     `getAuthProvider().getAccount()`, which for Entra now returns
@@ -242,6 +255,15 @@ steps:
         `/api/auth/me`). Downgrade the "App roles for the SPA UI"
         step to optional/removable and adjust the related
         troubleshooting bullet.
+  - |
+    Update auto-memory: this task INVERTS a previously recorded
+    invariant — the CLAUDE.md/auto-memory line "the frontend
+    builds its account client-side and does NOT call
+    `/api/auth/me`" is now false for the Entra provider. After
+    the change lands, record (or update) a memory note that the
+    Entra frontend resolves its account + authoritative roles
+    from `GET /api/auth/me` (dev stays client-side), so future
+    sessions do not act on the stale fact.
   - |
     Build (frontend):
       ./gradlew :frontend:check
@@ -268,8 +290,14 @@ validation:
     Layout resolves the account via loadAccount:
       grep -q "await provider.loadAccount()" src/frontend/src/routes/+layout.svelte
   - |
-    No raw fetch was introduced (apiFetch only):
-      ! grep -nE "[^.]fetch\(" src/frontend/src/lib/auth/currentUser.ts
+    No raw fetch was introduced (apiFetch only — the pattern
+    excludes `apiFetch(` and matches only a bare `fetch(`):
+      ! grep -nE "(^|[^A-Za-z.])fetch\(" src/frontend/src/lib/auth/currentUser.ts
+  - |
+    The layout logs the /me failure path (CLAUDE.md logging
+    convention) and uses no bare console:
+      grep -q "log.error" src/frontend/src/routes/+layout.svelte
+      ! grep -nE "^\s*console\." src/frontend/src/routes/+layout.svelte
   - |
     Docs updated:
       grep -q "/api/auth/me" CLAUDE.md
