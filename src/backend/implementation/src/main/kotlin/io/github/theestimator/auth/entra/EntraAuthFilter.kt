@@ -27,8 +27,10 @@ class EntraAuthFilter(
         val email: String? = jwt.getClaim<String?>("email")
             ?: jwt.getClaim<String?>("preferred_username")
         val displayName: String? = jwt.getClaim<String?>("name")
-        val claimRoles: Collection<String> =
-            jwt.getClaim<Collection<String>?>("roles") ?: emptyList()
+        // Read the raw claim (a jakarta.json.JsonArray of JsonString from Entra)
+        // WITHOUT a Collection<String> cast — the elements are not Strings, and
+        // entraRolesToDomain coerces them.
+        val claimRoles: Any? = jwt.getClaim<Any?>("roles")
 
         currentUserProvider.current = CurrentUser(
             subjectId = subjectId,
