@@ -1,0 +1,82 @@
+id: task-127
+phase: phase-16
+title: i18n — Playwright e2e for the language-switch flow
+depends_on: [task-126]
+description: |
+  Phase-16 child (see task-111 for the frozen cross-cutting
+  decisions). Adds an end-to-end Playwright spec that proves the
+  full language flow: default German, switch to English, and
+  persistence across a reload.
+
+  ## Frozen decisions this task honours (from task-111)
+
+  - Covers: log in → verify the UI is German (default) → switch to
+    English via the user-menu switcher → verify UI strings become
+    English → reload → verify the language sticks (persisted via
+    `/api/auth/me` and re-read on startup).
+  - Stays within the standard e2e budget and the repo's e2e
+    conventions (`.test.ts`, dev auth via the preseeded dev-admin
+    `storageState`, assertions via roles/testids not brittle text
+    where possible — but this spec necessarily asserts a few
+    representative visible strings per language).
+
+  ## Current state (after task-126)
+
+  - The language switcher works and persists, but no e2e guards
+    the flow, so a regression (e.g. a missing `en.json` key, a
+    broken PUT, or lost persistence) would pass CI.
+
+  ## Target state
+
+  - `src/frontend/e2e/language.test.ts` exercises the flow against
+    the dev stack and is green in the suite.
+
+  ## Note on dev vs Entra
+
+  The e2e runs under the DEV auth provider (the whole suite does).
+  For the language preference to persist under dev, the dev
+  backend must honour `PUT /api/auth/me/language` and return the
+  stored `language` on `GET /api/auth/me` for the dev user — verify
+  task-123's endpoint is provider-agnostic (it operates on the
+  provisioned `User` row, which dev also creates). If the dev path
+  cannot persist, fix task-123's endpoint rather than weakening the
+  test.
+
+steps:
+  - |
+    Read an existing spec for the house style and helpers:
+      src/frontend/e2e/user-menu.test.ts
+      src/frontend/e2e/auth.test.ts
+      src/frontend/playwright.config.ts (baseURL, storageState preseed)
+  - |
+    Create `src/frontend/e2e/language.test.ts`:
+      * Start authenticated (default dev-admin storageState).
+      * Assert a representative German string is visible on a
+        stable screen (e.g. a panel title) — the default is DE.
+      * Open the user menu, switch to English.
+      * Assert the same UI now shows the English equivalent
+        (await the reactive locale change).
+      * Reload the page; assert the UI is STILL English (proves
+        persistence via /api/auth/me).
+      * Optionally switch back to DE to leave state clean.
+  - |
+    Run the frontend gate and the e2e suite (dev stack up:
+    ./scripts/dev.sh, Docker running):
+      ./gradlew :frontend:check
+      cd src/frontend && npm run test:e2e
+validation:
+  - |
+    The spec exists and covers switch + reload persistence:
+      test -f src/frontend/e2e/language.test.ts
+      grep -qiE "reload|persist" src/frontend/e2e/language.test.ts
+      grep -qE "test\(|test\.describe" src/frontend/e2e/language.test.ts
+  - |
+    The spec drives the real switcher (not a shortcut):
+      grep -qiE "menu|language|Sprache" src/frontend/e2e/language.test.ts
+  - |
+    Frontend gate is green and the full e2e suite passes
+    (the language spec included; run with the dev stack up):
+      ./gradlew :frontend:check
+      cd src/frontend && npm run test:e2e
+outputs:
+  - created: src/frontend/e2e/language.test.ts

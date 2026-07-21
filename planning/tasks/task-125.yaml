@@ -1,0 +1,94 @@
+id: task-125
+phase: phase-16
+title: i18n — English catalog + language switcher in the user menu
+depends_on: [task-124]
+description: |
+  Phase-16 child (see task-111 for the frozen cross-cutting
+  decisions). Adds the English catalog and a language switcher so
+  the user can change language, persisted via the backend.
+
+  ## Frozen decisions this task honours (from task-111)
+
+  - `en.json` has a translation for EVERY key in `de.json`.
+  - The language switcher lives in the user menu (top-right),
+    writes the choice to `PUT /api/auth/me/language` (task-123),
+    and updates the active locale reactively via
+    `setUserLanguage(lang)` (task-124).
+  - On app startup the active locale is initialised from the
+    user's stored preference — read from the account resolved by
+    `getAuthProvider().getAccount()` / `GET /api/auth/me`
+    (task-120 made the Entra account backend-sourced; the
+    `language` field lands there via task-123).
+  - Supported set is DE + EN only (the `SupportedLanguage` enum).
+
+  ## Current state (after task-124)
+
+  - `de.json` + the `svelte-i18n` foundation exist; every string
+    is `$_('key')`. No `en.json`, no switcher, no startup wiring
+    to the user's stored language.
+
+  ## Target state
+
+  - `src/lib/i18n/en.json` mirrors `de.json` key-for-key with
+    English text.
+  - `index.ts` registers `'en'` too.
+  - A language switcher in the user menu calls
+    `PUT /api/auth/me/language` via `apiFetch`, then
+    `setUserLanguage(lang)`. The mutation is guarded and surfaces
+    failure via `ErrorBanner` + `log.error` from `$lib/log`
+    (CLAUDE.md frontend error-surfacing + logging conventions);
+    NEVER bare `console.*`.
+  - App startup initialises the locale from the account's
+    `language`.
+
+steps:
+  - |
+    Read: `src/frontend/src/lib/i18n/index.ts`,
+    `src/frontend/src/lib/i18n/de.json`,
+    `src/frontend/src/lib/components/UserMenu.svelte`,
+    `src/frontend/src/lib/auth/AuthProvider.ts` (the account
+    shape — add/confirm `language`),
+    `src/frontend/src/lib/api/fetch.ts`, `src/frontend/src/lib/log.ts`.
+  - |
+    Create `src/frontend/src/lib/i18n/en.json` — an English
+    translation for every key in `de.json` (same key set; a
+    validation asserts key-set equality). Register `'en'` in
+    `index.ts` (`register('en', () => import('./en.json'))`).
+  - |
+    Add a language switcher to `UserMenu.svelte`: a DE/EN control
+    that, on change, `await apiFetch('/api/auth/me/language', {
+    method: 'PUT', body: JSON.stringify({ language }) })`, then on
+    success calls `setUserLanguage(language)`. Guard with
+    `try/catch` → `await assertOk(res, '<fallback>')`,
+    `log.error(...)`, and surface via the shared `ErrorBanner`
+    pattern. No bare `console.*`.
+  - |
+    Initialise the active locale on startup from the resolved
+    account's `language` (in the root layout / where the account
+    is loaded), falling back to `'de'`.
+  - |
+    Type-check + lint:
+      ./gradlew :frontend:check
+validation:
+  - |
+    English catalog exists and matches the DE key set exactly:
+      test -f src/frontend/src/lib/i18n/en.json
+      node -e "const de=require('./src/frontend/src/lib/i18n/de.json'),en=require('./src/frontend/src/lib/i18n/en.json');const f=o=>{const s=[];const w=(p,v)=>Object.entries(v).forEach(([k,x])=>typeof x==='object'&&x?w(p+k+'.',x):s.push(p+k));w('',o);return s.sort()};const a=JSON.stringify(f(de)),b=JSON.stringify(f(en));if(a!==b){console.error('key sets differ');process.exit(1)}"
+  - |
+    'en' is registered and the switcher wiring is present:
+      grep -q "register('en'" src/frontend/src/lib/i18n/index.ts
+      grep -q "me/language" src/frontend/src/lib/components/UserMenu.svelte
+      grep -q "setUserLanguage" src/frontend/src/lib/components/UserMenu.svelte
+  - |
+    The switcher mutation follows the error-surfacing + logging conventions:
+      grep -q "apiFetch" src/frontend/src/lib/components/UserMenu.svelte
+      grep -qE "log\.error|assertOk" src/frontend/src/lib/components/UserMenu.svelte
+      ! grep -nE "console\." src/frontend/src/lib/components/UserMenu.svelte
+  - |
+    Frontend type-check + lint pass:
+      ./gradlew :frontend:check
+outputs:
+  - created: src/frontend/src/lib/i18n/en.json
+  - modified: src/frontend/src/lib/i18n/index.ts
+  - modified: src/frontend/src/lib/components/UserMenu.svelte
+  - modified: src/frontend/src/routes/+layout.svelte

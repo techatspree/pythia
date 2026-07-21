@@ -1,0 +1,95 @@
+id: task-124
+phase: phase-16
+title: i18n — frontend foundation (svelte-i18n) + DE catalog lift-and-shift
+depends_on: [task-123]
+description: |
+  Phase-16 child (see task-111 for the frozen cross-cutting
+  decisions). Stands up the frontend i18n machinery and moves
+  every hard-coded German UI string into a DE message catalog,
+  with NO visible change (pure lift-and-shift).
+
+  ## Frozen decisions this task honours (from task-111)
+
+  - **Frontend i18n stack = `svelte-i18n`** (reactive `$_('key')`,
+    JSON catalogs, plural + interpolation). Re-verify it works
+    with the current SvelteKit 5 (runes) setup before extracting
+    at scale.
+  - Catalogs live in `src/frontend/src/lib/i18n/` — one JSON per
+    language plus `index.ts` exporting the initialised `i18n`
+    instance and a `setUserLanguage(lang)` helper.
+  - **Key naming**: dot-separated, action-oriented,
+    component-scoped, e.g. `common.button.save`,
+    `panel.parameters.title`, `history.change.parameterChanged`.
+  - **DE is a lift-and-shift**: every extracted string keeps its
+    exact current German text under a new key — NO wording change,
+    NO visible UI change.
+  - Scope is the CURRENT component tree (method picker,
+    `MethodDetailPopover`, method badges, undo history/conflict
+    dialogs, editor page, panels, dialogs, user menu, …), not a
+    stale snapshot.
+
+  ## Current state
+
+  - No i18n library; ~all UI strings are inline German literals
+    across `src/frontend/src/lib/**` and `src/frontend/src/routes/**`.
+
+  ## Target state
+
+  - `svelte-i18n` added as a dependency; `src/lib/i18n/index.ts`
+    registers the `de` locale from `de.json`, sets the initial
+    locale, and exports `setUserLanguage(lang)`.
+  - Every hard-coded German UI string is replaced by `$_('key')`
+    and defined in `de.json` under a namespaced key.
+  - No visible change: the app still renders identical German.
+
+steps:
+  - |
+    Read the current UI surface (enumerate components/routes with
+    German literals):
+      grep -rlnE "[A-Za-zÄÖÜäöüß]" src/frontend/src/lib/components src/frontend/src/routes
+    and inspect `src/frontend/package.json`, the root layout, and
+    the user menu.
+  - |
+    Add the dependency: `svelte-i18n` (pin a version compatible
+    with Svelte 5). Create `src/frontend/src/lib/i18n/index.ts`:
+      * `import { register, init, getLocaleFromNavigator, locale } from 'svelte-i18n'`
+      * register `'de'` → `() => import('./de.json')`
+      * `init({ fallbackLocale: 'de', initialLocale: 'de' })`
+      * export `setUserLanguage(lang: 'de' | 'en')` that sets `locale`.
+    Import the i18n init once in the root layout so `$_` is ready
+    app-wide.
+  - |
+    Create `src/frontend/src/lib/i18n/de.json`. Sweep every
+    component/route and MOVE each German UI string into a
+    namespaced key, replacing the literal with `$_('key')`
+    (interpolation via `$_('key', { values: { … } })` where a
+    string embeds data). Keep the German text verbatim.
+  - |
+    Type-check + lint (frontend):
+      ./gradlew :frontend:check
+validation:
+  - |
+    The i18n foundation exists:
+      test -f src/frontend/src/lib/i18n/index.ts
+      test -f src/frontend/src/lib/i18n/de.json
+      grep -q "svelte-i18n" src/frontend/package.json
+      grep -q "setUserLanguage" src/frontend/src/lib/i18n/index.ts
+  - |
+    de.json is valid JSON with a meaningful number of keys (lift-and-shift):
+      node -e "const j=require('./src/frontend/src/lib/i18n/de.json'); const n=JSON.stringify(j).match(/:/g).length; if(n<40){console.error('too few keys: '+n);process.exit(1)}"
+  - |
+    Components consume the store (spot-check a few high-traffic ones):
+      grep -q "\$_('" src/frontend/src/lib/components/ParametersPanel.svelte
+      grep -q "\$_('" src/frontend/src/lib/components/UndoHistoryPanel.svelte
+  - |
+    No bare console in the i18n foundation (frontend logging convention):
+      ! grep -nE "console\." src/frontend/src/lib/i18n/index.ts
+  - |
+    Frontend type-check + lint pass:
+      ./gradlew :frontend:check
+outputs:
+  - modified: src/frontend/package.json
+  - modified: src/frontend/package-lock.json
+  - created: src/frontend/src/lib/i18n/index.ts
+  - created: src/frontend/src/lib/i18n/de.json
+  - modified: src/frontend/src/routes/+layout.svelte
