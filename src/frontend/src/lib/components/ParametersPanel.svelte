@@ -2,9 +2,9 @@
 	type Param = { name: string; value: number; comment: string };
 
 	const DEFAULTS: Param[] = [
-		{ name: 'Tagessatz', value: 800, comment: '' },
-		{ name: 'Standardabweichungsfaktor', value: 2.0, comment: '' },
-		{ name: 'Vertriebszuschlag', value: 0.1, comment: '' }
+		{ name: 'dailyRate', value: 800, comment: '' },
+		{ name: 'stdDevFactor', value: 2.0, comment: '' },
+		{ name: 'salesSurcharge', value: 0.1, comment: '' }
 	];
 
 	let {

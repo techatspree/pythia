@@ -50,7 +50,7 @@ class UndoServiceIT {
 
     private val v1 = DraftUpdateDto(
         notes = "v1",
-        parameters = listOf(EstimationParameterDto(name = "Tagessatz", value = 800.0)),
+        parameters = listOf(EstimationParameterDto(name = "dailyRate", value = 800.0)),
         roots = listOf(
             EstimationNodeUpdateDto(
                 type = "GROUP", title = "G",

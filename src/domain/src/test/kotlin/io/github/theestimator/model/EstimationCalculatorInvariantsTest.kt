@@ -25,9 +25,9 @@ class EstimationCalculatorInvariantsTest {
         return EstimationVersion(
             versionNumber = 1,
             parameters = listOf(
-                EstimationParameter("Standardabweichungsfaktor", 2.0),
-                EstimationParameter("Tagessatz", 800.0),
-                EstimationParameter("Vertriebszuschlag", 0.1)
+                EstimationParameter("stdDevFactor", 2.0),
+                EstimationParameter("dailyRate", 800.0),
+                EstimationParameter("salesSurcharge", 0.1)
             ),
             roots = listOf(
                 EstimationGroup(title = "Backend", children = listOf(
@@ -53,7 +53,7 @@ class EstimationCalculatorInvariantsTest {
         val calculated = threeLevelVersion().calculate()
         val tampered = calculated.copy(totalEffort = calculated.totalEffort + 100.0)
         val results = calculator.validateInvariants(tampered)
-        val totalEffortInvariant = results.first { it.description == "Gesamtaufwand = Summe aller AngebotsPT" }
+        val totalEffortInvariant = results.first { it.description == "Total effort = sum of all offer PT" }
         assertTrue(!totalEffortInvariant.passed, "Tampering with totalEffort should fail the first invariant")
     }
 }

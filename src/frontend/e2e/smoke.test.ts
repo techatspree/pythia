@@ -68,9 +68,9 @@ async function populateDraft(page: Page, estimationId: string) {
 		data: {
 			notes: 'smoke test notes',
 			parameters: [
-				{ name: 'Tagessatz', value: 900 },
-				{ name: 'Standardabweichungsfaktor', value: 2 },
-				{ name: 'Vertriebszuschlag', value: 0.1 }
+				{ name: 'dailyRate', value: 900 },
+				{ name: 'stdDevFactor', value: 2 },
+				{ name: 'salesSurcharge', value: 0.1 }
 			],
 			effortDrivers: [{ description: 'QA', factor: 0.15, comment: null }],
 			roots: [{
@@ -92,8 +92,8 @@ async function populateDraftWithTree(page: Page, estimationId: string) {
 		headers: API_HEADERS,
 		data: {
 			parameters: [
-				{ name: 'Tagessatz', value: 900 },
-				{ name: 'Standardabweichungsfaktor', value: 0 }
+				{ name: 'dailyRate', value: 900 },
+				{ name: 'stdDevFactor', value: 0 }
 			],
 			roots: [{
 				type: 'GROUP',

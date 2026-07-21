@@ -167,9 +167,9 @@ class TestDataSeeder(
 
         draft1.parameters.addAll(
             listOf(
-            DraftEstimationParameter().apply { name = "Tagessatz"; value = 900.0; version = draft1 },
-            DraftEstimationParameter().apply { name = "Standardabweichungsfaktor"; value = 2.0; version = draft1 },
-            DraftEstimationParameter().apply { name = "Vertriebszuschlag"; value = 0.12; version = draft1 }
+            DraftEstimationParameter().apply { name = "dailyRate"; value = 900.0; version = draft1 },
+            DraftEstimationParameter().apply { name = "stdDevFactor"; value = 2.0; version = draft1 },
+            DraftEstimationParameter().apply { name = "salesSurcharge"; value = 0.12; version = draft1 }
         ))
 
         draft1.effortDrivers.add(DraftEffortDriver().apply {
@@ -278,9 +278,9 @@ class TestDataSeeder(
 
         draft2.parameters.addAll(
             listOf(
-            DraftEstimationParameter().apply { name = "Tagessatz"; value = 900.0; version = draft2 },
-            DraftEstimationParameter().apply { name = "Standardabweichungsfaktor"; value = 2.0; version = draft2 },
-            DraftEstimationParameter().apply { name = "Vertriebszuschlag"; value = 0.12; version = draft2 }
+            DraftEstimationParameter().apply { name = "dailyRate"; value = 900.0; version = draft2 },
+            DraftEstimationParameter().apply { name = "stdDevFactor"; value = 2.0; version = draft2 },
+            DraftEstimationParameter().apply { name = "salesSurcharge"; value = 0.12; version = draft2 }
         ))
 
         draft2.effortDrivers.addAll(
@@ -404,13 +404,13 @@ class TestDataSeeder(
         draft.parameters.addAll(
             listOf(
             DraftEstimationParameter().apply {
-                name = "Tagessatz"
+                name = "dailyRate"
                 value = 950.0
                 comment = "Mobile-Entwickler-Rate"
                 version = draft
             },
-            DraftEstimationParameter().apply { name = "Standardabweichungsfaktor"; value = 2.0; version = draft },
-            DraftEstimationParameter().apply { name = "Vertriebszuschlag"; value = 0.15; version = draft }
+            DraftEstimationParameter().apply { name = "stdDevFactor"; value = 2.0; version = draft },
+            DraftEstimationParameter().apply { name = "salesSurcharge"; value = 0.15; version = draft }
         ))
 
         draft.effortDrivers.add(DraftEffortDriver().apply {
@@ -551,9 +551,9 @@ class TestDataSeeder(
 
         draft.parameters.addAll(
             listOf(
-            DraftEstimationParameter().apply { name = "Tagessatz"; value = 950.0; version = draft },
-            DraftEstimationParameter().apply { name = "Standardabweichungsfaktor"; value = 2.0; version = draft },
-            DraftEstimationParameter().apply { name = "Vertriebszuschlag"; value = 0.12; version = draft }
+            DraftEstimationParameter().apply { name = "dailyRate"; value = 950.0; version = draft },
+            DraftEstimationParameter().apply { name = "stdDevFactor"; value = 2.0; version = draft },
+            DraftEstimationParameter().apply { name = "salesSurcharge"; value = 0.12; version = draft }
         ))
 
         // Each bucket: one sample (three-point) + one non-sample that inherits the

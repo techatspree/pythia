@@ -33,9 +33,9 @@ data class EstimationVersion(
         parameters.find { it.name == name }?.value
 
     fun calculate(): EstimationVersion {
-        val stdDevFactor = parameterValue("Standardabweichungsfaktor") ?: EstimationDefaults.STD_DEV_FACTOR
-        val dailyRate = parameterValue("Tagessatz") ?: EstimationDefaults.DAILY_RATE
-        val salesSurcharge = parameterValue("Vertriebszuschlag") ?: EstimationDefaults.SALES_SURCHARGE
+        val stdDevFactor = parameterValue("stdDevFactor") ?: EstimationDefaults.STD_DEV_FACTOR
+        val dailyRate = parameterValue("dailyRate") ?: EstimationDefaults.DAILY_RATE
+        val salesSurcharge = parameterValue("salesSurcharge") ?: EstimationDefaults.SALES_SURCHARGE
         val totalDriverFactor = effortDrivers.sumOf { it.factor }
 
         val leaves = roots.flatMap { it.leaves().toList() }

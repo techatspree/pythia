@@ -23,41 +23,41 @@ open class EstimationCalculator {
 
         val totalOfferPT = allItems.sumOf { it.offerPT }
         results.add(InvariantResult(
-            "Gesamtaufwand = Summe aller AngebotsPT",
+            "Total effort = sum of all offer PT",
             version.totalEffort - totalOfferPT,
             tolerance
         ))
 
         val totalMean = allItems.sumOf { it.mean }
         val totalVariance = allItems.sumOf { it.variance }
-        val stdDevFactor = version.parameterValue("Standardabweichungsfaktor") ?: EstimationDefaults.STD_DEV_FACTOR
+        val stdDevFactor = version.parameterValue("stdDevFactor") ?: EstimationDefaults.STD_DEV_FACTOR
         val totalDriverFactor = version.effortDrivers.sumOf { it.factor }
         val calculatedTotal = totalMean + sqrt(totalVariance) * stdDevFactor + totalMean * totalDriverFactor
         results.add(InvariantResult(
-            "Summe mit Risiko im PSP = Summe bei Berechnung",
+            "Risk-adjusted total in WBS = calculated total",
             totalOfferPT - calculatedTotal,
             tolerance
         ))
 
         val sumByRoots = version.roots.sumOf { it.offerPT }
         results.add(InvariantResult(
-            "Summe der Wurzeln = Summe der Blätter (Akkumulation konsistent)",
+            "Sum of roots = sum of leaves (accumulation consistent)",
             sumByRoots - totalOfferPT,
             tolerance
         ))
 
         val totalCost = allItems.sumOf { it.cost }
-        val dailyRate = version.parameterValue("Tagessatz") ?: EstimationDefaults.DAILY_RATE
+        val dailyRate = version.parameterValue("dailyRate") ?: EstimationDefaults.DAILY_RATE
         val costFromEffort = totalOfferPT * dailyRate
         results.add(InvariantResult(
-            "Kosten im PSP = Kosten in der Paketübersicht",
+            "Cost in WBS = cost in package overview",
             totalCost - costFromEffort,
             tolerance
         ))
 
         val varianceByRoots = version.roots.sumOf { it.variance }
         results.add(InvariantResult(
-            "Varianzakkumulation an der Wurzel = Summe der Blätter-Varianzen",
+            "Variance accumulation at root = sum of leaf variances",
             varianceByRoots - totalVariance,
             tolerance
         ))

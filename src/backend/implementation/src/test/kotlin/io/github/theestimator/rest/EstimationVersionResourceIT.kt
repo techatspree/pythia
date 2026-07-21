@@ -99,8 +99,8 @@ class EstimationVersionResourceIT {
                 {
                     "notes": "Updated notes",
                     "parameters": [
-                        {"name": "Tagessatz", "value": 1000.0},
-                        {"name": "Standardabweichungsfaktor", "value": 2.5}
+                        {"name": "dailyRate", "value": 1000.0},
+                        {"name": "stdDevFactor", "value": 2.5}
                     ]
                 }
             """.trimIndent())
@@ -109,7 +109,7 @@ class EstimationVersionResourceIT {
             .statusCode(200)
             .body("notes", equalTo("Updated notes"))
             .body("parameters.size()", equalTo(2))
-            .body("parameters.find { it.name == 'Tagessatz' }.value", equalTo(1000.0f))
+            .body("parameters.find { it.name == 'dailyRate' }.value", equalTo(1000.0f))
     }
 
     @Test
@@ -207,7 +207,7 @@ class EstimationVersionResourceIT {
             .then()
             .statusCode(201)
             .body("versionNumber", equalTo(2))
-            .body("parameters.find { it.name == 'Tagessatz' }.value", equalTo(900.0f))
+            .body("parameters.find { it.name == 'dailyRate' }.value", equalTo(900.0f))
             .body("effortDrivers.size()", equalTo(1))
             .body("effortDrivers[0].description", equalTo("QA"))
             .body("roots[0].children.size()", equalTo(2))
@@ -275,7 +275,7 @@ class EstimationVersionResourceIT {
             .contentType(ContentType.JSON)
             .body("""
                 {
-                    "parameters": [{"name": "Standardabweichungsfaktor", "value": 0.0}],
+                    "parameters": [{"name": "stdDevFactor", "value": 0.0}],
                     "roots": [{
                         "type": "GROUP",
                         "title": "Backend",
@@ -367,7 +367,7 @@ class EstimationVersionResourceIT {
             .contentType(ContentType.JSON)
             .body("""
                 {
-                    "parameters": [{"name": "Standardabweichungsfaktor", "value": 0.0}],
+                    "parameters": [{"name": "stdDevFactor", "value": 0.0}],
                     "roots": [{
                         "type": "GROUP",
                         "title": "Backend",
@@ -415,12 +415,12 @@ class EstimationVersionResourceIT {
         given().post("/api/estimations/$estimationId/versions")
             .then().statusCode(201)
 
-        // Standardabweichungsfaktor=0 eliminates risk surcharge so offerPT == mean exactly
+        // stdDevFactor=0 eliminates risk surcharge so offerPT == mean exactly
         given()
             .contentType(ContentType.JSON)
             .body("""
                 {
-                    "parameters": [{"name": "Standardabweichungsfaktor", "value": 0.0}],
+                    "parameters": [{"name": "stdDevFactor", "value": 0.0}],
                     "roots": [{"type": "GROUP", "title": "G", "children": [{"type": "FIXED", "description": "T", "minEffort": 2.0, "expectedEffort": 4.0, "maxEffort": 6.0}]}]
                 }
             """.trimIndent())
@@ -434,7 +434,7 @@ class EstimationVersionResourceIT {
             .contentType(ContentType.JSON)
             .body("""
                 {
-                    "parameters": [{"name": "Standardabweichungsfaktor", "value": 0.0}],
+                    "parameters": [{"name": "stdDevFactor", "value": 0.0}],
                     "effortDrivers": [{"description": "QA", "factor": 0.5}],
                     "roots": [{"type": "GROUP", "title": "G", "children": [{"type": "FIXED", "description": "T", "minEffort": 2.0, "expectedEffort": 4.0, "maxEffort": 6.0}]}]
                 }
@@ -447,7 +447,7 @@ class EstimationVersionResourceIT {
     }
 
     @Test
-    fun `Tagessatz affects cost but not offerPT`() {
+    fun `dailyRate affects cost but not offerPT`() {
         given().post("/api/estimations/$estimationId/versions")
             .then().statusCode(201)
 
@@ -456,8 +456,8 @@ class EstimationVersionResourceIT {
             .body("""
                 {
                     "parameters": [
-                        {"name": "Tagessatz", "value": 800.0},
-                        {"name": "Standardabweichungsfaktor", "value": 0.0}
+                        {"name": "dailyRate", "value": 800.0},
+                        {"name": "stdDevFactor", "value": 0.0}
                     ],
                     "roots": [{"type": "GROUP", "title": "G", "children": [{"type": "FIXED", "description": "T", "minEffort": 2.0, "expectedEffort": 4.0, "maxEffort": 6.0}]}]
                 }
@@ -468,14 +468,14 @@ class EstimationVersionResourceIT {
             .body("roots[0].children[0].offerPT", equalTo(4.0f))
             .body("roots[0].children[0].cost", equalTo(3200.0f))
 
-        // Doubling Tagessatz doubles cost but leaves offerPT unchanged
+        // Doubling dailyRate doubles cost but leaves offerPT unchanged
         given()
             .contentType(ContentType.JSON)
             .body("""
                 {
                     "parameters": [
-                        {"name": "Tagessatz", "value": 1600.0},
-                        {"name": "Standardabweichungsfaktor", "value": 0.0}
+                        {"name": "dailyRate", "value": 1600.0},
+                        {"name": "stdDevFactor", "value": 0.0}
                     ],
                     "roots": [{"type": "GROUP", "title": "G", "children": [{"type": "FIXED", "description": "T", "minEffort": 2.0, "expectedEffort": 4.0, "maxEffort": 6.0}]}]
                 }
@@ -508,7 +508,7 @@ class EstimationVersionResourceIT {
             .body("""
                 {
                     "phases": [{"name": "Analysis", "abbreviation": "AN", "durationWeeks": 2.0}],
-                    "parameters": [{"name": "Standardabweichungsfaktor", "value": 0.0}],
+                    "parameters": [{"name": "stdDevFactor", "value": 0.0}],
                     "roots": [{"type": "GROUP", "title": "G", "children": [
                         {"type": "FIXED", "description": "T", "minEffort": 2.0, "expectedEffort": 4.0, "maxEffort": 6.0, "phaseAbbreviation": "AN"}
                     ]}]
@@ -548,7 +548,7 @@ class EstimationVersionResourceIT {
             .body("""
                 {
                     "phases": [{"name": "Analysis", "abbreviation": "AN", "durationWeeks": 4.0}],
-                    "parameters": [{"name": "Standardabweichungsfaktor", "value": 0.0}],
+                    "parameters": [{"name": "stdDevFactor", "value": 0.0}],
                     "roots": [{"type": "GROUP", "title": "G", "children": [{
                         "type": "TIME_RELATIVE",
                         "description": "T",
@@ -577,7 +577,7 @@ class EstimationVersionResourceIT {
             .contentType(ContentType.JSON)
             .body("""
                 {
-                    "parameters": [{"name": "Standardabweichungsfaktor", "value": 0.0}],
+                    "parameters": [{"name": "stdDevFactor", "value": 0.0}],
                     "roots": [{"type": "GROUP", "title": "G", "children": [{
                         "type": "TIME_RELATIVE",
                         "description": "T",
@@ -833,9 +833,9 @@ class EstimationVersionResourceIT {
             .body("""
                 {
                     "parameters": [
-                        {"name": "Tagessatz", "value": 900.0},
-                        {"name": "Standardabweichungsfaktor", "value": 2.0},
-                        {"name": "Vertriebszuschlag", "value": 0.10}
+                        {"name": "dailyRate", "value": 900.0},
+                        {"name": "stdDevFactor", "value": 2.0},
+                        {"name": "salesSurcharge", "value": 0.10}
                     ],
                     "effortDrivers": [
                         {"description": "QA", "factor": 0.15}
@@ -874,11 +874,11 @@ class EstimationVersionResourceIT {
     }
 
     // Two buckets, 4 leaves (2 samples, 2 non-samples). With
-    // Standardabweichungsfaktor=0 the risk factor is 0, so offerPT == mean.
+    // stdDevFactor=0 the risk factor is 0, so offerPT == mean.
     // b1 sample mean = PERT(1,2,a1Max); b2 sample mean = PERT(2,4,6) = 4.0.
     private fun bucketDraftBody(b1: String, b2: String, a1Max: Double = 3.0) = """
         {
-            "parameters": [{"name": "Standardabweichungsfaktor", "value": 0.0}],
+            "parameters": [{"name": "stdDevFactor", "value": 0.0}],
             "buckets": [
                 {"id": "$b1", "position": 0, "label": "Frontend"},
                 {"id": "$b2", "position": 1, "label": "Backend"}

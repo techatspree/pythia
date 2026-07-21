@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-TheEstimator is a project-effort estimation tool: PERT three-point estimates (optimistic / likely / pessimistic) per work item, organised in an arbitrary-depth tree of groups and leaves, with versioned draft → submitted snapshots, audit trail, and comparison between versions. The German-language UI and domain vocabulary (Aufwand, Risiko, Tagessatz, …) are intentional.
+TheEstimator is a project-effort estimation tool: PERT three-point estimates (optimistic / likely / pessimistic) per work item, organised in an arbitrary-depth tree of groups and leaves, with versioned draft → submitted snapshots, audit trail, and comparison between versions. The German-language UI is intentional. **Domain source code is English, though** (phase-16, task-121): the German semantic parameter keys were Anglicised — `Tagessatz` → `dailyRate`, `Standardabweichungsfaktor` → `stdDevFactor`, `Vertriebszuschlag` → `salesSurcharge` (persisted rows migrated in `V11`) — and domain comments/`InvariantResult` descriptors are English. The German UI strings are being moved into per-user i18n catalogs (phase-16); the customer's German Excel column/sheet labels remain as external data (task-122's `ExcelGermanLabels`).
 
 ## Build & run
 

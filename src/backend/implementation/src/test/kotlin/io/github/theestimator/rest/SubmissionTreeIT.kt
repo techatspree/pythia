@@ -57,7 +57,7 @@ class SubmissionTreeIT {
             .body(
                 """
                 {
-                    "parameters": [{"name": "Standardabweichungsfaktor", "value": 0.0}],
+                    "parameters": [{"name": "stdDevFactor", "value": 0.0}],
                     "roots": [{
                         "type": "GROUP",
                         "title": "Backend",
@@ -114,7 +114,7 @@ class SubmissionTreeIT {
         assertTrue(authChildren.all { it.nodeType == "FIXED" })
 
         // GROUP rows' offer_pt equals the SUM of their subtree's leaf offer_pt.
-        // With Standardabweichungsfaktor=0 and no drivers, offerPT == mean (PERT).
+        // With stdDevFactor=0 and no drivers, offerPT == mean (PERT).
         val authLeafOfferPtSum = authChildren.sumOf { it.offerPt }
         assertEquals(authLeafOfferPtSum, authGroup.offerPt, 0.001)
         // Auth = 2.0 + 4.0 = 6.0; Health = 1.0; Backend = 6.0 + 1.0 = 7.0

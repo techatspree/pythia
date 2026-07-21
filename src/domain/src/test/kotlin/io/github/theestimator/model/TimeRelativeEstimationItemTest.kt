@@ -83,9 +83,9 @@ class TimeRelativeEstimationItemTest {
         val version = EstimationVersion(
             versionNumber = 1,
             parameters = listOf(
-                EstimationParameter("Standardabweichungsfaktor", 2.0),
-                EstimationParameter("Tagessatz", 800.0),
-                EstimationParameter("Vertriebszuschlag", 0.1)
+                EstimationParameter("stdDevFactor", 2.0),
+                EstimationParameter("dailyRate", 800.0),
+                EstimationParameter("salesSurcharge", 0.1)
             ),
             roots = listOf(EstimationGroup(title = "G", children = listOf(tr, fixed)))
         )

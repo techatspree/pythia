@@ -33,8 +33,8 @@ async function populateDraft(page: Page, estimationId: string) {
 	const res = await page.request.put(`${API}/api/estimations/${estimationId}/versions/draft`, {
 		data: {
 			parameters: [
-				{ name: 'Tagessatz', value: 900 },
-				{ name: 'Standardabweichungsfaktor', value: 2 }
+				{ name: 'dailyRate', value: 900 },
+				{ name: 'stdDevFactor', value: 2 }
 			],
 			roots: [
 				{
@@ -170,8 +170,8 @@ test('undo conflict opens the dialog; reload adopts the other user value', async
 		headers: { Authorization: 'Dev dev-estimator' },
 		data: {
 			parameters: [
-				{ name: 'Tagessatz', value: 900 },
-				{ name: 'Standardabweichungsfaktor', value: 2 }
+				{ name: 'dailyRate', value: 900 },
+				{ name: 'stdDevFactor', value: 2 }
 			],
 			roots: [
 				{

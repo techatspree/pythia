@@ -67,7 +67,7 @@ class DraftSnapshotRoundTripIT {
         draft.phases.add(phase)
 
         draft.parameters.add(DraftEstimationParameter().apply {
-            name = "Tagessatz"
+            name = "dailyRate"
             value = 800.0
             version = draft
         })

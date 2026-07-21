@@ -163,8 +163,8 @@ class ExcelExporter {
             "Zusatzkosten\neinmalig", "Zusatzkosten\nlaufend", "Angebotspreis\nmit VT-Zuschlag"
         ).forEachIndexed { idx, h -> headerRow.createCell(idx).setCellValue(h) }
 
-        val salesSurcharge = version.parameterValue("Vertriebszuschlag") ?: 0.1
-        val dailyRate = version.parameterValue("Tagessatz") ?: 800.0
+        val salesSurcharge = version.parameterValue("salesSurcharge") ?: 0.1
+        val dailyRate = version.parameterValue("dailyRate") ?: 800.0
         val allLeaves = allLeaves(version)
 
         version.phases.forEachIndexed { idx, phase ->

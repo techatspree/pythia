@@ -723,9 +723,9 @@
       "notes": "Frontend derives user roles from the backend (GET /api/auth/me) instead of the Entra id token, so roles live only on estimation-api (single source of truth)"
     },
     "task-121": {
-      "status": "pending",
-      "started_at": null,
-      "completed_at": null,
+      "status": "done",
+      "started_at": "2026-07-21T07:17:29+00:00",
+      "completed_at": "2026-07-21T08:38:26+00:00",
       "notes": "i18n: Anglicise domain semantic keys, comments, logs + Flyway rename"
     },
     "task-122": {
