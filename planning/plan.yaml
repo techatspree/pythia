@@ -51,7 +51,7 @@ phases:
   - id: phase-2
     name: Modular Authentication and Authorization
     duration_weeks: 1
-    tasks: [task-005, task-006, task-007, task-008, task-060, task-068]
+    tasks: [task-005, task-006, task-007, task-008, task-060, task-068, task-120]
   - id: phase-3
     name: Core Domain and Persistence
     duration_weeks: 1
@@ -91,7 +91,7 @@ phases:
   - id: phase-12
     name: Persistent Undo Across Sessions
     duration_weeks: 2
-    tasks: [task-072, task-073, task-074, task-075, task-076, task-077]
+    tasks: [task-072, task-073, task-074, task-075, task-076, task-077, task-109, task-110]
   - id: phase-13
     name: Excel-aligned Domain, KMP & Build Reactor
     duration_weeks: 3
@@ -99,11 +99,15 @@ phases:
   - id: phase-14
     name: Post-MVP Hardening & Build Modernization
     duration_weeks: 3
-    tasks: [task-079, task-080, task-081, task-082, task-083, task-087, task-088, task-089, task-090, task-091, task-092, task-093, task-094, task-095]
+    tasks: [task-079, task-080, task-081, task-082, task-083, task-087, task-088, task-089, task-090, task-091, task-092, task-093, task-094, task-095, task-112, task-114, task-117, task-118, task-119]
   - id: phase-15
     name: Pluggable Estimation Methods
     duration_weeks: 4
-    tasks: [task-096, task-097, task-098, task-099, task-100, task-101, task-102, task-103, task-104, task-105, task-106, task-107, task-108]
+    tasks: [task-096, task-097, task-098, task-099, task-100, task-101, task-102, task-103, task-104, task-105, task-106, task-107, task-108, task-113, task-115, task-116]
+  - id: phase-16
+    name: Internationalization
+    duration_weeks: 2
+    tasks: [task-111, task-121, task-122, task-123, task-124, task-125, task-126, task-127]
 
 execution:
   task_format: tasks/<task-id>.yaml

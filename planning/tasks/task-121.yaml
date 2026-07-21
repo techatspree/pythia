@@ -1,0 +1,114 @@
+id: task-121
+phase: phase-16
+title: i18n — Anglicise domain semantic keys, comments, logs + Flyway rename
+depends_on: [task-111]
+description: |
+  Phase-16 child (see task-111 for the frozen cross-cutting
+  decisions). Makes the `:domain` module English-only in source
+  code, and migrates the one German *semantic key* it embeds.
+
+  ## Frozen decisions this task honours (from task-111)
+
+  - **English identifiers, English comments, English logs** in
+    every `.kt` file under `:domain`.
+  - The parameter-lookup magic string `"Tagessatz"` becomes the
+    English semantic key `"dailyRate"`. This is a KEY rename, not
+    a translation — coordinated with a Flyway DATA migration that
+    renames the persisted rows so existing estimations keep
+    resolving their daily rate.
+  - **Excel importer/exporter labels are DATA, not source
+    language** — but those live in `:backend` (task-122). This
+    task only introduces the *domain* English rename; it does NOT
+    touch Excel code.
+
+  ## Current state
+
+  - `src/domain/src/main/kotlin/io/github/theestimator/model/EstimationVersion.kt`
+    resolves the daily rate via `parameterValue("Tagessatz")`.
+  - `EstimationDefaults` documents "Tagessatz — daily rate in EUR".
+  - `EstimationCalculator` embeds German descriptor strings such
+    as `"Gesamtaufwand = Summe aller AngebotsPT"`.
+  - `TestDataSeeder` (`:backend`) inserts a parameter row named
+    `"Tagessatz"`, and the Flyway history has no rename yet.
+  - Persisted rows in `draft_estimation_parameters` /
+    `submitted_estimation_parameters` carry `name = 'Tagessatz'`.
+
+  ## Target state
+
+  - The domain uses `"dailyRate"` as the parameter semantic key
+    everywhere; all German comments/descriptor strings/log
+    messages in `:domain` are English.
+  - A Flyway migration renames existing `'Tagessatz'` parameter
+    rows to `'dailyRate'` in BOTH parameter tables, so already
+    persisted drafts + submitted versions keep resolving.
+  - `TestDataSeeder` seeds `'dailyRate'`.
+  - Existing domain + backend tests pass (string constants
+    updated where a test asserted the old key/descriptor).
+
+  ## KMP note
+
+  `"dailyRate"` is a string literal used INSIDE `calculate()`, not
+  an exported symbol or data-class field — no `@JsExport` surface
+  changes, so no TypeScript regeneration is required. The frontend
+  never hardcodes the lookup key (the domain owns it); the key
+  travels as row DATA. Still, rebuild the domain jar the backend
+  consumes via the normal `./gradlew build`.
+
+steps:
+  - |
+    Read the current bits:
+      src/domain/src/main/kotlin/io/github/theestimator/model/EstimationVersion.kt
+      src/domain/src/main/kotlin/io/github/theestimator/model/EstimationDefaults.kt
+      src/domain/src/main/kotlin/io/github/theestimator/model/EstimationCalculator.kt
+      src/backend/implementation/src/main/kotlin/io/github/theestimator/testdata/TestDataSeeder.kt
+      src/backend/implementation/src/main/resources/db/migration/  (find the highest V-number)
+  - |
+    In `:domain`, replace the `"Tagessatz"` parameter key with
+    `"dailyRate"` in `EstimationVersion.kt` (the `parameterValue(...)`
+    lookup) and anywhere else the key is referenced. Translate the
+    `EstimationDefaults` doc line and every German descriptor
+    string in `EstimationCalculator` (e.g.
+    `"Gesamtaufwand = Summe aller AngebotsPT"` → an English
+    equivalent). Translate any German inline comments and any
+    `KotlinLogging` log-message text in these files to English —
+    keep the `logger.debug { … }` lambda form (CLAUDE.md domain
+    logging convention).
+  - |
+    Add a Flyway DATA migration
+    `src/backend/implementation/src/main/resources/db/migration/V<next>__rename_tagessatz_to_dailyrate.sql`
+    (pick the next free V-number after inspecting the folder):
+      UPDATE draft_estimation_parameters SET name = 'dailyRate' WHERE name = 'Tagessatz';
+      UPDATE submitted_estimation_parameters SET name = 'dailyRate' WHERE name = 'Tagessatz';
+  - |
+    Update `TestDataSeeder` to seed the parameter row as
+    `'dailyRate'`. Update any domain/backend test that asserts the
+    old `"Tagessatz"` key or a German descriptor string.
+  - |
+    Build (cross-module — domain rename consumed by the backend,
+    plus the migration + seeder):
+      ./gradlew build
+validation:
+  - |
+    The German key is gone from the domain and the English key is present:
+      ! grep -rn "Tagessatz" src/domain/src/main/kotlin
+      grep -rq "dailyRate" src/domain/src/main/kotlin
+  - |
+    The Flyway rename migration exists and touches both tables:
+      ls src/backend/implementation/src/main/resources/db/migration/ | grep -qiE "rename_tagessatz|dailyrate"
+      grep -rq "draft_estimation_parameters" src/backend/implementation/src/main/resources/db/migration/V*dailyrate*.sql 2>/dev/null || grep -rilq "dailyRate" src/backend/implementation/src/main/resources/db/migration/
+  - |
+    Seeder uses the English key; no German descriptor remains in the calculator:
+      grep -q "dailyRate" src/backend/implementation/src/main/kotlin/io/github/theestimator/testdata/TestDataSeeder.kt
+      ! grep -rnE "Gesamtaufwand|Summe aller|Aufwand" src/domain/src/main/kotlin/io/github/theestimator/model/EstimationCalculator.kt
+  - |
+    Domain logging stays on the KotlinLogging lambda form (no bare prints):
+      ! grep -rnE "println\(" src/domain/src/main/kotlin/io/github/theestimator/model
+  - |
+    Full build is green (domain + backend + frontend):
+      ./gradlew build
+outputs:
+  - modified: src/domain/src/main/kotlin/io/github/theestimator/model/EstimationVersion.kt
+  - modified: src/domain/src/main/kotlin/io/github/theestimator/model/EstimationDefaults.kt
+  - modified: src/domain/src/main/kotlin/io/github/theestimator/model/EstimationCalculator.kt
+  - modified: src/backend/implementation/src/main/kotlin/io/github/theestimator/testdata/TestDataSeeder.kt
+  - created: src/backend/implementation/src/main/resources/db/migration/V<next>__rename_tagessatz_to_dailyrate.sql

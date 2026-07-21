@@ -52,7 +52,7 @@ Typical flow: run `next`, run `show` to read the task, do the work, run `done`. 
 | Phase | Weeks | Theme | Tasks |
 |-------|-------|-------|-------|
 | 1 | 1 | Foundation and local environment | 001–004 |
-| 2 | 1 | Modular Authentication and Authorization | 005–008, 060, 068 |
+| 2 | 1 | Modular Authentication and Authorization | 005–008, 060, 068, 120 |
 | 3 | 1 | Core domain and persistence | 009–012 |
 | 4 | 1 | REST API and business logic | 013–016 |
 | 5 | 2 | Frontend application | 017–021 |
@@ -62,10 +62,11 @@ Typical flow: run `next`, run `show` to read the task, do the work, run `done`. 
 | 9 | 1 | Tree-shaped Estimation Hierarchy | 049–055, 057–059, 061, 069–070 |
 | 10 | 1 | Code Quality and Static Analysis | 056, 071, 078, 084–086 |
 | 11 | 2 | Collaborative Estimation Sessions | 062–067 |
-| 12 | 2 | Persistent Undo Across Sessions | 072–077 |
+| 12 | 2 | Persistent Undo Across Sessions | 072–077, 109–110 |
 | 13 | 3 | Excel-aligned Domain, KMP & Build Reactor | 033–048 |
-| 14 | 3 | Post-MVP Hardening & Build Modernization | 079–083, 087–095 |
-| 15 | 4 | Pluggable Estimation Methods | 096 (planning), 097–108 |
+| 14 | 3 | Post-MVP Hardening & Build Modernization | 079–083, 087–095, 112, 114, 117–119 |
+| 15 | 4 | Pluggable Estimation Methods | 096 (planning), 097–108, 113, 115–116 |
+| 16 | 2 | Internationalization | 111 (planning), 121–127 |
 
 Total: roughly 10 weeks of focused work for one developer, less with parallel tracks.
 

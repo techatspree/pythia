@@ -1,0 +1,116 @@
+id: task-123
+phase: phase-16
+title: i18n — user language preference (column, PUT endpoint, SupportedLanguage enum)
+depends_on: [task-122]
+description: |
+  Phase-16 child (see task-111 for the frozen cross-cutting
+  decisions). Persists a per-user language preference and exposes
+  it over REST, and introduces the shared `SupportedLanguage`
+  enum in `:domain`.
+
+  ## Frozen decisions this task honours (from task-111)
+
+  - **User preference is authoritative and persisted.** New
+    `users.language char(2) NOT NULL DEFAULT 'de'` column via
+    Flyway (default `'de'` so existing users keep today's UI).
+    First sighting via `UserProvisioningFilter` seeds the language
+    from `Accept-Language` when it is `en`, otherwise `de`.
+  - **REST for language.**
+      * `GET /api/auth/me` gains a `language` field on the
+        response (`CurrentUserDto`).
+      * `PUT /api/auth/me/language` — body `{language:"de"|"en"}`,
+        returns 204 on success, 400 for an unsupported code. Logs
+        INFO with the user id + new language (CLAUDE.md backend
+        logging convention).
+      * Reject unsupported codes at the wire boundary.
+  - **SupportedLanguage lives in `:domain`**, package
+    `io.github.theestimator.i18n`, `@JsExport`-annotated following
+    the `EstimationVersionStatus.kt` idiom (file-level
+    `@file:OptIn(ExperimentalJsExport::class)`). Values `DE`, `EN`.
+    The enum is the one canonical name both sides share.
+
+  ## KMP note
+
+  `SupportedLanguage` is a new `@JsExport` enum → it IS an exported
+  symbol. After adding it, rebuild the domain and regenerate the
+  TypeScript the frontend consumes: `./gradlew :domain:build` then
+  the normal `./gradlew build` (which republishes the domain jar
+  and the `typescriptDist` the frontend unpacks). The frontend
+  child tasks (task-124+) consume the exported enum name.
+
+  ## Steps rely on existing pieces
+
+  - `User` entity + `CurrentUser` principal + `CurrentUserDto`
+    (`MeResource.kt`) already exist.
+  - `UserProvisioningFilter` already provisions on first sighting.
+  - `MeResource` is the JAX-RS home for the new PUT.
+
+steps:
+  - |
+    Read:
+      src/domain/src/main/kotlin/io/github/theestimator/model/EstimationVersionStatus.kt (idiom reference)
+      src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/MeResource.kt
+      src/backend/implementation/src/main/kotlin/io/github/theestimator/auth/UserProvisioningFilter.kt
+      src/backend/implementation/src/main/kotlin/io/github/theestimator/domain/User.kt (or the User entity)
+      src/backend/implementation/src/main/resources/db/migration/ (highest V-number)
+  - |
+    Create the domain enum
+    `src/domain/src/main/kotlin/io/github/theestimator/i18n/SupportedLanguage.kt`:
+      @file:OptIn(ExperimentalJsExport::class)
+      package io.github.theestimator.i18n
+      @JsExport enum class SupportedLanguage(val code: String) { DE("de"), EN("en") }
+    plus a `fromCode(code: String): SupportedLanguage?` companion helper.
+    Rebuild the domain: `./gradlew :domain:build`.
+  - |
+    Add the Flyway migration
+    `src/backend/implementation/src/main/resources/db/migration/V<next>__user_language.sql`:
+      ALTER TABLE users ADD COLUMN language char(2) NOT NULL DEFAULT 'de';
+    Extend the `User` entity with the `language` field.
+  - |
+    Extend `CurrentUserDto` (in `MeResource.kt`) and the
+    `CurrentUser` principal with `language`, and populate it in
+    `GET /api/auth/me`.
+  - |
+    Add `PUT /api/auth/me/language` to `MeResource`: parse the
+    `{language}` body, validate against `SupportedLanguage.fromCode`
+    (400 on unsupported), persist on the `User` row, return 204.
+    `Log.info` the user id + new language; document the endpoint's
+    request/response + status codes with MicroProfile OpenAPI
+    annotations (matching the existing MeResource style).
+  - |
+    Update `UserProvisioningFilter` to seed `language` on first
+    sighting from the `Accept-Language` request header: `en` →
+    `EN`, otherwise `DE`. Only on CREATE (do not overwrite an
+    existing user's stored preference).
+  - |
+    Build (cross-module — domain enum consumed by the frontend,
+    backend migration + endpoint):
+      ./gradlew build
+validation:
+  - |
+    The @JsExport SupportedLanguage enum exists in :domain:
+      test -f src/domain/src/main/kotlin/io/github/theestimator/i18n/SupportedLanguage.kt
+      grep -q "@JsExport" src/domain/src/main/kotlin/io/github/theestimator/i18n/SupportedLanguage.kt
+      grep -qE "DE\(|EN\(" src/domain/src/main/kotlin/io/github/theestimator/i18n/SupportedLanguage.kt
+  - |
+    Migration adds the column; User entity + DTO carry language:
+      ls src/backend/implementation/src/main/resources/db/migration/ | grep -qi "user_language"
+      grep -rq "language" src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/MeResource.kt
+  - |
+    The PUT endpoint exists and logs at INFO (backend logging convention):
+      grep -q "me/language" src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/MeResource.kt
+      grep -qE "@PUT" src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/MeResource.kt
+      grep -q "Log.info" src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/MeResource.kt
+  - |
+    Provisioning seeds language from Accept-Language:
+      grep -qiE "accept-language|acceptLanguage" src/backend/implementation/src/main/kotlin/io/github/theestimator/auth/UserProvisioningFilter.kt
+  - |
+    Full build is green (domain export + backend + frontend consume):
+      ./gradlew build
+outputs:
+  - created: src/domain/src/main/kotlin/io/github/theestimator/i18n/SupportedLanguage.kt
+  - created: src/backend/implementation/src/main/resources/db/migration/V<next>__user_language.sql
+  - modified: src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/MeResource.kt
+  - modified: src/backend/implementation/src/main/kotlin/io/github/theestimator/auth/UserProvisioningFilter.kt
+  - modified: src/backend/implementation/src/main/kotlin/io/github/theestimator/domain/User.kt
+  - modified: CLAUDE.md
