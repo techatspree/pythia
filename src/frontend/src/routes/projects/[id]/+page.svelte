@@ -2,6 +2,7 @@
 	import { page } from '$app/state';
 	import { resolve } from '$app/paths';
 	import { onMount } from 'svelte';
+	import { _ } from 'svelte-i18n';
 	import ProjectDetail from '$lib/components/ProjectDetail.svelte';
 	import ErrorBanner from '$lib/components/ErrorBanner.svelte';
 	import { apiFetch } from '$lib/api/fetch';
@@ -16,7 +17,7 @@
 		const id = page.params.id;
 		try {
 			const res = await apiFetch(`/api/projects/${id}`);
-			await assertOk(res, 'Project not found');
+			await assertOk(res, $_('project.pageNotFound'));
 			project = await res.json();
 		} catch (e: any) {
 			log.error('load project failed:', e);
@@ -28,7 +29,7 @@
 </script>
 
 <div class="p-6">
-	<a href={resolve('/projects')} class="text-sm text-brand-green hover:underline mb-4 inline-block">&larr; Back to projects</a>
+	<a href={resolve('/projects')} class="text-sm text-brand-green hover:underline mb-4 inline-block">{$_('project.pageBack')}</a>
 	<ErrorBanner message={bannerMessage} ondismiss={() => (bannerMessage = null)} />
 	<ProjectDetail {project} {loading} error="" />
 </div>

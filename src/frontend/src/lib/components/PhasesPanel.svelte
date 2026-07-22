@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { _ } from 'svelte-i18n';
+
 	type Phase = { name: string; abbreviation: string; durationWeeks: number | null };
 	type CalcEntry = { offerPT: number; cost: number; offerPrice: number };
 
@@ -63,7 +65,7 @@
 		class="w-full flex items-center justify-between px-4 py-2 bg-brand-green/10 text-brand-green text-xs font-semibold uppercase tracking-wide hover:bg-brand-green/20"
 		onclick={() => (open = !open)}
 	>
-		<span>Phases</span>
+		<span>{$_('panel.phases.title')}</span>
 		<span>{open ? '▼' : '▶'}</span>
 	</button>
 
@@ -71,26 +73,26 @@
 		{#if phases.length === 0}
 			{#if editable}
 				<div class="p-4 text-center">
-					<p class="text-sm text-gray-400 mb-3">No phases defined.</p>
+					<p class="text-sm text-gray-400 mb-3">{$_('panel.phases.empty')}</p>
 					<button
 						onclick={addRow}
 						class="px-3 py-1.5 text-sm bg-brand-green text-white rounded hover:bg-[#007a45]"
 					>
-						Add phase
+						{$_('panel.phases.add')}
 					</button>
 				</div>
 			{:else}
-				<p class="p-4 text-sm text-gray-400 text-center">No phases</p>
+				<p class="p-4 text-sm text-gray-400 text-center">{$_('panel.phases.emptyReadonly')}</p>
 			{/if}
 		{:else}
 			<table class="w-full text-sm border-collapse">
 				<thead>
 					<tr class="border-b text-xs text-gray-500 uppercase tracking-wide">
-						<th class="py-2 px-3 text-left">Name</th>
-						<th class="py-2 px-3 text-left w-28">Abbreviation</th>
-						<th class="py-2 px-3 text-right w-32">Duration (weeks)</th>
-						<th class="py-2 px-3 text-right w-28">offerPT (PT)</th>
-						<th class="py-2 px-3 text-right w-28">Effort/Week</th>
+						<th class="py-2 px-3 text-left">{$_('panel.phases.colName')}</th>
+						<th class="py-2 px-3 text-left w-28">{$_('panel.phases.colAbbreviation')}</th>
+						<th class="py-2 px-3 text-right w-32">{$_('panel.phases.colDuration')}</th>
+						<th class="py-2 px-3 text-right w-28">{$_('panel.phases.colOfferPT')}</th>
+						<th class="py-2 px-3 text-right w-28">{$_('panel.phases.colEffortPerWeek')}</th>
 						{#if editable}<th class="py-2 px-3 w-8"></th>{/if}
 					</tr>
 				</thead>
@@ -148,7 +150,7 @@
 									<button
 										onclick={() => deleteRow(i)}
 										class="text-gray-300 hover:text-red-500 transition-colors leading-none"
-										title="Delete"
+										title={$_('common.delete')}
 									>
 										✕
 									</button>
@@ -161,7 +163,7 @@
 			{#if editable}
 				<div class="p-3 border-t bg-gray-50/40">
 					<button onclick={addRow} class="text-sm text-brand-green hover:text-[#007a45]">
-						+ Add phase
+						{$_('panel.phases.addRow')}
 					</button>
 				</div>
 			{/if}

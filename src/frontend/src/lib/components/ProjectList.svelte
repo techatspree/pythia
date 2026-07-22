@@ -1,23 +1,24 @@
 <script lang="ts">
 	import { resolve } from '$app/paths';
+	import { _ } from 'svelte-i18n';
 	let { projects, loading, error }: { projects: any[]; loading: boolean; error: string } = $props();
 </script>
 
 {#if loading}
-	<p class="text-gray-500">Loading projects...</p>
+	<p class="text-gray-500">{$_('project.listLoading')}</p>
 {:else if error}
 	<p class="text-red-600">{error}</p>
 {:else if projects.length === 0}
-	<p class="text-gray-500">No projects yet. Create one to get started.</p>
+	<p class="text-gray-500">{$_('project.listEmpty')}</p>
 {:else}
 	<div class="overflow-x-auto">
 		<table class="w-full text-sm text-left">
 			<thead class="text-xs uppercase bg-brand-green/10 border-b text-brand-green">
 				<tr>
-					<th class="px-4 py-3">Name</th>
-					<th class="px-4 py-3">Client</th>
-					<th class="px-4 py-3">Status</th>
-					<th class="px-4 py-3">Created</th>
+					<th class="px-4 py-3">{$_('project.listColName')}</th>
+					<th class="px-4 py-3">{$_('project.listColClient')}</th>
+					<th class="px-4 py-3">{$_('project.listColStatus')}</th>
+					<th class="px-4 py-3">{$_('project.listColCreated')}</th>
 				</tr>
 			</thead>
 			<tbody>

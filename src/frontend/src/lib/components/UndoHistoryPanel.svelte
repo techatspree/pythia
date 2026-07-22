@@ -1,18 +1,22 @@
 <script module lang="ts">
-	// German relative-time formatter, shared with the editor page's toolbar
-	// tooltips. Presentation only — no business logic.
+	import { get } from 'svelte/store';
+	import { _ } from 'svelte-i18n';
+
+	// Relative-time formatter, shared with the editor page's toolbar tooltips.
+	// Presentation only — no business logic. Reads the i18n store imperatively
+	// via get(_) because this is a module-context function, not a component.
 	export function relativeTime(iso: string | null | undefined): string {
 		if (!iso) return '';
 		const then = new Date(iso).getTime();
 		if (Number.isNaN(then)) return '';
 		const secs = Math.round((Date.now() - then) / 1000);
-		if (secs < 60) return 'gerade eben';
+		if (secs < 60) return get(_)('history.relativeJustNow');
 		const mins = Math.round(secs / 60);
-		if (mins < 60) return `vor ${mins} min`;
+		if (mins < 60) return get(_)('history.relativeMinutes', { values: { mins } });
 		const hours = Math.round(mins / 60);
-		if (hours < 24) return `vor ${hours} h`;
+		if (hours < 24) return get(_)('history.relativeHours', { values: { hours } });
 		const days = Math.round(hours / 24);
-		return `vor ${days} d`;
+		return get(_)('history.relativeDays', { values: { days } });
 	}
 </script>
 
@@ -28,9 +32,9 @@
 </script>
 
 <div class="mt-4 border rounded-lg">
-	<div class="px-4 py-2 border-b bg-gray-50 text-sm font-semibold text-gray-700">Verlauf</div>
+	<div class="px-4 py-2 border-b bg-gray-50 text-sm font-semibold text-gray-700">{$_('history.title')}</div>
 	{#if ordered.length === 0}
-		<p class="px-4 py-3 text-sm text-gray-400">Noch keine Änderungen.</p>
+		<p class="px-4 py-3 text-sm text-gray-400">{$_('history.empty')}</p>
 	{:else}
 		<ul class="divide-y">
 			{#each ordered as entry (entry.id)}
@@ -43,11 +47,11 @@
 					{#if entry.status === 'ACTIVE'}
 						<span
 							class="shrink-0 ml-2 px-2 py-0.5 text-xs rounded-full bg-brand-green/20 text-brand-green"
-							>Aktiv</span
+							>{$_('history.statusActive')}</span
 						>
 					{:else}
 						<span class="shrink-0 ml-2 px-2 py-0.5 text-xs rounded-full bg-gray-200 text-gray-500"
-							>Rückgängig gemacht</span
+							>{$_('history.statusUndone')}</span
 						>
 					{/if}
 				</li>

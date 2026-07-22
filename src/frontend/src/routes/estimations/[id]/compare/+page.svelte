@@ -2,6 +2,7 @@
 	import { page } from '$app/state';
 	import { resolve } from '$app/paths';
 	import { onMount } from 'svelte';
+	import { _ } from 'svelte-i18n';
 	import ErrorBanner from '$lib/components/ErrorBanner.svelte';
 	import type { ApiVersionComparison, ApiVersionResponse } from '$lib/api/types.js';
 	import { apiFetch } from '$lib/api/fetch';
@@ -57,7 +58,7 @@
 			const id = page.params.id;
 			const a = page.url.searchParams.get('a');
 			const b = page.url.searchParams.get('b');
-			if (!a || !b) throw new Error('Missing ?a and ?b parameters');
+			if (!a || !b) throw new Error($_('compare.missingParams'));
 
 			const urlA = a === 'draft' ? `/api/estimations/${id}/versions/draft` : `/api/estimations/${id}/versions/${a}`;
 			const urlB = b === 'draft' ? `/api/estimations/${id}/versions/draft` : `/api/estimations/${id}/versions/${b}`;
@@ -66,9 +67,9 @@
 				apiFetch(urlB),
 				apiFetch(`/api/estimations/${id}/versions/${a}/compare/${b}`)
 			]);
-			await assertOk(resA, `Failed to load version ${a}`);
-			await assertOk(resB, `Failed to load version ${b}`);
-			await assertOk(resCmp, 'Failed to load comparison');
+			await assertOk(resA, $_('compare.loadVersionFailed', { values: { ref: a } }));
+			await assertOk(resB, $_('compare.loadVersionFailed', { values: { ref: b } }));
+			await assertOk(resCmp, $_('compare.loadComparisonFailed'));
 
 			versionA = await resA.json();
 			versionB = await resB.json();
@@ -102,19 +103,19 @@
 
 <div class="p-6">
 	<a href={resolve('/estimations/[id]', { id: page.params.id! })} class="text-sm text-brand-green hover:underline">
-		&larr; Back to estimation
+		{$_('compare.back')}
 	</a>
 
 	<ErrorBanner message={bannerMessage} ondismiss={() => (bannerMessage = null)} />
 
 	{#if loading}
-		<p class="mt-4 text-gray-500">Loading…</p>
+		<p class="mt-4 text-gray-500">{$_('compare.loading')}</p>
 	{:else if comparison && versionA && versionB}
 		<h1 class="text-2xl font-bold mt-4 mb-4">{labelA} → {labelB}</h1>
 
 		<div class="flex items-center gap-6 mb-6 p-4 bg-gray-50 border rounded-lg text-sm">
 			<span>
-				Effort:
+				{$_('compare.effort')}
 				<span class="font-medium">{fmt(versionA.totalEffort)} PT</span>
 				→
 				<span class="font-medium">{fmt(versionB.totalEffort)} PT</span>
@@ -123,7 +124,7 @@
 				</span>
 			</span>
 			<span>
-				Items:
+				{$_('compare.items')}
 				<span class="font-medium">{itemCountA}</span>
 				→
 				<span class="font-medium">{itemCountB}</span>
@@ -131,14 +132,14 @@
 		</div>
 
 		{#if isEmpty}
-			<p class="text-gray-500">No differences between {labelA} and {labelB}.</p>
+			<p class="text-gray-500">{$_('compare.empty', { values: { a: labelA, b: labelB } })}</p>
 		{:else}
 			{#if comparison.parameterChanges.length > 0}
-				<h2 class="text-lg font-semibold mb-2">Parameters</h2>
+				<h2 class="text-lg font-semibold mb-2">{$_('compare.parameters')}</h2>
 				<table class="w-full text-sm border rounded-lg overflow-hidden mb-6">
 					<thead class="bg-gray-100 text-left">
 						<tr>
-							<th class="px-3 py-2">Parameter</th>
+							<th class="px-3 py-2">{$_('compare.colParameter')}</th>
 							<th class="px-3 py-2">{labelA}</th>
 							<th class="px-3 py-2">{labelB}</th>
 						</tr>
@@ -155,17 +156,17 @@
 				</table>
 			{/if}
 
-			<h2 class="text-lg font-semibold mb-2">Nodes</h2>
+			<h2 class="text-lg font-semibold mb-2">{$_('compare.nodes')}</h2>
 			<table class="w-full text-sm border rounded-lg overflow-hidden">
 				<thead class="bg-gray-100 text-left">
 					<tr>
-						<th class="px-3 py-2">Path</th>
-						<th class="px-3 py-2">Type</th>
-						<th class="px-3 py-2">Name</th>
-						<th class="px-3 py-2 text-right">Min</th>
-						<th class="px-3 py-2 text-right">Exp</th>
-						<th class="px-3 py-2 text-right">Max</th>
-						<th class="px-3 py-2 text-right">Offer PT</th>
+						<th class="px-3 py-2">{$_('compare.colPath')}</th>
+						<th class="px-3 py-2">{$_('compare.colType')}</th>
+						<th class="px-3 py-2">{$_('compare.colName')}</th>
+						<th class="px-3 py-2 text-right">{$_('compare.colMin')}</th>
+						<th class="px-3 py-2 text-right">{$_('compare.colExp')}</th>
+						<th class="px-3 py-2 text-right">{$_('compare.colMax')}</th>
+						<th class="px-3 py-2 text-right">{$_('compare.colOfferPT')}</th>
 					</tr>
 				</thead>
 				<tbody>

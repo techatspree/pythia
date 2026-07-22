@@ -3,6 +3,7 @@
 	import { goto } from '$app/navigation';
 	import { resolve } from '$app/paths';
 	import { onMount, type Component } from 'svelte';
+	import { _ } from 'svelte-i18n';
 	import ErrorBanner from '$lib/components/ErrorBanner.svelte';
 	import UndoHistoryPanel, { relativeTime } from '$lib/components/UndoHistoryPanel.svelte';
 	import UndoConflictDialog from '$lib/components/UndoConflictDialog.svelte';
@@ -72,13 +73,25 @@
 	const redoTarget = $derived(latestByStatus('UNDONE'));
 	const undoTooltip = $derived(
 		undoTarget
-			? `Rückgängig (Strg+Z) — ${undoTarget.kind} von ${undoTarget.userDisplayName}, ${relativeTime(undoTarget.createdAt)}`
-			: 'Rückgängig (Strg+Z)'
+			? $_('editor.undoTooltipDetail', {
+					values: {
+						kind: undoTarget.kind,
+						user: undoTarget.userDisplayName,
+						time: relativeTime(undoTarget.createdAt)
+					}
+				})
+			: $_('editor.undoTooltip')
 	);
 	const redoTooltip = $derived(
 		redoTarget
-			? `Wiederholen (Strg+Umschalt+Z) — ${redoTarget.kind} von ${redoTarget.userDisplayName}, ${relativeTime(redoTarget.createdAt)}`
-			: 'Wiederholen (Strg+Umschalt+Z)'
+			? $_('editor.redoTooltipDetail', {
+					values: {
+						kind: redoTarget.kind,
+						user: redoTarget.userDisplayName,
+						time: relativeTime(redoTarget.createdAt)
+					}
+				})
+			: $_('editor.redoTooltip')
 	);
 
 	// Recommended conflict resolution: reload the current draft, refresh the log,
@@ -94,7 +107,7 @@
 			return computeCalcMap(currentRoots, currentParameters, currentDrivers, currentPhases);
 		} catch (e: any) {
 			log.error('calcMap computation failed:', e);
-			bannerMessage = `Calculation failed: ${e?.message ?? e}`;
+			bannerMessage = $_('editor.calculationFailed', { values: { message: e?.message ?? e } });
 			return new Map<string, { offerPT: number; cost: number; offerPrice: number }>();
 		}
 	});
@@ -110,7 +123,7 @@
 				? `/api/estimations/${estimationId}/versions/draft`
 				: `/api/estimations/${estimationId}/versions/${versionNumber}`;
 			const res = await apiFetch(url);
-			await assertOk(res, 'Failed to load version');
+			await assertOk(res, $_('editor.loadFailed'));
 			const data = await res.json();
 			// Read the estimation detail first: it carries the method (which module
 			// to load) and, for bucket estimations, the buckets. Setting
@@ -241,7 +254,7 @@
 						additionalCosts: currentAdditionalCosts
 					})
 				});
-				await assertOk(res, 'Save failed');
+				await assertOk(res, $_('editor.saveFailed'));
 				saveStatus = 'saved';
 				// A successful PUT records a new mutation; refresh so undo/redo
 				// availability tracks the latest state.
@@ -249,7 +262,7 @@
 				setTimeout(() => (saveStatus = 'idle'), 2000);
 			} catch (e: any) {
 				saveStatus = 'idle';
-				bannerMessage = `Autosave failed: ${e?.message ?? e}`;
+				bannerMessage = $_('editor.autosaveFailed', { values: { message: e?.message ?? e } });
 			}
 		}, 800);
 	}
@@ -260,7 +273,7 @@
 			const res = await apiFetch(`/api/estimations/${id}/versions/draft/submit`, {
 				method: 'POST'
 			});
-			await assertOk(res, 'Failed to submit version');
+			await assertOk(res, $_('editor.submitFailed'));
 			goto(resolve('/estimations/[id]', { id }));
 		} catch (e: any) {
 			log.error('submitVersion failed:', e);
@@ -271,80 +284,80 @@
 
 <div class="p-6">
 	{#if loading}
-		<p class="text-gray-500">Loading...</p>
+		<p class="text-gray-500">{$_('editor.loading')}</p>
 	{:else if versionData}
 		<ErrorBanner message={bannerMessage} ondismiss={() => (bannerMessage = null)} />
 		<div class="flex items-center justify-between mb-4">
 			<a href={resolve('/estimations/[id]', { id: page.params.id! })} class="text-sm text-brand-green hover:underline"
-				>&larr; Back to estimation</a
+				>{$_('editor.back')}</a
 			>
 			<div class="flex items-center gap-3">
 				{#if saveStatus === 'saving'}
-					<span class="text-sm text-gray-400">Saving…</span>
+					<span class="text-sm text-gray-400">{$_('editor.saving')}</span>
 				{:else if saveStatus === 'saved'}
-					<span class="text-sm text-green-600">Saved ✓</span>
+					<span class="text-sm text-green-600">{$_('editor.saved')}</span>
 				{/if}
 				{#if versionData.isDraft}
 					<button
 						type="button"
 						onclick={() => undoStore.undo()}
 						disabled={!undoStore.canUndo}
-						aria-label="Rückgängig"
+						aria-label={$_('editor.undo')}
 						title={undoTooltip}
 						class="px-3 py-2 text-sm border rounded hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed"
 					>
-						↶ Rückgängig
+						{$_('editor.undoLabel')}
 					</button>
 					<button
 						type="button"
 						onclick={() => undoStore.redo()}
 						disabled={!undoStore.canRedo}
-						aria-label="Wiederholen"
+						aria-label={$_('editor.redo')}
 						title={redoTooltip}
 						class="px-3 py-2 text-sm border rounded hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed"
 					>
-						↷ Wiederholen
+						{$_('editor.redoLabel')}
 					</button>
 					<button
 						type="button"
 						onclick={() => (showHistory = !showHistory)}
-						aria-label="Verlauf anzeigen"
+						aria-label={$_('editor.historyAria')}
 						aria-pressed={showHistory}
 						class="px-3 py-2 text-sm border rounded hover:bg-gray-50 {showHistory
 							? 'bg-brand-green/10 border-brand-green/40 text-brand-green'
 							: ''}"
 					>
-						Verlauf
+						{$_('editor.history')}
 					</button>
 					<button
 						onclick={submitVersion}
 						class="px-4 py-2 text-sm bg-brand-green text-white rounded hover:bg-[#007a45]"
 					>
-						Submit
+						{$_('editor.submit')}
 					</button>
 				{/if}
 				<details class="relative">
-					<summary class="px-4 py-2 text-sm border rounded cursor-pointer select-none">Export</summary>
+					<summary class="px-4 py-2 text-sm border rounded cursor-pointer select-none">{$_('editor.export')}</summary>
 					<div class="absolute right-0 mt-1 bg-white border rounded shadow text-sm z-10">
 						<a
 							class="block px-4 py-2 hover:bg-gray-50"
 							download
 							rel="external"
 							href="/api/estimations/{page.params.id}/versions/{versionData.isDraft ? 'draft' : versionData.versionNumber}/export?format=xlsx"
-						>Excel (.xlsx)</a>
+						>{$_('editor.exportXlsx')}</a>
 						<a
 							class="block px-4 py-2 hover:bg-gray-50"
 							download
 							rel="external"
 							href="/api/estimations/{page.params.id}/versions/{versionData.isDraft ? 'draft' : versionData.versionNumber}/export?format=csv"
-						>CSV (.csv)</a>
+						>{$_('editor.exportCsv')}</a>
 					</div>
 				</details>
 			</div>
 		</div>
 
 		<div class="flex items-center gap-3 mb-2">
-			<h1 class="text-2xl font-bold">Version {versionData.versionNumber}</h1>
+			<h1 class="text-2xl font-bold">{$_('editor.versionHeading', { values: { n: versionData.versionNumber } })}</h1>
 			<span
 				data-testid="version-editor.method"
 				class="px-2 py-0.5 text-xs rounded-full bg-brand-green/20 text-brand-green"
@@ -355,7 +368,7 @@
 			<div
 				class="mb-4 px-4 py-3 bg-amber-50 border border-amber-200 rounded text-amber-800 text-sm"
 			>
-				Submitted — read only
+				{$_('editor.submittedReadOnly')}
 			</div>
 		{/if}
 
@@ -363,7 +376,7 @@
 			<textarea
 				class="w-full mb-4 p-2 border rounded text-sm resize-none focus:outline-none focus:ring-1 focus:ring-brand-green/40"
 				rows="2"
-				placeholder="Notes…"
+				placeholder={$_('editor.notesPlaceholder')}
 				bind:value={currentNotes}
 			></textarea>
 		{:else if versionData.notes}
@@ -382,7 +395,7 @@
 				editable={versionData.isDraft}
 			/>
 		{:else}
-			<p class="text-gray-500">Loading editor…</p>
+			<p class="text-gray-500">{$_('editor.loadingEditor')}</p>
 		{/if}
 
 		{#if versionData.isDraft && showHistory}

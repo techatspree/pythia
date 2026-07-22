@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { _ } from 'svelte-i18n';
 	import TreeTable from './treetable/TreeTable.svelte';
 	import type { TreeColumn, TreeNodeContext } from './treetable/types';
 	import {
@@ -186,30 +187,30 @@
 	}
 
 	const columns: TreeColumn<Node>[] = [
-		{ key: 'description', header: 'Description', width: '1fr', cell: descriptionCell },
-		{ key: 'type', header: 'Type', width: '5rem', cell: typeCell },
-		{ key: 'phase', header: 'Phase', width: '6rem', cell: phaseCell },
-		{ key: 'optimistic', header: 'Optimistic', width: '6rem', align: 'right', cell: optimisticCell },
-		{ key: 'likely', header: 'Likely', width: '6rem', align: 'right', cell: likelyCell },
+		{ key: 'description', header: $_('grid.colDescription'), width: '1fr', cell: descriptionCell },
+		{ key: 'type', header: $_('grid.colType'), width: '5rem', cell: typeCell },
+		{ key: 'phase', header: $_('grid.colPhase'), width: '6rem', cell: phaseCell },
+		{ key: 'optimistic', header: $_('grid.colOptimistic'), width: '6rem', align: 'right', cell: optimisticCell },
+		{ key: 'likely', header: $_('grid.colLikely'), width: '6rem', align: 'right', cell: likelyCell },
 		{
 			key: 'pessimistic',
-			header: 'Pessimistic',
+			header: $_('grid.colPessimistic'),
 			width: '6rem',
 			align: 'right',
 			cell: pessimisticCell
 		},
-		{ key: 'pert', header: 'PERT', width: '6rem', align: 'right', cell: pertCell },
-		{ key: 'assumptions', header: 'Assumptions', width: '1fr', cell: assumptionsCell },
+		{ key: 'pert', header: $_('grid.colPert'), width: '6rem', align: 'right', cell: pertCell },
+		{ key: 'assumptions', header: $_('grid.colAssumptions'), width: '1fr', cell: assumptionsCell },
 		{
 			key: 'offerPT',
-			header: 'offerPT (PT)',
+			header: $_('grid.colOfferPT'),
 			width: '6rem',
 			align: 'right',
 			cell: offerPTCell
 		},
 		{
 			key: 'cost',
-			header: 'Cost (EUR)',
+			header: $_('grid.colCost'),
 			width: '7rem',
 			align: 'right',
 			cell: costCell,
@@ -217,7 +218,7 @@
 		},
 		{
 			key: 'offerPrice',
-			header: 'Offer Price (EUR)',
+			header: $_('grid.colOfferPrice'),
 			width: '7rem',
 			align: 'right',
 			cell: offerPriceCell,
@@ -230,9 +231,10 @@
 	}
 
 	function legacyZoneAttrs(parent: Node | null): Record<string, string> {
-		if (parent == null) return { 'aria-label': 'Estimation root nodes' };
-		if (parent.type === 'GROUP') return { 'aria-label': `Children of ${parent.title}` };
-		return { 'aria-label': 'Children' };
+		if (parent == null) return { 'aria-label': $_('grid.ariaRootNodes') };
+		if (parent.type === 'GROUP')
+			return { 'aria-label': $_('grid.ariaChildrenOf', { values: { title: parent.title ?? '' } }) };
+		return { 'aria-label': $_('grid.ariaChildren') };
 	}
 
 	const gridTemplateColumns = $derived(
@@ -255,7 +257,7 @@
 			<span class="font-semibold text-gray-700">{node.title}</span>
 		{/if}
 		<span class="ml-2 text-xs font-normal text-gray-400">
-			{node.children.length} child{node.children.length !== 1 ? 'ren' : ''}
+			{$_('grid.childCount', { values: { count: node.children.length } })}
 		</span>
 	{:else if editable}
 		<input
@@ -285,7 +287,7 @@
 					node.unit = v === 'TIME_RELATIVE' ? 'h/Woche' : null;
 				}}
 			>
-				<option value="FIXED">Fixed</option>
+				<option value="FIXED">{$_('grid.typeFixed')}</option>
 				<option value="TIME_RELATIVE">h/Woche</option>
 			</select>
 		{:else if node.type === 'TIME_RELATIVE'}
@@ -306,7 +308,7 @@
 					node.phaseAbbreviation = e.currentTarget.value === '' ? null : e.currentTarget.value;
 				}}
 			>
-				<option value="">— none —</option>
+				<option value="">{$_('grid.phaseNone')}</option>
 				{#each phases as p (p.abbreviation)}
 					<option value={p.abbreviation}>{p.abbreviation}</option>
 				{/each}
@@ -414,7 +416,7 @@
 {#snippet offerPTCell(node: Node, _ctx: TreeNodeContext<Node>)}
 	{@const calc = calcMap.get(node.logicalId)}
 	{#if node.type !== 'GROUP' && node.type === 'TIME_RELATIVE' && !node.phaseAbbreviation}
-		<span class="text-amber-500 text-xs">⚠ needs phase</span>
+		<span class="text-amber-500 text-xs">{$_('grid.needsPhase')}</span>
 	{:else}
 		<span
 			class="text-gray-600 tabular-nums"
@@ -452,21 +454,21 @@
 				type="button"
 				onclick={() => addChildGroupAt(ctx.path)}
 				class="text-xs text-brand-green hover:text-[#007a45]"
-				title="Add child group">+ group</button
+				title={$_('grid.actionAddChildGroupTitle')}>{$_('grid.actionAddChildGroup')}</button
 			>
 			<button
 				type="button"
 				onclick={() => addChildLeafAt(ctx.path)}
 				class="text-xs text-brand-green hover:text-[#007a45]"
-				title="Add child item">+ item</button
+				title={$_('grid.actionAddChildItemTitle')}>{$_('grid.actionAddChildItem')}</button
 			>
 		{/if}
 		<button
 			type="button"
 			onclick={() => deleteAt(ctx.path)}
 			class="text-gray-300 hover:text-red-500 transition-colors leading-none"
-			title="Delete"
-			aria-label="Delete row">✕</button
+			title={$_('common.delete')}
+			aria-label={$_('grid.actionDeleteRow')}>✕</button
 		>
 	</div>
 {/snippet}
@@ -477,7 +479,7 @@
 		style="grid-template-columns: {gridTemplateColumns}"
 	>
 		{#if editable}<div class="py-2 px-1"></div>{/if}
-		<div class="py-2 px-3 text-xs text-gray-400 uppercase tracking-wide">Total</div>
+		<div class="py-2 px-3 text-xs text-gray-400 uppercase tracking-wide">{$_('grid.total')}</div>
 		<div class="py-2 px-2"></div>
 		<div class="py-2 px-2"></div>
 		<div class="py-2 px-2 text-right tabular-nums">{totalOpt.toFixed(2)}</div>
@@ -497,13 +499,13 @@
 <div class="border rounded-lg overflow-hidden" data-undo-aware="true">
 	{#if roots.length === 0}
 		<div class="p-10 text-center text-gray-400">
-			<p class="mb-4 text-sm">No items yet.</p>
+			<p class="mb-4 text-sm">{$_('grid.empty')}</p>
 			{#if editable}
 				<button
 					type="button"
 					onclick={addRootGroup}
 					class="px-4 py-2 text-sm bg-brand-green text-white rounded hover:bg-[#007a45]"
-					>Add group</button
+					>{$_('grid.addGroup')}</button
 				>
 			{/if}
 		</div>
@@ -526,7 +528,7 @@
 				<button
 					type="button"
 					onclick={addRootGroup}
-					class="text-sm text-brand-green hover:text-[#007a45]">+ Add group</button
+					class="text-sm text-brand-green hover:text-[#007a45]">{$_('grid.addGroupRow')}</button
 				>
 			</div>
 		{/if}

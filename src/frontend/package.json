@@ -42,6 +42,7 @@
 	"dependencies": {
 		"@azure/msal-browser": "^5.13.0",
 		"loglevel": "^1.9.2",
-		"svelte-dnd-action": "^0.9.69"
+		"svelte-dnd-action": "^0.9.69",
+		"svelte-i18n": "^4.0.1"
 	}
 }

@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { _ } from 'svelte-i18n';
+
 	let { message, ondismiss }: {
 		message: string | null;
 		ondismiss?: () => void;
@@ -14,7 +16,7 @@
 		{#if ondismiss}
 			<button
 				type="button"
-				aria-label="Dismiss"
+				aria-label={$_('common.dismiss')}
 				class="text-red-800 hover:text-red-900 leading-none text-lg"
 				onclick={() => ondismiss?.()}
 			>×</button>

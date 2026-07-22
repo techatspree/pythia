@@ -741,9 +741,9 @@
       "notes": "i18n: user language preference — column, PUT endpoint, SupportedLanguage enum"
     },
     "task-124": {
-      "status": "pending",
-      "started_at": null,
-      "completed_at": null,
+      "status": "done",
+      "started_at": "2026-07-22T08:39:46+00:00",
+      "completed_at": "2026-07-22T09:21:19+00:00",
       "notes": "i18n: frontend foundation (svelte-i18n) + DE catalog lift-and-shift"
     },
     "task-125": {

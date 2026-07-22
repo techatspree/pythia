@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { _ } from 'svelte-i18n';
 	import type { AuthAccount } from '$lib/auth/AuthProvider';
 	import { getAuthProvider } from '$lib/auth';
 
@@ -38,5 +39,5 @@
 			await getAuthProvider().logout();
 			onlogout();
 		}}
-	>Logout</button>
+	>{$_('menu.user.logout')}</button>
 </div>

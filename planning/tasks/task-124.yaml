@@ -27,6 +27,11 @@ description: |
     `MethodDetailPopover`, method badges, undo history/conflict
     dialogs, editor page, panels, dialogs, user menu, …), not a
     stale snapshot.
+  - **`initialLocale: 'de'` is deliberate here.** This task only
+    stands up the machinery and lift-and-shifts the DE catalog. The
+    English catalog, the language switcher, and reading the user's
+    persisted `language` from `GET /api/auth/me` all land in
+    task-125 — do NOT half-wire them now.
 
   ## Current state
 
@@ -52,18 +57,45 @@ steps:
   - |
     Add the dependency: `svelte-i18n` (pin a version compatible
     with Svelte 5). Create `src/frontend/src/lib/i18n/index.ts`:
-      * `import { register, init, getLocaleFromNavigator, locale } from 'svelte-i18n'`
+      * `import { register, init, locale, waitLocale } from 'svelte-i18n'`
+        (only import what you use — an unused symbol like
+        `getLocaleFromNavigator` fails `no-unused-vars` under
+        `:frontend:check`).
       * register `'de'` → `() => import('./de.json')`
       * `init({ fallbackLocale: 'de', initialLocale: 'de' })`
-      * export `setUserLanguage(lang: 'de' | 'en')` that sets `locale`.
+      * export `setUserLanguage(lang: SupportedLanguage)` (import the
+        exported enum from `$lib/domain` — task-111/task-123's "one
+        canonical name both sides share") that sets `locale` to
+        `lang.code`.
     Import the i18n init once in the root layout so `$_` is ready
     app-wide.
+  - |
+    Gate first paint on the async catalog load so no raw key ever
+    flashes (the app must render byte-identical German — "no visible
+    change"). `register` loads `de.json` asynchronously, so `$_`
+    returns the raw key until the dictionary is ready. Add a
+    `+layout.ts` `load` that does `await waitLocale()` (the route is
+    already `ssr = false`), OR guard `+layout.svelte` with
+    `{#if !$isLoading}…{/if}` (import `isLoading` from `svelte-i18n`)
+    around `{@render children()}`. Pick one; if you use `+layout.ts`,
+    it is an output.
   - |
     Create `src/frontend/src/lib/i18n/de.json`. Sweep every
     component/route and MOVE each German UI string into a
     namespaced key, replacing the literal with `$_('key')`
     (interpolation via `$_('key', { values: { … } })` where a
-    string embeds data). Keep the German text verbatim.
+    string embeds data). Keep the German text verbatim. This sweep
+    touches many `.svelte` files across `lib/components` and
+    `routes` (the `outputs` list names only the foundation files +
+    the two spot-checked panels; the sweep is broader by design).
+  - |
+    Document the new convention in `CLAUDE.md` (Frontend
+    conventions section): frontend UI strings live in
+    `$lib/i18n/*.json` catalogs and are rendered via `svelte-i18n`
+    `$_('key')` (dot-separated, component-scoped keys); NO inline UI
+    string literals. Note the DE lift-and-shift and that EN + the
+    switcher land in task-125. This is the i18n convention the rest
+    of phase-16 (task-125..127) builds on.
   - |
     Type-check + lint (frontend):
       ./gradlew :frontend:check
@@ -78,9 +110,11 @@ validation:
     de.json is valid JSON with a meaningful number of keys (lift-and-shift):
       node -e "const j=require('./src/frontend/src/lib/i18n/de.json'); const n=JSON.stringify(j).match(/:/g).length; if(n<40){console.error('too few keys: '+n);process.exit(1)}"
   - |
-    Components consume the store (spot-check a few high-traffic ones):
-      grep -q "\$_('" src/frontend/src/lib/components/ParametersPanel.svelte
-      grep -q "\$_('" src/frontend/src/lib/components/UndoHistoryPanel.svelte
+    Components consume the store (spot-check a few high-traffic ones).
+    Use grep -F: a leading '$' is an end-anchor in BSD/macOS grep, so a plain
+    regex grep for "$_(" yields a false negative even when the call is present.
+      grep -qF "\$_('" src/frontend/src/lib/components/ParametersPanel.svelte
+      grep -qF "\$_('" src/frontend/src/lib/components/UndoHistoryPanel.svelte
   - |
     No bare console in the i18n foundation (frontend logging convention):
       ! grep -nE "console\." src/frontend/src/lib/i18n/index.ts
@@ -93,3 +127,9 @@ outputs:
   - created: src/frontend/src/lib/i18n/index.ts
   - created: src/frontend/src/lib/i18n/de.json
   - modified: src/frontend/src/routes/+layout.svelte
+  # If the first-paint gate is implemented as a load (recommended), this is created:
+  - modified: src/frontend/src/routes/+layout.ts
+  - modified: CLAUDE.md
+  # Representative swept files (the lift-and-shift touches the broader component tree):
+  - modified: src/frontend/src/lib/components/ParametersPanel.svelte
+  - modified: src/frontend/src/lib/components/UndoHistoryPanel.svelte

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { _ } from 'svelte-i18n';
 	import type { ApiEstimationDetail } from '$lib/api/types.js';
 	import { formatMethodLabel } from '$lib/methods/labels';
 	import MethodDetailPopover from '$lib/methods/MethodDetailPopover.svelte';
@@ -12,7 +13,7 @@
 		<h1 class="text-2xl font-bold">{estimation.offer}</h1>
 		{#if estimation.latestVersionNumber}
 			<span class="px-2 py-0.5 text-xs rounded-full bg-brand-green/20 text-brand-green">
-				Latest: v{estimation.latestVersionNumber}
+				{$_('estimation.detailLatest', { values: { n: estimation.latestVersionNumber } })}
 			</span>
 		{/if}
 		<div class="relative">

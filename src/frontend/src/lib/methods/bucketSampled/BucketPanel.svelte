@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { dndzone, type DndEvent } from 'svelte-dnd-action';
 	import { flip } from 'svelte/animate';
+	import { _ } from 'svelte-i18n';
 
 	type Bucket = { id: string; position: number; label: string };
 
@@ -23,7 +24,10 @@
 	}
 
 	function addBucket() {
-		buckets = reindex([...buckets, { id: crypto.randomUUID(), position: buckets.length, label: 'Neu' }]);
+		buckets = reindex([
+			...buckets,
+			{ id: crypto.randomUUID(), position: buckets.length, label: $_('bucket.defaultLabel') }
+		]);
 	}
 
 	function removeBucket(id: string) {
@@ -40,13 +44,13 @@
 
 <div class="mb-4 border rounded-lg p-3 bg-gray-50/40">
 	<div class="flex items-center justify-between mb-2">
-		<h3 class="text-sm font-semibold text-gray-700">Buckets</h3>
+		<h3 class="text-sm font-semibold text-gray-700">{$_('bucket.panelTitle')}</h3>
 		{#if editable}
 			<button
 				type="button"
 				onclick={addBucket}
 				class="text-xs text-brand-green hover:text-[#007a45]"
-				title="Bucket hinzufügen">+ Bucket</button
+				title={$_('bucket.addTitle')}>{$_('bucket.add')}</button
 			>
 		{/if}
 	</div>
@@ -63,20 +67,20 @@
 				class="flex items-center gap-1 border rounded px-2 py-1 bg-white"
 			>
 				{#if editable}
-					<span class="cursor-grab text-gray-300 select-none" aria-hidden="true" title="Ziehen zum Sortieren">⠿</span>
+					<span class="cursor-grab text-gray-300 select-none" aria-hidden="true" title={$_('bucket.dragTitle')}>⠿</span>
 					<input
 						type="text"
 						class="bg-transparent text-sm w-24 focus:outline-none focus:ring-1 focus:ring-brand-green/40 rounded px-1"
 						value={bucket.label}
-						aria-label="Bucket-Name"
+						aria-label={$_('bucket.nameAria')}
 						oninput={(e) => (bucket.label = e.currentTarget.value)}
 					/>
 					<button
 						type="button"
 						onclick={() => removeBucket(bucket.id)}
 						class="text-gray-300 hover:text-red-500 leading-none"
-						aria-label="Bucket löschen"
-						title="Löschen">✕</button
+						aria-label={$_('bucket.deleteAria')}
+						title={$_('bucket.deleteTitle')}>✕</button
 					>
 				{:else}
 					<span class="text-sm text-gray-700">{bucket.label}</span>
@@ -86,6 +90,6 @@
 	</div>
 
 	{#if buckets.length === 0}
-		<p class="text-xs text-gray-400 mt-1">Keine Buckets — füge welche hinzu, um Items zuzuordnen.</p>
+		<p class="text-xs text-gray-400 mt-1">{$_('bucket.empty')}</p>
 	{/if}
 </div>

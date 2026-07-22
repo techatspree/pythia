@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { _ } from 'svelte-i18n';
 	import TreeTable from '$lib/components/treetable/TreeTable.svelte';
 	import type { TreeColumn, TreeNodeContext } from '$lib/components/treetable/types';
 	import ParametersPanel from '$lib/components/ParametersPanel.svelte';
@@ -91,18 +92,18 @@
 	});
 
 	const columns: TreeColumn<Node>[] = [
-		{ key: 'description', header: 'Description', width: '1fr', cell: descriptionCell },
-		{ key: 'bucket', header: 'Bucket', width: '8rem', cell: bucketCell },
-		{ key: 'sample', header: 'Sample', width: '5rem', align: 'center', cell: sampleCell },
-		{ key: 'optimistic', header: 'Optimistic', width: '6rem', align: 'right', cell: optimisticCell },
-		{ key: 'likely', header: 'Likely', width: '6rem', align: 'right', cell: likelyCell },
-		{ key: 'pessimistic', header: 'Pessimistic', width: '6rem', align: 'right', cell: pessimisticCell },
-		{ key: 'mean', header: 'Mean', width: '6rem', align: 'right', cell: meanCell },
-		{ key: 'offerPT', header: 'offerPT (PT)', width: '6rem', align: 'right', cell: offerPTCell },
-		{ key: 'cost', header: 'Cost (EUR)', width: '7rem', align: 'right', cell: costCell, collapsible: true },
+		{ key: 'description', header: $_('bucket.colDescription'), width: '1fr', cell: descriptionCell },
+		{ key: 'bucket', header: $_('bucket.colBucket'), width: '8rem', cell: bucketCell },
+		{ key: 'sample', header: $_('bucket.colSample'), width: '5rem', align: 'center', cell: sampleCell },
+		{ key: 'optimistic', header: $_('bucket.colOptimistic'), width: '6rem', align: 'right', cell: optimisticCell },
+		{ key: 'likely', header: $_('bucket.colLikely'), width: '6rem', align: 'right', cell: likelyCell },
+		{ key: 'pessimistic', header: $_('bucket.colPessimistic'), width: '6rem', align: 'right', cell: pessimisticCell },
+		{ key: 'mean', header: $_('bucket.colMean'), width: '6rem', align: 'right', cell: meanCell },
+		{ key: 'offerPT', header: $_('bucket.colOfferPT'), width: '6rem', align: 'right', cell: offerPTCell },
+		{ key: 'cost', header: $_('bucket.colCost'), width: '7rem', align: 'right', cell: costCell, collapsible: true },
 		{
 			key: 'offerPrice',
-			header: 'Offer Price (EUR)',
+			header: $_('bucket.colOfferPrice'),
 			width: '7rem',
 			align: 'right',
 			cell: offerPriceCell,
@@ -135,7 +136,7 @@
 				value={node.bucketId ?? ''}
 				onchange={(e) => (node.bucketId = e.currentTarget.value === '' ? null : e.currentTarget.value)}
 			>
-				<option value="">— none —</option>
+				<option value="">{$_('bucket.phaseNone')}</option>
 				{#each buckets as b (b.id)}
 					<option value={b.id}>{b.label}</option>
 				{/each}
@@ -153,7 +154,7 @@
 			class="accent-brand-green"
 			checked={node.isSample ?? false}
 			disabled={!editable}
-			aria-label="Als Stichprobe schätzen"
+			aria-label={$_('bucket.sampleAria')}
 			onchange={(e) => (node.isSample = e.currentTarget.checked)}
 		/>
 	{/if}
@@ -217,8 +218,8 @@
 		type="button"
 		onclick={() => deleteAt(ctx.path)}
 		class="text-gray-300 hover:text-red-500 transition-colors leading-none"
-		title="Delete"
-		aria-label="Delete row">✕</button
+		title={$_('common.delete')}
+		aria-label={$_('grid.actionDeleteRow')}>✕</button
 	>
 {/snippet}
 
@@ -234,7 +235,7 @@
 
 {#if unknownLeaves.length > 0 && !bannerDismissed}
 	<ErrorBanner
-		message={`${unknownLeaves.length} Item(s) verweisen auf einen gelöschten Bucket — bitte neu zuordnen.`}
+		message={$_('bucket.unknownBanner', { values: { count: unknownLeaves.length } })}
 		ondismiss={() => (bannerDismissed = true)}
 	/>
 {/if}
@@ -242,12 +243,12 @@
 <div class="border rounded-lg overflow-hidden" data-undo-aware="true">
 	{#if roots.length === 0}
 		<div class="p-10 text-center text-gray-400">
-			<p class="mb-4 text-sm">No items yet.</p>
+			<p class="mb-4 text-sm">{$_('bucket.itemsEmpty')}</p>
 			{#if editable}
 				<button
 					type="button"
 					onclick={addItem}
-					class="px-4 py-2 text-sm bg-brand-green text-white rounded hover:bg-[#007a45]">Add item</button
+					class="px-4 py-2 text-sm bg-brand-green text-white rounded hover:bg-[#007a45]">{$_('bucket.addItem')}</button
 				>
 			{/if}
 		</div>
@@ -267,7 +268,7 @@
 				<button
 					type="button"
 					onclick={addItem}
-					class="text-sm text-brand-green hover:text-[#007a45]">+ Add item</button
+					class="text-sm text-brand-green hover:text-[#007a45]">{$_('bucket.addItemRow')}</button
 				>
 			</div>
 		{/if}

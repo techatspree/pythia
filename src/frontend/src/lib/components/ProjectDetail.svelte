@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { resolve } from '$app/paths';
 	import { goto } from '$app/navigation';
+	import { _ } from 'svelte-i18n';
 	import RequiredRole from '$lib/auth/RequiredRole.svelte';
 	import CreateEstimationDialog from '$lib/components/CreateEstimationDialog.svelte';
 	import { formatMethodLabel } from '$lib/methods/labels';
@@ -23,7 +24,7 @@
 </script>
 
 {#if loading}
-	<p class="text-gray-500">Loading project...</p>
+	<p class="text-gray-500">{$_('project.detailLoading')}</p>
 {:else if error}
 	<p class="text-red-600">{error}</p>
 {:else if project}
@@ -38,36 +39,36 @@
 			<p class="text-gray-600 mb-1">{project.description}</p>
 		{/if}
 		{#if project.client}
-			<p class="text-sm text-gray-500">Client: {project.client}</p>
+			<p class="text-sm text-gray-500">{$_('project.detailClient', { values: { client: project.client } })}</p>
 		{/if}
 	</div>
 
 	<div class="flex items-center justify-between mb-3">
-		<h2 class="text-lg font-semibold">Estimations</h2>
+		<h2 class="text-lg font-semibold">{$_('project.detailEstimations')}</h2>
 		<RequiredRole role="ESTIMATOR">
 			<button
 				type="button"
 				onclick={() => (dialogOpen = true)}
 				class="px-4 py-2 text-sm bg-brand-green text-white rounded hover:bg-[#007a45]"
 			>
-				New Offer
+				{$_('project.detailNewOffer')}
 			</button>
 		</RequiredRole>
 	</div>
 
 	{#if project.estimations.length === 0}
-		<p class="text-gray-500">No estimations yet.</p>
+		<p class="text-gray-500">{$_('project.detailEmpty')}</p>
 	{:else}
 		<div class="overflow-x-auto">
 			<table class="w-full text-sm text-left">
 				<thead class="text-xs uppercase bg-brand-green/10 border-b text-brand-green">
 					<tr>
-						<th class="px-4 py-3">Offer</th>
-						<th class="px-4 py-3">Description</th>
-						<th class="px-4 py-3">Method</th>
-						<th class="px-4 py-3">Versions</th>
-						<th class="px-4 py-3">Current Version</th>
-						<th class="px-4 py-3">Created</th>
+						<th class="px-4 py-3">{$_('project.detailColOffer')}</th>
+						<th class="px-4 py-3">{$_('project.detailColDescription')}</th>
+						<th class="px-4 py-3">{$_('project.detailColMethod')}</th>
+						<th class="px-4 py-3">{$_('project.detailColVersions')}</th>
+						<th class="px-4 py-3">{$_('project.detailColCurrentVersion')}</th>
+						<th class="px-4 py-3">{$_('project.detailColCreated')}</th>
 					</tr>
 				</thead>
 				<tbody>

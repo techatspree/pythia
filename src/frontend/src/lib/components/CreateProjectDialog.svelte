@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { _ } from 'svelte-i18n';
 	import ErrorBanner from '$lib/components/ErrorBanner.svelte';
 	import { apiFetch } from '$lib/api/fetch';
 	import { assertOk } from '$lib/api/errors';
@@ -14,7 +15,7 @@
 
 	async function handleSubmit() {
 		if (!name.trim()) {
-			bannerMessage = 'Name is required';
+			bannerMessage = $_('dialog.createProject.nameRequired');
 			return;
 		}
 		loading = true;
@@ -25,7 +26,7 @@
 				headers: { 'Content-Type': 'application/json' },
 				body: JSON.stringify({ name: name.trim(), description: description.trim() || null, client: client.trim() || null })
 			});
-			await assertOk(res, 'Failed to create project');
+			await assertOk(res, $_('dialog.createProject.createFailed'));
 			name = '';
 			description = '';
 			client = '';
@@ -48,27 +49,27 @@
 {#if open}
 	<div class="fixed inset-0 bg-black/50 flex items-center justify-center z-50" role="dialog">
 		<div class="bg-white rounded-lg shadow-xl p-6 w-full max-w-md">
-			<h2 class="text-lg font-semibold mb-4">New Project</h2>
+			<h2 class="text-lg font-semibold mb-4">{$_('dialog.createProject.title')}</h2>
 
 			<ErrorBanner message={bannerMessage} ondismiss={() => (bannerMessage = null)} />
 
 			<form onsubmit={handleSubmit}>
 				<div class="mb-3">
-					<label class="block text-sm font-medium mb-1" for="name">Name *</label>
+					<label class="block text-sm font-medium mb-1" for="name">{$_('dialog.createProject.nameLabel')}</label>
 					<input id="name" bind:value={name} class="w-full border rounded px-3 py-2 text-sm" required />
 				</div>
 				<div class="mb-3">
-					<label class="block text-sm font-medium mb-1" for="description">Description</label>
+					<label class="block text-sm font-medium mb-1" for="description">{$_('dialog.createProject.descriptionLabel')}</label>
 					<input id="description" bind:value={description} class="w-full border rounded px-3 py-2 text-sm" />
 				</div>
 				<div class="mb-4">
-					<label class="block text-sm font-medium mb-1" for="client">Client</label>
+					<label class="block text-sm font-medium mb-1" for="client">{$_('dialog.createProject.clientLabel')}</label>
 					<input id="client" bind:value={client} class="w-full border rounded px-3 py-2 text-sm" />
 				</div>
 				<div class="flex justify-end gap-2">
-					<button type="button" onclick={handleCancel} class="px-4 py-2 text-sm border rounded hover:bg-gray-50">Cancel</button>
+					<button type="button" onclick={handleCancel} class="px-4 py-2 text-sm border rounded hover:bg-gray-50">{$_('dialog.createProject.cancel')}</button>
 					<button type="submit" disabled={loading} class="px-4 py-2 text-sm bg-brand-green text-white rounded hover:bg-[#007a45] disabled:opacity-50">
-						{loading ? 'Creating...' : 'Create'}
+						{loading ? $_('dialog.createProject.creating') : $_('dialog.createProject.create')}
 					</button>
 				</div>
 			</form>

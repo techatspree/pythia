@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { _ } from 'svelte-i18n';
 	import ErrorBanner from '$lib/components/ErrorBanner.svelte';
 	import { apiFetch } from '$lib/api/fetch';
 	import { log } from '$lib/log';
@@ -26,7 +27,7 @@
 
 	async function handleSubmit() {
 		if (!offer.trim()) {
-			bannerMessage = 'Angebot ist erforderlich';
+			bannerMessage = $_('dialog.createEstimation.offerRequired');
 			return;
 		}
 		loading = true;
@@ -51,7 +52,7 @@
 					/* non-JSON error body — keep statusText */
 				}
 				if (res.status === 403) {
-					message = 'Sie sind nicht berechtigt, eine Kalkulation anzulegen.';
+					message = $_('dialog.createEstimation.forbidden');
 				}
 				log.error(
 					'CreateEstimationDialog: create failed with status',
@@ -85,13 +86,13 @@
 {#if open}
 	<div class="fixed inset-0 bg-black/50 flex items-center justify-center z-50" role="dialog">
 		<div class="bg-white rounded-lg shadow-xl p-6 w-full max-w-md">
-			<h2 class="text-lg font-semibold mb-4">New Offer</h2>
+			<h2 class="text-lg font-semibold mb-4">{$_('dialog.createEstimation.title')}</h2>
 
 			<ErrorBanner message={bannerMessage} ondismiss={() => (bannerMessage = null)} />
 
 			<form onsubmit={handleSubmit}>
 				<div class="mb-3">
-					<label class="block text-sm font-medium mb-1" for="offer">Angebot *</label>
+					<label class="block text-sm font-medium mb-1" for="offer">{$_('dialog.createEstimation.offerLabel')}</label>
 					<input
 						id="offer"
 						bind:value={offer}
@@ -100,7 +101,7 @@
 					/>
 				</div>
 				<div class="mb-3">
-					<label class="block text-sm font-medium mb-1" for="method">Methode</label>
+					<label class="block text-sm font-medium mb-1" for="method">{$_('dialog.createEstimation.methodLabel')}</label>
 					<select
 						id="method"
 						bind:value={method}
@@ -112,7 +113,7 @@
 					</select>
 				</div>
 				<div class="mb-4">
-					<label class="block text-sm font-medium mb-1" for="description">Beschreibung</label>
+					<label class="block text-sm font-medium mb-1" for="description">{$_('dialog.createEstimation.descriptionLabel')}</label>
 					<textarea
 						id="description"
 						bind:value={description}
@@ -124,14 +125,14 @@
 					<button
 						type="button"
 						onclick={handleCancel}
-						class="px-4 py-2 text-sm border rounded hover:bg-gray-50">Abbrechen</button
+						class="px-4 py-2 text-sm border rounded hover:bg-gray-50">{$_('dialog.createEstimation.cancel')}</button
 					>
 					<button
 						type="submit"
 						disabled={loading}
 						class="px-4 py-2 text-sm bg-brand-green text-white rounded hover:bg-[#007a45] disabled:opacity-50"
 					>
-						{loading ? 'Speichern…' : 'Speichern'}
+						{loading ? $_('dialog.createEstimation.saving') : $_('dialog.createEstimation.save')}
 					</button>
 				</div>
 			</form>

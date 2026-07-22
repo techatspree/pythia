@@ -1,12 +1,13 @@
 <script lang="ts">
 	import { resolve } from '$app/paths';
+	import { _ } from 'svelte-i18n';
 	import type { ApiVersionSummary } from '$lib/api/types.js';
 	let { versions, estimationId, oncreate, onsubmit }: { versions: ApiVersionSummary[]; estimationId: string; oncreate: () => void; onsubmit: () => void } = $props();
 
 	let compareSelection = $state<string[]>([]);
 
 	function statusLabel(version: ApiVersionSummary): string {
-		return version.isDraft ? 'DRAFT' : 'SUBMITTED';
+		return version.isDraft ? $_('version.statusDraft') : $_('version.statusSubmitted');
 	}
 
 	function statusColor(version: ApiVersionSummary): string {
@@ -46,20 +47,20 @@
 	const compareLabel = $derived.by(() => {
 		if (compareSelection.length !== 2) return '';
 		const [a, b] = sortRefs(compareSelection);
-		return `Compare ${labelOf(a)} ↔ ${labelOf(b)}`;
+		return $_('version.compare', { values: { a: labelOf(a), b: labelOf(b) } });
 	});
 </script>
 
 <div class="mt-6">
 	<div class="flex items-center justify-between mb-3">
-		<h2 class="text-lg font-semibold">Versions</h2>
+		<h2 class="text-lg font-semibold">{$_('version.listTitle')}</h2>
 		<button onclick={oncreate} class="px-4 py-2 text-sm bg-brand-green text-white rounded hover:bg-[#007a45]">
-			Create new version
+			{$_('version.createNew')}
 		</button>
 	</div>
 
 	{#if versions.length === 0}
-		<p class="text-gray-500">No versions yet. Create one to get started.</p>
+		<p class="text-gray-500">{$_('version.listEmpty')}</p>
 	{:else}
 		<div class="space-y-3">
 			{#each versions as version (refOf(version))}
@@ -97,7 +98,7 @@
 										onclick={(e: MouseEvent) => { e.stopPropagation(); onsubmit(); }}
 										class="px-3 py-1 text-xs bg-brand-green text-white rounded hover:bg-[#007a45]"
 									>
-										Submit
+										{$_('version.submit')}
 									</button>
 								{/if}
 								<span class="text-sm text-gray-500">
@@ -107,7 +108,7 @@
 						</div>
 						<div class="mt-1 flex items-center gap-4 text-sm text-gray-600">
 							{#if version.totalEffort != null}
-								<span>Effort: {version.totalEffort} PT</span>
+								<span>{$_('version.effort', { values: { effort: version.totalEffort } })}</span>
 							{/if}
 							{#if version.notes}
 								<span class="truncate">{version.notes}</span>

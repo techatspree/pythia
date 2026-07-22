@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { _ } from 'svelte-i18n';
 	import { formatMethodLabel } from '$lib/methods/labels';
 	import { log } from '$lib/log';
 	import type { components } from '$lib/api/schema';
@@ -54,7 +55,7 @@
 		bind:this={container}
 		data-testid="estimation-detail.method-detail-popover"
 		role="dialog"
-		aria-label="Method description"
+		aria-label={$_('method.popover.ariaLabel')}
 		class="absolute z-50 mt-2 bg-white rounded-lg shadow-xl border p-4 max-w-sm text-sm text-gray-700"
 	>
 		<div class="font-semibold text-brand-green mb-2">{formatMethodLabel(method)}</div>

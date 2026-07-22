@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { _ } from 'svelte-i18n';
+
 	type Driver = { description: string; factor: number; comment: string };
 
 	let {
@@ -31,20 +33,20 @@
 		class="w-full flex items-center justify-between px-4 py-2 bg-brand-green/10 text-brand-green text-xs font-semibold uppercase tracking-wide hover:bg-brand-green/20"
 		onclick={() => (open = !open)}
 	>
-		<span>Effort Drivers</span>
+		<span>{$_('panel.effortDrivers.title')}</span>
 		<span>{open ? '▼' : '▶'}</span>
 	</button>
 
 	{#if open}
 		{#if effortDrivers.length === 0 && !editable}
-			<p class="p-4 text-sm text-gray-400 text-center">No effort drivers</p>
+			<p class="p-4 text-sm text-gray-400 text-center">{$_('panel.effortDrivers.emptyReadonly')}</p>
 		{:else}
 			<table class="w-full text-sm border-collapse">
 				<thead>
 					<tr class="border-b text-xs text-gray-500 uppercase tracking-wide">
-						<th class="py-2 px-3 text-left">Description</th>
-						<th class="py-2 px-3 text-right w-28">Factor</th>
-						<th class="py-2 px-3 text-left">Comment</th>
+						<th class="py-2 px-3 text-left">{$_('panel.effortDrivers.colDescription')}</th>
+						<th class="py-2 px-3 text-right w-28">{$_('panel.effortDrivers.colFactor')}</th>
+						<th class="py-2 px-3 text-left">{$_('panel.effortDrivers.colComment')}</th>
 						{#if editable}<th class="py-2 px-3 w-8"></th>{/if}
 					</tr>
 				</thead>
@@ -93,7 +95,7 @@
 									<button
 										onclick={() => deleteRow(i)}
 										class="text-gray-300 hover:text-red-500 transition-colors leading-none"
-										title="Delete"
+										title={$_('common.delete')}
 									>
 										✕
 									</button>
@@ -105,7 +107,7 @@
 				<tfoot>
 					<tr class="border-t bg-gray-50 font-medium text-sm">
 						<td class="py-2 px-3 text-right text-gray-500 text-xs uppercase tracking-wide"
-							>Total factor:</td
+							>{$_('panel.effortDrivers.totalFactor')}</td
 						>
 						<td class="py-2 px-3 text-right tabular-nums">{totalFactor.toFixed(2)}</td>
 						<td class="py-2 px-3"></td>
@@ -116,7 +118,7 @@
 			{#if editable}
 				<div class="p-3 border-t bg-gray-50/40">
 					<button onclick={addRow} class="text-sm text-brand-green hover:text-[#007a45]">
-						+ Add driver
+						{$_('panel.effortDrivers.addRow')}
 					</button>
 				</div>
 			{/if}

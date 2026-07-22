@@ -2,6 +2,7 @@
 	import { page } from '$app/state';
 	import { resolve } from '$app/paths';
 	import { onMount } from 'svelte';
+	import { _ } from 'svelte-i18n';
 	import EstimationDetail from '$lib/components/EstimationDetail.svelte';
 	import VersionList from '$lib/components/VersionList.svelte';
 	import ErrorBanner from '$lib/components/ErrorBanner.svelte';
@@ -20,7 +21,7 @@
 		bannerMessage = null;
 		try {
 			const res = await apiFetch(`/api/estimations/${id}`);
-			await assertOk(res, 'Estimation not found');
+			await assertOk(res, $_('estimation.pageNotFound'));
 			estimation = await res.json();
 		} catch (e: any) {
 			log.error('loadEstimation failed:', e);
@@ -36,7 +37,7 @@
 		if (!estimation) return;
 		try {
 			const res = await apiFetch(`/api/estimations/${estimation.id ?? ''}/versions`, { method: 'POST' });
-			await assertOk(res, 'Failed to create version');
+			await assertOk(res, $_('estimation.pageCreateVersionFailed'));
 			await loadEstimation();
 		} catch (e: any) {
 			log.error('createVersion failed:', e);
@@ -48,7 +49,7 @@
 		if (!estimation) return;
 		try {
 			const res = await apiFetch(`/api/estimations/${estimation.id ?? ''}/versions/draft/submit`, { method: 'POST' });
-			await assertOk(res, 'Failed to submit version');
+			await assertOk(res, $_('estimation.pageSubmitFailed'));
 			await loadEstimation();
 		} catch (e: any) {
 			log.error('submitVersion failed:', e);
@@ -59,12 +60,12 @@
 
 <div class="p-6">
 	{#if loading}
-		<p class="text-gray-500">Loading estimation...</p>
+		<p class="text-gray-500">{$_('estimation.pageLoading')}</p>
 	{:else}
 		<ErrorBanner message={bannerMessage} ondismiss={() => (bannerMessage = null)} />
 		{#if estimation}
 		{#if estimation.projectId}
-			<a href={resolve('/projects/[id]', { id: estimation.projectId })} class="text-sm text-brand-green hover:underline mb-4 inline-block">&larr; Back to {estimation.projectName ?? 'project'}</a>
+			<a href={resolve('/projects/[id]', { id: estimation.projectId })} class="text-sm text-brand-green hover:underline mb-4 inline-block">{$_('estimation.pageBack', { values: { project: estimation.projectName ?? $_('estimation.pageProjectFallback') } })}</a>
 		{/if}
 		<EstimationDetail {estimation} />
 		<VersionList versions={estimation.versions} estimationId={estimation.id ?? ''} oncreate={createVersion} onsubmit={submitVersion} />
