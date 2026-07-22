@@ -735,9 +735,9 @@
       "notes": "i18n: Anglicise backend identifiers, comments, logs; Excel labels as data"
     },
     "task-123": {
-      "status": "pending",
-      "started_at": null,
-      "completed_at": null,
+      "status": "done",
+      "started_at": "2026-07-22T07:47:49+00:00",
+      "completed_at": "2026-07-22T07:57:42+00:00",
       "notes": "i18n: user language preference — column, PUT endpoint, SupportedLanguage enum"
     },
     "task-124": {

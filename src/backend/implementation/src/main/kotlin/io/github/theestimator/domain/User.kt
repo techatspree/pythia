@@ -1,5 +1,6 @@
 package io.github.theestimator.domain
 
+import io.github.theestimator.i18n.SupportedLanguage
 import jakarta.persistence.Column
 import jakarta.persistence.Entity
 import jakarta.persistence.Table
@@ -16,4 +17,8 @@ class User : BaseEntity() {
     @NotBlank
     @Column(name = "display_name", nullable = false)
     var displayName: String? = null
+
+    // Persisted UI language preference (ISO 639-1 code, mirrors SupportedLanguage).
+    @Column(name = "language", nullable = false)
+    var language: String = SupportedLanguage.DE.code
 }

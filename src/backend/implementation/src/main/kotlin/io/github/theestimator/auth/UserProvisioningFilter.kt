@@ -1,12 +1,14 @@
 package io.github.theestimator.auth
 
 import io.github.theestimator.service.CurrentUserService
+import io.github.theestimator.service.preferredLanguage
 import io.quarkus.logging.Log
 import io.smallrye.common.annotation.Blocking
 import jakarta.annotation.Priority
 import jakarta.ws.rs.Priorities
 import jakarta.ws.rs.container.ContainerRequestContext
 import jakarta.ws.rs.container.ContainerRequestFilter
+import jakarta.ws.rs.core.HttpHeaders
 import jakarta.ws.rs.ext.Provider
 
 // Provider-agnostic just-in-time user provisioning. Runs after the auth module
@@ -33,7 +35,10 @@ class UserProvisioningFilter(
             return
         }
         Log.debug("UserProvisioningFilter: ensuring user ${current.subjectId} for ${ctx.method} ${ctx.uriInfo.path}")
-        currentUserService.ensureUser(current)
+        // Seed the language preference from Accept-Language on first sighting;
+        // ensureUser ignores it for an already-provisioned user.
+        val requestedLanguage = preferredLanguage(ctx.getHeaderString(HttpHeaders.ACCEPT_LANGUAGE))
+        currentUserService.ensureUser(current, requestedLanguage)
     }
 
     private companion object {

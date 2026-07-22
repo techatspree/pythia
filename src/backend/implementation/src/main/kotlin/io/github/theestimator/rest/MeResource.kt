@@ -2,11 +2,18 @@ package io.github.theestimator.rest
 
 import io.github.theestimator.auth.CurrentUserProvider
 import io.github.theestimator.auth.Role
+import io.github.theestimator.i18n.fromCode
 import io.github.theestimator.service.CurrentUserService
+import io.github.theestimator.service.preferredLanguage
 import jakarta.enterprise.context.ApplicationScoped
+import jakarta.ws.rs.BadRequestException
+import jakarta.ws.rs.Consumes
 import jakarta.ws.rs.GET
+import jakarta.ws.rs.HeaderParam
+import jakarta.ws.rs.PUT
 import jakarta.ws.rs.Path
 import jakarta.ws.rs.Produces
+import jakarta.ws.rs.core.HttpHeaders
 import jakarta.ws.rs.core.MediaType
 import jakarta.ws.rs.core.Response
 import org.eclipse.microprofile.openapi.annotations.Operation
@@ -20,7 +27,12 @@ data class CurrentUserDto(
     val email: String?,
     val displayName: String?,
     val roles: List<Role>,
-    val providerName: String
+    val providerName: String,
+    val language: String
+)
+
+data class LanguageUpdateDto(
+    val language: String
 )
 
 @ApplicationScoped
@@ -41,18 +53,38 @@ class MeResource(
         content = [Content(schema = Schema(implementation = CurrentUserDto::class))]
     )
     @APIResponse(responseCode = "401", description = "No user is populated for the request")
-    fun me(): Response {
+    fun me(@HeaderParam(HttpHeaders.ACCEPT_LANGUAGE) acceptLanguage: String?): Response {
         val u = currentUserProvider.current
             ?: return Response.status(Response.Status.UNAUTHORIZED).build()
-        currentUserService.ensureUser(u)
+        // ensureUser seeds language from Accept-Language on first sighting only;
+        // read the persisted preference back off the returned User (not the
+        // token principal, which carries no stored preference).
+        val user = currentUserService.ensureUser(u, preferredLanguage(acceptLanguage))
         return Response.ok(
             CurrentUserDto(
                 subjectId = u.subjectId,
                 email = u.email,
                 displayName = u.displayName,
                 roles = u.roles.toList(),
-                providerName = u.providerName
+                providerName = u.providerName,
+                language = user.language
             )
         ).build()
+    }
+
+    @PUT
+    @Path("/me/language")
+    @Consumes(MediaType.APPLICATION_JSON)
+    @Operation(summary = "Update the current user's language preference")
+    @APIResponse(responseCode = "204", description = "Language preference updated")
+    @APIResponse(responseCode = "400", description = "Unsupported language code")
+    @APIResponse(responseCode = "401", description = "No user is populated for the request")
+    fun updateLanguage(body: LanguageUpdateDto): Response {
+        val u = currentUserProvider.current
+            ?: return Response.status(Response.Status.UNAUTHORIZED).build()
+        val language = fromCode(body.language)
+            ?: throw BadRequestException("Unsupported language: ${body.language} (use de or en)")
+        currentUserService.updateLanguage(u, language)
+        return Response.noContent().build()
     }
 }
