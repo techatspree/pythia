@@ -24,38 +24,57 @@ description: |
 
   ## Current state
 
-  - `ExcelImporter` / `ExcelExporter`
-    (`src/backend/implementation/src/main/kotlin/io/github/theestimator/excel/`)
-    embed German sheet/column label string literals inline and
-    have German comments/log messages.
+  - `ExcelImporter` / `ExcelExporter` live in the
+    `io.github.theestimator.service` package
+    (`src/backend/implementation/src/main/kotlin/io/github/theestimator/service/`)
+    — there is NO `excel` package. They embed German sheet/column
+    label string literals inline and have German comments/log
+    messages.
   - Other backend files may carry German comments or log-message
     text (audit needed).
 
+  ## Scope of the "German audit"
+
+  - IN scope: German **identifiers, code comments, and
+    `io.quarkus.logging.Log` message text** across
+    `:backend:implementation`.
+  - OUT of scope (intentional German DATA, leave as-is): the Excel
+    sheet/column LABEL strings (moved to `ExcelGermanLabels`), and
+    the German **sample/demo data content** in
+    `testdata/TestDataSeeder.kt` (project/estimation titles and
+    item descriptions like `"Qualitätssicherung (QA)"`) — these are
+    fixture content, not source language, and parallel the Excel
+    labels. Do NOT churn them.
+
   ## Target state
 
-  - New `ExcelGermanLabels.kt` constants object under the excel
-    package holds every German label the importer/exporter needs,
-    with a header comment marking them as external data.
+  - New `ExcelGermanLabels.kt` constants object in the
+    `io.github.theestimator.service` package holds every German label
+    the importer/exporter needs, with a header comment marking them
+    as external data.
   - `ExcelImporter`/`ExcelExporter` reference the constants; their
     Kotlin identifiers, comments, and `io.quarkus.logging.Log`
     messages are English.
   - A repo-wide audit renames any remaining German identifiers and
     translates German comments/log messages elsewhere in
     `:backend:implementation` to English (the Excel LABEL strings
-    are the only intentional German data left).
+    and the seeder fixture content are the only intentional German
+    left).
   - Backend tests pass.
 
 steps:
   - |
-    Read the excel package and grep the backend for German text:
-      src/backend/implementation/src/main/kotlin/io/github/theestimator/excel/ExcelImporter.kt
-      src/backend/implementation/src/main/kotlin/io/github/theestimator/excel/ExcelExporter.kt
-      grep -rnE "Aufwand|Treiber|Zusammenfassung|Tagessatz|Risiko|Angebot" src/backend/implementation/src/main/kotlin
+    Read the excel codecs (in the `service` package) and grep the
+    backend for German text:
+      src/backend/implementation/src/main/kotlin/io/github/theestimator/service/ExcelImporter.kt
+      src/backend/implementation/src/main/kotlin/io/github/theestimator/service/ExcelExporter.kt
+      grep -rnE "Aufwand|Treiber|Zusammenfassung|Tagessatz|Risiko|Angebot|[äöüßÄÖÜ]" src/backend/implementation/src/main/kotlin
   - |
     Create
-    `src/backend/implementation/src/main/kotlin/io/github/theestimator/excel/ExcelGermanLabels.kt`
-    — an `object ExcelGermanLabels` holding the German sheet and
-    column label constants, with a file/kdoc header:
+    `src/backend/implementation/src/main/kotlin/io/github/theestimator/service/ExcelGermanLabels.kt`
+    — `package io.github.theestimator.service`, an
+    `object ExcelGermanLabels` holding the German sheet and column
+    label constants, with a file/kdoc header:
     "German labels mirror the customer's Excel workbook schema —
     this is external DATA, not the module's source language."
   - |
@@ -64,34 +83,40 @@ steps:
     Translate their comments and `Log.*` messages to English.
     Keep the `io.quarkus.logging.Log` API (CLAUDE.md backend
     logging convention) — INFO on the import/export operation
-    with key ids, ERROR on failure paths.
+    with key ids, ERROR on failure paths. (Note: `ExcelExporter`
+    may have no `Log.*` calls today; add English INFO/ERROR only if
+    it makes sense, do not invent noise.)
   - |
     Audit the rest of `:backend:implementation` (per the grep in
     step 1) and translate remaining German identifiers, comments,
     and log messages to English. Do NOT touch the German values in
-    `ExcelGermanLabels.kt` or the persisted parameter key
-    (task-121 already renamed it to `dailyRate`).
+    `ExcelGermanLabels.kt`, the German sample-data content in
+    `testdata/TestDataSeeder.kt` (out of scope — see description),
+    or the persisted parameter key (task-121 already renamed it to
+    `dailyRate`).
   - |
     Build + test (backend only):
       ./gradlew :backend:implementation:test
 validation:
   - |
-    The German Excel labels are centralised as data, referenced by the codecs:
-      test -f src/backend/implementation/src/main/kotlin/io/github/theestimator/excel/ExcelGermanLabels.kt
-      grep -q "external" src/backend/implementation/src/main/kotlin/io/github/theestimator/excel/ExcelGermanLabels.kt
-      grep -q "ExcelGermanLabels" src/backend/implementation/src/main/kotlin/io/github/theestimator/excel/ExcelExporter.kt
+    The German Excel labels are centralised as data, referenced by both codecs
+    (file must exist AND be referenced — guards against the false-negative trap):
+      test -f src/backend/implementation/src/main/kotlin/io/github/theestimator/service/ExcelGermanLabels.kt
+      grep -q "external" src/backend/implementation/src/main/kotlin/io/github/theestimator/service/ExcelGermanLabels.kt
+      grep -q "ExcelGermanLabels" src/backend/implementation/src/main/kotlin/io/github/theestimator/service/ExcelExporter.kt
+      grep -q "ExcelGermanLabels" src/backend/implementation/src/main/kotlin/io/github/theestimator/service/ExcelImporter.kt
   - |
     No German label literals remain inline in the codecs (they come from the constants object):
-      ! grep -nE "\"Aufwandstreiber\"|\"Zusammenfassung der Aufwandstreiber\"" src/backend/implementation/src/main/kotlin/io/github/theestimator/excel/ExcelImporter.kt
-      ! grep -nE "\"Aufwandstreiber\"|\"Zusammenfassung der Aufwandstreiber\"" src/backend/implementation/src/main/kotlin/io/github/theestimator/excel/ExcelExporter.kt
+      ! grep -nE "\"Aufwandstreiber\"|\"Zusammenfassung der Aufwandstreiber\"" src/backend/implementation/src/main/kotlin/io/github/theestimator/service/ExcelImporter.kt
+      ! grep -nE "\"Aufwandstreiber\"|\"Zusammenfassung der Aufwandstreiber\"" src/backend/implementation/src/main/kotlin/io/github/theestimator/service/ExcelExporter.kt
   - |
-    Backend logging uses the Quarkus Log API (no bare prints):
-      ! grep -rnE "println\(" src/backend/implementation/src/main/kotlin/io/github/theestimator/excel
-      grep -rq "io.quarkus.logging.Log" src/backend/implementation/src/main/kotlin/io/github/theestimator/excel
+    Backend logging uses the Quarkus Log API (no bare prints) in the codecs:
+      ! grep -nE "println\(" src/backend/implementation/src/main/kotlin/io/github/theestimator/service/ExcelImporter.kt
+      ! grep -nE "println\(" src/backend/implementation/src/main/kotlin/io/github/theestimator/service/ExcelExporter.kt
   - |
     Backend test suite is green:
       ./gradlew :backend:implementation:test
 outputs:
-  - created: src/backend/implementation/src/main/kotlin/io/github/theestimator/excel/ExcelGermanLabels.kt
-  - modified: src/backend/implementation/src/main/kotlin/io/github/theestimator/excel/ExcelImporter.kt
-  - modified: src/backend/implementation/src/main/kotlin/io/github/theestimator/excel/ExcelExporter.kt
+  - created: src/backend/implementation/src/main/kotlin/io/github/theestimator/service/ExcelGermanLabels.kt
+  - modified: src/backend/implementation/src/main/kotlin/io/github/theestimator/service/ExcelImporter.kt
+  - modified: src/backend/implementation/src/main/kotlin/io/github/theestimator/service/ExcelExporter.kt

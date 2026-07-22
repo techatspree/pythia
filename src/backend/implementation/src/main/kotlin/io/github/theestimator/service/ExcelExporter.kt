@@ -7,6 +7,7 @@ import io.github.theestimator.domain.submitted.SubmittedGroupNode
 import io.github.theestimator.domain.submitted.SubmittedTimeRelativeItemNode
 import io.github.theestimator.method.EstimationMethod
 import io.github.theestimator.method.EstimationMethodRegistry
+import io.quarkus.logging.Log
 import jakarta.enterprise.context.ApplicationScoped
 import org.apache.poi.ss.usermodel.Sheet
 import org.apache.poi.xssf.usermodel.XSSFRow
@@ -24,6 +25,7 @@ import java.io.OutputStream
 class ExcelExporter {
 
     fun export(version: SubmittedEstimationVersion, output: OutputStream) {
+        Log.info("Exporting estimation ${version.estimation?.id} version ${version.versionNumber} to Excel")
         val workbook = XSSFWorkbook()
 
         writeProjectStructurePlan(workbook, version)
@@ -45,7 +47,7 @@ class ExcelExporter {
         version.roots.flatMap { collectLeaves(it) }
 
     private fun writeProjectStructurePlan(workbook: XSSFWorkbook, version: SubmittedEstimationVersion) {
-        val sheet = workbook.createSheet("Projektstrukturplan")
+        val sheet = workbook.createSheet(ExcelGermanLabels.Sheets.PROJECT_STRUCTURE_PLAN)
 
         val headerRow = sheet.createRow(0)
         // The method-specific input columns (Min/Expected/Max for PERT) are
@@ -54,12 +56,20 @@ class ExcelExporter {
         val methodColumns = EstimationMethodRegistry
             .require(EstimationMethod.THREE_POINT_PERT)
             .exportColumnHeaders()
-        val headers = listOf("Beschreibung") + methodColumns + listOf(
-            "Mittelwert",
-            "Mittelwert pro Gruppe", "Varianz", "Varianz pro Gruppe",
-            "Zuschl. Risiko (PT)", "Zuschl. Aufwandstreiber (PT)",
-            "Angebots-PT", "Angebots-PT pro Gruppe", "Kosten",
-            "Angebots-preis", "Paket", "Annahmen, Abgrenzungen, Kommentare",
+        val headers = listOf(ExcelGermanLabels.ProjectStructure.DESCRIPTION) + methodColumns + listOf(
+            ExcelGermanLabels.ProjectStructure.MEAN,
+            ExcelGermanLabels.ProjectStructure.MEAN_PER_GROUP,
+            ExcelGermanLabels.ProjectStructure.VARIANCE,
+            ExcelGermanLabels.ProjectStructure.VARIANCE_PER_GROUP,
+            ExcelGermanLabels.ProjectStructure.RISK_SURCHARGE_PT,
+            ExcelGermanLabels.ProjectStructure.DRIVER_SURCHARGE_PT,
+            ExcelGermanLabels.ProjectStructure.OFFER_PT,
+            ExcelGermanLabels.ProjectStructure.OFFER_PT_PER_GROUP,
+            ExcelGermanLabels.ProjectStructure.COST,
+            ExcelGermanLabels.ProjectStructure.OFFER_PRICE,
+            ExcelGermanLabels.ProjectStructure.PACKAGE,
+            ExcelGermanLabels.ProjectStructure.ASSUMPTIONS,
+            // Round-trip technical columns — English tags, not customer labels.
             "Node type", "Logical ID", "Unit"
         )
         headers.forEachIndexed { idx, header -> headerRow.createCell(idx).setCellValue(header) }
@@ -118,17 +128,17 @@ class ExcelExporter {
     }
 
     private fun writeAdditionalCosts(workbook: XSSFWorkbook, version: SubmittedEstimationVersion) {
-        val sheet = workbook.createSheet("Zusatzkosten")
+        val sheet = workbook.createSheet(ExcelGermanLabels.Sheets.ADDITIONAL_COSTS)
         var rowIdx = 0
 
         val oneTime = version.additionalCosts.filter { it.type == AdditionalCostType.ONE_TIME }
         val recurring = version.additionalCosts.filter { it.type == AdditionalCostType.RECURRING }
 
-        sheet.createRow(rowIdx++).createCell(0).setCellValue("Einmalige Kosten")
+        sheet.createRow(rowIdx++).createCell(0).setCellValue(ExcelGermanLabels.AdditionalCosts.ONE_TIME_SECTION)
         val otHeader = sheet.createRow(rowIdx++)
-        otHeader.createCell(0).setCellValue("Beschreibung")
-        otHeader.createCell(1).setCellValue("Betrag")
-        otHeader.createCell(2).setCellValue("Paket")
+        otHeader.createCell(0).setCellValue(ExcelGermanLabels.AdditionalCosts.DESCRIPTION)
+        otHeader.createCell(1).setCellValue(ExcelGermanLabels.AdditionalCosts.AMOUNT)
+        otHeader.createCell(2).setCellValue(ExcelGermanLabels.AdditionalCosts.PACKAGE)
 
         for (cost in oneTime) {
             val row = sheet.createRow(rowIdx++)
@@ -138,12 +148,12 @@ class ExcelExporter {
         }
 
         rowIdx++
-        sheet.createRow(rowIdx++).createCell(0).setCellValue("Laufende Kosten")
+        sheet.createRow(rowIdx++).createCell(0).setCellValue(ExcelGermanLabels.AdditionalCosts.RECURRING_SECTION)
         val rcHeader = sheet.createRow(rowIdx++)
-        rcHeader.createCell(0).setCellValue("Beschreibung")
-        rcHeader.createCell(1).setCellValue("Betrag pro Woche")
-        rcHeader.createCell(2).setCellValue("Paket")
-        rcHeader.createCell(3).setCellValue("Gesamtkosten")
+        rcHeader.createCell(0).setCellValue(ExcelGermanLabels.AdditionalCosts.DESCRIPTION)
+        rcHeader.createCell(1).setCellValue(ExcelGermanLabels.AdditionalCosts.AMOUNT_PER_WEEK)
+        rcHeader.createCell(2).setCellValue(ExcelGermanLabels.AdditionalCosts.PACKAGE)
+        rcHeader.createCell(3).setCellValue(ExcelGermanLabels.AdditionalCosts.TOTAL_COST)
 
         for (cost in recurring) {
             val row = sheet.createRow(rowIdx++)
@@ -157,10 +167,17 @@ class ExcelExporter {
     }
 
     private fun writePhases(workbook: XSSFWorkbook, version: SubmittedEstimationVersion) {
-        val sheet = workbook.createSheet("Pakete")
+        val sheet = workbook.createSheet(ExcelGermanLabels.Sheets.PHASES)
         val headerRow = sheet.createRow(0)
-        listOf("Name", "Kürzel", "Laufzeit\nWochen", "Aufwand\nPT", "Kosten Entwicklung",
-            "Zusatzkosten\neinmalig", "Zusatzkosten\nlaufend", "Angebotspreis\nmit VT-Zuschlag"
+        listOf(
+            ExcelGermanLabels.Phases.NAME,
+            ExcelGermanLabels.Phases.ABBREVIATION,
+            ExcelGermanLabels.Phases.DURATION_WEEKS,
+            ExcelGermanLabels.Phases.EFFORT_PT,
+            ExcelGermanLabels.Phases.DEVELOPMENT_COST,
+            ExcelGermanLabels.Phases.ADDITIONAL_COST_ONE_TIME,
+            ExcelGermanLabels.Phases.ADDITIONAL_COST_RECURRING,
+            ExcelGermanLabels.Phases.OFFER_PRICE_WITH_SALES_SURCHARGE
         ).forEachIndexed { idx, h -> headerRow.createCell(idx).setCellValue(h) }
 
         val salesSurcharge = version.parameterValue("salesSurcharge") ?: 0.1
@@ -192,11 +209,11 @@ class ExcelExporter {
     }
 
     private fun writeParameters(workbook: XSSFWorkbook, version: SubmittedEstimationVersion) {
-        val sheet = workbook.createSheet("Parameter")
+        val sheet = workbook.createSheet(ExcelGermanLabels.Sheets.PARAMETERS)
         val headerRow = sheet.createRow(0)
-        headerRow.createCell(0).setCellValue("Name")
-        headerRow.createCell(1).setCellValue("Wert")
-        headerRow.createCell(2).setCellValue("Kommentar")
+        headerRow.createCell(0).setCellValue(ExcelGermanLabels.Parameters.NAME)
+        headerRow.createCell(1).setCellValue(ExcelGermanLabels.Parameters.VALUE)
+        headerRow.createCell(2).setCellValue(ExcelGermanLabels.Parameters.COMMENT)
 
         version.parameters.forEachIndexed { idx, param ->
             val row = sheet.createRow(idx + 1)
@@ -207,12 +224,12 @@ class ExcelExporter {
     }
 
     private fun writeEffortDrivers(workbook: XSSFWorkbook, version: SubmittedEstimationVersion) {
-        val sheet = workbook.createSheet("Aufwandstreiber")
+        val sheet = workbook.createSheet(ExcelGermanLabels.Sheets.EFFORT_DRIVERS)
         val headerRow = sheet.createRow(0)
-        headerRow.createCell(0).setCellValue("Aufwandstreiber Beschreibung")
-        headerRow.createCell(1).setCellValue("Faktor")
-        headerRow.createCell(2).setCellValue("Zusatzaufwand")
-        headerRow.createCell(3).setCellValue("Kommentar")
+        headerRow.createCell(0).setCellValue(ExcelGermanLabels.EffortDrivers.DESCRIPTION)
+        headerRow.createCell(1).setCellValue(ExcelGermanLabels.EffortDrivers.FACTOR)
+        headerRow.createCell(2).setCellValue(ExcelGermanLabels.EffortDrivers.ADDITIONAL_EFFORT)
+        headerRow.createCell(3).setCellValue(ExcelGermanLabels.EffortDrivers.COMMENT)
 
         val totalMean = allLeaves(version).sumOf { it.mean }
 

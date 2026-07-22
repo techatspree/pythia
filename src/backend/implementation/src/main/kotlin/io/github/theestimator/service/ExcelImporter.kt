@@ -36,17 +36,18 @@ import java.util.UUID
 class ExcelImporter {
 
     fun import(input: InputStream, estimation: Estimation, versionNumber: Int): DraftEstimationVersion {
+        Log.info("Importing Excel workbook into estimation ${estimation.id} version $versionNumber")
         val workbook = XSSFWorkbook(input)
         val version = DraftEstimationVersion().apply {
             this.estimation = estimation
             this.versionNumber = versionNumber
         }
 
-        importParameters(workbook.getSheet("Parameter"), version)
-        importEffortDrivers(workbook.getSheet("Aufwandstreiber"), version)
-        importPhases(workbook.getSheet("Pakete"), version)
-        importEstimationItems(workbook.getSheet("Projektstrukturplan"), version)
-        importAdditionalCosts(workbook.getSheet("Zusatzkosten"), version)
+        importParameters(workbook.getSheet(ExcelGermanLabels.Sheets.PARAMETERS), version)
+        importEffortDrivers(workbook.getSheet(ExcelGermanLabels.Sheets.EFFORT_DRIVERS), version)
+        importPhases(workbook.getSheet(ExcelGermanLabels.Sheets.PHASES), version)
+        importEstimationItems(workbook.getSheet(ExcelGermanLabels.Sheets.PROJECT_STRUCTURE_PLAN), version)
+        importAdditionalCosts(workbook.getSheet(ExcelGermanLabels.Sheets.ADDITIONAL_COSTS), version)
 
         workbook.close()
         return version
@@ -73,7 +74,7 @@ class ExcelImporter {
             val description = row.cellStringValue(1) ?: continue
             val factor = row.cellNumericValue(2) ?: continue
 
-            if (description == "Zusammenfassung der Aufwandstreiber") break
+            if (description == ExcelGermanLabels.EffortDrivers.SUMMARY_MARKER) break
 
             version.effortDrivers.add(DraftEffortDriver().apply {
                 this.description = description
@@ -90,7 +91,7 @@ class ExcelImporter {
             val name = row.cellStringValue(0) ?: continue
             val abbreviation = row.cellStringValue(1) ?: continue
 
-            if (name == "Summe") break
+            if (name == ExcelGermanLabels.Phases.TOTAL_MARKER) break
 
             version.phases.add(DraftProjectPhase().apply {
                 this.name = name
@@ -122,7 +123,7 @@ class ExcelImporter {
                 "GROUP" -> DraftGroupNode().apply { title = label }
                 "TIME_RELATIVE" -> DraftTimeRelativeItemNode().apply {
                     description = label
-                    unit = row.cellStringValue(18) ?: "h/Woche"
+                    unit = row.cellStringValue(18) ?: ExcelGermanLabels.HOURS_PER_WEEK_UNIT
                 }
                 "FIXED" -> DraftFixedItemNode().apply { description = label }
                 else -> continue
@@ -169,9 +170,11 @@ class ExcelImporter {
             val firstCell = row.cellStringValue(0) ?: continue
 
             when {
-                firstCell == "Einmalige Kosten" -> currentType = AdditionalCostType.ONE_TIME
-                firstCell == "Laufende Kosten" -> currentType = AdditionalCostType.RECURRING
-                firstCell == "Beschreibung" -> continue
+                firstCell == ExcelGermanLabels.AdditionalCosts.ONE_TIME_SECTION ->
+                    currentType = AdditionalCostType.ONE_TIME
+                firstCell == ExcelGermanLabels.AdditionalCosts.RECURRING_SECTION ->
+                    currentType = AdditionalCostType.RECURRING
+                firstCell == ExcelGermanLabels.AdditionalCosts.DESCRIPTION -> continue
                 else -> {
                     val amount = row.cellNumericValue(1) ?: continue
                     val phaseAbbr = row.cellStringValue(2)
