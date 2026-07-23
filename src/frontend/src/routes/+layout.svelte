@@ -7,6 +7,8 @@
 	import ErrorBanner from '$lib/components/ErrorBanner.svelte';
 	import { getAuthProvider } from '$lib/auth';
 	import type { AuthAccount } from '$lib/auth/AuthProvider';
+	import { setUserLanguage } from '$lib/i18n';
+	import { SupportedLanguage } from '$lib/domain/domain.mjs';
 	import { log } from '$lib/log';
 	import { resolve } from '$app/paths';
 
@@ -17,8 +19,18 @@
 	let ready = $state(false);
 	let initError = $state<string | null>(null);
 
+	// Initialise the active locale from the user's persisted preference once the
+	// account resolves (task-125). Maps the ISO code to the domain enum; falls
+	// back to DE (dev accounts carry no backend language).
+	function applyAccountLanguage(acc: AuthAccount | null) {
+		const code = acc?.language ?? 'de';
+		const lang = SupportedLanguage.values().find((v) => v.code === code) ?? SupportedLanguage.DE;
+		setUserLanguage(lang);
+	}
+
 	async function refresh() {
 		account = await provider.loadAccount();
+		applyAccountLanguage(account);
 	}
 
 	onMount(async () => {
@@ -30,6 +42,7 @@
 			// client-side. Runs client-side only (ssr is disabled for this layout).
 			await provider.init();
 			account = await provider.loadAccount();
+			applyAccountLanguage(account);
 		} catch (e) {
 			log.error('loadAccount failed:', e);
 			initError = e instanceof Error ? e.message : String(e);

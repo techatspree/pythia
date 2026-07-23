@@ -24,6 +24,6 @@ test('clicking Logout clears the account and shows the dev login dialog', async 
 	expect(stored).toBeNull();
 
 	await expect(
-		page.locator('[role="dialog"][aria-label="Dev login picker"]')
+		page.locator('[role="dialog"][aria-label="Dev-Anmeldungsauswahl"]')
 	).toBeVisible();
 });

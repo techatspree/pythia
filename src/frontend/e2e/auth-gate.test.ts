@@ -17,7 +17,7 @@ test.describe('unauthenticated SPA gate', () => {
 		await page.goto('/projects');
 		await page.waitForLoadState('networkidle');
 
-		await expect(page.locator('[role="dialog"][aria-label="Dev login picker"]')).toBeVisible();
+		await expect(page.locator('[role="dialog"][aria-label="Dev-Anmeldungsauswahl"]')).toBeVisible();
 		await expect(page.locator('[data-testid="dev-login-dev-admin"]')).toBeVisible();
 		await expect(page.locator('[data-testid^="row-"]')).toHaveCount(0);
 	});

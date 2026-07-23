@@ -54,9 +54,9 @@ test.describe('creating a project through the UI sends the auth header', () => {
 			),
 			(async () => {
 				await page.goto('/projects');
-				await page.getByRole('button', { name: 'New Project' }).click();
+				await page.getByRole('button', { name: 'Neues Projekt' }).click();
 				await page.getByLabel('Name *').fill(projectName);
-				await page.getByRole('button', { name: 'Create' }).click();
+				await page.getByRole('button', { name: 'Anlegen' }).click();
 			})()
 		]);
 

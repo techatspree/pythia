@@ -27,28 +27,81 @@ description: |
     is `$_('key')`. No `en.json`, no switcher, no startup wiring
     to the user's stored language.
 
+  ## Known plumbing gaps this task MUST close (verified)
+
+  - **The frontend OpenAPI client is STALE.** task-123 added
+    `language` to the backend `CurrentUserDto`, but the committed
+    `src/frontend/src/lib/api/openapi.json` (and the generated
+    `schema.d.ts`) still lack it — `currentUser.ts` types
+    `CurrentUserDto` from `schema.d.ts`, so reading `me.language`
+    will not compile until the client is regenerated. task-114
+    (auto-regen) is not done, so do it manually here (see steps).
+  - **`AuthAccount` has no `language` field** and
+    `fetchCurrentUserAccount` (`currentUser.ts`) does not map it.
+    Both must gain `language` for startup-from-preference.
+  - **`fromCode` is NOT exported to JS** (it was a plain top-level
+    fn in task-123, not `@JsExport`). The frontend must map an ISO
+    code string to the enum itself:
+    `SupportedLanguage.values().find((v) => v.code === code)`.
+    `SupportedLanguage.valueOf(name)` takes the enum NAME ("DE"),
+    not the code ("de") — do not use it for codes.
+
   ## Target state
 
   - `src/lib/i18n/en.json` mirrors `de.json` key-for-key with
     English text.
   - `index.ts` registers `'en'` too.
+  - `AuthAccount.language` exists and is populated by the Entra
+    path (`currentUser.ts` maps `me.language`); the dev provider
+    account has no backend language (it is built client-side), so
+    startup falls back to `'de'` for dev — the switcher's PUT still
+    works under dev (endpoint proven in task-123), it just is not
+    reflected after a dev reload.
   - A language switcher in the user menu calls
-    `PUT /api/auth/me/language` via `apiFetch`, then
-    `setUserLanguage(lang)`. The mutation is guarded and surfaces
-    failure via `ErrorBanner` + `log.error` from `$lib/log`
-    (CLAUDE.md frontend error-surfacing + logging conventions);
-    NEVER bare `console.*`.
+    `PUT /api/auth/me/language` via `apiFetch` (body
+    `{ language: <code> }`), then `setUserLanguage(<enum>)` where
+    the enum is `SupportedLanguage.values().find((v) => v.code ===
+    code)`. The mutation is guarded and surfaces failure via
+    `ErrorBanner` + `log.error` from `$lib/log` (CLAUDE.md frontend
+    error-surfacing + logging conventions); NEVER bare `console.*`.
+    UserMenu has no ErrorBanner today — add a local
+    `bannerMessage` `$state` + `ErrorBanner` in the header (or
+    bubble to the layout); pick one and keep it consistent.
   - App startup initialises the locale from the account's
-    `language`.
+    `language` (mapped code→enum as above), falling back to `'de'`.
+  - **e2e for the switch flow is task-127** — this task's gate
+    stays `./gradlew :frontend:check` (no Playwright here).
 
 steps:
   - |
     Read: `src/frontend/src/lib/i18n/index.ts`,
     `src/frontend/src/lib/i18n/de.json`,
     `src/frontend/src/lib/components/UserMenu.svelte`,
-    `src/frontend/src/lib/auth/AuthProvider.ts` (the account
-    shape — add/confirm `language`),
-    `src/frontend/src/lib/api/fetch.ts`, `src/frontend/src/lib/log.ts`.
+    `src/frontend/src/lib/auth/AuthProvider.ts` (the `AuthAccount`
+    shape — add `language`),
+    `src/frontend/src/lib/auth/currentUser.ts` (the Entra→account
+    mapping — add `language`),
+    `src/frontend/src/lib/auth/DevAuthProvider.ts` (dev account),
+    `src/frontend/src/routes/+layout.svelte` (where the account is
+    resolved), `src/frontend/src/lib/api/fetch.ts`,
+    `src/frontend/src/lib/api/errors.ts`, `src/frontend/src/lib/log.ts`.
+  - |
+    Regenerate the frontend OpenAPI client so `CurrentUserDto`
+    carries `language` (task-123 added it backend-side; the
+    committed client is stale):
+      ./gradlew :backend:implementation:build      # writes target/openapi/openapi.json
+      cp src/backend/implementation/target/openapi/openapi.json src/frontend/src/lib/api/openapi.json
+      (cd src/frontend && npm run gen:api)          # regenerates schema.d.ts
+    Confirm `language` now appears in
+    `src/frontend/src/lib/api/schema.d.ts` under `CurrentUserDto`.
+  - |
+    Add `language` to the account plumbing:
+      * `AuthProvider.ts`: add `language?: string` to `AuthAccount`.
+      * `currentUser.ts`: map `language: me.language` in
+        `fetchCurrentUserAccount` (Entra path — now typed after the
+        regen above).
+      * The dev provider account has no backend language; leave it
+        undefined (startup falls back to 'de').
   - |
     Create `src/frontend/src/lib/i18n/en.json` — an English
     translation for every key in `de.json` (same key set; a
@@ -57,15 +110,26 @@ steps:
   - |
     Add a language switcher to `UserMenu.svelte`: a DE/EN control
     that, on change, `await apiFetch('/api/auth/me/language', {
-    method: 'PUT', body: JSON.stringify({ language }) })`, then on
-    success calls `setUserLanguage(language)`. Guard with
-    `try/catch` → `await assertOk(res, '<fallback>')`,
-    `log.error(...)`, and surface via the shared `ErrorBanner`
-    pattern. No bare `console.*`.
+    method: 'PUT', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ language: code }) })`, then on success
+    maps the code to the domain enum
+    (`SupportedLanguage.values().find((v) => v.code === code)`) and
+    calls `setUserLanguage(enum)`. Guard with `try/catch` → `await
+    assertOk(res, '<fallback>')`, `log.error(...)`, and surface
+    failure via a local `bannerMessage` `$state` + `ErrorBanner`
+    (UserMenu has none today). No bare `console.*`.
   - |
     Initialise the active locale on startup from the resolved
-    account's `language` (in the root layout / where the account
-    is loaded), falling back to `'de'`.
+    account's `language` in `+layout.svelte` (after
+    `provider.loadAccount()` in `onMount`, and in the `refresh`
+    path): map the code to the enum as above and call
+    `setUserLanguage(...)`, falling back to `'de'` when the account
+    has no language.
+  - |
+    Update `CLAUDE.md`: in the "Frontend — i18n (UI strings)"
+    section, flip the forward reference — EN catalog + language
+    switcher + startup-from-preference are now DONE (task-125), and
+    note the code↔enum mapping and the dev fallback to 'de'.
   - |
     Type-check + lint:
       ./gradlew :frontend:check
@@ -74,6 +138,14 @@ validation:
     English catalog exists and matches the DE key set exactly:
       test -f src/frontend/src/lib/i18n/en.json
       node -e "const de=require('./src/frontend/src/lib/i18n/de.json'),en=require('./src/frontend/src/lib/i18n/en.json');const f=o=>{const s=[];const w=(p,v)=>Object.entries(v).forEach(([k,x])=>typeof x==='object'&&x?w(p+k+'.',x):s.push(p+k));w('',o);return s.sort()};const a=JSON.stringify(f(de)),b=JSON.stringify(f(en));if(a!==b){console.error('key sets differ');process.exit(1)}"
+  - |
+    The frontend OpenAPI client is regenerated (CurrentUserDto carries language):
+      grep -q "language" src/frontend/src/lib/api/schema.d.ts
+      node -e "const o=require('./src/frontend/src/lib/api/openapi.json'); if(!o.components.schemas.CurrentUserDto.properties.language){process.exit(1)}"
+  - |
+    AuthAccount carries language and the Entra mapping populates it:
+      grep -qE "language\??:" src/frontend/src/lib/auth/AuthProvider.ts
+      grep -q "language" src/frontend/src/lib/auth/currentUser.ts
   - |
     'en' is registered and the switcher wiring is present:
       grep -q "register('en'" src/frontend/src/lib/i18n/index.ts
@@ -92,3 +164,8 @@ outputs:
   - modified: src/frontend/src/lib/i18n/index.ts
   - modified: src/frontend/src/lib/components/UserMenu.svelte
   - modified: src/frontend/src/routes/+layout.svelte
+  - modified: src/frontend/src/lib/auth/AuthProvider.ts
+  - modified: src/frontend/src/lib/auth/currentUser.ts
+  - modified: src/frontend/src/lib/api/openapi.json
+  - modified: src/frontend/src/lib/api/schema.d.ts
+  - modified: CLAUDE.md

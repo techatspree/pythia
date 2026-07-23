@@ -29,6 +29,7 @@ export async function fetchCurrentUserAccount(): Promise<AuthAccount | null> {
 		email: me.email ?? undefined,
 		displayName: me.displayName ?? undefined,
 		roles,
-		providerName: me.providerName as AuthAccount['providerName']
+		providerName: me.providerName as AuthAccount['providerName'],
+		language: me.language ?? undefined
 	};
 }

@@ -338,16 +338,16 @@ test('build a three-level tree via UI buttons', async ({ page }) => {
 	await page.goto(`/estimations/${estimationId}/versions/${versionNumber}?draft=true`);
 	await page.waitForLoadState('networkidle');
 
-	// Empty-state "Add group" button creates the first root group with a default leaf.
-	await page.locator('button', { hasText: 'Add group' }).first().click();
+	// Empty-state "Gruppe hinzufügen" button creates the first root group with a default leaf.
+	await page.locator('button', { hasText: 'Gruppe hinzufügen' }).first().click();
 	await page.waitForTimeout(200);
 
-	// "+ group" button on the root group adds a nested sub-group.
-	await page.locator('[data-testid="row-0"] button', { hasText: '+ group' }).click();
+	// "+ Gruppe" button on the root group adds a nested sub-group.
+	await page.locator('[data-testid="row-0"] button', { hasText: '+ Gruppe' }).click();
 	await page.waitForTimeout(200);
 
-	// "+ item" button on the nested sub-group adds a leaf inside it.
-	await page.locator('[data-testid="row-0-1"] button', { hasText: '+ item' }).click();
+	// "+ Element" button on the nested sub-group adds a leaf inside it.
+	await page.locator('[data-testid="row-0-1"] button', { hasText: '+ Element' }).click();
 	await page.waitForTimeout(1500); // autosave debounce + flush
 
 	// Reload and verify via the REST API that the structure survived.
@@ -383,9 +383,9 @@ test('drag a leaf into a different group reparents it', async ({ page }) => {
 	await page.waitForLoadState('networkidle');
 
 	// L1 sits at path 0-0 (root index 0 = G1, child index 0 = L1).
-	// G2's children-zone is the dndzone div with aria-label="Children of G2".
+	// G2's children-zone is the dndzone div with aria-label="Unterelemente von G2".
 	const sourceRow = page.locator('[data-testid="row-0-0"]');
-	const targetZone = page.locator('[aria-label="Children of G2"]');
+	const targetZone = page.locator('[aria-label="Unterelemente von G2"]');
 	await keyboardReparent(page, sourceRow, targetZone);
 
 	const fetched = await page.request.get(`${API}/api/estimations/${estimationId}/versions/draft`, { headers: API_HEADERS }).then((r) => r.json());
@@ -450,9 +450,9 @@ test('dragging a group onto its own descendant is a no-op (cycle protection)', a
 	await page.waitForLoadState('networkidle');
 
 	const g1Row = page.locator('[data-testid="row-0"]');
-	// InnerG's children-zone has aria-label="Children of InnerG"; dropping G1
+	// InnerG's children-zone has aria-label="Unterelemente von InnerG"; dropping G1
 	// inside it would create a cycle (G1 contains InnerG, can't contain itself).
-	const innerGZone = page.locator('[aria-label="Children of InnerG"]');
+	const innerGZone = page.locator('[aria-label="Unterelemente von InnerG"]');
 	await keyboardReparent(page, g1Row, innerGZone);
 
 	// Tree must be unchanged — cycle protection restored the snapshot.
@@ -503,7 +503,7 @@ test('drag a subgroup into a deeper nested subgroup reparents it', async ({ page
 
 	// Sub is the first child of G1 (path 0-0). Drop it into Deep's children zone.
 	const subRow = page.locator('[data-testid="row-0-0"]');
-	const deepZone = page.locator('[aria-label="Children of Deep"]');
+	const deepZone = page.locator('[aria-label="Unterelemente von Deep"]');
 	await keyboardReparent(page, subRow, deepZone);
 
 	const fetched = await page.request.get(`${API}/api/estimations/${estimationId}/versions/draft`, { headers: API_HEADERS }).then((r) => r.json());

@@ -747,9 +747,9 @@
       "notes": "i18n: frontend foundation (svelte-i18n) + DE catalog lift-and-shift"
     },
     "task-125": {
-      "status": "pending",
-      "started_at": null,
-      "completed_at": null,
+      "status": "done",
+      "started_at": "2026-07-22T13:53:01+00:00",
+      "completed_at": "2026-07-22T14:00:42+00:00",
       "notes": "i18n: English catalog + language switcher in the user menu"
     },
     "task-126": {

@@ -173,7 +173,7 @@
       },
       "CurrentUserDto" : {
         "type" : "object",
-        "required" : [ "subjectId", "email", "displayName", "roles", "providerName" ],
+        "required" : [ "subjectId", "email", "displayName", "roles", "providerName", "language" ],
         "properties" : {
           "subjectId" : {
             "type" : "string"
@@ -191,6 +191,9 @@
             }
           },
           "providerName" : {
+            "type" : "string"
+          },
+          "language" : {
             "type" : "string"
           }
         }
@@ -667,6 +670,15 @@
         "format" : "date-time",
         "examples" : [ "2022-03-10T16:15:50Z" ]
       },
+      "LanguageUpdateDto" : {
+        "type" : "object",
+        "required" : [ "language" ],
+        "properties" : {
+          "language" : {
+            "type" : "string"
+          }
+        }
+      },
       "MutationLogEntryDto" : {
         "type" : "object",
         "required" : [ "id", "sequenceNumber", "revisionBefore", "revisionAfter", "userId", "userDisplayName", "kind", "status", "createdAt", "undoneAt" ],
@@ -955,12 +967,6 @@
           }
         }
       }
-    },
-    "securitySchemes" : {
-      "SecurityScheme" : {
-        "type" : "openIdConnect",
-        "description" : "Authentication"
-      }
     }
   },
   "paths" : {
@@ -995,6 +1001,14 @@
       "get" : {
         "summary" : "The current authenticated user",
         "tags" : [ "Auth" ],
+        "parameters" : [ {
+          "name" : "Accept-Language",
+          "in" : "header",
+          "schema" : {
+            "type" : [ "string", "null" ]
+          },
+          "required" : true
+        } ],
         "responses" : {
           "200" : {
             "description" : "The current user",
@@ -1005,6 +1019,33 @@
                 }
               }
             }
+          },
+          "401" : {
+            "description" : "No user is populated for the request"
+          }
+        }
+      }
+    },
+    "/api/auth/me/language" : {
+      "put" : {
+        "summary" : "Update the current user's language preference",
+        "tags" : [ "Auth" ],
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/LanguageUpdateDto"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "204" : {
+            "description" : "Language preference updated"
+          },
+          "400" : {
+            "description" : "Unsupported language code"
           },
           "401" : {
             "description" : "No user is populated for the request"

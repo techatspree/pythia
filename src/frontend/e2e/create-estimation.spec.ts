@@ -19,7 +19,7 @@ test('create new estimation via the project detail dialog', async ({ page, reque
 	await page.goto(`/projects/${project.id}`);
 	await page.waitForLoadState('networkidle');
 
-	await page.getByRole('button', { name: 'New Offer' }).click();
+	await page.getByRole('button', { name: 'Neues Angebot' }).click();
 	await expect(page.getByRole('dialog')).toBeVisible();
 
 	await page.getByLabel('Angebot *').fill(uniqueOffer);
@@ -48,7 +48,7 @@ test('submitting with an empty Angebot is prevented', async ({ page, request }) 
 	await page.goto(`/projects/${project.id}`);
 	await page.waitForLoadState('networkidle');
 
-	await page.getByRole('button', { name: 'New Offer' }).click();
+	await page.getByRole('button', { name: 'Neues Angebot' }).click();
 	await expect(page.getByRole('dialog')).toBeVisible();
 
 	// Click Speichern without filling Angebot — the native `required`
@@ -75,7 +75,7 @@ test('create estimation with a chosen non-default method (bucket + sampled)', as
 	await page.goto(`/projects/${project.id}`);
 	await page.waitForLoadState('networkidle');
 
-	await page.getByRole('button', { name: 'New Offer' }).click();
+	await page.getByRole('button', { name: 'Neues Angebot' }).click();
 	await expect(page.getByRole('dialog')).toBeVisible();
 
 	await page.getByLabel('Angebot *').fill(uniqueOffer);

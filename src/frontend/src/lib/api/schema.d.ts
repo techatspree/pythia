@@ -65,7 +65,9 @@ export interface paths {
         get: {
             parameters: {
                 query?: never;
-                header?: never;
+                header: {
+                    "Accept-Language": string | null;
+                };
                 path?: never;
                 cookie?: never;
             };
@@ -90,6 +92,58 @@ export interface paths {
             };
         };
         put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/auth/me/language": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Update the current user's language preference */
+        put: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["LanguageUpdateDto"];
+                };
+            };
+            responses: {
+                /** @description Language preference updated */
+                204: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Unsupported language code */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description No user is populated for the request */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
         post?: never;
         delete?: never;
         options?: never;
@@ -1267,6 +1321,7 @@ export interface components {
             displayName: string | null;
             roles: components["schemas"]["Role"][];
             providerName: string;
+            language: string;
         };
         DraftUpdateDto: {
             notes?: string | null;
@@ -1414,6 +1469,9 @@ export interface components {
          * @example 2022-03-10T16:15:50Z
          */
         Instant: string;
+        LanguageUpdateDto: {
+            language: string;
+        };
         MutationLogEntryDto: {
             id: components["schemas"]["UUID"];
             /** Format: int64 */

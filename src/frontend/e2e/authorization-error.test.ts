@@ -15,11 +15,11 @@ test.describe('authorization failure surfaces a meaningful message', () => {
 		await page.goto('/projects');
 		await page.waitForLoadState('networkidle');
 
-		await page.getByRole('button', { name: 'New Project' }).click();
+		await page.getByRole('button', { name: 'Neues Projekt' }).click();
 		await expect(page.getByRole('dialog')).toBeVisible();
 
 		await page.getByLabel('Name *').fill('E2E Viewer Denied');
-		await page.getByRole('button', { name: 'Create' }).click();
+		await page.getByRole('button', { name: 'Anlegen' }).click();
 
 		// The ErrorBanner (role="alert") shows the meaningful "not authorized"
 		// message, proving the 403 was mapped to a human string rather than a
