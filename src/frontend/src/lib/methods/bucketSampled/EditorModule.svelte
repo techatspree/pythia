@@ -1,7 +1,10 @@
 <script lang="ts">
-	import { _ } from 'svelte-i18n';
+	import { _, locale } from 'svelte-i18n';
+	import { formatFixed, DEFAULT_LOCALE } from '$lib/format';
 	import TreeTable from '$lib/components/treetable/TreeTable.svelte';
 	import type { TreeColumn, TreeNodeContext } from '$lib/components/treetable/types';
+
+	const num = (v: number, frac: number) => formatFixed(v, $locale ?? DEFAULT_LOCALE, frac);
 	import ParametersPanel from '$lib/components/ParametersPanel.svelte';
 	import EffortDriversPanel from '$lib/components/EffortDriversPanel.svelte';
 	import PhasesPanel from '$lib/components/PhasesPanel.svelte';
@@ -195,22 +198,22 @@
 		<!-- Derived: PERT of the sample triple, or the bucket average for a
 			non-sample. Always read-only (the domain owns the math). -->
 		<span class="text-brand-green tabular-nums" class:italic={!node.isSample}>
-			{calc != null ? calc.mean.toFixed(2) : '—'}
+			{calc != null ? num(calc.mean, 2) : '—'}
 		</span>
 	{/if}
 {/snippet}
 
 {#snippet offerPTCell(node: Node)}
 	{@const calc = calcMap.get(node.logicalId)}
-	<span class="text-gray-600 tabular-nums">{calc != null ? calc.offerPT.toFixed(2) : '—'}</span>
+	<span class="text-gray-600 tabular-nums">{calc != null ? num(calc.offerPT, 2) : '—'}</span>
 {/snippet}
 {#snippet costCell(node: Node)}
 	{@const calc = calcMap.get(node.logicalId)}
-	<span class="text-gray-600 tabular-nums">{calc != null ? calc.cost.toFixed(0) : '—'}</span>
+	<span class="text-gray-600 tabular-nums">{calc != null ? num(calc.cost, 0) : '—'}</span>
 {/snippet}
 {#snippet offerPriceCell(node: Node)}
 	{@const calc = calcMap.get(node.logicalId)}
-	<span class="text-gray-600 tabular-nums">{calc != null ? calc.offerPrice.toFixed(0) : '—'}</span>
+	<span class="text-gray-600 tabular-nums">{calc != null ? num(calc.offerPrice, 0) : '—'}</span>
 {/snippet}
 
 {#snippet rowActionsSnippet(_node: Node, ctx: TreeNodeContext<Node>)}

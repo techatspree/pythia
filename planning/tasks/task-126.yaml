@@ -22,22 +22,50 @@ description: |
     …)`, and hand-rolled format call site to the helper, passing
     the active locale (from the i18n store / active `$locale`).
 
+  ## Scope decision — `.toFixed()` IS in scope (verified call sites)
+
+  - The real formatting today is: **3 `toLocaleDateString()`**
+    calls (ProjectDetail, VersionList, ProjectList — no explicit
+    locale, so they follow the browser default, not the app
+    locale), **1 `toLocaleString('de-DE')`** (UndoConflictDialog),
+    and **~25 `.toFixed(n)`** number renders (EstimationGrid
+    totals/cells, PhasesPanel, AdditionalCostsPanel,
+    EffortDriversPanel, bucketSampled/EditorModule, compare page).
+  - `.toFixed(n)` is a hand-rolled number format → **migrate it**
+    to `formatNumber(value, locale, { minimumFractionDigits: n,
+    maximumFractionDigits: n })` so German shows `1.234,56` and
+    English `1,234.56`. This is the whole point of a locale-aware
+    number helper.
+  - **Currency vs number:** cost/price columns already carry a
+    `(EUR)` header and must use `formatNumber` (grouping only) — do
+    NOT use `formatCurrency` there (it would double the symbol,
+    `€1.234 … (EUR)`). Reserve `formatCurrency` for any standalone
+    currency string. There is no such call site today, but the
+    function is required by the frozen decision and validation.
+  - **Out of scope:** `src/routes/dev/tree-table-demo/+page.svelte`
+    (dev fixture, left un-internationalised like the generic
+    TreeTable — consistent with task-124/125). Do not migrate its
+    `€…toFixed(2)` renders.
+
   ## Current state (after task-125)
 
-  - Formatting is scattered: hardcoded `de-DE` locales and
-    bespoke number/date rendering across components.
+  - Formatting is scattered: 3 locale-less `toLocaleDateString()`,
+    1 hardcoded `de-DE`, and ~25 `.toFixed(n)` number renders
+    across components.
 
   ## Target state
 
   - One `format.ts` helper module is the single formatting seam.
-  - No component hardcodes a `de-DE` locale; each passes the
-    active locale so English users see English grouping/date
-    order (still `€`).
+  - No component hardcodes a `de-DE` locale, calls a locale-less
+    `toLocaleDateString()`, or renders a number via `.toFixed()`;
+    each passes the active locale so English users see English
+    grouping/date order (still `€`). The dev demo page is exempt.
 
-steps:
   - |
-    Find every format call site:
-      grep -rnE "toLocaleString\(|Intl\.(NumberFormat|DateTimeFormat)|de-DE" src/frontend/src
+    Find every format call site (broadened — the narrow grep missed
+    the date and .toFixed sites; exclude the compiled domain and the
+    dev demo):
+      grep -rnE "toLocaleString\(|toLocaleDateString\(|toLocaleTimeString\(|\.toFixed\(|Intl\.(NumberFormat|DateTimeFormat)|de-DE" src/frontend/src --include='*.svelte' --include='*.ts' | grep -vE "src/lib/domain/|routes/dev/tree-table-demo/"
   - |
     Create `src/frontend/src/lib/format.ts`:
       * `formatNumber(value: number, locale: string, options?: Intl.NumberFormatOptions): string`
@@ -46,13 +74,28 @@ steps:
         (always EUR/€).
       * `formatDate(iso: string, locale: string): string` —
         `Intl.DateTimeFormat(locale, …)`.
+      Export a `DEFAULT_LOCALE = 'de'` constant so callers thread
+      `$locale ?? DEFAULT_LOCALE` without repeating the fallback.
       Pure functions; no i18n import (locale is a parameter) — the
       caller supplies the active locale so the module stays a leaf
       dependency.
   - |
     Migrate all call sites (from step 1) to the helper, threading
-    the active locale from the i18n store (`$locale` /
-    `get(locale)`), defaulting to `'de'`.
+    the active locale from the i18n store (`$locale` in `.svelte`
+    markup; `get(locale)` in `<script module>` / plain functions
+    like `UndoConflictDialog.formatTime`), defaulting to
+    `DEFAULT_LOCALE`. Use `formatNumber` for every `.toFixed(n)`
+    (incl. the EUR-headed cost/price columns — grouping only, NOT
+    `formatCurrency`) and `formatDate` for the `toLocaleDateString`
+    / `toLocaleString('de-DE')` sites. Do NOT touch the dev demo
+    page.
+  - |
+    Update `CLAUDE.md` ("Frontend — i18n" section): all
+    number/currency/date formatting goes through `$lib/format.ts`
+    (`formatNumber` / `formatCurrency` / `formatDate`) with the
+    active locale — no ad-hoc `.toFixed()` / `toLocale*()` /
+    hardcoded `de-DE` in components; EUR is fixed and the dev demo
+    is exempt.
   - |
     Type-check + lint:
       ./gradlew :frontend:check
@@ -68,6 +111,17 @@ validation:
     No hardcoded de-DE locale remains outside the helper:
       ! grep -rn "de-DE" src/frontend/src/lib src/frontend/src/routes | grep -v "lib/format.ts"
   - |
+    No locale-less date or hand-rolled number formatting remains in the migrated
+    surface (the dev demo is exempt):
+      ! grep -rnE "toLocaleDateString\(|toLocaleString\(|\.toFixed\(" src/frontend/src/lib/components src/frontend/src/lib/methods
+      ! grep -rnE "toLocaleDateString\(|toLocaleString\(|\.toFixed\(" src/frontend/src/routes --include='*.svelte' | grep -v "routes/dev/tree-table-demo/"
+  - |
+    High-traffic components actually import and use the helper.
+    Use grep -F: a leading/embedded '$' is an end-anchor in BSD/macOS grep, so a
+    plain regex grep for "$lib/format" yields a false negative.
+      grep -qF "from '\$lib/format'" src/frontend/src/lib/components/EstimationGrid.svelte
+      grep -qF "from '\$lib/format'" src/frontend/src/lib/components/VersionList.svelte
+  - |
     No bare console in the helper (frontend logging convention):
       ! grep -nE "console\." src/frontend/src/lib/format.ts
   - |
@@ -75,3 +129,14 @@ validation:
       ./gradlew :frontend:check
 outputs:
   - created: src/frontend/src/lib/format.ts
+  - modified: src/frontend/src/lib/components/EstimationGrid.svelte
+  - modified: src/frontend/src/lib/components/PhasesPanel.svelte
+  - modified: src/frontend/src/lib/components/AdditionalCostsPanel.svelte
+  - modified: src/frontend/src/lib/components/EffortDriversPanel.svelte
+  - modified: src/frontend/src/lib/components/ProjectDetail.svelte
+  - modified: src/frontend/src/lib/components/ProjectList.svelte
+  - modified: src/frontend/src/lib/components/VersionList.svelte
+  - modified: src/frontend/src/lib/components/UndoConflictDialog.svelte
+  - modified: src/frontend/src/lib/methods/bucketSampled/EditorModule.svelte
+  - modified: src/frontend/src/routes/estimations/[id]/compare/+page.svelte
+  - modified: CLAUDE.md

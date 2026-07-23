@@ -2,7 +2,8 @@
 	import { page } from '$app/state';
 	import { resolve } from '$app/paths';
 	import { onMount } from 'svelte';
-	import { _ } from 'svelte-i18n';
+	import { _, locale } from 'svelte-i18n';
+	import { formatFixed, DEFAULT_LOCALE } from '$lib/format';
 	import ErrorBanner from '$lib/components/ErrorBanner.svelte';
 	import type { ApiVersionComparison, ApiVersionResponse } from '$lib/api/types.js';
 	import { apiFetch } from '$lib/api/fetch';
@@ -83,7 +84,7 @@
 	});
 
 	function fmt(n: number | null | undefined): string {
-		return n != null ? n.toFixed(1) : '—';
+		return n != null ? formatFixed(n, $locale ?? DEFAULT_LOCALE, 1) : '—';
 	}
 
 	function deltaClass(delta: number): string {

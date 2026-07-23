@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { resolve } from '$app/paths';
-	import { _ } from 'svelte-i18n';
+	import { _, locale } from 'svelte-i18n';
+	import { formatDate, DEFAULT_LOCALE } from '$lib/format';
 	import type { ApiVersionSummary } from '$lib/api/types.js';
 	let { versions, estimationId, oncreate, onsubmit }: { versions: ApiVersionSummary[]; estimationId: string; oncreate: () => void; onsubmit: () => void } = $props();
 
@@ -102,7 +103,7 @@
 									</button>
 								{/if}
 								<span class="text-sm text-gray-500">
-									{version.createdAt ? new Date(version.createdAt).toLocaleDateString() : ''}
+									{version.createdAt ? formatDate(version.createdAt, $locale ?? DEFAULT_LOCALE) : ''}
 								</span>
 							</div>
 						</div>

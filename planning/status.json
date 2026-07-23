@@ -753,9 +753,9 @@
       "notes": "i18n: English catalog + language switcher in the user menu"
     },
     "task-126": {
-      "status": "pending",
-      "started_at": null,
-      "completed_at": null,
+      "status": "done",
+      "started_at": "2026-07-23T15:55:59+00:00",
+      "completed_at": "2026-07-23T16:07:30+00:00",
       "notes": "i18n: locale-aware number/currency/date formatting helper"
     },
     "task-127": {

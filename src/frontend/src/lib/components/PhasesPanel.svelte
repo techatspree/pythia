@@ -1,5 +1,8 @@
 <script lang="ts">
-	import { _ } from 'svelte-i18n';
+	import { _, locale } from 'svelte-i18n';
+	import { formatFixed, DEFAULT_LOCALE } from '$lib/format';
+
+	const num = (v: number, frac: number) => formatFixed(v, $locale ?? DEFAULT_LOCALE, frac);
 
 	type Phase = { name: string; abbreviation: string; durationWeeks: number | null };
 	type CalcEntry = { offerPT: number; cost: number; offerPrice: number };
@@ -140,10 +143,10 @@
 								{/if}
 							</td>
 							<td class="py-1 px-3 text-right text-gray-600 tabular-nums">
-								{hasMissing ? '—' : totalOfferPT.toFixed(2)}
+								{hasMissing ? '—' : num(totalOfferPT, 2)}
 							</td>
 							<td class="py-1 px-3 text-right text-gray-600 tabular-nums">
-								{effortPerWeek == null || hasMissing ? '—' : effortPerWeek.toFixed(2)}
+								{effortPerWeek == null || hasMissing ? '—' : num(effortPerWeek, 2)}
 							</td>
 							{#if editable}
 								<td class="py-1 px-3">

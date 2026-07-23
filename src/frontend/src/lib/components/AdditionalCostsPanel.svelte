@@ -1,6 +1,9 @@
 <script lang="ts">
-	import { _ } from 'svelte-i18n';
+	import { _, locale } from 'svelte-i18n';
+	import { formatFixed, DEFAULT_LOCALE } from '$lib/format';
 	import type { ApiAdditionalCost, ApiPhase } from '$lib/api/types.js';
+
+	const num = (v: number, frac: number) => formatFixed(v, $locale ?? DEFAULT_LOCALE, frac);
 
 	let {
 		costs = $bindable<ApiAdditionalCost[]>([]),
@@ -63,7 +66,7 @@
 		if (cost.amountPerWeek == null || cost.phaseAbbreviation == null) return '—';
 		const phase = phases.find((p) => p.abbreviation === cost.phaseAbbreviation);
 		if (phase == null || phase.durationWeeks == null) return '—';
-		return (cost.amountPerWeek * phase.durationWeeks).toFixed(2);
+		return num(cost.amountPerWeek * phase.durationWeeks, 2);
 	}
 </script>
 
@@ -131,7 +134,7 @@
 												oninput={(e) => updateAmount(i, e.currentTarget.value)}
 											/>
 										{:else}
-											<span class="tabular-nums">{cost.amount.toFixed(2)}</span>
+											<span class="tabular-nums">{num(cost.amount, 2)}</span>
 										{/if}
 									</td>
 									<td class="py-1 px-3">
@@ -231,7 +234,7 @@
 												oninput={(e) => updateAmountPerWeek(i, e.currentTarget.value)}
 											/>
 										{:else}
-											<span class="tabular-nums">{cost.amountPerWeek?.toFixed(2) ?? ''}</span>
+											<span class="tabular-nums">{cost.amountPerWeek != null ? num(cost.amountPerWeek, 2) : ''}</span>
 										{/if}
 									</td>
 									<td class="py-1 px-3">

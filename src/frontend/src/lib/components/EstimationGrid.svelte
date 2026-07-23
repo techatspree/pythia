@@ -1,7 +1,10 @@
 <script lang="ts">
-	import { _ } from 'svelte-i18n';
+	import { _, locale } from 'svelte-i18n';
+	import { formatFixed, DEFAULT_LOCALE } from '$lib/format';
 	import TreeTable from './treetable/TreeTable.svelte';
 	import type { TreeColumn, TreeNodeContext } from './treetable/types';
+
+	const num = (v: number, frac: number) => formatFixed(v, $locale ?? DEFAULT_LOCALE, frac);
 	import {
 		newId,
 		type Node,
@@ -388,7 +391,7 @@
 {#snippet pertCell(node: Node, _ctx: TreeNodeContext<Node>)}
 	{#if node.type !== 'GROUP'}
 		<span class="text-brand-green tabular-nums">
-			{pert(node.minEffort, node.expectedEffort, node.maxEffort).toFixed(2)}
+			{num(pert(node.minEffort, node.expectedEffort, node.maxEffort), 2)}
 		</span>
 	{/if}
 {/snippet}
@@ -422,7 +425,7 @@
 			class="text-gray-600 tabular-nums"
 			class:group-aggregate-bold={node.type === 'GROUP'}
 		>
-			{calc != null ? calc.offerPT.toFixed(2) : '—'}
+			{calc != null ? num(calc.offerPT, 2) : '—'}
 		</span>
 	{/if}
 {/snippet}
@@ -433,7 +436,7 @@
 		class="text-gray-600 tabular-nums"
 		class:group-aggregate-bold={node.type === 'GROUP'}
 	>
-		{calc != null ? calc.cost.toFixed(0) : '—'}
+		{calc != null ? num(calc.cost, 0) : '—'}
 	</span>
 {/snippet}
 
@@ -443,7 +446,7 @@
 		class="text-gray-600 tabular-nums"
 		class:group-aggregate-bold={node.type === 'GROUP'}
 	>
-		{calc != null ? calc.offerPrice.toFixed(0) : '—'}
+		{calc != null ? num(calc.offerPrice, 0) : '—'}
 	</span>
 {/snippet}
 
@@ -482,14 +485,14 @@
 		<div class="py-2 px-3 text-xs text-gray-400 uppercase tracking-wide">{$_('grid.total')}</div>
 		<div class="py-2 px-2"></div>
 		<div class="py-2 px-2"></div>
-		<div class="py-2 px-2 text-right tabular-nums">{totalOpt.toFixed(2)}</div>
-		<div class="py-2 px-2 text-right tabular-nums">{totalLik.toFixed(2)}</div>
-		<div class="py-2 px-2 text-right tabular-nums">{totalPes.toFixed(2)}</div>
-		<div class="py-2 px-2 text-right text-brand-green tabular-nums">{totalExp.toFixed(2)}</div>
+		<div class="py-2 px-2 text-right tabular-nums">{num(totalOpt, 2)}</div>
+		<div class="py-2 px-2 text-right tabular-nums">{num(totalLik, 2)}</div>
+		<div class="py-2 px-2 text-right tabular-nums">{num(totalPes, 2)}</div>
+		<div class="py-2 px-2 text-right text-brand-green tabular-nums">{num(totalExp, 2)}</div>
 		<div class="py-2 px-3"></div>
-		<div class="py-2 px-2 text-right text-gray-600 tabular-nums">{totalOfferPT.toFixed(2)}</div>
-		<div class="py-2 px-2 text-right text-gray-600 tabular-nums">{totalCost.toFixed(0)}</div>
-		<div class="py-2 px-2 text-right text-gray-600 tabular-nums">{totalOfferPrice.toFixed(0)}</div>
+		<div class="py-2 px-2 text-right text-gray-600 tabular-nums">{num(totalOfferPT, 2)}</div>
+		<div class="py-2 px-2 text-right text-gray-600 tabular-nums">{num(totalCost, 0)}</div>
+		<div class="py-2 px-2 text-right text-gray-600 tabular-nums">{num(totalOfferPrice, 0)}</div>
 	</div>
 {/snippet}
 

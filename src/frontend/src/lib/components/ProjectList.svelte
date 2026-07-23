@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { resolve } from '$app/paths';
-	import { _ } from 'svelte-i18n';
+	import { _, locale } from 'svelte-i18n';
+	import { formatDate, DEFAULT_LOCALE } from '$lib/format';
 	let { projects, loading, error }: { projects: any[]; loading: boolean; error: string } = $props();
 </script>
 
@@ -39,7 +40,7 @@
 							</span>
 						</td>
 						<td class="px-4 py-3 text-gray-500">
-							{project.createdAt ? new Date(project.createdAt).toLocaleDateString() : '—'}
+							{project.createdAt ? formatDate(project.createdAt, $locale ?? DEFAULT_LOCALE) : '—'}
 						</td>
 					</tr>
 				{/each}

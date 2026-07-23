@@ -1,5 +1,6 @@
 <script lang="ts">
-	import { _ } from 'svelte-i18n';
+	import { _, locale } from 'svelte-i18n';
+	import { formatDate, DEFAULT_LOCALE } from '$lib/format';
 	import type { components } from '$lib/api/schema';
 
 	type ConflictDetailsDto = components['schemas']['ConflictDetailsDto'];
@@ -21,9 +22,7 @@
 	});
 
 	function formatTime(iso: string | null | undefined): string {
-		if (!iso) return '';
-		const d = new Date(iso);
-		return Number.isNaN(d.getTime()) ? '' : d.toLocaleString('de-DE');
+		return formatDate(iso, $locale ?? DEFAULT_LOCALE, { dateStyle: 'short', timeStyle: 'short' });
 	}
 </script>
 

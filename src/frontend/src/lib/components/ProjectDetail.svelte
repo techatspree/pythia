@@ -1,7 +1,8 @@
 <script lang="ts">
 	import { resolve } from '$app/paths';
 	import { goto } from '$app/navigation';
-	import { _ } from 'svelte-i18n';
+	import { _, locale } from 'svelte-i18n';
+	import { formatDate, DEFAULT_LOCALE } from '$lib/format';
 	import RequiredRole from '$lib/auth/RequiredRole.svelte';
 	import CreateEstimationDialog from '$lib/components/CreateEstimationDialog.svelte';
 	import { formatMethodLabel } from '$lib/methods/labels';
@@ -93,7 +94,7 @@
 								{/if}
 							</td>
 							<td class="px-4 py-3 text-gray-500">
-								{estimation.createdAt ? new Date(estimation.createdAt).toLocaleDateString() : '—'}
+								{estimation.createdAt ? formatDate(estimation.createdAt, $locale ?? DEFAULT_LOCALE) : '—'}
 							</td>
 						</tr>
 					{/each}

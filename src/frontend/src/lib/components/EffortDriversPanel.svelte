@@ -1,5 +1,8 @@
 <script lang="ts">
-	import { _ } from 'svelte-i18n';
+	import { _, locale } from 'svelte-i18n';
+	import { formatFixed, DEFAULT_LOCALE } from '$lib/format';
+
+	const num = (v: number, frac: number) => formatFixed(v, $locale ?? DEFAULT_LOCALE, frac);
 
 	type Driver = { description: string; factor: number; comment: string };
 
@@ -109,7 +112,7 @@
 						<td class="py-2 px-3 text-right text-gray-500 text-xs uppercase tracking-wide"
 							>{$_('panel.effortDrivers.totalFactor')}</td
 						>
-						<td class="py-2 px-3 text-right tabular-nums">{totalFactor.toFixed(2)}</td>
+						<td class="py-2 px-3 text-right tabular-nums">{num(totalFactor, 2)}</td>
 						<td class="py-2 px-3"></td>
 						{#if editable}<td></td>{/if}
 					</tr>
