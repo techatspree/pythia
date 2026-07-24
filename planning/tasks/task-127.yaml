@@ -22,43 +22,102 @@ description: |
 
   ## Current state (after task-126)
 
-  - The language switcher works and persists, but no e2e guards
-    the flow, so a regression (e.g. a missing `en.json` key, a
-    broken PUT, or lost persistence) would pass CI.
+  - The language switcher works and persists to the backend, but
+    two gaps block a reload-persistence e2e under dev, and no e2e
+    guards the flow.
+
+  ## Prerequisite gaps this task MUST close (verified)
+
+  - **Dev never re-reads the persisted language on startup.**
+    `DevAuthProvider.loadAccount()` builds the account client-side
+    with NO `GET /api/auth/me` call and never sets `language`, so
+    `+layout.svelte`'s `applyAccountLanguage` always falls back to
+    `'de'` after a reload. task-123's endpoint is NOT the problem
+    (PUT persists; `/me` returns `language` under dev too) — the
+    dev FRONTEND is. Fix `DevAuthProvider.loadAccount()` to
+    populate `language` from `GET /api/auth/me` (roles stay
+    client-side per task-120; only `language` comes from the
+    backend). Cache it like the Entra provider so `getAccount()`
+    returns the resolved account.
+  - **Accept-Language seeding is non-deterministic under Chromium.**
+    task-123 seeds a new user's language from `Accept-Language`
+    (`en` → EN). Playwright's Chromium defaults to `en-US`, so
+    freshly-provisioned dev users seed **EN** — which, once dev
+    reads `/me`, would flip the WHOLE suite's German assertions
+    (e.g. `undo.test.ts` "Verlauf") to English. Set
+    `locale: 'de-DE'` in `playwright.config.ts` so seeding is
+    deterministically German and the app default (`initialLocale
+    'de'`) matches what the backend stores.
+  - **Shared-dev-user contamination.** The suite runs files in
+    parallel (no `workers`/`fullyParallel` set) and the global
+    `storageState` preseeds `dev-admin`. Persisting a language
+    change on dev-admin would race the German-asserting specs. The
+    language spec MUST run as a DEDICATED dev user (`loginAsDev` +
+    `test.use({ storageState: empty })`, like
+    `authorization-error.test.ts`), NOT dev-admin, and reset to DE
+    at the end.
 
   ## Target state
 
   - `src/frontend/e2e/language.test.ts` exercises the flow against
-    the dev stack and is green in the suite.
-
-  ## Note on dev vs Entra
-
-  The e2e runs under the DEV auth provider (the whole suite does).
-  For the language preference to persist under dev, the dev
-  backend must honour `PUT /api/auth/me/language` and return the
-  stored `language` on `GET /api/auth/me` for the dev user — verify
-  task-123's endpoint is provider-agnostic (it operates on the
-  provisioned `User` row, which dev also creates). If the dev path
-  cannot persist, fix task-123's endpoint rather than weakening the
-  test.
+    the dev stack (as a dedicated dev user) and is green in the
+    suite; the rest of the suite's German assertions still pass.
+  - Dev persists + re-reads the language across reload (via the
+    `DevAuthProvider` fix); seeding is deterministically German.
 
 steps:
   - |
-    Read an existing spec for the house style and helpers:
+    Read for house style, helpers, and the pieces being changed:
       src/frontend/e2e/user-menu.test.ts
-      src/frontend/e2e/auth.test.ts
+      src/frontend/e2e/authorization-error.test.ts (dedicated-user pattern: loginAsDev + empty storageState)
+      src/frontend/e2e/helpers.ts (loginAsDev / logoutDev)
       src/frontend/playwright.config.ts (baseURL, storageState preseed)
+      src/frontend/src/lib/auth/DevAuthProvider.ts
+      src/frontend/src/lib/auth/currentUser.ts (fetchCurrentUserAccount — reuse for language)
+      src/frontend/src/lib/components/UserMenu.svelte (the switcher)
   - |
-    Create `src/frontend/e2e/language.test.ts`:
-      * Start authenticated (default dev-admin storageState).
-      * Assert a representative German string is visible on a
-        stable screen (e.g. a panel title) — the default is DE.
-      * Open the user menu, switch to English.
-      * Assert the same UI now shows the English equivalent
-        (await the reactive locale change).
-      * Reload the page; assert the UI is STILL English (proves
-        persistence via /api/auth/me).
-      * Optionally switch back to DE to leave state clean.
+    Fix `DevAuthProvider.loadAccount()` to populate `language` from
+    the backend: fetch `GET /api/auth/me` (the dev user is
+    provisioned; `/me` returns its persisted `language`) and merge
+    only `language` into the client-side account (roles/displayName
+    stay client-side per task-120). Cache the resolved account so
+    `getAccount()` returns it synchronously (mirror the Entra
+    caching). On a `/me` failure, fall back to the client-side
+    account without `language` (locale falls back to 'de'). Keep
+    logging via `$lib/log` if you add a catch — no bare `console.*`.
+  - |
+    Set `locale: 'de-DE'` in `src/frontend/playwright.config.ts`
+    (`use: { locale: 'de-DE', … }`) so browser `Accept-Language`
+    seeds fresh dev users German — keeping the app default (`de`)
+    and the rest of the suite's German assertions valid now that
+    dev re-reads `/me`.
+  - |
+    Add a stable locator to the switcher: `data-testid="language-select"`
+    on the `<select>` in `UserMenu.svelte` (its aria-label is
+    itself translated, so tests must not key off it).
+  - |
+    Create `src/frontend/e2e/language.test.ts` as a DEDICATED-user
+    spec (do NOT use the shared dev-admin):
+      * `test.use({ storageState: { cookies: [], origins: [] } })`
+        then `loginAsDev(page, 'dev-estimator')` in beforeEach.
+      * Assert German is the default on a no-setup screen (e.g. the
+        projects page title "Projekte" or header "Abmelden") using
+        `{ exact: true }` — avoid DE strings that are substrings of
+        their EN equivalent (e.g. "Parameter" ⊂ "Parameters").
+      * Switch to English via `[data-testid="language-select"]`
+        (selectOption 'en'); await the reactive change and assert
+        the English equivalent ("Projects" / "Logout").
+      * `page.reload()`; assert the UI is STILL English (proves the
+        dev startup re-read of `/api/auth/me`).
+      * In `afterEach` (always runs), reset the user to DE — switch
+        back via the select or `page.request.put` the language to
+        'de' — so the dedicated user is left clean.
+  - |
+    Update `CLAUDE.md` (Frontend — i18n section): dev now
+    re-reads the persisted `language` from `GET /api/auth/me` on
+    startup (roles still client-side), so the switch DOES persist
+    across a dev reload — flip the earlier "not reflected after a
+    dev reload" note.
   - |
     Run the frontend gate and the e2e suite (dev stack up:
     ./scripts/dev.sh, Docker running):
@@ -66,13 +125,20 @@ steps:
       cd src/frontend && npm run test:e2e
 validation:
   - |
-    The spec exists and covers switch + reload persistence:
+    The spec exists and covers switch + reload persistence, on a dedicated user:
       test -f src/frontend/e2e/language.test.ts
-      grep -qiE "reload|persist" src/frontend/e2e/language.test.ts
+      grep -qi "reload" src/frontend/e2e/language.test.ts
       grep -qE "test\(|test\.describe" src/frontend/e2e/language.test.ts
+      grep -q "loginAsDev" src/frontend/e2e/language.test.ts
   - |
-    The spec drives the real switcher (not a shortcut):
-      grep -qiE "menu|language|Sprache" src/frontend/e2e/language.test.ts
+    The spec drives the real switcher via the stable testid (not a shortcut):
+      grep -q "language-select" src/frontend/e2e/language.test.ts
+      grep -q "data-testid=\"language-select\"" src/frontend/src/lib/components/UserMenu.svelte
+  - |
+    Dev re-reads the persisted language and seeding is deterministic:
+      grep -q "auth/me" src/frontend/src/lib/auth/DevAuthProvider.ts
+      grep -qE "language" src/frontend/src/lib/auth/DevAuthProvider.ts
+      grep -q "de-DE" src/frontend/playwright.config.ts
   - |
     Frontend gate is green and the full e2e suite passes
     (the language spec included; run with the dev stack up):
@@ -80,3 +146,7 @@ validation:
       cd src/frontend && npm run test:e2e
 outputs:
   - created: src/frontend/e2e/language.test.ts
+  - modified: src/frontend/src/lib/auth/DevAuthProvider.ts
+  - modified: src/frontend/playwright.config.ts
+  - modified: src/frontend/src/lib/components/UserMenu.svelte
+  - modified: CLAUDE.md

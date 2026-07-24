@@ -759,9 +759,9 @@
       "notes": "i18n: locale-aware number/currency/date formatting helper"
     },
     "task-127": {
-      "status": "pending",
-      "started_at": null,
-      "completed_at": null,
+      "status": "done",
+      "started_at": "2026-07-24T07:14:05+00:00",
+      "completed_at": "2026-07-24T07:20:17+00:00",
       "notes": "i18n: Playwright e2e for the language-switch flow"
     }
   }

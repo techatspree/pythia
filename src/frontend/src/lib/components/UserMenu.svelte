@@ -61,6 +61,7 @@
 	</div>
 	<select
 		class="text-sm border rounded px-1 py-0.5 bg-white text-gray-700"
+		data-testid="language-select"
 		aria-label={$_('language.label')}
 		value={$locale ?? 'de'}
 		onchange={(e) => changeLanguage(e.currentTarget.value)}
