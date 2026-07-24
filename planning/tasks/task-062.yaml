@@ -10,7 +10,34 @@ description: |
   into one implementation — per the single-source-of-truth rule in
   CLAUDE.md. No persistence, REST, or UI here.
 
-  Domain decisions already made for the whole feature:
+  ## This is the THREE-POINT-PERT reduction, NOT a universal vote model
+
+  The architecture changed after this feature was first planned:
+  estimation methods are now pluggable (phase-15 — `io.github.theestimator.method`
+  SPI, one package per method). A collaborative session has two layers:
+
+    - **Central / method-agnostic** (shared by every method): the whole
+      session LIFECYCLE — moderator setup, the two-phase Delphi flow,
+      persistence, WebSocket push, reveal/finalize, the room UI
+      (tasks 063–067).
+    - **Per-method**: the VOTE SHAPE and the REDUCTION. For THREE_POINT_PERT
+      a vote is a `(min, expected, max)` triple reduced by field-wise mean
+      + spread (THIS task). For BUCKET_SAMPLED_PERT a "vote" is instead a
+      per-item bucket ASSIGNMENT (last-write-wins) plus optional sample
+      triples (task-106) — a completely different shape. So `EstimatorVote`
+      / `VoteAggregation` here are **PERT-specific**, not universal.
+
+  This task deliberately builds the pure PERT reduction now; **task-105
+  (Session SPI) later extracts this exact core into
+  `io.github.theestimator.method.threepoint.ThreePointSessionSupport.reduce`
+  behind the `EstimationMethodSessionSupport` SPI** (task-105 already names
+  task-062 as that pure-function core), and task-106 adds the divergent
+  bucket-method reduction. Keep the code PURE and self-contained so that
+  relocation is a move, not a rewrite; do NOT wire it to any single-method
+  assumption beyond the PERT triple, and name/comment it as the PERT
+  reduction (not "the" session aggregation).
+
+  Domain decisions for the THREE_POINT_PERT reduction:
     - Each estimator submits a full PERT triple per item
       (minEffort / expectedEffort / maxEffort) — the same shape
       EstimationItem already uses.
@@ -25,13 +52,22 @@ description: |
       is nothing about multi-estimator aggregation.
 
   Target state — add to
-  src/domain/src/main/kotlin/io/github/theestimator/model/:
+  src/domain/src/main/kotlin/io/github/theestimator/model/ (placement stays
+  in `model` for this task; task-105 relocates the reduction core into
+  the PERT method package `method.threepoint` when it introduces the
+  session SPI — do NOT pre-move it here):
     - A small value type `EstimatorVote(minEffort, expectedEffort,
-      maxEffort)` (a `@JsExport @DomainEntity data class` of three
-      Doubles).
-    - A `VoteAggregate` result type carrying, per field and overall:
+      maxEffort)` (a `@JsExport data class` of three Doubles). It is a
+      value object (no identity), so it does NOT extend `BaseDomain` and
+      needs no `@DomainEntity` marker — keep it a plain `@JsExport data
+      class` (contrast the id-bearing `@DomainEntity` entities like
+      EffortDriver).
+    - A `VoteAggregate` result type (`@JsExport data class`) carrying,
+      per field and overall:
         meanMin, meanExpected, meanMax        (the averaged triple)
-        the PERT mean of the averaged triple  (reuse PertCalculation.mean)
+        `pertMean: Double`                    the PERT mean of the
+                                              averaged triple (reuse
+                                              PertCalculation.mean)
         spread metrics: for the field that drives convergence (use
           `expectedEffort`), min, max, range (max-min), sample standard
           deviation, and coefficient of variation (stdDev / mean, 0.0
@@ -44,8 +80,12 @@ description: |
         `fun aggregate(votes: List<EstimatorVote>): VoteAggregate`
       that computes the above. Empty list → a zeroed aggregate with
       voterCount 0 and diverged false (never divide by zero).
-    - Everything `@JsExport`-ed so the frontend can call it via the
-      Kotlin/JS bundle (adapter.ts pattern).
+      A single lambda-form debug observation is fine (see below); the
+      math stays the single source of truth (never logged in control
+      flow).
+    - Everything `@JsExport`-ed (EstimatorVote, VoteAggregate,
+      VoteAggregation) so the frontend can call it via the Kotlin/JS
+      bundle (adapter.ts pattern).
 
   Kotlin/JS constraints to respect (from CLAUDE.md):
     - Do NOT call `super.<computed property>` anywhere — irrelevant here
@@ -58,21 +98,35 @@ description: |
       Standard deviation: compute with kotlin stdlib
       (`sumOf`, `kotlin.math.sqrt`).
 
+  Domain logging (CLAUDE.md convention): the domain observes its
+  significant operations with the `io.github.oshai:kotlin-logging`
+  facade (as `EstimationVersion.calculate`, `BucketMethodModule`, and
+  `EstimationMethodRegistry` do). Add ONE lambda-form debug line to
+  `aggregate()` — `private val logger = KotlinLogging.logger {}` and
+  `logger.debug { "aggregated $voterCount votes: cv=$cv diverged=$diverged" }`.
+  Lambda form is allocation-free when the level is off; observation
+  only, never control flow.
+
 steps:
   - |
     Add src/domain/src/main/kotlin/io/github/theestimator/model/EstimatorVote.kt
-    with the `@JsExport @DomainEntity data class EstimatorVote(
+    with a plain `@JsExport data class EstimatorVote(
     val minEffort: Double, val expectedEffort: Double,
-    val maxEffort: Double)`.
+    val maxEffort: Double)` (value object — no BaseDomain, no
+    @DomainEntity; file-level `@file:OptIn(ExperimentalJsExport::class)`
+    like the other model files).
 
   - |
     Add src/domain/src/main/kotlin/io/github/theestimator/model/VoteAggregation.kt
-    containing the `VoteAggregate` data class (fields listed in the
-    description), the `DIVERGENCE_CV_THRESHOLD` constant, and the
-    `VoteAggregation` object with `aggregate(votes)`. Reuse
+    containing the `@JsExport data class VoteAggregate` (fields listed
+    in the description, incl. `pertMean`), the
+    `DIVERGENCE_CV_THRESHOLD` constant, and the `@JsExport object
+    VoteAggregation` with `aggregate(votes)`. Reuse
     `PertCalculation.mean(...)` for the PERT mean of the averaged
     triple. Sample standard deviation uses (n-1) denominator when
-    n > 1, else 0.0.
+    n > 1, else 0.0. Add the single lambda-form
+    `KotlinLogging.logger {}` debug observation to `aggregate()` (see
+    the Domain-logging note above).
 
   - |
     Add unit tests
@@ -80,13 +134,17 @@ steps:
     covering: empty list → zeroed/voterCount 0/diverged false; single
     vote → that vote, CV 0, not diverged; several close votes → not
     diverged; a clear outlier pushing CV above 0.20 → diverged true;
-    field-wise mean correctness.
+    field-wise mean correctness; and mean == 0 → CV 0.0 (no
+    divide-by-zero).
 
   - |
-    Build the domain and verify the TypeScript bundle still type-checks
-    against the frontend (the new exports must round-trip to JS):
-      mvn -pl src/domain -am test
-      cd src/frontend && npm run check
+    Build the domain (JVM tests + validates the generated TypeScript
+    for the new @JsExport symbols), then the full cross-module build to
+    prove the new exports regenerate and round-trip to the frontend
+    (raw `npm run check` type-checks a STALE src/lib/domain — only the
+    Gradle build regenerates + unpacks the domain typescriptDist):
+      ./gradlew :domain:build
+      ./gradlew build
 
 validation:
   - |
@@ -95,15 +153,18 @@ validation:
       test -f src/domain/src/main/kotlin/io/github/theestimator/model/VoteAggregation.kt
       test -f src/domain/src/test/kotlin/io/github/theestimator/model/VoteAggregationTest.kt
   - |
-    The aggregation and threshold are present and exported:
+    The aggregation and threshold are present and everything is exported:
       grep -q "object VoteAggregation" src/domain/src/main/kotlin/io/github/theestimator/model/VoteAggregation.kt
       grep -q "DIVERGENCE_CV_THRESHOLD" src/domain/src/main/kotlin/io/github/theestimator/model/VoteAggregation.kt
       grep -q "@JsExport" src/domain/src/main/kotlin/io/github/theestimator/model/EstimatorVote.kt
+      test "$(grep -c '@JsExport' src/domain/src/main/kotlin/io/github/theestimator/model/VoteAggregation.kt)" -ge 2
+      grep -q "logger.debug" src/domain/src/main/kotlin/io/github/theestimator/model/VoteAggregation.kt
   - |
-    Domain tests pass and the frontend still type-checks against the
-    regenerated bundle:
-      mvn -pl src/domain -am test
-      cd src/frontend && npm run check
+    Domain tests pass and the new @JsExport symbols regenerate + round-trip
+    to the frontend (the Gradle build unpacks the domain typescriptDist and
+    runs :frontend:check against it — raw npm would use a stale bundle):
+      ./gradlew :domain:build
+      ./gradlew build
 
 outputs:
   - created: src/domain/src/main/kotlin/io/github/theestimator/model/EstimatorVote.kt
