@@ -6,7 +6,9 @@ export default defineConfig({
 	plugins: [tailwindcss(), sveltekit()],
 	server: {
 		proxy: {
-			'/api': 'http://localhost:8080'
+			'/api': 'http://localhost:8080',
+			// WebSocket upgrades for the collaborative-session channel (task-066).
+			'/ws': { target: 'http://localhost:8080', ws: true }
 		}
 	}
 });

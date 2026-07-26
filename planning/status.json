@@ -411,9 +411,9 @@
       "notes": ""
     },
     "task-066": {
-      "status": "pending",
-      "started_at": null,
-      "completed_at": null,
+      "status": "done",
+      "started_at": "2026-07-26T15:05:07+00:00",
+      "completed_at": "2026-07-26T15:21:53+00:00",
       "notes": ""
     },
     "task-067": {

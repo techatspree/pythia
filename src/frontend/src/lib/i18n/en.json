@@ -262,5 +262,54 @@
 		"de": "Deutsch",
 		"en": "English",
 		"switchFailed": "Failed to change language"
+	},
+	"nav": {
+		"sessions": "Sessions"
+	},
+	"session": {
+		"setup": {
+			"title": "Start estimation session",
+			"project": "Project",
+			"selectProject": "Select a project…",
+			"estimation": "Offer",
+			"selectEstimation": "Select an offer…",
+			"sessionTitle": "Session title",
+			"items": "Items to estimate",
+			"noItems": "The draft has no estimable items.",
+			"noDraft": "This offer has no draft.",
+			"start": "Start session",
+			"existing": "Running sessions",
+			"join": "Join",
+			"loadFailed": "Failed to load session data"
+		},
+		"layout": {
+			"leave": "Leave",
+			"connected": "Connected",
+			"connecting": "Connecting…"
+		},
+		"room": {
+			"loading": "Loading session…",
+			"participants": "Participants",
+			"agreed": "agreed",
+			"currentItem": "Current item",
+			"noCurrentItem": "No current item.",
+			"roleModerator": "You are moderating this session.",
+			"roleEstimator": "You are estimating in this session.",
+			"phasePlaceholder": "Phase controls coming soon (task-067)."
+		},
+		"role": {
+			"MODERATOR": "Moderator",
+			"ESTIMATOR": "Estimator"
+		},
+		"status": {
+			"CREATED": "Created",
+			"RUNNING": "Running",
+			"FINALIZED": "Finalized",
+			"CANCELLED": "Cancelled"
+		},
+		"phase": {
+			"PHASE1": "Phase 1",
+			"PHASE2": "Phase 2"
+		}
 	}
 }

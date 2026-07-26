@@ -11,8 +11,15 @@
 	import { SupportedLanguage } from '$lib/domain/domain.mjs';
 	import { log } from '$lib/log';
 	import { resolve } from '$app/paths';
+	import { page } from '$app/state';
+	import { _ } from 'svelte-i18n';
 
 	let { children } = $props();
+
+	// The collaborative-session route group (task-066) has its own full-screen
+	// "room" chrome, so the standard header is hidden there (auth + i18n gate
+	// below still apply — the session layout is nested inside this one).
+	const isSessionRoute = $derived(page.url.pathname.startsWith('/sessions'));
 
 	const provider = getAuthProvider();
 	let account = $state<AuthAccount | null>(null);
@@ -56,30 +63,37 @@
 	<link rel="icon" href={favicon} />
 </svelte:head>
 
-<header class="bg-white">
-	<div class="px-6 py-3 flex items-center gap-3">
-		<a href={resolve('/projects')}>
-			<picture>
-				<source srcset="/estimator_logo.webp" type="image/webp" />
-				<img
-					src="/estimator_logo_w120.png"
-					alt="The Estimator"
-					width="120"
-					height="88"
-					loading="eager"
-					class="w-30 h-auto"
-				/>
-			</picture>
-		</a>
-		<span class="text-brand-green text-xs font-semibold tracking-widest uppercase">Estimator</span>
-		{#if account}
-			<div class="ml-auto flex items-center gap-3">
-				<UserMenu {account} onlogout={refresh} />
-			</div>
-		{/if}
-	</div>
-	<div class="h-0.75" style="background: var(--gradient-brand)"></div>
-</header>
+{#if !isSessionRoute}
+	<header class="bg-white">
+		<div class="px-6 py-3 flex items-center gap-3">
+			<a href={resolve('/projects')}>
+				<picture>
+					<source srcset="/estimator_logo.webp" type="image/webp" />
+					<img
+						src="/estimator_logo_w120.png"
+						alt="The Estimator"
+						width="120"
+						height="88"
+						loading="eager"
+						class="w-30 h-auto"
+					/>
+				</picture>
+			</a>
+			<span class="text-brand-green text-xs font-semibold tracking-widest uppercase">Estimator</span>
+			{#if account}
+				<a
+					href={resolve('/sessions')}
+					class="text-sm text-brand-green hover:text-[#007a45] underline-offset-2 hover:underline"
+					>{$_('nav.sessions')}</a
+				>
+				<div class="ml-auto flex items-center gap-3">
+					<UserMenu {account} onlogout={refresh} />
+				</div>
+			{/if}
+		</div>
+		<div class="h-0.75" style="background: var(--gradient-brand)"></div>
+	</header>
+{/if}
 
 <main>
 	{#if initError}

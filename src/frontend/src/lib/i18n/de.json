@@ -262,5 +262,54 @@
 		"de": "Deutsch",
 		"en": "English",
 		"switchFailed": "Sprache konnte nicht geändert werden"
+	},
+	"nav": {
+		"sessions": "Sitzungen"
+	},
+	"session": {
+		"setup": {
+			"title": "Schätzsitzung starten",
+			"project": "Projekt",
+			"selectProject": "Projekt wählen…",
+			"estimation": "Angebot",
+			"selectEstimation": "Angebot wählen…",
+			"sessionTitle": "Sitzungstitel",
+			"items": "Zu schätzende Einträge",
+			"noItems": "Der Entwurf enthält keine schätzbaren Einträge.",
+			"noDraft": "Dieses Angebot hat keinen Entwurf.",
+			"start": "Sitzung starten",
+			"existing": "Laufende Sitzungen",
+			"join": "Beitreten",
+			"loadFailed": "Sitzungsdaten konnten nicht geladen werden"
+		},
+		"layout": {
+			"leave": "Verlassen",
+			"connected": "Verbunden",
+			"connecting": "Verbindung wird aufgebaut…"
+		},
+		"room": {
+			"loading": "Sitzung wird geladen…",
+			"participants": "Teilnehmer",
+			"agreed": "einverstanden",
+			"currentItem": "Aktueller Eintrag",
+			"noCurrentItem": "Kein aktueller Eintrag.",
+			"roleModerator": "Sie moderieren diese Sitzung.",
+			"roleEstimator": "Sie schätzen in dieser Sitzung.",
+			"phasePlaceholder": "Die Phasen-Steuerung folgt (task-067)."
+		},
+		"role": {
+			"MODERATOR": "Moderator",
+			"ESTIMATOR": "Schätzer"
+		},
+		"status": {
+			"CREATED": "Erstellt",
+			"RUNNING": "Läuft",
+			"FINALIZED": "Abgeschlossen",
+			"CANCELLED": "Abgebrochen"
+		},
+		"phase": {
+			"PHASE1": "Phase 1",
+			"PHASE2": "Phase 2"
+		}
 	}
 }

@@ -7,6 +7,9 @@
     "name" : "Auth",
     "description" : "Current authenticated user"
   }, {
+    "name" : "Estimation sessions",
+    "description" : "Collaborative two-phase Wideband-Delphi estimation"
+  }, {
     "name" : "Estimation versions",
     "description" : "Draft editing, undo/redo, submitted snapshots, compare and export"
   }, {
@@ -81,6 +84,55 @@
           }
         },
         "required" : [ "description", "type" ]
+      },
+      "AggregateDto" : {
+        "type" : "object",
+        "required" : [ "meanMin", "meanExpected", "meanMax", "pertMean", "expectedMin", "expectedMax", "range", "stdDev", "coefficientOfVariation", "diverged", "voterCount" ],
+        "properties" : {
+          "meanMin" : {
+            "type" : "number",
+            "format" : "double"
+          },
+          "meanExpected" : {
+            "type" : "number",
+            "format" : "double"
+          },
+          "meanMax" : {
+            "type" : "number",
+            "format" : "double"
+          },
+          "pertMean" : {
+            "type" : "number",
+            "format" : "double"
+          },
+          "expectedMin" : {
+            "type" : "number",
+            "format" : "double"
+          },
+          "expectedMax" : {
+            "type" : "number",
+            "format" : "double"
+          },
+          "range" : {
+            "type" : "number",
+            "format" : "double"
+          },
+          "stdDev" : {
+            "type" : "number",
+            "format" : "double"
+          },
+          "coefficientOfVariation" : {
+            "type" : "number",
+            "format" : "double"
+          },
+          "diverged" : {
+            "type" : "boolean"
+          },
+          "voterCount" : {
+            "type" : "integer",
+            "format" : "int32"
+          }
+        }
       },
       "BucketUpdateDto" : {
         "type" : "object",
@@ -168,6 +220,24 @@
           "currentDraftRevision" : {
             "type" : "integer",
             "format" : "int64"
+          }
+        }
+      },
+      "CreateSessionRequest" : {
+        "type" : "object",
+        "required" : [ "estimationId", "title", "itemLogicalIds" ],
+        "properties" : {
+          "estimationId" : {
+            "$ref" : "#/components/schemas/UUID"
+          },
+          "title" : {
+            "type" : "string"
+          },
+          "itemLogicalIds" : {
+            "type" : "array",
+            "items" : {
+              "type" : "string"
+            }
           }
         }
       },
@@ -746,6 +816,15 @@
           }
         }
       },
+      "NotesRequest" : {
+        "type" : "object",
+        "required" : [ "notes" ],
+        "properties" : {
+          "notes" : {
+            "type" : "string"
+          }
+        }
+      },
       "ParameterChangeDto" : {
         "type" : "object",
         "required" : [ "name", "oldValue", "newValue", "changeType" ],
@@ -765,6 +844,28 @@
             "type" : "string"
           }
         }
+      },
+      "ParticipantDto" : {
+        "type" : "object",
+        "required" : [ "subjectId", "displayName", "role", "agreed" ],
+        "properties" : {
+          "subjectId" : {
+            "type" : "string"
+          },
+          "displayName" : {
+            "type" : [ "string", "null" ]
+          },
+          "role" : {
+            "$ref" : "#/components/schemas/ParticipantRole"
+          },
+          "agreed" : {
+            "type" : "boolean"
+          }
+        }
+      },
+      "ParticipantRole" : {
+        "type" : "string",
+        "enum" : [ "MODERATOR", "ESTIMATOR" ]
       },
       "PhaseUpdateDto" : {
         "type" : "object",
@@ -924,6 +1025,122 @@
         "type" : "string",
         "enum" : [ "VIEWER", "ESTIMATOR", "ADMIN" ]
       },
+      "SessionDto" : {
+        "type" : "object",
+        "required" : [ "id", "title", "estimationId", "status", "moderatorSubjectId", "currentItemIndex", "currentPhase", "items", "participants" ],
+        "properties" : {
+          "id" : {
+            "$ref" : "#/components/schemas/UUID"
+          },
+          "title" : {
+            "type" : "string"
+          },
+          "estimationId" : {
+            "$ref" : "#/components/schemas/UUID"
+          },
+          "status" : {
+            "$ref" : "#/components/schemas/SessionStatus"
+          },
+          "moderatorSubjectId" : {
+            "type" : "string"
+          },
+          "currentItemIndex" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "currentPhase" : {
+            "$ref" : "#/components/schemas/SessionPhase"
+          },
+          "items" : {
+            "type" : "array",
+            "items" : {
+              "$ref" : "#/components/schemas/SessionItemDto"
+            }
+          },
+          "participants" : {
+            "type" : "array",
+            "items" : {
+              "$ref" : "#/components/schemas/ParticipantDto"
+            }
+          }
+        }
+      },
+      "SessionItemDto" : {
+        "type" : "object",
+        "required" : [ "nodeLogicalId", "description", "position", "status", "discussionNotes", "finalTriple", "submittedVoteCount", "votes", "aggregate" ],
+        "properties" : {
+          "nodeLogicalId" : {
+            "type" : "string"
+          },
+          "description" : {
+            "type" : [ "string", "null" ]
+          },
+          "position" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "status" : {
+            "$ref" : "#/components/schemas/SessionItemStatus"
+          },
+          "discussionNotes" : {
+            "type" : [ "string", "null" ]
+          },
+          "finalTriple" : {
+            "anyOf" : [ {
+              "$ref" : "#/components/schemas/TripleDto"
+            }, {
+              "type" : "null"
+            } ]
+          },
+          "submittedVoteCount" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "votes" : {
+            "type" : [ "array", "null" ],
+            "items" : {
+              "$ref" : "#/components/schemas/VoteDto"
+            }
+          },
+          "aggregate" : {
+            "anyOf" : [ {
+              "$ref" : "#/components/schemas/AggregateDto"
+            }, {
+              "type" : "null"
+            } ]
+          }
+        }
+      },
+      "SessionItemStatus" : {
+        "type" : "string",
+        "enum" : [ "PENDING", "PHASE1", "PHASE2", "FINALIZED" ]
+      },
+      "SessionPhase" : {
+        "type" : "string",
+        "enum" : [ "PHASE1", "PHASE2" ]
+      },
+      "SessionStatus" : {
+        "type" : "string",
+        "enum" : [ "CREATED", "RUNNING", "FINALIZED", "CANCELLED" ]
+      },
+      "TripleDto" : {
+        "type" : "object",
+        "required" : [ "minEffort", "expectedEffort", "maxEffort" ],
+        "properties" : {
+          "minEffort" : {
+            "type" : "number",
+            "format" : "double"
+          },
+          "expectedEffort" : {
+            "type" : "number",
+            "format" : "double"
+          },
+          "maxEffort" : {
+            "type" : "number",
+            "format" : "double"
+          }
+        }
+      },
       "UUID" : {
         "type" : "string",
         "format" : "uuid",
@@ -966,6 +1183,57 @@
             }
           }
         }
+      },
+      "VoteDto" : {
+        "type" : "object",
+        "required" : [ "participantSubjectId", "displayName", "triple", "phase" ],
+        "properties" : {
+          "participantSubjectId" : {
+            "type" : "string"
+          },
+          "displayName" : {
+            "type" : [ "string", "null" ]
+          },
+          "triple" : {
+            "$ref" : "#/components/schemas/TripleDto"
+          },
+          "phase" : {
+            "$ref" : "#/components/schemas/SessionPhase"
+          }
+        }
+      },
+      "VoteRequest" : {
+        "type" : "object",
+        "required" : [ "minEffort", "expectedEffort", "maxEffort" ],
+        "properties" : {
+          "minEffort" : {
+            "type" : "number",
+            "format" : "double"
+          },
+          "expectedEffort" : {
+            "type" : "number",
+            "format" : "double"
+          },
+          "maxEffort" : {
+            "type" : "number",
+            "format" : "double"
+          }
+        }
+      },
+      "WsTicketDto" : {
+        "type" : "object",
+        "required" : [ "ticket" ],
+        "properties" : {
+          "ticket" : {
+            "type" : "string"
+          }
+        }
+      }
+    },
+    "securitySchemes" : {
+      "SecurityScheme" : {
+        "type" : "openIdConnect",
+        "description" : "Authentication"
       }
     }
   },
@@ -1862,6 +2130,482 @@
           },
           "400" : {
             "description" : "Bad Request"
+          }
+        },
+        "security" : [ {
+          "SecurityScheme" : [ "ESTIMATOR" ]
+        } ]
+      }
+    },
+    "/api/sessions" : {
+      "get" : {
+        "summary" : "List the sessions of an estimation",
+        "tags" : [ "Estimation sessions" ],
+        "parameters" : [ {
+          "name" : "estimationId",
+          "in" : "query",
+          "schema" : {
+            "$ref" : "#/components/schemas/UUID"
+          },
+          "required" : true
+        } ],
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "type" : "array",
+                  "items" : {
+                    "$ref" : "#/components/schemas/SessionDto"
+                  }
+                }
+              }
+            }
+          },
+          "401" : {
+            "description" : "Not Authorized"
+          },
+          "403" : {
+            "description" : "Not Allowed"
+          }
+        },
+        "security" : [ {
+          "SecurityScheme" : [ "ESTIMATOR" ]
+        } ]
+      },
+      "post" : {
+        "summary" : "Create a session (the current user becomes the moderator)",
+        "tags" : [ "Estimation sessions" ],
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/CreateSessionRequest"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "201" : {
+            "description" : "Session created",
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/SessionDto"
+                }
+              }
+            }
+          },
+          "400" : {
+            "description" : "A logicalId is not a draft leaf, or the estimation has no draft"
+          },
+          "403" : {
+            "description" : "Not an ESTIMATOR"
+          },
+          "401" : {
+            "description" : "Not Authorized"
+          }
+        },
+        "security" : [ {
+          "SecurityScheme" : [ "ESTIMATOR" ]
+        } ]
+      }
+    },
+    "/api/sessions/{id}" : {
+      "get" : {
+        "summary" : "Read a session (blind items expose only a vote count)",
+        "tags" : [ "Estimation sessions" ],
+        "parameters" : [ {
+          "name" : "id",
+          "in" : "path",
+          "required" : true,
+          "schema" : {
+            "$ref" : "#/components/schemas/UUID"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/SessionDto"
+                }
+              }
+            }
+          },
+          "404" : {
+            "description" : "Session not found"
+          },
+          "401" : {
+            "description" : "Not Authorized"
+          },
+          "403" : {
+            "description" : "Not Allowed"
+          }
+        },
+        "security" : [ {
+          "SecurityScheme" : [ "ESTIMATOR" ]
+        } ]
+      }
+    },
+    "/api/sessions/{id}/agree" : {
+      "post" : {
+        "summary" : "Estimator: mark agreement on the current item",
+        "tags" : [ "Estimation sessions" ],
+        "parameters" : [ {
+          "name" : "id",
+          "in" : "path",
+          "required" : true,
+          "schema" : {
+            "$ref" : "#/components/schemas/UUID"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/SessionDto"
+                }
+              }
+            }
+          },
+          "409" : {
+            "description" : "Not a participant"
+          },
+          "401" : {
+            "description" : "Not Authorized"
+          },
+          "403" : {
+            "description" : "Not Allowed"
+          }
+        },
+        "security" : [ {
+          "SecurityScheme" : [ "ESTIMATOR" ]
+        } ]
+      }
+    },
+    "/api/sessions/{id}/cancel" : {
+      "post" : {
+        "summary" : "Moderator: cancel the session",
+        "tags" : [ "Estimation sessions" ],
+        "parameters" : [ {
+          "name" : "id",
+          "in" : "path",
+          "required" : true,
+          "schema" : {
+            "$ref" : "#/components/schemas/UUID"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/SessionDto"
+                }
+              }
+            }
+          },
+          "403" : {
+            "description" : "Not the moderator"
+          },
+          "401" : {
+            "description" : "Not Authorized"
+          }
+        },
+        "security" : [ {
+          "SecurityScheme" : [ "ESTIMATOR" ]
+        } ]
+      }
+    },
+    "/api/sessions/{id}/items/current/finalize" : {
+      "post" : {
+        "summary" : "Moderator: finalize the current item (writes back to the draft) and advance",
+        "tags" : [ "Estimation sessions" ],
+        "parameters" : [ {
+          "name" : "id",
+          "in" : "path",
+          "required" : true,
+          "schema" : {
+            "$ref" : "#/components/schemas/UUID"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/SessionDto"
+                }
+              }
+            }
+          },
+          "403" : {
+            "description" : "Not the moderator"
+          },
+          "409" : {
+            "description" : "Current item is not in PHASE2, or has no votes"
+          },
+          "401" : {
+            "description" : "Not Authorized"
+          }
+        },
+        "security" : [ {
+          "SecurityScheme" : [ "ESTIMATOR" ]
+        } ]
+      }
+    },
+    "/api/sessions/{id}/items/current/notes" : {
+      "put" : {
+        "summary" : "Moderator: set the current item's discussion notes",
+        "tags" : [ "Estimation sessions" ],
+        "parameters" : [ {
+          "name" : "id",
+          "in" : "path",
+          "required" : true,
+          "schema" : {
+            "$ref" : "#/components/schemas/UUID"
+          }
+        } ],
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/NotesRequest"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/SessionDto"
+                }
+              }
+            }
+          },
+          "403" : {
+            "description" : "Not the moderator"
+          },
+          "401" : {
+            "description" : "Not Authorized"
+          },
+          "400" : {
+            "description" : "Bad Request"
+          }
+        },
+        "security" : [ {
+          "SecurityScheme" : [ "ESTIMATOR" ]
+        } ]
+      }
+    },
+    "/api/sessions/{id}/items/current/phase2" : {
+      "post" : {
+        "summary" : "Moderator: reveal — advance the current item to PHASE2",
+        "tags" : [ "Estimation sessions" ],
+        "parameters" : [ {
+          "name" : "id",
+          "in" : "path",
+          "required" : true,
+          "schema" : {
+            "$ref" : "#/components/schemas/UUID"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/SessionDto"
+                }
+              }
+            }
+          },
+          "403" : {
+            "description" : "Not the moderator"
+          },
+          "409" : {
+            "description" : "Current item is not in PHASE1"
+          },
+          "401" : {
+            "description" : "Not Authorized"
+          }
+        },
+        "security" : [ {
+          "SecurityScheme" : [ "ESTIMATOR" ]
+        } ]
+      }
+    },
+    "/api/sessions/{id}/join" : {
+      "post" : {
+        "summary" : "Join the current user as an ESTIMATOR participant (idempotent)",
+        "tags" : [ "Estimation sessions" ],
+        "parameters" : [ {
+          "name" : "id",
+          "in" : "path",
+          "required" : true,
+          "schema" : {
+            "$ref" : "#/components/schemas/UUID"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/SessionDto"
+                }
+              }
+            }
+          },
+          "404" : {
+            "description" : "Session not found"
+          },
+          "401" : {
+            "description" : "Not Authorized"
+          },
+          "403" : {
+            "description" : "Not Allowed"
+          }
+        },
+        "security" : [ {
+          "SecurityScheme" : [ "ESTIMATOR" ]
+        } ]
+      }
+    },
+    "/api/sessions/{id}/start" : {
+      "post" : {
+        "summary" : "Moderator: start the session (CREATED → RUNNING)",
+        "tags" : [ "Estimation sessions" ],
+        "parameters" : [ {
+          "name" : "id",
+          "in" : "path",
+          "required" : true,
+          "schema" : {
+            "$ref" : "#/components/schemas/UUID"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/SessionDto"
+                }
+              }
+            }
+          },
+          "403" : {
+            "description" : "Not the moderator"
+          },
+          "409" : {
+            "description" : "Session is not in CREATED"
+          },
+          "401" : {
+            "description" : "Not Authorized"
+          }
+        },
+        "security" : [ {
+          "SecurityScheme" : [ "ESTIMATOR" ]
+        } ]
+      }
+    },
+    "/api/sessions/{id}/votes" : {
+      "post" : {
+        "summary" : "Estimator: upsert a vote for the current item + current phase",
+        "tags" : [ "Estimation sessions" ],
+        "parameters" : [ {
+          "name" : "id",
+          "in" : "path",
+          "required" : true,
+          "schema" : {
+            "$ref" : "#/components/schemas/UUID"
+          }
+        } ],
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/VoteRequest"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/SessionDto"
+                }
+              }
+            }
+          },
+          "409" : {
+            "description" : "Not a participant, session not RUNNING, or no current item"
+          },
+          "401" : {
+            "description" : "Not Authorized"
+          },
+          "403" : {
+            "description" : "Not Allowed"
+          },
+          "400" : {
+            "description" : "Bad Request"
+          }
+        },
+        "security" : [ {
+          "SecurityScheme" : [ "ESTIMATOR" ]
+        } ]
+      }
+    },
+    "/api/sessions/{id}/ws-ticket" : {
+      "post" : {
+        "summary" : "Issue a short-lived single-use WebSocket handshake ticket for the current participant",
+        "tags" : [ "Estimation sessions" ],
+        "parameters" : [ {
+          "name" : "id",
+          "in" : "path",
+          "required" : true,
+          "schema" : {
+            "$ref" : "#/components/schemas/UUID"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/WsTicketDto"
+                }
+              }
+            }
+          },
+          "403" : {
+            "description" : "Not a participant of the session"
+          },
+          "404" : {
+            "description" : "Session not found"
+          },
+          "401" : {
+            "description" : "Not Authorized"
           }
         },
         "security" : [ {
