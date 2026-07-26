@@ -101,3 +101,7 @@ data class VoteRequest(
     val expectedEffort: Double,
     val maxEffort: Double
 )
+
+// Response of POST /api/sessions/{id}/ws-ticket — a short-lived single-use
+// token the client puts on the WebSocket handshake query string (task-065).
+data class WsTicketDto(val ticket: String)

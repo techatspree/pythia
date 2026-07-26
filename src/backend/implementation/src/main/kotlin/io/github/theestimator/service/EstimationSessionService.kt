@@ -103,6 +103,22 @@ class EstimationSessionService(
     @Transactional
     fun getSession(id: UUID): SessionDto = buildDto(requireSession(id))
 
+    // Throws 404 if the session is missing, 403 if the subject is not a joined
+    // participant. Used to gate WebSocket ticket issuance (task-065).
+    @Transactional
+    fun assertParticipant(id: UUID, subjectId: String) {
+        val session = requireSession(id)
+        if (session.participants.none { it.subjectId == subjectId }) {
+            throw WebApplicationException("$subjectId is not a participant of session $id", Response.Status.FORBIDDEN)
+        }
+    }
+
+    @Transactional
+    fun isParticipant(id: UUID, subjectId: String): Boolean {
+        val session = sessionRepository.findById(id) ?: return false
+        return session.participants.any { it.subjectId == subjectId }
+    }
+
     @Transactional
     fun listSessions(estimationId: UUID): List<SessionDto> =
         sessionRepository.findByEstimationId(estimationId).map { buildDto(it) }

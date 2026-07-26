@@ -5,8 +5,11 @@ import io.github.theestimator.rest.dto.CreateSessionRequest
 import io.github.theestimator.rest.dto.NotesRequest
 import io.github.theestimator.rest.dto.SessionDto
 import io.github.theestimator.rest.dto.VoteRequest
+import io.github.theestimator.rest.dto.WsTicketDto
 import io.github.theestimator.service.CurrentUserService
 import io.github.theestimator.service.EstimationSessionService
+import io.github.theestimator.service.SessionTicketStore
+import io.quarkus.logging.Log
 import jakarta.annotation.security.RolesAllowed
 import jakarta.enterprise.context.ApplicationScoped
 import jakarta.ws.rs.Consumes
@@ -40,8 +43,23 @@ import java.util.UUID
 class SessionResource(
     private val sessionService: EstimationSessionService,
     private val currentUserProvider: CurrentUserProvider,
-    private val currentUserService: CurrentUserService
+    private val currentUserService: CurrentUserService,
+    private val ticketStore: SessionTicketStore
 ) {
+
+    @POST
+    @Path("/{id}/ws-ticket")
+    @Operation(summary = "Issue a short-lived single-use WebSocket handshake ticket for the current participant")
+    @APIResponse(responseCode = "200", content = [Content(schema = Schema(implementation = WsTicketDto::class))])
+    @APIResponse(responseCode = "403", description = "Not a participant of the session")
+    @APIResponse(responseCode = "404", description = "Session not found")
+    fun wsTicket(@PathParam("id") id: UUID): Response {
+        val subjectId = currentUserProvider.get().subjectId
+        sessionService.assertParticipant(id, subjectId)
+        val ticket = ticketStore.issue(id, subjectId)
+        Log.info("Issued WS ticket for session $id to $subjectId")
+        return Response.ok(WsTicketDto(ticket)).build()
+    }
 
     @POST
     @Consumes(MediaType.APPLICATION_JSON)

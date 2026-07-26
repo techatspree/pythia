@@ -38,15 +38,20 @@ description: |
   The client does not send domain messages over the socket (mutations
   go through REST); a periodic ping/keepalive is fine.
 
-  Plumbing the publisher: implement task-064's `SessionEventPublisher`
-  (or observe its CDI event) in a `SessionBroadcaster` that, given a
-  sessionId, loads the session via EstimationSessionService, maps it to
-  the (moderator-scoped? — see note) SessionDto, and sends it to every
-  open connection for that session. NOTE on PHASE1 vote hiding: the
-  broadcast payload must respect the same role-scoping as the REST GET
-  (estimators must not receive other estimators' PHASE1 values). Send a
-  per-connection payload: scope the DTO to each recipient's role
-  (moderator gets full data, estimators get counts only during PHASE1).
+  Plumbing the publisher: task-064's `SessionEventPublisher` is a concrete
+  bean that fires a CDI `Event<SessionChangedEvent>`. The `SessionBroadcaster`
+  therefore does NOT implement an interface — it declares an observer
+  `@Observes SessionChangedEvent` (prefer
+  `@Observes(during = TransactionPhase.AFTER_SUCCESS)` so the broadcast
+  reflects committed state and does not do socket I/O inside the mutating
+  transaction), loads the session via `EstimationSessionService.getSession`,
+  and sends it to every open connection for that session.
+
+  Vote hiding: task-064 already hides blind-PHASE1 votes UNIFORMLY (an item
+  exposes `votes`/`aggregate` only once its status is PHASE2/FINALIZED — no
+  one, including the moderator, sees PHASE1 values). So there is NO
+  role-scoped DTO to compute here: broadcast the single `getSession(id)`
+  DTO to every connection. Do NOT add per-recipient scoping.
 
   Gateway wiring is handled on the frontend side (task-066) for nginx /
   vite; this task only needs the Quarkus endpoint to answer at
@@ -55,9 +60,10 @@ description: |
 steps:
   - |
     Add the dependency to
-    src/backend/implementation/pom.xml:
-      <dependency><groupId>io.quarkus</groupId>
-        <artifactId>quarkus-websockets-next</artifactId></dependency>
+    src/backend/implementation/build.gradle.kts (Gradle project — there is
+    NO pom.xml), in the `dependencies { }` block alongside the other
+    `implementation("io.quarkus:…")` lines:
+      implementation("io.quarkus:quarkus-websockets-next")
 
   - |
     Add the in-memory ticket store
@@ -65,7 +71,9 @@ steps:
     (`@ApplicationScoped`; concurrent map; issue(sessionId, subjectId)
     → ticket; consume(ticket, sessionId) → subjectId?; TTL + single
     use). Add `POST /api/sessions/{id}/ws-ticket` to SessionResource
-    (task-064's file) returning `{ticket}`.
+    (task-064's file) returning `{ticket}`; it inherits the class-level
+    `@RolesAllowed("ESTIMATOR")`, and the joined-participant check goes in
+    the service/store (403/409 for a non-participant). Log at INFO/DEBUG.
 
   - |
     Add the WebSocket endpoint
@@ -73,15 +81,23 @@ steps:
     annotated `@WebSocket(path = "/ws/sessions/{sessionId}")`, with
     `@OnOpen` (ticket validation + participant check + register),
     `@OnClose` (deregister), using `WebSocketConnection` /
-    `OpenConnections`. Read the ticket from the query string.
+    `OpenConnections`. Read the ticket from the query string (scheme is
+    `ws://` in dev). Log INFO on connect/disconnect (session id + subject)
+    and WARN/DEBUG on an invalid/expired ticket rejection (close with a
+    policy-violation code) — via `io.quarkus.logging.Log` (CLAUDE.md
+    backend logging convention).
 
   - |
     Add
     src/backend/implementation/src/main/kotlin/io/github/theestimator/ws/SessionBroadcaster.kt
-    that implements the task-064 publisher hook (or `@Observes` its CDI
-    event) and, on each change, sends a per-recipient role-scoped
-    `{type:"session", session:…}` text message to every open connection
-    for that session.
+    with an observer `@Observes(during = TransactionPhase.AFTER_SUCCESS)
+    SessionChangedEvent` (task-064 fires this CDI event; observing
+    AFTER_SUCCESS broadcasts committed state without socket I/O inside the
+    DB transaction). On each event it loads the DTO via
+    `EstimationSessionService.getSession(sessionId)` and sends the SAME
+    `{type:"session", session:…}` text message to every open connection for
+    that session (no per-recipient scoping — PHASE1 hiding is uniform).
+    Log DEBUG on fan-out (session id + connection count).
 
   - |
     Add a test
@@ -97,8 +113,8 @@ steps:
     section.
 
   - |
-    Build + test (Docker required):
-      mvn -pl src/backend/implementation -am test
+    Build + test (Docker required for Dev Services PostgreSQL):
+      ./gradlew :backend:implementation:test
 
   - |
     Record the realtime pattern as a `project` memory via the
@@ -111,7 +127,7 @@ steps:
 validation:
   - |
     websockets-next dependency added:
-      grep -q "quarkus-websockets-next" src/backend/implementation/pom.xml
+      grep -q "quarkus-websockets-next" src/backend/implementation/build.gradle.kts
   - |
     Socket endpoint, broadcaster, ticket store and IT exist:
       test -f src/backend/implementation/src/main/kotlin/io/github/theestimator/ws/SessionSocket.kt
@@ -126,11 +142,15 @@ validation:
     CLAUDE.md documents the realtime channel:
       grep -q "/ws/sessions" CLAUDE.md
   - |
+    The broadcaster observes the task-064 CDI event and logs:
+      grep -q "SessionChangedEvent" src/backend/implementation/src/main/kotlin/io/github/theestimator/ws/SessionBroadcaster.kt
+      grep -qE "Log\.(info|debug|warn)" src/backend/implementation/src/main/kotlin/io/github/theestimator/ws/SessionSocket.kt
+  - |
     Backend builds and the socket IT passes:
-      mvn -pl src/backend/implementation -am test
+      ./gradlew :backend:implementation:test
 
 outputs:
-  - modified: src/backend/implementation/pom.xml
+  - modified: src/backend/implementation/build.gradle.kts
   - created: src/backend/implementation/src/main/kotlin/io/github/theestimator/service/SessionTicketStore.kt
   - created: src/backend/implementation/src/main/kotlin/io/github/theestimator/ws/SessionSocket.kt
   - created: src/backend/implementation/src/main/kotlin/io/github/theestimator/ws/SessionBroadcaster.kt
