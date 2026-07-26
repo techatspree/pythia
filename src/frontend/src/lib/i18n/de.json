@@ -215,7 +215,7 @@
 		"redoTooltipDetail": "Wiederholen (Strg+Umschalt+Z) — {kind} von {user}, {time}",
 		"history": "Verlauf",
 		"historyAria": "Verlauf anzeigen",
-		"submit": "Einreichen",
+		"submit": "Festschreiben",
 		"export": "Export",
 		"exportXlsx": "Excel (.xlsx)",
 		"exportCsv": "CSV (.csv)",

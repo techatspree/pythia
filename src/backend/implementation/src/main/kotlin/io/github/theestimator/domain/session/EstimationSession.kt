@@ -2,6 +2,7 @@ package io.github.theestimator.domain.session
 
 import io.github.theestimator.domain.BaseEntity
 import io.github.theestimator.domain.Estimation
+import jakarta.persistence.CascadeType
 import jakarta.persistence.Column
 import jakarta.persistence.Entity
 import jakarta.persistence.EnumType
@@ -9,6 +10,8 @@ import jakarta.persistence.Enumerated
 import jakarta.persistence.FetchType
 import jakarta.persistence.JoinColumn
 import jakarta.persistence.ManyToOne
+import jakarta.persistence.OneToMany
+import jakarta.persistence.OrderBy
 import jakarta.persistence.Table
 import java.time.Instant
 
@@ -42,4 +45,14 @@ class EstimationSession : BaseEntity() {
 
     @Column(name = "finalized_at")
     var finalizedAt: Instant? = null
+
+    // Owned children — cascade so persisting the session persists them, and
+    // delete cascades (matching the FK ON DELETE CASCADE). Votes are queried
+    // via SessionVoteRepository rather than loaded eagerly with the session.
+    @OneToMany(mappedBy = "session", cascade = [CascadeType.ALL], orphanRemoval = true)
+    @OrderBy("position ASC")
+    var items: MutableList<SessionItem> = mutableListOf()
+
+    @OneToMany(mappedBy = "session", cascade = [CascadeType.ALL], orphanRemoval = true)
+    var participants: MutableList<SessionParticipant> = mutableListOf()
 }

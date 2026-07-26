@@ -47,7 +47,11 @@ description: |
 
   Single-source-of-truth: aggregation/mean/spread is NEVER computed in
   the service — call `VoteAggregation.aggregate(votes.map { EstimatorVote(...) })`
-  from the domain (task-062). The service only persists and maps.
+  from the domain (task-062). The service only persists and maps. This
+  direct call is the THREE_POINT_PERT reduction specifically; task-105
+  later reroutes this exact call site through the session SPI
+  (`EstimationMethodRegistry.requireSession(method).reduce(...)`) — add a
+  one-line comment marking it so, consistent with task-062/063.
 
   REST surface — new SessionResource under
   src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/SessionResource.kt,
@@ -88,6 +92,12 @@ description: |
   range, stdDev, coefficientOfVariation, diverged, voterCount),
   ParticipantDto (subjectId, displayName, role, agreed).
 
+  AggregateDto ← VoteAggregate field mapping (the domain names differ —
+  it is NOT a verbatim 1:1): meanMin/meanExpected/meanMax/pertMean/
+  expectedMin/expectedMax/diverged/voterCount map by name; `range` ←
+  `expectedRange`, `stdDev` ← `expectedStdDev`, `coefficientOfVariation`
+  ← `expectedCv`.
+
 steps:
   - |
     Add the DTOs in
@@ -103,8 +113,14 @@ steps:
     method must reuse the existing draft update path (see
     service/EstimationVersionService.kt + DraftVersionMapper.kt) to set
     the draft leaf's three effort fields — do NOT write the
-    draft_estimation_nodes table directly with ad-hoc SQL. Compute
-    aggregates only via domain `VoteAggregation`.
+    draft_estimation_nodes table directly with ad-hoc SQL. (Going through
+    the draft-update path records an undo-log entry, task-076 — the
+    intended behaviour so a finalize is undoable.) Compute aggregates only
+    via domain `VoteAggregation`. Log per the CLAUDE.md backend logging
+    convention (reference: EstimationVersionService): `Log.info` on each
+    lifecycle operation with the session + estimation id (create / start /
+    reveal / finalize / cancel), `Log.debug` for finer detail (vote
+    upserts), `Log.error` on failure paths.
 
   - |
     Define a minimal event publisher so task-065 can subscribe without
@@ -122,7 +138,11 @@ steps:
     with the endpoints + `@RolesAllowed` + moderator ownership checks +
     current-item/phase guards described above. Map service results to
     DTOs; role-scope the response (hide other votes during PHASE1 for
-    non-moderators).
+    non-moderators). Document every endpoint with MicroProfile OpenAPI
+    annotations (`@Tag`, `@Operation`, `@APIResponse` + `@Content`/`@Schema`
+    for the response DTO and the real status codes 400/403/409) — the
+    repo convention (task-094; see EstimationVersionResource) so the
+    generated openapi.json / frontend client (task-066) is complete.
 
   - |
     Add an integration test
@@ -134,7 +154,11 @@ steps:
     finalizes (assert the draft leaf's effort fields now equal the
     aggregate mean and the session advanced). Add a 403 test for a
     non-moderator calling finalize, and a 409 for a vote in the wrong
-    phase.
+    phase. NOTE: this is a MULTI-user flow — do NOT rely on the global
+    DevAdminAuth spec; send a per-request `Authorization: Dev <subject>`
+    header so distinct users act (e.g. dev-admin as moderator,
+    dev-estimator as a second estimator). VIEWER-only users are rejected
+    on the ESTIMATOR-gated writes.
 
   - |
     Update CLAUDE.md "REST API surface" section: add the
@@ -142,8 +166,8 @@ steps:
     delegated to the domain `VoteAggregation`.
 
   - |
-    Build + run backend tests (Docker required for Testcontainers):
-      mvn -pl src/backend/implementation -am test
+    Build + run backend tests (Docker required for Dev Services / Testcontainers):
+      ./gradlew :backend:implementation:test
 
 validation:
   - |
@@ -153,16 +177,19 @@ validation:
       test -f src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/dto/SessionDtos.kt
       test -f src/backend/implementation/src/test/kotlin/io/github/theestimator/rest/SessionResourceIT.kt
   - |
-    The resource exposes the session base path and delegates
-    aggregation to the domain (no hand-rolled averaging):
+    The resource exposes the session base path, is OpenAPI-annotated, and
+    delegates aggregation to the domain (no hand-rolled averaging); the
+    service logs at INFO:
       grep -q "/sessions" src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/SessionResource.kt
+      grep -qE "@APIResponse|@Operation" src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/SessionResource.kt
       grep -q "VoteAggregation" src/backend/implementation/src/main/kotlin/io/github/theestimator/service/EstimationSessionService.kt
+      grep -q "Log.info" src/backend/implementation/src/main/kotlin/io/github/theestimator/service/EstimationSessionService.kt
   - |
     CLAUDE.md documents the new endpoints:
       grep -q "/api/sessions" CLAUDE.md
   - |
     Backend builds and the session IT (happy path + 403 + 409) passes:
-      mvn -pl src/backend/implementation -am test
+      ./gradlew :backend:implementation:test
 
 outputs:
   - created: src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/dto/SessionDtos.kt
