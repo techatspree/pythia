@@ -179,7 +179,8 @@
 		"pageProjectFallback": "project",
 		"pageNotFound": "Estimation not found",
 		"pageCreateVersionFailed": "Failed to create version",
-		"pageSubmitFailed": "Failed to submit version"
+		"pageSubmitFailed": "Failed to submit version",
+		"startSession": "Start estimation session"
 	},
 	"compare": {
 		"back": "← Back to estimation",
@@ -280,6 +281,11 @@
 			"start": "Start session",
 			"existing": "Running sessions",
 			"join": "Join",
+			"openSessions": "Open sessions",
+			"noOpenSessions": "There are no open sessions right now.",
+			"selectAll": "Select all",
+			"deselectAll": "Deselect all",
+			"estimated": "already estimated",
 			"loadFailed": "Failed to load session data"
 		},
 		"layout": {

@@ -41,6 +41,11 @@ export async function listSessions(estimationId: string): Promise<SessionDto[]> 
 	return readJson(await apiFetch(`${BASE}?estimationId=${estimationId}`), 'Failed to load sessions');
 }
 
+// No estimationId → all joinable (CREATED/RUNNING) sessions across estimations.
+export async function listJoinableSessions(): Promise<SessionDto[]> {
+	return readJson(await apiFetch(BASE), 'Failed to load open sessions');
+}
+
 export async function join(id: string): Promise<SessionDto> {
 	return post(`${BASE}/${id}/join`, 'Failed to join session');
 }

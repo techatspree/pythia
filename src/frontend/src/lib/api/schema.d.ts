@@ -1264,11 +1264,12 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** List the sessions of an estimation */
+        /** List sessions — of one estimation when estimationId is given, otherwise all joinable (CREATED/RUNNING) sessions */
         get: {
             parameters: {
-                query: {
-                    estimationId: components["schemas"]["UUID"];
+                query?: {
+                    /** @description Filter to one estimation; omit for all joinable sessions */
+                    estimationId?: components["schemas"]["UUID"] | null;
                 };
                 header?: never;
                 path?: never;

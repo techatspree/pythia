@@ -45,6 +45,16 @@
 		}
 	}
 
+	// Launch a collaborative session pre-scoped to this offer. Route is resolved
+	// via resolve(); the dynamic estimationId/projectId query is appended
+	// separately because resolve() can only type-check a literal search suffix.
+	const sessionHref = $derived(
+		estimation?.id
+			? `${resolve('/sessions')}?estimationId=${estimation.id}` +
+				(estimation.projectId ? `&projectId=${estimation.projectId}` : '')
+			: ''
+	);
+
 	async function submitVersion() {
 		if (!estimation) return;
 		try {
@@ -67,7 +77,15 @@
 		{#if estimation.projectId}
 			<a href={resolve('/projects/[id]', { id: estimation.projectId })} class="text-sm text-brand-green hover:underline mb-4 inline-block">{$_('estimation.pageBack', { values: { project: estimation.projectName ?? $_('estimation.pageProjectFallback') } })}</a>
 		{/if}
-		<EstimationDetail {estimation} />
+		<div class="flex items-start justify-between gap-4">
+			<div class="flex-1"><EstimationDetail {estimation} /></div>
+			<!-- sessionHref resolves the route via resolve(); only the dynamic
+			     estimationId/projectId query is concatenated, which this rule cannot model. -->
+			<!-- eslint-disable-next-line svelte/no-navigation-without-resolve -->
+			<a href={sessionHref} class="shrink-0 mt-1 px-4 py-2 text-sm bg-brand-green text-white rounded hover:bg-[#007a45]">
+				{$_('estimation.startSession')}
+			</a>
+		</div>
 		<VersionList versions={estimation.versions} estimationId={estimation.id ?? ''} oncreate={createVersion} onsubmit={submitVersion} />
 		{/if}
 	{/if}

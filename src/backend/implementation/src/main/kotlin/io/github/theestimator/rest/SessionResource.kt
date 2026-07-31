@@ -26,6 +26,7 @@ import org.eclipse.microprofile.openapi.annotations.Operation
 import org.eclipse.microprofile.openapi.annotations.enums.SchemaType
 import org.eclipse.microprofile.openapi.annotations.media.Content
 import org.eclipse.microprofile.openapi.annotations.media.Schema
+import org.eclipse.microprofile.openapi.annotations.parameters.Parameter
 import org.eclipse.microprofile.openapi.annotations.responses.APIResponse
 import org.eclipse.microprofile.openapi.annotations.tags.Tag
 import java.util.UUID
@@ -91,13 +92,25 @@ class SessionResource(
         Response.ok(sessionService.getSession(id)).build()
 
     @GET
-    @Operation(summary = "List the sessions of an estimation")
+    @Operation(
+        summary = "List sessions — of one estimation when estimationId is given, " +
+            "otherwise all joinable (CREATED/RUNNING) sessions"
+    )
     @APIResponse(
         responseCode = "200",
         content = [Content(schema = Schema(type = SchemaType.ARRAY, implementation = SessionDto::class))]
     )
-    fun list(@QueryParam("estimationId") estimationId: UUID): Response =
-        Response.ok(sessionService.listSessions(estimationId)).build()
+    fun list(
+        @Parameter(required = false, description = "Filter to one estimation; omit for all joinable sessions")
+        @QueryParam("estimationId") estimationId: UUID?
+    ): Response {
+        val sessions = if (estimationId != null) {
+            sessionService.listSessions(estimationId)
+        } else {
+            sessionService.listJoinableSessions()
+        }
+        return Response.ok(sessions).build()
+    }
 
     @POST
     @Path("/{id}/join")

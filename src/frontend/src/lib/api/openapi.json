@@ -2139,15 +2139,20 @@
     },
     "/api/sessions" : {
       "get" : {
-        "summary" : "List the sessions of an estimation",
+        "summary" : "List sessions — of one estimation when estimationId is given, otherwise all joinable (CREATED/RUNNING) sessions",
         "tags" : [ "Estimation sessions" ],
         "parameters" : [ {
+          "description" : "Filter to one estimation; omit for all joinable sessions",
+          "required" : false,
           "name" : "estimationId",
           "in" : "query",
           "schema" : {
-            "$ref" : "#/components/schemas/UUID"
-          },
-          "required" : true
+            "anyOf" : [ {
+              "$ref" : "#/components/schemas/UUID"
+            }, {
+              "type" : "null"
+            } ]
+          }
         } ],
         "responses" : {
           "200" : {

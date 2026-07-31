@@ -358,6 +358,16 @@ class TestDataSeeder(
                         fixedLeaf(draft2, "User Acceptance Testing (UAT)", 2.0, 3.0, 4.0, phase2AB),
                         fixedLeaf(draft2, "Go-live, Deployment & Monitoring-Setup", 1.0, 2.0, 3.0, phase2AB)
                     )
+                ),
+                // Not-yet-estimated leaves (0/0/0): the collaborative-session setup
+                // preselects exactly these unestimated items (task-128).
+                group(
+                    draft2, "U05: Noch zu schätzen", listOf(
+                        fixedLeaf(draft2, "Wunschlisten & Merkzettel", 0.0, 0.0, 0.0, phase2UM),
+                        fixedLeaf(draft2, "Produktbewertungen & Rezensionen", 0.0, 0.0, 0.0, phase2UM),
+                        fixedLeaf(draft2, "Gutschein- & Rabattcode-System", 0.0, 0.0, 0.0, phase2UM),
+                        fixedLeaf(draft2, "Mehrsprachigkeit (i18n)", 0.0, 0.0, 0.0, phase2KO)
+                    )
                 )
             )
         )

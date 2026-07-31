@@ -179,7 +179,8 @@
 		"pageProjectFallback": "Projekt",
 		"pageNotFound": "Schätzung nicht gefunden",
 		"pageCreateVersionFailed": "Version konnte nicht angelegt werden",
-		"pageSubmitFailed": "Version konnte nicht eingereicht werden"
+		"pageSubmitFailed": "Version konnte nicht eingereicht werden",
+		"startSession": "Schätzsitzung starten"
 	},
 	"compare": {
 		"back": "← Zurück zur Schätzung",
@@ -280,6 +281,11 @@
 			"start": "Sitzung starten",
 			"existing": "Laufende Sitzungen",
 			"join": "Beitreten",
+			"openSessions": "Offene Sitzungen",
+			"noOpenSessions": "Derzeit sind keine offenen Sitzungen vorhanden.",
+			"selectAll": "Alle auswählen",
+			"deselectAll": "Auswahl aufheben",
+			"estimated": "bereits geschätzt",
 			"loadFailed": "Sitzungsdaten konnten nicht geladen werden"
 		},
 		"layout": {

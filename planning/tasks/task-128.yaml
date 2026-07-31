@@ -1,0 +1,254 @@
+id: task-128
+phase: phase-11
+title: Session UX — start from offer, preselect unestimated, join list
+depends_on: [task-067]
+description: |
+  Improve the collaborative-estimation-session UX. Five concrete gaps,
+  reported by the user, plus small adjacent polish. All changes build on
+  the existing session stack (backend REST/service/repo from task-064/065,
+  frontend room + setup from task-066/067). Do NOT re-architect the
+  session flow — this is targeted UX + one small backend endpoint change +
+  a seeder tweak.
+
+  Current state:
+    - A session is created only from the standalone moderator setup page
+      `src/frontend/src/routes/sessions/+page.svelte`, which forces the
+      moderator to first pick a project, then an estimation, then the
+      items. There is NO way to launch a session directly from the offer
+      (estimation) the moderator is already looking at.
+    - That setup page preselects (checks) *every* draft leaf
+      (`out.forEach((l) => selected.add(l.logicalId))` at
+      sessions/+page.svelte:85). The user wants the preselection to be the
+      items that are NOT yet estimated, since those are the ones a session
+      is convened to estimate.
+    - The dev seeder (`TestDataSeeder.kt`) only ever produces fully
+      estimated leaves (every `fixedLeaf`/`timeRelativeLeaf` gets a
+      non-zero min/exp/max), so there are no unestimated items to
+      preselect — the "preselect unestimated" behaviour is invisible in
+      the demo data.
+    - There is no "select all / deselect all" control in the item picker.
+    - There is NO discoverable GUI element to JOIN an already-open session:
+      an estimator can only reach a session room if someone hands them the
+      URL, or by re-deriving the exact project → estimation the moderator
+      chose (the join links live buried under that two-step picker). The
+      list endpoint `GET /api/sessions` *requires* an `estimationId` query
+      param (`SessionResource.list(@QueryParam("estimationId") estimationId: UUID)`),
+      so there is no way to enumerate joinable sessions globally.
+
+  Target state:
+    1. Start-from-offer: the estimation detail page
+       (`src/frontend/src/routes/estimations/[id]/+page.svelte`, i.e. the
+       active offer) gains a "Estimate collaboratively" / "Start session"
+       action that navigates to the setup page pre-scoped to that
+       estimation: `/sessions?estimationId=<id>` (also carry `projectId`
+       so the project select is pre-filled). Match the page's existing
+       write controls: the estimation detail page currently renders its
+       create-version/submit buttons UNGUARDED (no role helper), so render
+       the Start-session button the same way — unconditionally — rather
+       than inventing a one-off role gate. (The backend `@RolesAllowed`
+       enforcement on session create is authoritative regardless.)
+    2. Setup page honours the query params: on mount, if `estimationId`
+       (and `projectId`) are present, select them and run the existing
+       `onProjectChange`/`onEstimationChange` load path automatically so
+       the moderator lands directly on the item picker.
+    3. "Not yet estimated" preselection: a leaf counts as unestimated when
+       its PERT triple is empty — `(minEffort ?? 0) === 0 && (expectedEffort ?? 0) === 0 && (maxEffort ?? 0) === 0`.
+       The picker default-checks ONLY unestimated leaves; already-estimated
+       leaves render unchecked with a subtle "already estimated" badge so
+       the moderator sees why. The `collectLeaves` helper must therefore
+       carry the effort triple through (the draft GET's `EstimationNodeDto`
+       already exposes `minEffort/expectedEffort/maxEffort`, all nullable).
+       If NO leaf is unestimated, fall back to selecting none (moderator
+       picks manually) — never silently select everything.
+    4. Select-all / Deselect-all control above the item list that toggles
+       every leaf's membership in the `selected` set at once.
+    5. Join discovery: make the list endpoint's `estimationId` OPTIONAL.
+       When omitted, return all JOINABLE sessions (status CREATED or
+       RUNNING) across every estimation. Surface these as an "Open
+       sessions" section at the TOP of `sessions/+page.svelte` (visible
+       before/independent of picking a project), each row linking into its
+       room. This is the missing "join a session" GUI element.
+    6. Seeder: give at least one estimation's ACTIVE DRAFT a handful of
+       unestimated leaves (min/exp/max all 0.0) so the preselect-unestimated
+       behaviour is demonstrable out of the box. Concretely, add an
+       "U05: Noch zu schätzen" group to the Webshop draft2 (which stays a
+       draft — WS-2026-001 is the active offer) whose fixed leaves have
+       0.0/0.0/0.0 triples. Keep the German fixture text (intentional
+       external fixture data per CLAUDE.md).
+
+  Design notes / constraints:
+    - Backend endpoint change: `SessionResource.list` takes
+      `@QueryParam("estimationId") estimationId: UUID?` (nullable). When
+      non-null → existing `sessionService.listSessions(estimationId)`.
+      When null → new `sessionService.listJoinableSessions()` backed by a
+      new `EstimationSessionRepository.findJoinable()` finder
+      (`list("status in ?1", listOf(SessionStatus.CREATED, SessionStatus.RUNNING))`).
+      Log at INFO on the joinable listing with the count.
+    - This changes the OpenAPI (the query param becomes optional), so the
+      committed `src/frontend/src/lib/api/openapi.json` +
+      `src/frontend/src/lib/api/schema.d.ts` must be regenerated (build
+      backend → copy openapi.json → `npm run gen:api`), per the task-066
+      procedure.
+    - New frontend session API wrapper `listJoinableSessions()` in
+      `src/frontend/src/lib/session/api.ts` calling `GET /api/sessions`
+      with no query string (mirror the existing `listSessions`).
+    - Every new user-facing string goes through svelte-i18n `$_('key')`
+      with keys added to BOTH `src/lib/i18n/de.json` and `en.json` (equal
+      key sets — a validation asserts this). No inline literals.
+    - Error paths surface via `ErrorBanner` AND `log.error(...)` from
+      `$lib/log.ts` — never bare `console.*`.
+    - The "unestimated" predicate is pure UI selection sugar, not business
+      logic — it does not belong in the domain; keep it a small local
+      helper in the setup page.
+
+steps:
+  - |
+    Backend — joinable-session listing:
+      - Add `findJoinable()` to
+        `src/backend/implementation/src/main/kotlin/io/github/theestimator/repository/EstimationSessionRepository.kt`
+        returning sessions with status in (CREATED, RUNNING). Use the
+        Panache query
+        `list("status in ?1", listOf(SessionStatus.CREATED, SessionStatus.RUNNING))`
+        (enum params bind directly).
+      - Add `listJoinableSessions(): List<SessionDto>` to
+        `src/backend/implementation/src/main/kotlin/io/github/theestimator/service/EstimationSessionService.kt`
+        (`@Transactional`, maps via the existing `buildDto`); `Log.info`
+        the count.
+      - Change `SessionResource.list` in
+        `src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/SessionResource.kt`
+        to `@QueryParam("estimationId") estimationId: UUID?`: null →
+        `listJoinableSessions()`, non-null → `listSessions(estimationId)`.
+        Keep it `@RolesAllowed("ESTIMATOR")`. Update its OpenAPI
+        annotations to reflect the optional param.
+
+  - |
+    Backend — seeder: add an "U05: Noch zu schätzen" group of `fixedLeaf`
+    entries with 0.0/0.0/0.0 triples to the Webshop `draft2` root list in
+    `src/backend/implementation/src/main/kotlin/io/github/theestimator/testdata/TestDataSeeder.kt`
+    (draft2 remains a draft, so its leaves are session-eligible). 3–4
+    leaves with realistic German descriptions.
+
+  - |
+    Backend build + regenerate the typed client:
+      ./gradlew :backend:implementation:build
+      cp src/backend/implementation/target/openapi/openapi.json src/frontend/src/lib/api/openapi.json
+      (cd src/frontend && npm run gen:api)
+    Confirm the sessions list path's `estimationId` is now optional in the
+    regenerated schema.
+
+  - |
+    Frontend api wrapper: add `listJoinableSessions(): Promise<SessionDto[]>`
+    to `src/frontend/src/lib/session/api.ts` — `readJson(await apiFetch('/api/sessions'), '<fallback>')`.
+
+  - |
+    Frontend — start-from-offer button in
+    `src/frontend/src/routes/estimations/[id]/+page.svelte`: an
+    ESTIMATOR-gated action near the version controls that
+    `goto`s `/sessions?estimationId=<estimation.id>&projectId=<estimation.projectId>`.
+    Use `$_('estimation.startSession')` for the label.
+
+  - |
+    Frontend — setup page
+    `src/frontend/src/routes/sessions/+page.svelte`:
+      - On mount read `page.url.searchParams` for `projectId`/`estimationId`;
+        if present, set the selects and await the existing
+        `onProjectChange()` then `onEstimationChange()` so the picker is
+        pre-populated. (Load projects first as today.)
+      - Extend `Leaf` + `collectLeaves` to carry `minEffort/expectedEffort/maxEffort`.
+      - Add `isUnestimated(leaf)` = all three of min/exp/max are null-or-0.
+      - Replace the "select every leaf" preselect with: select only
+        `leaves.filter(isUnestimated)`.
+      - Render an "already estimated" badge (`$_('session.setup.estimated')`)
+        on estimated leaf rows.
+      - Add a select-all / deselect-all control (a checkbox or two buttons)
+        that adds/removes every `leaf.logicalId` to/from `selected`.
+
+  - |
+    Frontend — join discovery in the same setup page: an "Open sessions"
+    section rendered at the TOP (before the project select), populated on
+    mount from `listJoinableSessions()`, each row showing the session title
+    + status badge + a join link (`resolve('/sessions/[id]', …)`). Empty
+    state uses `$_('session.setup.noOpenSessions')`. Errors surface via the
+    existing `ErrorBanner` + `log.error`.
+
+  - |
+    i18n: add every new key to BOTH `src/frontend/src/lib/i18n/de.json` and
+    `src/frontend/src/lib/i18n/en.json` (equal key sets). New keys include
+    at least: `estimation.startSession`, `session.setup.openSessions`,
+    `session.setup.noOpenSessions`, `session.setup.selectAll`,
+    `session.setup.deselectAll`, `session.setup.estimated`.
+
+  - |
+    Docs: update `docs/estimation-sessions.md` (start-from-offer entry
+    point, unestimated preselection rule, select-all, open-sessions/join
+    discovery) and the "Collaborative estimation sessions" area of
+    `CLAUDE.md` (the optional `estimationId` on `GET /api/sessions` →
+    joinable listing; the setup page's query-param pre-scoping,
+    unestimated-preselect, and open-sessions list). Do not duplicate
+    existing session sections — extend them.
+
+  - |
+    Backend test: extend
+    `src/backend/implementation/src/test/kotlin/io/github/theestimator/rest/SessionResourceIT.kt`
+    with a case that creates a session, then `GET /api/sessions` with NO
+    `estimationId` query param and asserts the created (CREATED/RUNNING)
+    session appears in the returned list — locking in the optional-param
+    joinable-listing branch.
+
+  - |
+    Validate — backend tests, frontend type-check + lint:
+      ./gradlew :backend:implementation:test
+      ./gradlew :frontend:check
+
+validation:
+  - |
+    Backend joinable listing exists and the endpoint param is optional:
+      grep -q "findJoinable" src/backend/implementation/src/main/kotlin/io/github/theestimator/repository/EstimationSessionRepository.kt
+      grep -q "listJoinableSessions" src/backend/implementation/src/main/kotlin/io/github/theestimator/service/EstimationSessionService.kt
+      grep -q "estimationId: UUID?" src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/SessionResource.kt
+      grep -q "Log\." src/backend/implementation/src/main/kotlin/io/github/theestimator/service/EstimationSessionService.kt
+  - |
+    Seeder produces unestimated leaves (a group of 0.0/0.0/0.0 fixed leaves):
+      grep -q "Noch zu schätzen" src/backend/implementation/src/main/kotlin/io/github/theestimator/testdata/TestDataSeeder.kt
+  - |
+    Frontend: start-from-offer button, joinable wrapper, unestimated
+    preselect, and select-all are present:
+      grep -q "estimation.startSession" src/frontend/src/routes/estimations/[id]/+page.svelte
+      grep -q "listJoinableSessions" src/frontend/src/lib/session/api.ts
+      grep -q "listJoinableSessions" src/frontend/src/routes/sessions/+page.svelte
+      grep -qiE "isUnestimated|unestimated" src/frontend/src/routes/sessions/+page.svelte
+      grep -qiE "selectAll|deselectAll|session.setup.selectAll" src/frontend/src/routes/sessions/+page.svelte
+  - |
+    Setup page reads the estimationId query param for start-from-offer:
+      grep -q "searchParams" src/frontend/src/routes/sessions/+page.svelte
+  - |
+    No bare console.* in the touched frontend files:
+      ! grep -q "console\." src/frontend/src/routes/sessions/+page.svelte
+      ! grep -q "console\." src/frontend/src/routes/estimations/[id]/+page.svelte
+  - |
+    de/en i18n catalogs keep equal key sets:
+      cd src/frontend && node -e "const d=require('./src/lib/i18n/de.json'),e=require('./src/lib/i18n/en.json');const f=(o,p='')=>Object.entries(o).flatMap(([k,v])=>typeof v==='object'&&v?f(v,p+k+'.'):[p+k]);const a=f(d).sort(),b=f(e).sort();if(JSON.stringify(a)!==JSON.stringify(b))throw new Error('key sets differ');console.log('ok',a.length)"
+  - |
+    Docs updated:
+      test -f docs/estimation-sessions.md
+      grep -qi "join\|open session\|unestimated\|active offer" docs/estimation-sessions.md
+  - |
+    Backend tests and frontend type-check + lint pass:
+      ./gradlew :backend:implementation:test
+      ./gradlew :frontend:check
+
+outputs:
+  - modified: src/backend/implementation/src/main/kotlin/io/github/theestimator/repository/EstimationSessionRepository.kt
+  - modified: src/backend/implementation/src/main/kotlin/io/github/theestimator/service/EstimationSessionService.kt
+  - modified: src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/SessionResource.kt
+  - modified: src/backend/implementation/src/main/kotlin/io/github/theestimator/testdata/TestDataSeeder.kt
+  - modified: src/backend/implementation/src/test/kotlin/io/github/theestimator/rest/SessionResourceIT.kt
+  - modified: src/frontend/src/lib/api/openapi.json
+  - modified: src/frontend/src/lib/api/schema.d.ts
+  - modified: src/frontend/src/lib/session/api.ts
+  - modified: src/frontend/src/routes/estimations/[id]/+page.svelte
+  - modified: src/frontend/src/routes/sessions/+page.svelte
+  - modified: src/frontend/src/lib/i18n/de.json
+  - modified: src/frontend/src/lib/i18n/en.json
+  - modified: docs/estimation-sessions.md
+  - modified: CLAUDE.md

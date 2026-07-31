@@ -103,6 +103,20 @@ class SessionResourceIT {
     }
 
     @Test
+    fun `GET sessions without estimationId lists joinable sessions`() {
+        val draft = createDraftWithTwoLeaves()
+        val sessionId = given().header("Authorization", moderator)
+            .contentType(ContentType.JSON)
+            .body("""{"estimationId":"${draft.estimationId}","title":"Joinable","itemLogicalIds":["${draft.leaf1}"]}""")
+            .`when`().post("/api/sessions").then().statusCode(201).extract().path<String>("id")
+
+        given().header("Authorization", estimator)
+            .`when`().get("/api/sessions")
+            .then().statusCode(200)
+            .body("find { it.id == '$sessionId' }.title", equalTo("Joinable"))
+    }
+
+    @Test
     fun `a non-moderator finalize is 403`() {
         val draft = createDraftWithTwoLeaves()
         val sessionId = given().header("Authorization", moderator)

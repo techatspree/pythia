@@ -765,10 +765,16 @@
       "notes": "i18n: Playwright e2e for the language-switch flow"
     },
     "task-128": {
+      "status": "done",
+      "started_at": "2026-07-31T09:59:41+00:00",
+      "completed_at": "2026-07-31T10:14:22+00:00",
+      "notes": "Improve estimation-session UX: start from active offer, preselect unestimated items, seed unestimated test data, select/deselect all, add join-session GUI"
+    },
+    "task-129": {
       "status": "pending",
       "started_at": null,
       "completed_at": null,
-      "notes": "Improve estimation-session UX: start from active offer, preselect unestimated items, seed unestimated test data, select/deselect all, add join-session GUI"
+      "notes": "Session moderator can moderate-only (no vote); moderator can revise own vote; persist per-item discussion notes into the finalized leaf's assumptions"
     }
   }
 }

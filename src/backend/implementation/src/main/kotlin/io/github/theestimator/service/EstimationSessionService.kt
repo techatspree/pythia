@@ -123,6 +123,15 @@ class EstimationSessionService(
     fun listSessions(estimationId: UUID): List<SessionDto> =
         sessionRepository.findByEstimationId(estimationId).map { buildDto(it) }
 
+    // Joinable (CREATED/RUNNING) sessions across every estimation — powers the
+    // frontend's open-sessions join list when no estimationId is supplied.
+    @Transactional
+    fun listJoinableSessions(): List<SessionDto> {
+        val sessions = sessionRepository.findJoinable()
+        Log.info("Listing ${sessions.size} joinable session(s)")
+        return sessions.map { buildDto(it) }
+    }
+
     @Transactional
     fun join(id: UUID, subjectId: String, displayName: String?): SessionDto {
         val session = requireSession(id)

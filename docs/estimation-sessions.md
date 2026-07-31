@@ -85,7 +85,15 @@ session channel" note in `CLAUDE.md` (task-065) for the server-side detail.
 - Route group `src/frontend/src/routes/sessions/` with its own room chrome (the
   standard app header is hidden for `/sessions`).
 - `sessions/+page.svelte` — moderator setup (pick project → offer, choose leaf
-  items, name, create).
+  items, name, create). It can be launched **directly from the active offer**:
+  the estimation detail page's "Start estimation session" button links here with
+  `?estimationId=&projectId=`, which pre-selects the offer and jumps straight to
+  the item picker. The picker default-checks only the **not-yet-estimated**
+  leaves (PERT triple all null-or-0) — the ones a session is convened to
+  estimate — badging the already-estimated ones, and offers select-all /
+  deselect-all. The page also shows an **open-sessions** list at the top (all
+  joinable CREATED/RUNNING sessions across every estimation) so anyone can find
+  and **join** a running session without re-deriving the moderator's offer.
 - `sessions/[id]/+page.svelte` — the room; picks the panel by
   status/phase and auto-joins as an estimator.
 - `$lib/session/PhaseOnePanel.svelte`, `PhaseTwoPanel.svelte`,
