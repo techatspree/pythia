@@ -417,9 +417,9 @@
       "notes": ""
     },
     "task-067": {
-      "status": "pending",
-      "started_at": null,
-      "completed_at": null,
+      "status": "done",
+      "started_at": "2026-07-27T09:56:32+00:00",
+      "completed_at": "2026-07-28T07:27:08+00:00",
       "notes": ""
     },
     "task-071": {
@@ -763,6 +763,12 @@
       "started_at": "2026-07-24T07:14:05+00:00",
       "completed_at": "2026-07-24T07:20:17+00:00",
       "notes": "i18n: Playwright e2e for the language-switch flow"
+    },
+    "task-128": {
+      "status": "pending",
+      "started_at": null,
+      "completed_at": null,
+      "notes": "Improve estimation-session UX: start from active offer, preselect unestimated items, seed unestimated test data, select/deselect all, add join-session GUI"
     }
   }
 }

@@ -80,6 +80,14 @@ fun createGroup(
     _logicalId = logicalId
 )
 
+// JS-friendly wrapper over VoteAggregation (task-062) so the frontend session
+// UI (task-067) can reduce a set of estimator votes with the SAME domain code the
+// backend uses — VoteAggregation stays the single source of truth; this only
+// adapts a JS array to the Kotlin List the reducer expects.
+@JsExport
+fun aggregateVotes(votes: Array<EstimatorVote>): VoteAggregate =
+    VoteAggregation.aggregate(votes.toList())
+
 @JsExport
 fun createVersion(
     versionNumber: Int,

@@ -51,7 +51,13 @@ description: |
   `src/frontend/src/lib/session/` mounted by the room page's
   placeholder.
 
-  All error paths surface via ErrorBanner (CLAUDE.md rule).
+  All error paths surface via ErrorBanner AND log via $lib/log.ts
+  (`log.error(...)`) — never bare console.* — per the CLAUDE.md
+  error-surfacing + logging rules. Every user-facing string goes through
+  svelte-i18n ($_('key')) with keys added to BOTH src/lib/i18n/de.json
+  and en.json (equal key sets); never inline literals. Numeric aggregates
+  (mean triple, PERT mean, range, std-dev, CV) render through
+  $lib/format.ts (locale-aware), never raw .toFixed().
 
 steps:
   - |
@@ -80,8 +86,10 @@ steps:
   - |
     Add a Playwright e2e
     src/frontend/e2e/session.test.ts that drives the full flow with
-    TWO browser contexts (moderator + one estimator) against
-    ./scripts/dev-local.sh (dev auth module gives distinct users):
+    TWO browser contexts (moderator + one estimator) against the dev
+    stack (./scripts/dev.sh — Docker up, dev backend :8080 with the /ws
+    proxy, Vite :5173); the dev auth module gives distinct users, so each
+    context sets its own devAuthSubject (moderator vs estimator):
       1. moderator creates a session over a draft with ≥2 leaves and
          opens the room
       2. estimator joins (second context) and the room shows 2
@@ -94,11 +102,12 @@ steps:
       5. estimator revises + agrees; moderator finalizes
       6. after the last item, both see the FINALIZED summary; then
          assert the draft version's item now holds the aggregated mean
-         (navigate to the draft editor or GET the draft).
+         (prefer GET /api/estimations/{id}/versions/draft over reading
+         rendered grid cells — less flaky).
 
   - |
-    Type-check and run the e2e:
-      cd src/frontend && npm run check
+    Type-check (svelte-check + ESLint) and run the e2e:
+      ./gradlew :frontend:check
       cd src/frontend && npm run test:e2e
 
   - |
@@ -107,12 +116,16 @@ steps:
         the two phases, how finalize writes back to the draft, the
         realtime/ws-ticket model (cross-link the task-065 CLAUDE.md
         note), and the divergence threshold.
-      - Update CLAUDE.md with a short "Collaborative estimation
-        sessions" subsection under Architecture (separate /sessions GUI,
-        push-only WS, domain VoteAggregation as the single source of
-        truth for mean/spread).
-      - Update planning/README.md phase summary table: add the phase-11
-        row (Collaborative Estimation Sessions, tasks 062–067).
+      - Augment CLAUDE.md's existing "Collaborative estimation sessions"
+        coverage (already documents persistence/REST/WS/shell from tasks
+        063–066) with just the NEW two-phase flow: PHASE1 blind input,
+        PHASE2 reveal + finalize write-back, and that the domain
+        VoteAggregation is the single source of truth for mean/spread
+        (computed client-side via the Kotlin/JS bundle, asserted equal to
+        the backend AggregateDto). Do not duplicate the existing sections.
+      - Verify/refine planning/README.md phase summary table: the
+        phase-11 row (Collaborative Estimation Sessions, tasks 062–067)
+        already exists — do NOT add a duplicate; adjust it only if wrong.
 
 validation:
   - |
@@ -134,8 +147,16 @@ validation:
       grep -q "phase-11\\|Collaborative Estimation Sessions" planning/README.md
       grep -qi "session" CLAUDE.md
   - |
-    Frontend type-check and the full e2e suite pass:
-      cd src/frontend && npm run check
+    New panels use i18n + the format helper (no inline literals / toFixed):
+      grep -qF "$_(" src/frontend/src/lib/session/PhaseOnePanel.svelte
+      grep -qF "$_(" src/frontend/src/lib/session/PhaseTwoPanel.svelte
+      ! grep -q "toFixed" src/frontend/src/lib/session/PhaseTwoPanel.svelte
+  - |
+    de/en i18n catalogs keep equal key sets:
+      cd src/frontend && node -e "const d=require('./src/lib/i18n/de.json'),e=require('./src/lib/i18n/en.json');const f=(o,p='')=>Object.entries(o).flatMap(([k,v])=>typeof v==='object'&&v?f(v,p+k+'.'):[p+k]);const a=f(d).sort(),b=f(e).sort();if(JSON.stringify(a)!==JSON.stringify(b))throw new Error('key sets differ');console.log('ok',a.length)"
+  - |
+    Frontend type-check (svelte-check + ESLint) and the full e2e suite pass:
+      ./gradlew :frontend:check
       cd src/frontend && npm run test:e2e
 
 outputs:
