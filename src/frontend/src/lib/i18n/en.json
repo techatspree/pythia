@@ -193,7 +193,20 @@
 		"importMerlinReplace": "Replace draft and import",
 		"replaceDraftTitle": "Replace draft?",
 		"replaceDraftBody": "This offer already has a draft version. Replacing it will permanently delete the current draft and any unsaved work in it, then create a new draft from the imported WBS. This cannot be undone.",
-		"replaceDraftCancel": "Cancel"
+		"replaceDraftCancel": "Cancel",
+		"exportMerlin": "Export to Merlin",
+		"exportMerlinHint": "Pick a copy of the Merlin project (.mproject zipped) or its state.sql — only that copy is modified",
+		"exportMerlinFailed": "Failed to export to Merlin",
+		"exportMerlinNoVersion": "This offer has no version to export. Create a draft or submit a version first."
+	},
+	"merlin": {
+		"diffTitle": "Structure has changed",
+		"diffBody": "The Merlin project's structure no longer matches this estimation. Continuing replaces the structure in the Merlin copy with the one from this application: missing activities are created, and activities that no longer exist here are deleted together with their assignments.",
+		"diffAdded": "Only in this application",
+		"diffRemoved": "Only in Merlin",
+		"diffReordered": "Different order",
+		"cancel": "Cancel",
+		"overwrite": "Overwrite structure"
 	},
 	"compare": {
 		"back": "← Back to estimation",

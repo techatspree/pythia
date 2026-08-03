@@ -42,17 +42,6 @@ test.describe('creating a project through the UI sends the auth header', () => {
 	test.use({ storageState: { cookies: [], origins: [] } });
 
 	test('a UI create carries Authorization and succeeds', async ({ page }) => {
-		// The German locators below depend on dev-estimator's PERSISTED language,
-		// which e2e/language.test.ts switches to English — shared backend state
-		// that races when the two specs run in different workers. Pin it here so
-		// this test only proves what it is about (the Authorization header seam).
-		const ctx = await playwrightRequest.newContext({
-			baseURL: API,
-			extraHTTPHeaders: { Authorization: 'Dev dev-estimator' }
-		});
-		await ctx.put('/api/auth/me/language', { data: { language: 'de' } });
-		await ctx.dispose();
-
 		await loginAsDev(page, 'dev-estimator');
 
 		// Unique per run — the dev-stack DB persists across runs, so a fixed
@@ -65,9 +54,14 @@ test.describe('creating a project through the UI sends the auth header', () => {
 			),
 			(async () => {
 				await page.goto('/projects');
-				await page.getByRole('button', { name: 'Neues Projekt' }).click();
+				// Locale-agnostic on purpose: this spec shares the dev-estimator
+				// user with e2e/language.test.ts, which switches that user's
+				// PERSISTED language to English. Matching either language keeps
+				// the two specs independent when they run in parallel workers —
+				// this test is about the Authorization header, not about wording.
+				await page.getByRole('button', { name: /Neues Projekt|New Project/ }).click();
 				await page.getByLabel('Name *').fill(projectName);
-				await page.getByRole('button', { name: 'Anlegen' }).click();
+				await page.getByRole('button', { name: /^(Anlegen|Create)$/ }).click();
 			})()
 		]);
 

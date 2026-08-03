@@ -193,7 +193,20 @@
 		"importMerlinReplace": "Entwurf ersetzen und importieren",
 		"replaceDraftTitle": "Entwurf ersetzen?",
 		"replaceDraftBody": "Dieses Angebot hat bereits eine Entwurfsversion. Beim Ersetzen wird der aktuelle Entwurf mit allen nicht eingereichten Änderungen dauerhaft gelöscht und anschließend ein neuer Entwurf aus der importierten Struktur erstellt. Dies kann nicht rückgängig gemacht werden.",
-		"replaceDraftCancel": "Abbrechen"
+		"replaceDraftCancel": "Abbrechen",
+		"exportMerlin": "Nach Merlin exportieren",
+		"exportMerlinHint": "Kopie des Merlin-Projekts (.mproject als ZIP) oder dessen state.sql auswählen — nur die Kopie wird geändert",
+		"exportMerlinFailed": "Export nach Merlin fehlgeschlagen",
+		"exportMerlinNoVersion": "Für dieses Angebot gibt es keine Version zum Exportieren. Legen Sie einen Entwurf an oder schreiben Sie eine Version fest."
+	},
+	"merlin": {
+		"diffTitle": "Struktur weicht ab",
+		"diffBody": "Die Struktur des Merlin-Projekts stimmt nicht mehr mit dieser Schätzung überein. Beim Fortfahren wird die Struktur in der Merlin-Kopie durch die Struktur dieser Anwendung ersetzt: fehlende Vorgänge werden angelegt, hier nicht mehr vorhandene Vorgänge werden mitsamt ihren Zuordnungen gelöscht.",
+		"diffAdded": "Nur in dieser Anwendung",
+		"diffRemoved": "Nur in Merlin",
+		"diffReordered": "Andere Reihenfolge",
+		"cancel": "Abbrechen",
+		"overwrite": "Struktur überschreiben"
 	},
 	"compare": {
 		"back": "← Zurück zur Schätzung",

@@ -7,6 +7,9 @@
 	import VersionList from '$lib/components/VersionList.svelte';
 	import ErrorBanner from '$lib/components/ErrorBanner.svelte';
 	import ReplaceDraftDialog from '$lib/components/ReplaceDraftDialog.svelte';
+	import MerlinStructureDialog, {
+		type MerlinStructureDiff
+	} from '$lib/components/MerlinStructureDialog.svelte';
 	import type { ApiEstimationDetail } from '$lib/api/types.js';
 	import { apiFetch } from '$lib/api/fetch';
 	import { assertOk } from '$lib/api/errors';
@@ -112,6 +115,90 @@
 		}
 	}
 
+	// Export (task-133): upload a COPY of the Merlin document, get it back with
+	// this estimation's offerPT written into the matching activities. Mirrors
+	// the import flow above — the chosen File is kept in state so a 409 (the
+	// Merlin structure drifted) can be retried with overwriteStructure once the
+	// user decides.
+	let exportInput = $state<HTMLInputElement | null>(null);
+	let exporting = $state(false);
+	let pendingExportFile = $state<File | null>(null);
+	let structureDiff = $state<MerlinStructureDiff | null>(null);
+
+	// Which version to export: the draft while one exists, otherwise the highest
+	// submitted version. Submitting CONSUMES the draft, so hardcoding "draft"
+	// would 404 exactly when the estimate is finished — the moment you actually
+	// want to push it back into Merlin. Null disables the button.
+	const exportVersionRef = $derived.by<string | null>(() => {
+		const versions = estimation?.versions ?? [];
+		if (versions.some((v) => v.isDraft)) return 'draft';
+		const latest = versions
+			.filter((v) => !v.isDraft)
+			.reduce<number | null>((max, v) => (max == null || v.versionNumber > max ? v.versionNumber : max), null);
+		return latest == null ? null : String(latest);
+	});
+
+	async function onMerlinExportFileSelected(e: Event) {
+		const input = e.currentTarget as HTMLInputElement;
+		const file = input.files?.[0];
+		input.value = '';
+		if (!file) return;
+		await runMerlinExport(file, false);
+	}
+
+	async function runMerlinExport(file: File, overwriteStructure: boolean) {
+		if (!estimation?.id) return;
+		const versionRef = exportVersionRef;
+		if (versionRef == null) {
+			bannerMessage = $_('estimation.exportMerlinNoVersion');
+			return;
+		}
+		exporting = true;
+		bannerMessage = null;
+		try {
+			const form = new FormData();
+			form.append('file', file);
+			const res = await apiFetch(
+				`/api/estimations/${estimation.id}/versions/${versionRef}/export/merlin?overwriteStructure=${overwriteStructure}`,
+				{ method: 'POST', body: form }
+			);
+			// The Merlin WBS no longer matches the estimation → let the user
+			// decide whether to overwrite it, rather than silently rewriting.
+			if (res.status === 409 && !overwriteStructure) {
+				structureDiff = await res.json();
+				pendingExportFile = file;
+				return;
+			}
+			const fallback =
+				res.status === 404
+					? $_('estimation.exportMerlinNoVersion')
+					: res.status === 400
+						? $_('estimation.importMerlinInvalidFile')
+						: $_('estimation.exportMerlinFailed');
+			await assertOk(res, fallback);
+			structureDiff = null;
+			pendingExportFile = null;
+			downloadResponse(await res.blob(), res.headers.get('Content-Disposition'));
+		} catch (e: any) {
+			log.error('exportMerlin failed:', e);
+			bannerMessage = e.message;
+		} finally {
+			exporting = false;
+		}
+	}
+
+	function downloadResponse(blob: Blob, disposition: string | null) {
+		const match = disposition?.match(/filename="([^"]+)"/);
+		const url = URL.createObjectURL(blob);
+		const a = document.createElement('a');
+		a.href = url;
+		a.download = match?.[1] ?? 'merlin-estimated.sql';
+		document.body.appendChild(a);
+		a.click();
+		a.remove();
+		URL.revokeObjectURL(url);
+	}
+
 	async function submitVersion() {
 		if (!estimation) return;
 		try {
@@ -140,6 +227,21 @@
 				oncancel={() => (pendingMerlinFile = null)}
 			/>
 		{/if}
+		{#if structureDiff}
+			<MerlinStructureDialog
+				diff={structureDiff}
+				onconfirm={() => {
+					const file = pendingExportFile;
+					structureDiff = null;
+					pendingExportFile = null;
+					if (file) runMerlinExport(file, true);
+				}}
+				oncancel={() => {
+					structureDiff = null;
+					pendingExportFile = null;
+				}}
+			/>
+		{/if}
 		{#if estimation}
 		{#if estimation.projectId}
 			<a href={resolve('/projects/[id]', { id: estimation.projectId })} class="text-sm text-brand-green hover:underline mb-4 inline-block">{$_('estimation.pageBack', { values: { project: estimation.projectName ?? $_('estimation.pageProjectFallback') } })}</a>
@@ -151,6 +253,7 @@
 					type="file"
 					accept=".zip,.sql,.sqlite,.mproject"
 					class="hidden"
+					data-testid="merlin-import-input"
 					bind:this={fileInput}
 					onchange={onMerlinFileSelected}
 				/>
@@ -162,6 +265,23 @@
 					class="px-4 py-2 text-sm border border-brand-green text-brand-green rounded hover:bg-brand-green/10 disabled:opacity-50"
 				>
 					{$_('estimation.importMerlin')}
+				</button>
+				<input
+					type="file"
+					accept=".zip,.mproject,.sqlite,.sql"
+					class="hidden"
+					data-testid="merlin-export-input"
+					bind:this={exportInput}
+					onchange={onMerlinExportFileSelected}
+				/>
+				<button
+					type="button"
+					onclick={() => exportInput?.click()}
+					disabled={exporting || exportVersionRef == null}
+					title={$_('estimation.exportMerlinHint')}
+					class="px-4 py-2 text-sm border border-brand-green text-brand-green rounded hover:bg-brand-green/10 disabled:opacity-50"
+				>
+					{$_('estimation.exportMerlin')}
 				</button>
 				<!-- sessionHref resolves the route via resolve(); only the dynamic
 				     estimationId/projectId query is concatenated, which this rule cannot model. -->

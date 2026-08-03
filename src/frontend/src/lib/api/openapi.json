@@ -1,24 +1,5 @@
 {
   "openapi" : "3.1.0",
-  "tags" : [ {
-    "name" : "Admin",
-    "description" : "Admin-only canary endpoints"
-  }, {
-    "name" : "Auth",
-    "description" : "Current authenticated user"
-  }, {
-    "name" : "Estimation sessions",
-    "description" : "Collaborative two-phase Wideband-Delphi estimation"
-  }, {
-    "name" : "Estimation versions",
-    "description" : "Draft editing, undo/redo, submitted snapshots, compare and export"
-  }, {
-    "name" : "Estimations",
-    "description" : "Estimations and their draft calculation"
-  }, {
-    "name" : "Projects",
-    "description" : "Projects and their estimations"
-  } ],
   "components" : {
     "schemas" : {
       "AdditionalCostDto" : {
@@ -752,6 +733,38 @@
           }
         }
       },
+      "MerlinStructureDiffDto" : {
+        "description" : "How the Merlin document's WBS differs from the estimation tree",
+        "type" : "object",
+        "required" : [ "missingInMerlin", "missingInEstimation", "reordered", "inSync" ],
+        "properties" : {
+          "missingInMerlin" : {
+            "type" : "array",
+            "items" : {
+              "type" : "string"
+            },
+            "description" : "Paths the estimation has that the Merlin document lacks"
+          },
+          "missingInEstimation" : {
+            "type" : "array",
+            "items" : {
+              "type" : "string"
+            },
+            "description" : "Paths the Merlin document has that the estimation lacks"
+          },
+          "reordered" : {
+            "type" : "array",
+            "items" : {
+              "type" : "string"
+            },
+            "description" : "Paths present on both sides but at a different sibling position"
+          },
+          "inSync" : {
+            "type" : "boolean",
+            "description" : "True when the structures match and the export can proceed"
+          }
+        }
+      },
       "MutationLogEntryDto" : {
         "type" : "object",
         "required" : [ "id", "sequenceNumber", "revisionBefore", "revisionAfter", "userId", "userDisplayName", "kind", "status", "createdAt", "undoneAt" ],
@@ -1243,6 +1256,25 @@
       }
     }
   },
+  "tags" : [ {
+    "name" : "Admin",
+    "description" : "Admin-only canary endpoints"
+  }, {
+    "name" : "Auth",
+    "description" : "Current authenticated user"
+  }, {
+    "name" : "Estimation sessions",
+    "description" : "Collaborative two-phase Wideband-Delphi estimation"
+  }, {
+    "name" : "Estimation versions",
+    "description" : "Draft editing, undo/redo, submitted snapshots, compare and export"
+  }, {
+    "name" : "Estimations",
+    "description" : "Estimations and their draft calculation"
+  }, {
+    "name" : "Projects",
+    "description" : "Projects and their estimations"
+  } ],
   "paths" : {
     "/api/admin/ping" : {
       "get" : {
@@ -1907,6 +1939,85 @@
         },
         "security" : [ {
           "SecurityScheme" : [ "VIEWER" ]
+        } ]
+      }
+    },
+    "/api/estimations/{estimationId}/versions/{versionNumber}/export/merlin" : {
+      "post" : {
+        "summary" : "Write this version's calculated offerPT back into a COPY of an uploaded Merlin project and return it. Refuses with 409 when the document's WBS drifted from the estimation, unless overwriteStructure=true.",
+        "tags" : [ "Estimation versions" ],
+        "parameters" : [ {
+          "name" : "estimationId",
+          "in" : "path",
+          "required" : true,
+          "schema" : {
+            "$ref" : "#/components/schemas/UUID"
+          }
+        }, {
+          "name" : "versionNumber",
+          "in" : "path",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        }, {
+          "name" : "overwriteStructure",
+          "in" : "query",
+          "schema" : {
+            "type" : "boolean",
+            "default" : false
+          },
+          "required" : true
+        } ],
+        "requestBody" : {
+          "content" : {
+            "multipart/form-data" : {
+              "schema" : {
+                "type" : "object",
+                "required" : [ "file" ],
+                "properties" : {
+                  "file" : {
+                    "type" : "string",
+                    "format" : "binary"
+                  }
+                }
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "200" : {
+            "description" : "The modified Merlin document (the upload is never changed)",
+            "content" : {
+              "application/octet-stream" : { }
+            }
+          },
+          "400" : {
+            "description" : "The upload is not a readable Merlin/SQLite file"
+          },
+          "404" : {
+            "description" : "Version not found for this estimation"
+          },
+          "409" : {
+            "description" : "The Merlin structure differs from the estimation",
+            "content" : {
+              "application/octet-stream" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/MerlinStructureDiffDto"
+                }
+              }
+            }
+          },
+          "401" : {
+            "description" : "Not Authorized"
+          },
+          "403" : {
+            "description" : "Not Allowed"
+          }
+        },
+        "security" : [ {
+          "SecurityScheme" : [ "ESTIMATOR" ]
         } ]
       }
     },

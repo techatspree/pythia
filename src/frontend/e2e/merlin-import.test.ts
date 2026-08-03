@@ -45,7 +45,7 @@ test('import a Merlin project file creates a draft with the WBS tree', async ({ 
 		const importResponse = page.waitForResponse(
 			(r) => r.url().includes('/versions/import/merlin') && r.request().method() === 'POST'
 		);
-		await page.locator('input[type="file"]').setInputFiles(SAMPLE);
+		await page.getByTestId('merlin-import-input').setInputFiles(SAMPLE);
 		expect((await importResponse).status()).toBe(201);
 
 		// Assert the draft now holds the imported tree (roots present).
@@ -72,7 +72,7 @@ test('importing when a draft exists asks to confirm before replacing it', async 
 		expect(created.status()).toBe(201);
 
 		await page.goto(`/estimations/${estimationId}`);
-		await page.locator('input[type="file"]').setInputFiles(SAMPLE);
+		await page.getByTestId('merlin-import-input').setInputFiles(SAMPLE);
 
 		// The destructive replace is gated behind a confirmation dialog.
 		const dialog = page.getByRole('dialog', { name: 'Entwurf ersetzen?' });

@@ -939,6 +939,91 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/estimations/{estimationId}/versions/{versionNumber}/export/merlin": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Write this version's calculated offerPT back into a COPY of an uploaded Merlin project and return it. Refuses with 409 when the document's WBS drifted from the estimation, unless overwriteStructure=true. */
+        post: {
+            parameters: {
+                query: {
+                    overwriteStructure: boolean;
+                };
+                header?: never;
+                path: {
+                    estimationId: components["schemas"]["UUID"];
+                    versionNumber: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "multipart/form-data": {
+                        /** Format: binary */
+                        file: string;
+                    };
+                };
+            };
+            responses: {
+                /** @description The modified Merlin document (the upload is never changed) */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/octet-stream": unknown;
+                    };
+                };
+                /** @description The upload is not a readable Merlin/SQLite file */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Not Authorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Not Allowed */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Version not found for this estimation */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description The Merlin structure differs from the estimation */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/octet-stream": components["schemas"]["MerlinStructureDiffDto"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/estimations/{id}": {
         parameters: {
             query?: never;
@@ -2276,6 +2361,17 @@ export interface components {
         Instant: string;
         LanguageUpdateDto: {
             language: string;
+        };
+        /** @description How the Merlin document's WBS differs from the estimation tree */
+        MerlinStructureDiffDto: {
+            /** @description Paths the estimation has that the Merlin document lacks */
+            missingInMerlin: string[];
+            /** @description Paths the Merlin document has that the estimation lacks */
+            missingInEstimation: string[];
+            /** @description Paths present on both sides but at a different sibling position */
+            reordered: string[];
+            /** @description True when the structures match and the export can proceed */
+            inSync: boolean;
         };
         MutationLogEntryDto: {
             id: components["schemas"]["UUID"];

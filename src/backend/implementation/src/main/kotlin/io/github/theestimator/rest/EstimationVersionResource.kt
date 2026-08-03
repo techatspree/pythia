@@ -7,6 +7,7 @@ import io.github.theestimator.rest.dto.ConflictDetailsDto
 import io.github.theestimator.rest.dto.DraftUpdateDto
 import io.github.theestimator.rest.dto.EstimationVersionDto
 import io.github.theestimator.rest.dto.EstimationVersionSummaryDto
+import io.github.theestimator.rest.dto.MerlinStructureDiffDto
 import io.github.theestimator.rest.dto.MutationLogEntryDto
 import io.github.theestimator.rest.dto.VersionComparisonDto
 import io.github.theestimator.rest.dto.toDto
@@ -18,6 +19,7 @@ import io.github.theestimator.service.DraftUpdateApplier
 import io.github.theestimator.service.DraftVersionMapper
 import io.github.theestimator.service.EstimationVersionService
 import io.github.theestimator.service.ExcelExporter
+import io.github.theestimator.service.MerlinExporter
 import io.github.theestimator.service.UndoService
 import io.github.theestimator.service.VersionComparisonService
 import io.github.theestimator.service.toUpdateDto
@@ -60,6 +62,7 @@ class EstimationVersionResource(
     private val estimationRepository: EstimationRepository,
     private val excelExporter: ExcelExporter,
     private val csvExporter: CsvExporter,
+    private val merlinExporter: MerlinExporter,
     private val draftUpdateApplier: DraftUpdateApplier,
     private val undoService: UndoService,
     private val draftVersionMapper: DraftVersionMapper,
@@ -365,6 +368,51 @@ class EstimationVersionResource(
                 .build()
             else -> throw BadRequestException("Unsupported format: $format (use xlsx or csv)")
         }
+    }
+
+    @POST
+    @Path("/{versionNumber}/export/merlin")
+    @Transactional
+    @RolesAllowed("ESTIMATOR")
+    @Consumes(MediaType.MULTIPART_FORM_DATA)
+    @Produces("application/octet-stream")
+    @Operation(
+        summary = "Write this version's calculated offerPT back into a COPY of an uploaded Merlin " +
+            "project and return it. Refuses with 409 when the document's WBS drifted from the " +
+            "estimation, unless overwriteStructure=true."
+    )
+    @APIResponse(
+        responseCode = "200",
+        description = "The modified Merlin document (the upload is never changed)",
+        content = [Content(mediaType = "application/octet-stream")]
+    )
+    @APIResponse(responseCode = "400", description = "The upload is not a readable Merlin/SQLite file")
+    @APIResponse(responseCode = "404", description = "Version not found for this estimation")
+    @APIResponse(
+        responseCode = "409",
+        description = "The Merlin structure differs from the estimation",
+        content = [Content(schema = Schema(implementation = MerlinStructureDiffDto::class))]
+    )
+    fun exportMerlin(
+        @PathParam("estimationId") estimationId: UUID,
+        @PathParam("versionNumber") versionNumber: String,
+        @QueryParam("overwriteStructure") @DefaultValue("false") overwriteStructure: Boolean,
+        @RestForm("file") file: FileUpload
+    ): Response {
+        ensureEstimationExists(estimationId)
+        val version = resolveVersion(estimationId, versionNumber)
+        val uploaded = file.uploadedFile().toFile().readBytes()
+        val result = try {
+            merlinExporter.export(uploaded, version, overwriteStructure)
+        } catch (e: IllegalArgumentException) {
+            throw BadRequestException(e.message ?: "Unreadable Merlin document", e)
+        }
+        val label = if (versionNumber == "draft") "draft" else "v$versionNumber"
+        val extension = merlinExporter.filenameExtension(result)
+        return Response.ok(result)
+            .type("application/octet-stream")
+            .header("Content-Disposition", "attachment; filename=\"merlin-$label-estimated.$extension\"")
+            .build()
     }
 
     // Resolve a version ref ("draft" or a number) to a submitted snapshot, or

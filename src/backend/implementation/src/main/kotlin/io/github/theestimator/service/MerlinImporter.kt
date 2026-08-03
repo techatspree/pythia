@@ -59,34 +59,7 @@ class MerlinImporter {
         }
     }
 
-    // A ".mproject" bundle is uploaded zipped (magic PK\x03\x04) — locate its
-    // state.sql entry; otherwise the bytes must already be a SQLite document
-    // (magic "SQLite format 3"), i.e. the user uploaded state.sql directly.
-    private fun extractSqlite(bytes: ByteArray): ByteArray {
-        if (isZip(bytes)) return readStateSqlFromZip(bytes)
-        require(isSqlite(bytes)) { "Uploaded file is neither a zipped .mproject nor a SQLite document" }
-        return bytes
-    }
-
-    private fun isZip(bytes: ByteArray): Boolean =
-        bytes.size >= ZIP_MAGIC.size && bytes.copyOfRange(0, ZIP_MAGIC.size).contentEquals(ZIP_MAGIC)
-
-    private fun isSqlite(bytes: ByteArray): Boolean =
-        bytes.size >= SQLITE_MAGIC.length &&
-            String(bytes, 0, SQLITE_MAGIC.length, Charsets.US_ASCII) == SQLITE_MAGIC
-
-    private fun readStateSqlFromZip(bytes: ByteArray): ByteArray {
-        ZipInputStream(bytes.inputStream()).use { zip ->
-            var entry = zip.nextEntry
-            while (entry != null) {
-                if (!entry.isDirectory && entry.name.substringAfterLast('/') == "state.sql") {
-                    return zip.readBytes()
-                }
-                entry = zip.nextEntry
-            }
-        }
-        throw IllegalArgumentException("No state.sql found inside the uploaded Merlin .mproject archive")
-    }
+    private fun extractSqlite(bytes: ByteArray): ByteArray = MerlinDocument.extractSqlite(bytes)
 
     private fun readActivities(dbFile: Path): List<Activity> {
         // Instantiate the driver directly (avoids DriverManager registration
@@ -235,15 +208,79 @@ class MerlinImporter {
             this.label = "Imported"
         }.also { estimation.buckets.add(it) }
 
-    private companion object {
-        private val ZIP_MAGIC = byteArrayOf('P'.code.toByte(), 'K'.code.toByte(), 3, 4)
-        private const val SQLITE_MAGIC = "SQLite format 3"
-
+    internal companion object {
         // Activities carry a title; resource-assignment schedule items do not.
         // (Do NOT gate on Z_ENT — Core Data entity ids differ across exports.)
-        private const val ACTIVITIES_QUERY =
+        internal const val ACTIVITIES_QUERY =
             "SELECT Z_PK, ZPARENTACTIVITY_, ZORDERINPARENTACTIVITY, ZISMILESTONE, ZTITLE, " +
                 "CAST(ZGIVENWORK_ AS TEXT) FROM ZSCHEDULEITEM WHERE ZTITLE IS NOT NULL " +
                 "ORDER BY ZORDERINPARENTACTIVITY"
+    }
+}
+
+// Container handling for a Merlin document, shared by the importer (task-131)
+// and the exporter (task-133): a ".mproject" bundle is uploaded zipped (magic
+// PK\x03\x04) and carries its SQLite store as a "state.sql" entry; otherwise
+// the bytes must already be that SQLite document (magic "SQLite format 3"),
+// i.e. the user uploaded state.sql directly.
+internal object MerlinDocument {
+
+    private const val ZIP_MAGIC_3 = 3.toByte()
+    private const val ZIP_MAGIC_4 = 4.toByte()
+    private val ZIP_MAGIC =
+        byteArrayOf('P'.code.toByte(), 'K'.code.toByte(), ZIP_MAGIC_3, ZIP_MAGIC_4)
+    private const val SQLITE_MAGIC = "SQLite format 3"
+
+    fun isZip(bytes: ByteArray): Boolean =
+        bytes.size >= ZIP_MAGIC.size && bytes.copyOfRange(0, ZIP_MAGIC.size).contentEquals(ZIP_MAGIC)
+
+    fun isSqlite(bytes: ByteArray): Boolean =
+        bytes.size >= SQLITE_MAGIC.length &&
+            String(bytes, 0, SQLITE_MAGIC.length, Charsets.US_ASCII) == SQLITE_MAGIC
+
+    fun extractSqlite(bytes: ByteArray): ByteArray {
+        if (isZip(bytes)) return readStateSqlFromZip(bytes)
+        require(isSqlite(bytes)) { "Uploaded file is neither a zipped .mproject nor a SQLite document" }
+        return bytes
+    }
+
+    private fun readStateSqlFromZip(bytes: ByteArray): ByteArray {
+        ZipInputStream(bytes.inputStream()).use { zip ->
+            var entry = zip.nextEntry
+            while (entry != null) {
+                if (!entry.isDirectory && entry.name.substringAfterLast('/') == "state.sql") {
+                    return zip.readBytes()
+                }
+                entry = zip.nextEntry
+            }
+        }
+        throw IllegalArgumentException("No state.sql found inside the uploaded Merlin .mproject archive")
+    }
+
+    // Rebuild an uploaded bundle with the modified store swapped in, leaving
+    // every other entry of the .mproject byte-identical (export writes a COPY,
+    // it does not repackage the user's project).
+    fun repackWithSqlite(originalZip: ByteArray, sqlite: ByteArray): ByteArray {
+        val out = java.io.ByteArrayOutputStream()
+        java.util.zip.ZipOutputStream(out).use { zos ->
+            ZipInputStream(originalZip.inputStream()).use { zis -> copyEntries(zis, zos, sqlite) }
+        }
+        return out.toByteArray()
+    }
+
+    private fun copyEntries(
+        zis: ZipInputStream,
+        zos: java.util.zip.ZipOutputStream,
+        sqlite: ByteArray
+    ) {
+        var entry = zis.nextEntry
+        while (entry != null) {
+            val isStore = !entry.isDirectory && entry.name.substringAfterLast('/') == "state.sql"
+            val body = if (isStore) sqlite else zis.readBytes()
+            zos.putNextEntry(java.util.zip.ZipEntry(entry.name))
+            if (!entry.isDirectory) zos.write(body)
+            zos.closeEntry()
+            entry = zis.nextEntry
+        }
     }
 }
