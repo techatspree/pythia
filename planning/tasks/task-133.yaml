@@ -1,0 +1,344 @@
+id: task-133
+phase: phase-13
+title: Export estimated effort back into a Merlin project copy
+depends_on: [task-131]
+description: |
+  task-131 imports a Merlin Work Breakdown Structure into an estimation.
+  This task closes the loop: once the items are estimated, write the
+  results back into a Merlin Project document. It is the mirror of
+  `MerlinImporter` and reuses its file handling and schema knowledge.
+
+  ── Current state ──
+  `MerlinImporter` (`io.github.theestimator.service`) reads a zipped
+  `.mproject` bundle (or a bare `state.sql`, which despite its name is a
+  SQLite 3 Core Data store), pulls the WBS from `ZSCHEDULEITEM`, and builds
+  a draft estimation tree. Nothing writes back, and the import stores no
+  Merlin identifier on the created nodes — the only correlation key that
+  exists is the activity's **WBS path** (its titles from the top level down
+  to the item).
+
+  ── Target state ──
+  From the estimation the user uploads a copy of the Merlin document and
+  gets back a **modified copy** as a download, with each estimated leaf's
+  effort written into the matching Merlin activity. The application never
+  mutates the user's file: it reads the upload into a temp file, edits
+  that, and streams the result back — "changes only to a copy" is
+  structural, not a promise.
+
+  Before writing anything the exporter **verifies the structure still
+  matches**. If the Merlin document's WBS has drifted from the estimation
+  tree, the export is refused with a machine-readable diff, and the user
+  decides: cancel, or re-run with "overwrite the Merlin structure with the
+  structure from this application".
+
+  ── Key design decisions (do not deviate) ──
+  - **Which value is written**: the calculated **`offerPT`** (the PERT mean
+    plus the risk/std-dev surcharge — the effort actually quoted), NOT the
+    raw mean. It comes from the domain calculation
+    (`EstimationVersionService.calculateDraft(draft)` returns a calculated
+    `EstimationVersion`), never from arithmetic in the exporter. This works
+    unchanged for BOTH methods: a `BUCKET_SAMPLED_PERT` non-sample leaf
+    already carries an `offerPT` derived from its bucket average.
+  - **Only LEAF activities are written.** Merlin derives a parent's work
+    from its children, so group activities are left untouched.
+  - **Work encoding** (verified against the sample document): `ZGIVENWORK_`
+    is a BLOB holding ASCII text plus a trailing `0x3F` marker byte —
+    `X'31643F'` is `"1d?"`. Write `"<value>d"` + `0x3F`, using the SAME
+    unit (`d`) Merlin itself wrote. Format the number with `.` as the
+    decimal separator, up to 2 decimals, and emit no decimals when the
+    value is a whole number within 0.01 (`4d`, `3.5d`, `0.25d`). Bump the
+    row's Core Data optimistic-locking counter `Z_OPT` on every row changed.
+  - **Correlation is by WBS path** — the titles from the top level down,
+    joined with `" / "` (exactly the path `MerlinImporter` already builds
+    for bucket descriptions). Deliberately NOT by `ZUNIQUEID`: the import
+    never stored it, so existing estimations have nothing to match on, and
+    a rename SHOULD surface as drift for the user to decide about rather
+    than being silently followed. Do not add a Merlin-id column.
+  - **The structure check** compares the ordered list of WBS paths (groups
+    AND leaves) of the Merlin copy against those of the estimation version.
+    Equal lists → in sync. Otherwise the diff reports
+    `missingInMerlin` (paths the estimation has that Merlin lacks),
+    `missingInEstimation` (the reverse), and `reordered` (paths present in
+    both but at a different sibling index).
+  - **Stateless two-call protocol, one endpoint.** The frontend POSTs the
+    file with `overwriteStructure=false`; on drift the endpoint answers
+    `409` with the diff body. The user confirms, and the frontend POSTs the
+    SAME file again with `overwriteStructure=true`. No server-side session
+    or temp-file handle — the upload is small and this keeps the backend
+    stateless.
+  - **Structure overwrite reconciles by path; it does not wipe and rebuild.**
+    Activities whose path exists on both sides keep their row (and with it
+    their Merlin-side data: dates, dependencies, assignments), only their
+    parent/order/title being corrected. Paths only in the estimation are
+    INSERTed; activities under the project root whose path is not in the
+    estimation are DELETEd together with their descendants and any
+    assignment rows referencing them.
+  - **Core Data invariants for INSERT** (verified against the sample):
+    a new activity row needs `Z_ENT = 49`, `Z_OPT = 1`, `ZPROJECT = 1`,
+    `ZPRIORITY = 500`, `ZBUDGETSTATUS_ = 0`, `ZCOSTACCRUAL_ = 2`,
+    `ZISBUDGETBILLABLE_ = 0`, `ZISMILESTONE = 0`, `ZTITLE`,
+    `ZPARENTACTIVITY_` + `Z49_PARENTACTIVITY_ = 49` (the Core Data
+    destination-entity discriminator), `ZORDERINPARENTACTIVITY`, and a
+    fresh 22-character URL-safe base64 `ZUNIQUEID`. Primary keys are
+    allocated from the `Z_PRIMARYKEY` bookkeeping table: take the row with
+    `Z_ENT = 48` (`ScheduleItem`, the ROOT of the entity hierarchy that
+    `Activity`=49 and `Assignment`=51 inherit from — the subclass rows
+    carry `Z_MAX = 0` and must NOT be used), allocate `Z_MAX + 1 … Z_MAX +
+    n`, then write the new `Z_MAX` back.
+  - Assignments link to their activity through `ZACTIVITY_` (with
+    `Z49_ACTIVITY_ = 49`), which is what makes a delete cascade necessary.
+  - No KMP/domain change and no Flyway migration: the exporter reads the
+    already-calculated version and edits SQLite.
+
+steps:
+  - |
+    Add `src/backend/implementation/src/main/kotlin/io/github/theestimator/service/MerlinExporter.kt`
+    (`@ApplicationScoped`). Reuse the container handling of `MerlinImporter`
+    (ZIP magic `PK\x03\x04` → the entry ending in `state.sql`; else the
+    bytes must be a SQLite document) — factor the shared detection helpers
+    out of `MerlinImporter` into an internal `MerlinDocument` helper in the
+    same package rather than copy-pasting them, keeping `MerlinImporter`'s
+    behaviour identical.
+    Public surface:
+      - `data class MerlinStructureDiff(val missingInMerlin: List<String>, val missingInEstimation: List<String>, val reordered: List<String>) { val inSync: Boolean get() = … }`
+      - `fun diff(input: ByteArray, version: EstimationVersion): MerlinStructureDiff`
+      - `fun export(input: ByteArray, version: EstimationVersion, overwriteStructure: Boolean): ByteArray`
+    `export` throws a dedicated `MerlinStructureChangedException(diff)` when
+    the diff is not in sync and `overwriteStructure` is false.
+    Log INFO on export start/finish (estimation id, leaf count, whether the
+    structure was overwritten), DEBUG per written activity, WARN when drift
+    is detected, ERROR on parse/write failure.
+
+  - |
+    In `MerlinExporter`, build both path lists:
+      - Merlin side: run the importer's activities query, build the
+        parent→children map, and walk from the root activity producing
+        `" / "`-joined title paths in `ZORDERINPARENTACTIVITY` order
+        (exclude the project-root activity itself, exactly as the importer
+        treats the root as the estimation).
+      - Estimation side: walk `EstimationVersion.roots` in order, using a
+        group's title and a leaf's description as the path segment.
+    Compare the ordered lists to fill `MerlinStructureDiff`.
+
+  - |
+    Implement the value write in `MerlinExporter`: for every estimation
+    LEAF, look up its Merlin activity by path and
+    `UPDATE ZSCHEDULEITEM SET ZGIVENWORK_ = ?, Z_OPT = Z_OPT + 1 WHERE Z_PK = ?`
+    with the blob built by a `fun encodeWork(personDays: Double): ByteArray`
+    (ASCII `"<formatted>d"` + `0x3F`; formatting rule as in the
+    description). Take the value from the calculated version's leaf
+    `offerPT`. Leave group activities untouched. Open the temp SQLite file
+    read-write via `org.sqlite.JDBC().connect(...)` the way the importer
+    does, and run the writes in one transaction.
+
+  - |
+    Implement `overwriteStructure = true` reconciliation in
+    `MerlinExporter`, running BEFORE the value write and in the same
+    transaction:
+      - For each estimation path missing in Merlin, INSERT an activity row
+        with the Core Data column set listed in the description, allocating
+        `Z_PK` from `Z_PRIMARYKEY` where `Z_ENT = 48` and writing the new
+        `Z_MAX` back; parent is the activity resolved from the path's
+        prefix (created earlier in the same pass, so insert parents before
+        children by walking the estimation tree top-down).
+      - For each Merlin activity under the project root whose path is not
+        in the estimation, DELETE it and its descendants, plus
+        `DELETE FROM ZSCHEDULEITEM WHERE ZACTIVITY_ IN (<deleted pks>)`
+        for their assignments.
+      - For paths present on both sides, `UPDATE` `ZPARENTACTIVITY_` /
+        `ZORDERINPARENTACTIVITY` to match the estimation order and bump
+        `Z_OPT`.
+      - Generate `ZUNIQUEID` as 16 random bytes in URL-safe base64 without
+        padding (22 chars), matching the sample's shape.
+
+  - |
+    Add `exportMerlin(estimationId: UUID, versionRef: String, input: ByteArray, overwriteStructure: Boolean): ByteArray`
+    and `diffMerlin(...)` to
+    `src/backend/implementation/src/main/kotlin/io/github/theestimator/service/EstimationVersionService.kt`.
+    Resolve the version the same way the existing export/compare paths do
+    (`draft` → the draft calculated via `calculateDraft`, a number → the
+    submitted snapshot), 404 when missing, then delegate to
+    `MerlinExporter`. `Log.info` the outcome.
+
+  - |
+    Add the REST endpoint to
+    `src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/EstimationVersionResource.kt`:
+    `@POST @Path("/{versionNumber}/export/merlin")
+    @Consumes(MediaType.MULTIPART_FORM_DATA) @RolesAllowed("ESTIMATOR")`,
+    taking `@RestForm("file") file: FileUpload` and
+    `@RestQuery("overwriteStructure") overwriteStructure: Boolean?`
+    (default false). Returns `200` with the modified document bytes
+    (`application/octet-stream`, `Content-Disposition: attachment;
+    filename="<base>-estimated.<ext>"` where the extension mirrors the
+    upload: `zip` for a bundle, `sql` for a bare state.sql), `409` with a
+    `MerlinStructureDiffDto` body when the structure drifted and
+    `overwriteStructure` is false, `400` for an unreadable upload, `404`
+    for an unknown estimation/version. Document all of them with
+    MicroProfile OpenAPI annotations like the neighbouring endpoints. Map
+    `MerlinStructureChangedException` to the 409 body via an
+    `ExceptionMapper` in `rest/error/` (mirroring the existing mappers) or
+    by catching it in the resource — pick the pattern already used for
+    `UndoConflictException`.
+
+  - |
+    Add `MerlinStructureDiffDto(missingInMerlin, missingInEstimation, reordered, inSync)`
+    to `src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/dto/`
+    (next to the other export/compare DTOs), annotated with `@Schema` so it
+    lands in the OpenAPI document.
+
+  - |
+    Regenerate the committed OpenAPI + typed client (a new endpoint):
+      ./gradlew :backend:implementation:build
+      cp src/backend/implementation/target/openapi/openapi.json src/frontend/src/lib/api/openapi.json
+      (cd src/frontend && npm run gen:api)
+    Confirm `export/merlin` appears in `schema.d.ts`.
+
+  - |
+    Frontend: add an "Export to Merlin" control next to the existing
+    "Import from Merlin" one in
+    `src/frontend/src/routes/estimations/[id]/+page.svelte` — a hidden
+    `<input type="file" accept=".zip,.mproject,.sqlite">` plus a button.
+    On change POST a `FormData` (key `file`) via `apiFetch` to
+    `/api/estimations/{id}/versions/draft/export/merlin` (no explicit
+    Content-Type). Do NOT use a plain `<a href>` like the xlsx/csv export
+    does — that would not carry the Authorization header and this call must
+    be authenticated. On `200`, read the response as a `Blob` and trigger a
+    download via an object URL (create an `<a>`, set `download` from the
+    `Content-Disposition` filename, click it, then `URL.revokeObjectURL`).
+    Keep the chosen `File` in state so the retry can re-send it. Errors go
+    through `assertOk` → `ErrorBanner` + `log.error`; never bare `console.*`.
+
+  - |
+    Frontend: add `src/frontend/src/lib/components/MerlinStructureDialog.svelte`
+    — shown when the export returns `409`. It lists the three diff groups
+    (added / removed / reordered paths, each collapsed to a scrollable
+    list), explains that continuing rewrites the Merlin structure to match
+    this application, and offers "Cancel" and "Overwrite structure". The
+    confirm action re-POSTs the same file with
+    `?overwriteStructure=true`. Parse the 409 body into the diff rather
+    than routing it to `ErrorBanner` — mirror how `UndoConflictDialog`
+    consumes the undo 409.
+
+  - |
+    i18n — add the same keys to BOTH `src/frontend/src/lib/i18n/de.json`
+    and `en.json` (equal key sets), under `estimation` and a new `merlin`
+    object: at least `estimation.exportMerlin`, `estimation.exportMerlinHint`,
+    `estimation.exportMerlinFailed`, `merlin.diffTitle`, `merlin.diffBody`,
+    `merlin.diffAdded`, `merlin.diffRemoved`, `merlin.diffReordered`,
+    `merlin.cancel`, `merlin.overwrite`. No inline literals.
+
+  - |
+    Backend test
+    `src/backend/implementation/src/test/kotlin/io/github/theestimator/service/MerlinExporterTest.kt`,
+    reading the existing test resource `merlin/state.sql`:
+      - import it into a THREE_POINT_PERT estimation, estimate a known leaf
+        (e.g. "Setup TRAIN Infrastructure"), export, then reopen the
+        returned bytes with SQLite and assert that leaf's `ZGIVENWORK_`
+        decodes to the expected `offerPT` in days and that `Z_OPT` grew.
+      - assert `diff(...)` reports `inSync` for an untouched round-trip.
+      - drift: rename one estimation node, assert `diff` reports it in both
+        `missingInMerlin` and `missingInEstimation`, that `export(...,
+        overwriteStructure = false)` throws `MerlinStructureChangedException`,
+        and that with `overwriteStructure = true` the exported document's
+        activity titles match the estimation (renamed row present, old one
+        gone) with `Z_PRIMARYKEY.Z_MAX` for `Z_ENT = 48` advanced when a row
+        was inserted.
+
+  - |
+    Backend IT
+    `src/backend/implementation/src/test/kotlin/io/github/theestimator/rest/MerlinExportResourceIT.kt`
+    (@QuarkusTest, DevAdminAuth): import the sample, POST the same file to
+    `…/versions/draft/export/merlin` and expect `200` with a non-empty
+    body and a `Content-Disposition` attachment header; then change the
+    draft's structure through the draft PUT and expect `409` with a body
+    carrying `missingInMerlin`/`missingInEstimation`; finally repeat with
+    `?overwriteStructure=true` and expect `200`.
+
+  - |
+    Frontend e2e `src/frontend/e2e/merlin-export.test.ts`: on an estimation
+    that was imported from the sample, use `setInputFiles` with
+    `planning/inputdata/MerlinDemoProject.mproject/state.sql`, trigger the
+    export, and assert a download is produced (Playwright `page.waitForEvent('download')`).
+    Then provoke drift (edit the draft via the API), re-export, and assert
+    the structure dialog appears and that confirming it completes the
+    export.
+
+  - |
+    Update `CLAUDE.md` next to the task-131 Merlin import prose: the export
+    endpoint, that only a COPY is modified and returned as a download, that
+    `offerPT` is written into `ZGIVENWORK_` for leaf activities only (with
+    the trailing `0x3F` marker), the path-based structure check, the `409`
+    + diff protocol, and the reconcile-by-path overwrite including the
+    `Z_PRIMARYKEY` (`Z_ENT = 48`) key allocation.
+
+  - |
+    Full-stack build + e2e:
+      ./gradlew build
+      cd src/frontend && npm run test:e2e
+
+validation:
+  - |
+    The exporter exists and knows the Merlin write schema:
+      test -f src/backend/implementation/src/main/kotlin/io/github/theestimator/service/MerlinExporter.kt
+      grep -q "ZGIVENWORK_" src/backend/implementation/src/main/kotlin/io/github/theestimator/service/MerlinExporter.kt
+      grep -q "Z_PRIMARYKEY" src/backend/implementation/src/main/kotlin/io/github/theestimator/service/MerlinExporter.kt
+      grep -q "offerPT" src/backend/implementation/src/main/kotlin/io/github/theestimator/service/MerlinExporter.kt
+      grep -q "MerlinStructureDiff" src/backend/implementation/src/main/kotlin/io/github/theestimator/service/MerlinExporter.kt
+      grep -q "Log\." src/backend/implementation/src/main/kotlin/io/github/theestimator/service/MerlinExporter.kt
+  - |
+    The service + REST layer expose it, and the 409 diff DTO exists:
+      grep -q "exportMerlin" src/backend/implementation/src/main/kotlin/io/github/theestimator/service/EstimationVersionService.kt
+      grep -q "export/merlin" src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/EstimationVersionResource.kt
+      grep -q "overwriteStructure" src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/EstimationVersionResource.kt
+      grep -rq "MerlinStructureDiffDto" src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/
+  - |
+    The regenerated client carries the new endpoint:
+      grep -q "export/merlin" src/frontend/src/lib/api/openapi.json
+      grep -q "export/merlin" src/frontend/src/lib/api/schema.d.ts
+  - |
+    The frontend export + drift dialog are wired, internationalised, and
+    log correctly (and do NOT use an unauthenticated <a href> download):
+      test -f src/frontend/src/lib/components/MerlinStructureDialog.svelte
+      grep -q "export/merlin" "src/frontend/src/routes/estimations/[id]/+page.svelte"
+      grep -q "overwriteStructure" "src/frontend/src/routes/estimations/[id]/+page.svelte"
+      ! grep -q "console\." "src/frontend/src/routes/estimations/[id]/+page.svelte"
+      ! grep -q "console\." src/frontend/src/lib/components/MerlinStructureDialog.svelte
+      grep -q "exportMerlin" src/frontend/src/lib/i18n/de.json
+      grep -q "exportMerlin" src/frontend/src/lib/i18n/en.json
+  - |
+    de/en catalogs keep equal key sets:
+      cd src/frontend && node -e "const d=require('./src/lib/i18n/de.json'),e=require('./src/lib/i18n/en.json');const f=(o,p='')=>Object.entries(o).flatMap(([k,v])=>typeof v==='object'&&v?f(v,p+k+'.'):[p+k]);const a=f(d).sort(),b=f(e).sort();if(JSON.stringify(a)!==JSON.stringify(b))throw new Error('key sets differ');console.log('ok',a.length)"
+  - |
+    Tests exist and cover the drift decision (assert by the NEW names —
+    "merlin" alone already appears in these directories):
+      test -f src/backend/implementation/src/test/kotlin/io/github/theestimator/service/MerlinExporterTest.kt
+      test -f src/backend/implementation/src/test/kotlin/io/github/theestimator/rest/MerlinExportResourceIT.kt
+      test -f src/frontend/e2e/merlin-export.test.ts
+      grep -q "overwriteStructure" src/backend/implementation/src/test/kotlin/io/github/theestimator/rest/MerlinExportResourceIT.kt
+      grep -q "MerlinStructureChangedException" src/backend/implementation/src/test/kotlin/io/github/theestimator/service/MerlinExporterTest.kt
+  - |
+    CLAUDE.md documents the export (assert a phrase this task introduces —
+    "merlin" already appears from task-131):
+      grep -qi "export/merlin" CLAUDE.md
+  - |
+    Backend tests, full build, and the e2e suite pass:
+      ./gradlew :backend:implementation:test
+      ./gradlew build
+      cd src/frontend && npm run test:e2e
+
+outputs:
+  - created: src/backend/implementation/src/main/kotlin/io/github/theestimator/service/MerlinExporter.kt
+  - modified: src/backend/implementation/src/main/kotlin/io/github/theestimator/service/MerlinImporter.kt
+  - modified: src/backend/implementation/src/main/kotlin/io/github/theestimator/service/EstimationVersionService.kt
+  - modified: src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/EstimationVersionResource.kt
+  - created: src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/dto/MerlinStructureDiffDto.kt
+  - created: src/backend/implementation/src/test/kotlin/io/github/theestimator/service/MerlinExporterTest.kt
+  - created: src/backend/implementation/src/test/kotlin/io/github/theestimator/rest/MerlinExportResourceIT.kt
+  - modified: src/frontend/src/lib/api/openapi.json
+  - modified: src/frontend/src/lib/api/schema.d.ts
+  - modified: src/frontend/src/routes/estimations/[id]/+page.svelte
+  - created: src/frontend/src/lib/components/MerlinStructureDialog.svelte
+  - modified: src/frontend/src/lib/i18n/de.json
+  - modified: src/frontend/src/lib/i18n/en.json
+  - created: src/frontend/e2e/merlin-export.test.ts
+  - modified: CLAUDE.md

@@ -1,0 +1,313 @@
+id: task-132
+phase: phase-15
+title: Bucket editor — bucket view (DnD) + hierarchical view
+depends_on: [task-104, task-131]
+description: |
+  The bucket + sampled editor (`src/frontend/src/lib/methods/bucketSampled/
+  EditorModule.svelte`, task-104) renders the estimation as a **flat list of
+  root-level leaves** with a per-row bucket `<select>`. Its `getChildren`
+  returns `null` unconditionally ("buckets are the grouping, so no nested
+  tree here"), and every cell snippet guards `node.type !== 'GROUP'`.
+
+  Two problems follow from that:
+
+  1. **Nested groups are invisible.** A bucket estimation CAN contain groups
+     — the domain model allows it (`EstimationVersion.roots` holds
+     `EstimationGroup`s; `calculateAll` flattens via `leaves()` and
+     substitutes calculated leaves back into the tree by `logicalId`), the
+     persistence allows it (`DraftGroupNode` is method-agnostic;
+     `DraftUpdateApplier` only restricts the BUCKETED **leaf** type to
+     `BUCKET_SAMPLED_PERT`), and since task-131 the Merlin importer
+     actively **creates** them: `MerlinImporter` builds `DraftGroupNode`
+     parents holding `DraftBucketedItemNode` leaves. Import a Merlin WBS
+     into a bucket estimation today and the editor shows empty group rows
+     with every item hidden — the data is there, the UI cannot show it.
+  2. **Re-bucketing is tedious.** Assigning a bucket is a per-row dropdown;
+     there is no way to see a bucket's contents together, and no way to move
+     items between buckets in bulk.
+
+  Target state: the bucket editor offers **two switchable views over the
+  same model**, with a segmented toggle above the table.
+
+  - **Bucket view** (the default): items grouped by bucket. Each bucket is a
+    row whose children are the leaves assigned to it; dragging a leaf from
+    one bucket's zone into another's **reassigns its bucket**. This is a
+    *projection*, not a second model.
+  - **Hierarchy view**: the classical nested-group tree, exactly like the
+    PERT `EstimationGrid` — expand/collapse, drag to restructure, and
+    `+ group` / `+ item` / `✕` row actions.
+
+  ── Key design decisions (leave nothing for the implementer to invent) ──
+
+  - **One source of truth.** `roots` (the real node tree, `$bindable` from
+    the route) is the model in BOTH views. The route
+    (`routes/estimations/[id]/versions/[versionNumber]/+page.svelte`) does
+    NOT change: autosave, undo/redo, and the calc map already work off
+    `roots`. All work is inside `$lib/methods/bucketSampled/`.
+  - **What each view's drag-and-drop means — these are disjoint and must
+    not bleed into each other:**
+      * Hierarchy view DnD moves a node within the **tree** (changes parent
+        / sibling order). It must NEVER touch `bucketId`.
+      * Bucket view DnD changes **only `bucketId`** on the dragged leaf. It
+        must NEVER move the leaf in the tree, never reparent it, and never
+        reorder `roots`.
+  - **The bucket view is derived, never stored.** Build a synthetic tree:
+    one synthetic group row per bucket (in `position` order), plus a final
+    synthetic row for unassigned leaves (`bucketId == null` **or** an id not
+    present in `buckets` — so leaves stranded by a deleted bucket are
+    visible and can be dragged back into a real bucket, which is what the
+    existing `bucket.unknownBanner` warns about). Each synthetic row's
+    children are the **flattened leaves of the whole real tree** (walk
+    groups recursively) whose bucket matches, in stable tree order.
+  - **Ordering inside a bucket is not persisted.** There is no per-bucket
+    order field in the model and this task does NOT add one. A drop that
+    only reorders within the same bucket is a **no-op on the model**; the
+    row simply returns to tree order on the next derive. Do not invent an
+    order column, and do not reorder `roots` to fake one.
+  - **Synthetic rows are not domain groups.** They have no `logicalId` in
+    the model, so they must not be looked up in `calcMap`. A bucket row
+    shows the **sum** of its leaves' already-computed `offerPT` / `cost` /
+    `offerPrice` from `calcMap`, plus the leaf count. This is display-only
+    aggregation of numbers the domain already produced — exactly what
+    `EstimationGrid` does for its total row — and is NOT new business
+    logic. Do **not** compute means, variances, or any bucket average in
+    the frontend: that stays in the domain's `BucketMethodModule`
+    (`computeBucketAverages`), reached through `calculate()` as today.
+  - **Accessibility.** Drag-and-drop is an accelerator, not the only path:
+    the existing per-row bucket `<select>` stays in both views so bucket
+    assignment remains keyboard-reachable.
+  - **View persistence.** The chosen view is UI preference, not estimation
+    state: keep it in a component `$state` persisted to `localStorage`
+    under the key `estimator.bucketView` (values `'bucket'` | `'hierarchy'`,
+    default `'bucket'`). No backend, no DTO, no OpenAPI regeneration.
+  - **No domain, backend, or migration changes.** The one backend addition
+    is a **test** proving a GROUP containing BUCKETED leaves round-trips
+    through the draft PUT/GET — that path is already supported but has
+    never been exercised, and both views now depend on it.
+
+steps:
+  - |
+    Set up the row types and the shared cell snippets. In
+    `EditorModule.svelte`:
+      - extend the type import from `$lib/estimationNodes` to include
+        `Group` (today it imports only `Node`, `Leaf`, `NodePath`,
+        `CalcEntry`).
+      - declare the synthetic bucket row:
+        `type BucketRow = { __bucketRow: true; logicalId: string; bucketId: string | null; label: string; children: Leaf[] }`.
+        Its `logicalId` is a **synthetic, collision-proof** id —
+        `` `bucket:${bucket.id}` `` for a real bucket and
+        `'bucket:unassigned'` for the trailing row — because `TreeTable`
+        requires a unique `getId` per row and these rows have no model id.
+      - keep the leaf-rendering logic in snippets typed over `Leaf`
+        (`descriptionCell` / `bucketCell` / `sampleCell` / `optimisticCell` /
+        `likelyCell` / `pessimisticCell` / `meanCell` / `offerPTCell` /
+        `costCell` / `offerPriceCell` as they are today).
+    **Do NOT try to share one `columns` array between the two views.**
+    `TreeColumn<T>.cell` is `Snippet<[T, TreeNodeContext<T>]>` and `roots`
+    is `$bindable` (hence invariant), so a single array cannot serve both a
+    `TreeTable<Node>` and a `TreeTable<BucketRow | Leaf>`. Instead declare
+    two thin column arrays — `hierarchyColumns: TreeColumn<Node>[]` and
+    `bucketColumns: TreeColumn<BucketRow | Leaf>[]` — whose cells branch on
+    their own row type and then **delegate to the same `Leaf` snippets**.
+    That keeps the per-leaf rendering defined exactly once, which is the
+    point; only the group/bucket-row branch differs.
+
+  - |
+    Teach the cells about rows that are NOT leaves. Two kinds exist:
+      - a real `GROUP` node (hierarchy view) — the description cell renders
+        an editable title input bound to `node.title` (read-only `<span>`
+        when `!editable`), and the numeric cells render the subtree
+        aggregate from `calcMap` (groups DO carry a `logicalId` and the
+        domain accumulates them, so look the group up in `calcMap`
+        directly).
+      - a synthetic bucket row (bucket view) — the description cell renders
+        the bucket label plus the leaf count via the existing
+        `grid.childCount` ICU plural key; the numeric cells render the
+        summed values described in the description section.
+    Distinguish them by their discriminators — `node.type === 'GROUP'` for a
+    real group, `'__bucketRow' in node` for a synthetic row — never by
+    guessing from missing fields.
+
+  - |
+    Add the view toggle. In `EditorModule.svelte` add
+    `let view = $state<'bucket' | 'hierarchy'>(...)` initialised from
+    `localStorage.getItem('estimator.bucketView')` (guarded for SSR/absent
+    storage, defaulting to `'bucket'`), persisted back in an `$effect`.
+    Render a segmented control above the table with two buttons
+    (`$_('bucket.viewBucket')` / `$_('bucket.viewHierarchy')`), each with
+    `aria-pressed` and `data-testid="bucket-view-toggle-bucket"` /
+    `"…-hierarchy"`, wrapped in a group labelled `$_('bucket.viewAria')`.
+    Log the switch once with `log.debug` from `$lib/log`.
+
+  - |
+    Implement the hierarchy view. Render `<TreeTable bind:roots …>` with
+    `getChildren = (n) => (n.type === 'GROUP' ? n.children : null)` and
+    `treeColumnKey="description"`, `actionsPlacement="treeColumn"`. Add row
+    actions mirroring `EstimationGrid`: `+ group` and `+ item` on group rows
+    (append a new `Group` / bucketed `Leaf` to that group's `children`) and
+    `✕` on every row (remove by `ctx.path`). Reuse the existing i18n keys
+    `grid.actionAddChildGroup`, `grid.actionAddChildItem`,
+    `grid.actionAddChildGroupTitle`, `grid.actionAddChildItemTitle`,
+    `grid.actionDeleteRow`. New nodes use `newId()` from
+    `$lib/estimationNodes`; a new leaf is built by the existing
+    `makeBucketedLeaf()`. Replace the current root-level `deleteAt`
+    (which only splices `roots`) with a path-based delete that walks into
+    `children`, since rows can now be nested.
+
+  - |
+    Implement the bucket view projection. Add:
+      - `flatLeaves(nodes: Node[]): Leaf[]` — recursive walk returning every
+        leaf in tree order (groups contribute their descendants).
+      - a `$derived` synthetic tree: for each bucket in `position` order a
+        row `{ __bucketRow: true, bucketId, label, children: <matching
+        leaves> }`, then one trailing row with `bucketId: null` and the
+        label `$_('bucket.unassigned')` holding leaves whose `bucketId` is
+        null or not in `buckets`. Render the trailing row even when empty
+        (it must be a valid drop target); render a bucket row even when it
+        has no leaves, for the same reason.
+    Feed the `$derived` value **directly** into a SECOND `<TreeTable>`
+    instance as an ordinary (un-`bind:`-ed) `roots` prop, with
+    `getChildren = (n) => ('__bucketRow' in n ? n.children : null)` and
+    `getId = (n) => n.logicalId`. Do **not** copy it into a local `$state`
+    first: a `$state` seeded from a `$derived` never re-syncs, so the bucket
+    view would go stale whenever the model changes by another path (the
+    per-row bucket `<select>`, an undo, a fresh load). `TreeTable`
+    reassigns its own `roots` on drop, which an unbound `$bindable` prop
+    tolerates; the parent's re-derive then converges the view.
+
+  - |
+    Wire the bucket-view drop. Pass `onChildrenChange` to that TreeTable and
+    act only on `phase === 'finalize'`: resolve the target bucket from
+    `e.parentPath` (index into the synthetic rows), then for every leaf in
+    `e.newChildren` set `leaf.bucketId = <target bucket id or null>` on the
+    **real** leaf object found by `logicalId` in `roots`. Mutating the real
+    leaf is what the route's autosave `$effect` observes, so the change
+    saves and is undoable like any other edit. A drop whose leaves already
+    carry that bucket id is a no-op (guard it, so a within-bucket reorder
+    does not mark the draft dirty). Log the reassignment with
+    `log.debug` (leaf logicalId + new bucket id); never bare `console.*`.
+
+  - |
+    Keep the empty state and the "+ item" footer working in both views: in
+    hierarchy view the footer adds a root-level leaf (today's behaviour); in
+    bucket view it adds a leaf assigned to the first bucket. The existing
+    `bucket.itemsEmpty` / `bucket.addItem` / `bucket.addItemRow` keys stay.
+    Leave `BucketPanel.svelte` (add/rename/delete/reorder buckets)
+    untouched.
+
+  - |
+    i18n — add the SAME new keys to BOTH `src/frontend/src/lib/i18n/de.json`
+    and `en.json` (equal key sets), under the existing `bucket` object:
+    `viewBucket`, `viewHierarchy`, `viewAria`, `unassigned`,
+    `groupTitlePlaceholder`, `colItems`. German: "Nach Bucket" /
+    "Hierarchie" / "Ansicht" / "Ohne Bucket" / "Gruppentitel…" / "Einträge".
+    English: "By bucket" / "Hierarchy" / "View" / "Unassigned" /
+    "Group title…" / "Items". No inline literals in the component.
+
+  - |
+    Backend test — prove the nested shape round-trips. Add a test method
+    **named `bucketedLeavesSurviveInsideAGroup`** to
+    `src/backend/implementation/src/test/kotlin/io/github/theestimator/rest/EstimationVersionResourceIT.kt`
+    (the class that already covers task-103's BUCKETED persistence — do not
+    create a new IT class): PUT a
+    draft for a `BUCKET_SAMPLED_PERT` estimation whose `roots` contain a
+    `GROUP` node with two `BUCKETED` children (one sample, one not), then
+    GET the draft and assert the group survived with both children, their
+    `bucketId` / `isSample` intact, and the group's accumulated `offerPT`
+    populated.
+
+  - |
+    Frontend e2e — `src/frontend/e2e/bucket-views.test.ts` (Playwright,
+    dev-admin is pre-seeded by `playwright.config.ts`; follow the setup in
+    `e2e/create-estimation.spec.ts`, which already creates a
+    `BUCKET_SAMPLED_PERT` estimation). **Reuse the pointer-drag helper
+    pattern from `e2e/tree-table-dnd-mouse.test.ts`** — driving
+    `svelte-dnd-action` from Playwright needs that explicit
+    mouse-move/step sequence; do not hand-roll a `dragTo`. Assert:
+      - the toggle switches between the two tables;
+      - in bucket view, each bucket row lists its leaves and the unassigned
+        row exists;
+      - dragging a leaf row from one bucket zone to another updates that
+        row's bucket `<select>` value and fires a draft PUT whose body
+        carries the new `bucketId` (wait on the PUT via
+        `page.waitForRequest`, as `e2e/smoke.test.ts` does for autosave);
+      - in hierarchy view, a group created with `+ group` accepts an item
+        via `+ item` and the item is still visible after switching to
+        bucket view (proving one model, two projections).
+
+  - |
+    Update `CLAUDE.md`: in the frontend section that documents the bucket
+    editor (the `methods/bucketSampled/` prose), record the two views, that
+    they are two projections of the same `roots`, the disjoint meaning of
+    DnD in each, that bucket-view ordering is not persisted, and that
+    synthetic bucket rows aggregate already-computed values for display
+    only. Extend the existing paragraph; do not add a new section.
+
+  - |
+    Validate — frontend type-check and lint, the backend test, the full
+    build, and the e2e suite:
+      ./gradlew :frontend:check
+      cd src/frontend && npm run lint
+      ./gradlew :backend:implementation:test
+      ./gradlew build
+      cd src/frontend && npm run test:e2e
+
+validation:
+  - |
+    Both views exist in the bucket editor module, with the toggle and the
+    projection helpers:
+      grep -q "hierarchy" src/frontend/src/lib/methods/bucketSampled/EditorModule.svelte
+      grep -q "estimator.bucketView" src/frontend/src/lib/methods/bucketSampled/EditorModule.svelte
+      grep -q "bucket-view-toggle-bucket" src/frontend/src/lib/methods/bucketSampled/EditorModule.svelte
+      grep -q "bucket-view-toggle-hierarchy" src/frontend/src/lib/methods/bucketSampled/EditorModule.svelte
+      grep -q "flatLeaves" src/frontend/src/lib/methods/bucketSampled/EditorModule.svelte
+      grep -q "__bucketRow" src/frontend/src/lib/methods/bucketSampled/EditorModule.svelte
+  - |
+    The hierarchy view really nests (getChildren resolves GROUP children
+    instead of hard-returning null) and the bucket view maps drops back
+    onto the model:
+      grep -q "onChildrenChange" src/frontend/src/lib/methods/bucketSampled/EditorModule.svelte
+      grep -qE "=== 'GROUP' \? [A-Za-z_]*\.children" src/frontend/src/lib/methods/bucketSampled/EditorModule.svelte
+      grep -q "BucketRow" src/frontend/src/lib/methods/bucketSampled/EditorModule.svelte
+      grep -q "bucket:unassigned" src/frontend/src/lib/methods/bucketSampled/EditorModule.svelte
+  - |
+    Frontend logging convention holds (log from $lib/log, never console.*):
+      grep -q "log\." src/frontend/src/lib/methods/bucketSampled/EditorModule.svelte
+      ! grep -q "console\." src/frontend/src/lib/methods/bucketSampled/EditorModule.svelte
+  - |
+    New i18n keys are present in both catalogs and the key sets stay equal:
+      grep -q "viewBucket" src/frontend/src/lib/i18n/de.json
+      grep -q "viewBucket" src/frontend/src/lib/i18n/en.json
+      grep -q "unassigned" src/frontend/src/lib/i18n/de.json
+      grep -q "unassigned" src/frontend/src/lib/i18n/en.json
+      cd src/frontend && node -e "const d=require('./src/lib/i18n/de.json'),e=require('./src/lib/i18n/en.json');const f=(o,p='')=>Object.entries(o).flatMap(([k,v])=>typeof v==='object'&&v?f(v,p+k+'.'):[p+k]);const a=f(d).sort(),b=f(e).sort();if(JSON.stringify(a)!==JSON.stringify(b))throw new Error('key sets differ');console.log('ok',a.length)"
+  - |
+    The backend proves a GROUP of BUCKETED leaves round-trips. Assert the
+    NEW test method by name — `GROUP`/`BUCKETED` already appear in this
+    class, so grepping for those alone would pass without any change:
+      grep -q "bucketedLeavesSurviveInsideAGroup" src/backend/implementation/src/test/kotlin/io/github/theestimator/rest/EstimationVersionResourceIT.kt
+      ./gradlew :backend:implementation:test --tests "io.github.theestimator.rest.EstimationVersionResourceIT"
+  - |
+    The e2e covers both views and the cross-bucket drag:
+      test -f src/frontend/e2e/bucket-views.test.ts
+      grep -q "bucket-view-toggle-hierarchy" src/frontend/e2e/bucket-views.test.ts
+      grep -q "bucketId" src/frontend/e2e/bucket-views.test.ts
+  - |
+    Docs updated. `bucketSampled` already appears in CLAUDE.md, so assert
+    the phrases this task introduces:
+      grep -qi "hierarchy view\|hierarchical view" CLAUDE.md
+      grep -qi "two projections\|two views" CLAUDE.md
+  - |
+    Type-check, lint, full build, and the e2e suite pass:
+      ./gradlew :frontend:check
+      cd src/frontend && npm run lint
+      ./gradlew build
+      cd src/frontend && npm run test:e2e
+
+outputs:
+  - modified: src/frontend/src/lib/methods/bucketSampled/EditorModule.svelte
+  - modified: src/frontend/src/lib/i18n/de.json
+  - modified: src/frontend/src/lib/i18n/en.json
+  - created: src/frontend/e2e/bucket-views.test.ts
+  - modified: src/backend/implementation/src/test/kotlin/io/github/theestimator/rest/EstimationVersionResourceIT.kt
+  - modified: CLAUDE.md
