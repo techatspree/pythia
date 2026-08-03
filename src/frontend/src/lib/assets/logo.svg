@@ -5,27 +5,35 @@
       <stop offset="0%" stop-color="#009e5a"/>
       <stop offset="100%" stop-color="#bade4e"/>
     </linearGradient>
+    <!-- Clear-glass fill: bright white core fading to a faint green edge (the
+         glass picking up its surroundings) so the orb reads as crystal, not green. -->
+    <radialGradient id="theEstimatorOrb" cx="38%" cy="32%" r="72%">
+      <stop offset="0%" stop-color="#ffffff"/>
+      <stop offset="62%" stop-color="#f2fbf6"/>
+      <stop offset="100%" stop-color="#cfeddc"/>
+    </radialGradient>
   </defs>
   <rect x="2" y="2" width="60" height="60" rx="16" ry="16" fill="url(#theEstimatorBrand)"/>
 
-  <!-- Pedestal: the crystal ball sits on a tiered dark-green stand. -->
-  <ellipse cx="32" cy="52.5" rx="13.5" ry="3.4" fill="#00623a"/>
-  <ellipse cx="32" cy="49.8" rx="11" ry="2.5" fill="#2fae72"/>
-  <rect x="27" y="44" width="10" height="5" rx="2" fill="#fff" opacity="0.85"/>
+  <!-- Pedestal: a tiered dark-green stand under the crystal ball. -->
+  <ellipse cx="32" cy="53.5" rx="13" ry="3.3" fill="#00623a"/>
+  <ellipse cx="32" cy="51" rx="10.5" ry="2.4" fill="#0a8f55"/>
+  <rect x="27.5" y="45.5" width="9" height="5" rx="2" fill="#0a8f55"/>
 
-  <!-- The forecasting sphere: translucent glass with a bright rim + shine. -->
-  <circle cx="32" cy="25" r="20" fill="#fff" opacity="0.16"/>
-  <circle cx="32" cy="25" r="20" fill="none" stroke="#fff" stroke-width="1.6" opacity="0.5"/>
-  <path d="M18 15 A20 20 0 0 1 27 8.5" fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round" opacity="0.5"/>
+  <!-- The crystal ball: clear glass so it reads as an orb, framed by the chip. -->
+  <circle cx="32" cy="27" r="19" fill="url(#theEstimatorOrb)"/>
+  <circle cx="32" cy="27" r="19" fill="none" stroke="#ffffff" stroke-width="1.4" opacity="0.65"/>
+  <!-- Glass shine, top-left. -->
+  <path d="M20 20 Q22 12 30 10.5" fill="none" stroke="#ffffff" stroke-width="3" stroke-linecap="round" opacity="0.9"/>
 
-  <!-- The growth it foresees: three rising bars (rooted on a shared baseline). -->
-  <rect x="21" y="31" width="5" height="6" rx="1.4" fill="#fff" opacity="0.5"/>
-  <rect x="28.5" y="26" width="5" height="11" rx="1.4" fill="#fff" opacity="0.5"/>
-  <rect x="36" y="20" width="5" height="17" rx="1.4" fill="#fff" opacity="0.5"/>
+  <!-- Inside the glass: the growth it foresees, in brand green. -->
+  <rect x="22" y="33" width="5" height="5" rx="1.2" fill="#12a866" opacity="0.5"/>
+  <rect x="28.5" y="28" width="5" height="10" rx="1.2" fill="#12a866" opacity="0.5"/>
+  <rect x="35" y="22" width="5" height="16" rx="1.2" fill="#12a866" opacity="0.5"/>
 
-  <!-- The estimate: a dotted lead-in becomes a solid trend arrow taking off. -->
-  <circle cx="13.5" cy="39.5" r="1.5" fill="#fff" opacity="0.85"/>
-  <circle cx="16" cy="37.8" r="1.5" fill="#fff" opacity="0.9"/>
-  <path d="M18.5 36 C25 34 28.5 25 39 17.5" fill="none" stroke="#fff" stroke-width="4" stroke-linecap="round"/>
-  <path d="M39.5 17 L45 13 L41.5 22.5 Z" fill="#fff"/>
+  <!-- The estimate: a dotted lead-in becoming a solid rising trend arrow. -->
+  <circle cx="17.6" cy="38.6" r="1.4" fill="#007a45"/>
+  <circle cx="20.2" cy="37" r="1.4" fill="#007a45"/>
+  <path d="M22.5 35.5 C27.5 33 30 25.5 40 18.5" fill="none" stroke="#007a45" stroke-width="3.4" stroke-linecap="round"/>
+  <path d="M40 18 L44.5 14.5 L41 23 Z" fill="#007a45"/>
 </svg>

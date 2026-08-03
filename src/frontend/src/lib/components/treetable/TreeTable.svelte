@@ -340,7 +340,13 @@
 			{@const childZoneAttrs = childrenZoneAttrs
 				? childrenZoneAttrs(node)
 				: { 'aria-label': 'Children' }}
+			<!-- An EMPTY zone collapses to 0px, and `useCursorForDetection` means a
+			     zone with no area can never be hovered — so an empty group (or an
+			     empty bucket in the bucket view) was impossible to drop into. Give
+			     it a hittable strip; once a drag enters, the library's shadow
+			     placeholder supplies the height. -->
 			<div
+				class:min-h-8={wrappedChildren.length === 0}
 				use:dndzone={{
 					items: wrappedChildren,
 					type: 'tree-table-node',

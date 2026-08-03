@@ -21,6 +21,8 @@ type Seeded = {
 	estimationId: string;
 	b1: string;
 	b2: string;
+	/** Deliberately left EMPTY — an empty bucket must still be a drop target. */
+	b3: string;
 	groupId: string;
 	leafC: string;
 	leafB: string;
@@ -50,6 +52,7 @@ async function seed(request: APIRequestContext): Promise<Seeded> {
 
 	const b1 = crypto.randomUUID();
 	const b2 = crypto.randomUUID();
+	const b3 = crypto.randomUUID();
 	const groupId = crypto.randomUUID();
 	const leafA = crypto.randomUUID();
 	const leafB = crypto.randomUUID();
@@ -61,7 +64,8 @@ async function seed(request: APIRequestContext): Promise<Seeded> {
 			parameters: [{ name: 'stdDevFactor', value: 0.0 }],
 			buckets: [
 				{ id: b1, position: 0, label: 'Frontend' },
-				{ id: b2, position: 1, label: 'Backend' }
+				{ id: b2, position: 1, label: 'Backend' },
+				{ id: b3, position: 2, label: 'Untouched' }
 			],
 			roots: [
 				{
@@ -100,7 +104,7 @@ async function seed(request: APIRequestContext): Promise<Seeded> {
 	});
 	expect(putRes.status()).toBe(200);
 
-	return { estimationId, b1, b2, groupId, leafC, leafB };
+	return { estimationId, b1, b2, b3, groupId, leafC, leafB };
 }
 
 async function openDraft(page: Page, estimationId: string) {
@@ -198,6 +202,42 @@ test('dragging a leaf between buckets re-buckets it and autosaves', async ({ pag
 	// The root-level leaf is still root-level in the persisted tree — the bucket
 	// view never restructures.
 	expect(body.roots.some((n: { logicalId?: string }) => n.logicalId === leafC)).toBe(true);
+});
+
+test('a leaf can be dragged into an EMPTY bucket', async ({ page, request }) => {
+	const { estimationId, b1, b3, leafC } = await seed(request);
+	await openDraft(page, estimationId);
+
+	const select = page.locator(`${row(leafC)} select`).first();
+	await expect(select).toHaveValue(b1);
+
+	// An empty zone collapses to 0px, and TreeTable detects drops by CURSOR
+	// position — so without a min-height an empty bucket can never be hovered,
+	// which is the state every freshly created bucket (and a Merlin import's
+	// non-"Imported" buckets) starts in.
+	const zone = page.locator(`${row(`bucket:${b3}`)} > [aria-label="Children"]`);
+	const zoneBox = await zone.boundingBox();
+	expect(zoneBox, 'the empty bucket must render a drop zone').not.toBeNull();
+	expect(zoneBox!.height, 'an empty drop zone must still be hittable').toBeGreaterThan(0);
+
+	await page.locator(row(leafC)).scrollIntoViewIfNeeded();
+	const handle = page.locator(`${row(leafC)} [data-dnd-handle]`).first();
+	const sb = await handle.boundingBox();
+	if (!sb) throw new Error('source row not found');
+	await page.mouse.move(sb.x + sb.width / 2, sb.y + sb.height / 2);
+	await page.mouse.down();
+	await page.mouse.move(sb.x + sb.width / 2, sb.y + sb.height / 2 + 6, { steps: 4 });
+	await page.waitForTimeout(150);
+	for (let i = 0; i < 5; i++) {
+		const z = await zone.boundingBox();
+		if (!z) break;
+		await page.mouse.move(z.x + Math.min(z.width / 2, 400), z.y + z.height / 2, { steps: 6 });
+		await page.waitForTimeout(180);
+	}
+	await page.mouse.up();
+	await page.waitForTimeout(600);
+
+	await expect(select).toHaveValue(b3);
 });
 
 test('dropping into the unassigned row is ignored (a null bucket cannot be saved)', async ({
