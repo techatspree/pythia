@@ -13,8 +13,12 @@ storage separately (task-106).
 ## Roles and lifecycle
 
 - **Moderator** — creates the session, starts it, edits the shared discussion
-  notes, reveals phase 2, and finalizes each item. The moderator also estimates
-  (submits a triple like any participant).
+  notes, reveals phase 2, and finalizes each item. Whether the moderator **also
+  estimates** is chosen at creation (`moderatorEstimates`, default on): when on,
+  the moderator submits a blind triple in phase 1 and can revise it in phase 2
+  like any estimator; when off the moderator only moderates (the estimate/revise
+  forms are hidden, they are excluded from the submitted/total denominator, and
+  the backend rejects a vote from them with `409`).
 - **Estimator** — joins the room, submits a blind estimate in phase 1, and in
   phase 2 may submit a revised estimate and mark "I agree".
 
@@ -66,9 +70,13 @@ When the moderator finalizes an item, the aggregated mean triple is written back
 onto the matching draft leaf **through the normal draft-update path**
 (`DraftUpdateApplier`), which records an entry in the undo log (task-076). The
 write-back is therefore undoable and behaves exactly like a manual edit — no
-ad-hoc SQL. After the last item, the session is `FINALIZED` and the draft now
-carries every finalized estimate; the FINALIZED summary links back to the
-estimation so the user can open the draft editor.
+ad-hoc SQL. The item's discussion notes, if any, are **appended to that leaf's
+`assumptions`** in the same write (prefixed with the session name, e.g.
+`"<session title>: <notes>"`, newline-separated after any existing assumptions),
+so the discussion survives the session. The moderator may edit the notes in both
+phase 1 and phase 2. After the last item, the session is `FINALIZED` and the
+draft now carries every finalized estimate; the FINALIZED summary links back to
+the estimation so the user can open the draft editor.
 
 ## Realtime / ws-ticket model
 

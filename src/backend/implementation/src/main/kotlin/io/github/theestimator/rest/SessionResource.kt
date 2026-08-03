@@ -75,7 +75,8 @@ class SessionResource(
     fun create(body: CreateSessionRequest): Response {
         val user = currentUserProvider.get()
         val dto = sessionService.createSession(
-            body.estimationId, body.title, body.itemLogicalIds, user.subjectId, user.displayName
+            body.estimationId, body.title, body.itemLogicalIds, user.subjectId, user.displayName,
+            body.moderatorEstimates
         )
         return Response.status(Response.Status.CREATED).entity(dto).build()
     }

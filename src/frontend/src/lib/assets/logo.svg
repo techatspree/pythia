@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <title>The Estimator</title>
+  <defs>
+    <linearGradient id="theEstimatorBrand" x1="0" y1="1" x2="1" y2="0">
+      <stop offset="0%" stop-color="#009e5a"/>
+      <stop offset="100%" stop-color="#bade4e"/>
+    </linearGradient>
+  </defs>
+  <rect x="2" y="2" width="60" height="60" rx="16" ry="16" fill="url(#theEstimatorBrand)"/>
+  <!-- The three-point baseline: optimistic, likely, pessimistic. -->
+  <path d="M12 52 H40" stroke="#fff" stroke-width="3" stroke-linecap="round" opacity="0.85"/>
+  <circle cx="12" cy="52" r="3.2" fill="#fff" opacity="0.85"/>
+  <circle cx="26" cy="52" r="4.2" fill="#fff"/>
+  <circle cx="40" cy="52" r="3.2" fill="#fff" opacity="0.85"/>
+  <!-- The estimate takes off over the mode and never comes back down.
+       Two chunky dashes: they still read as motion at 16 px. -->
+  <path d="M12 47 C18 46 20 36 26 30 C28.5 27.5 31 25.5 33.5 23.5" fill="none" stroke="#fff" stroke-width="5.5" stroke-linecap="round" stroke-dasharray="11 6.5"/>
+  <!-- Paper plane, mid-launch: body plus a folded lower fin. -->
+  <path d="M55 8 L39 19 L46 21.5 Z" fill="#fff"/>
+  <path d="M55 8 L46 21.5 L47.5 29 Z" fill="#fff" opacity="0.72"/>
+</svg>

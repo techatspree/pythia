@@ -1,4 +1,9 @@
 {
+	"brand": {
+		"name": "The Estimator",
+		"logoAlt": "The Estimator",
+		"sessionTitle": "The Estimator · Session"
+	},
 	"common": {
 		"delete": "Löschen",
 		"dismiss": "Verwerfen"
@@ -275,6 +280,7 @@
 			"estimation": "Angebot",
 			"selectEstimation": "Angebot wählen…",
 			"sessionTitle": "Sitzungstitel",
+			"moderatorEstimates": "Moderator schätzt mit",
 			"items": "Zu schätzende Einträge",
 			"noItems": "Der Entwurf enthält keine schätzbaren Einträge.",
 			"noDraft": "Dieses Angebot hat keinen Entwurf.",

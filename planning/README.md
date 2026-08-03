@@ -67,6 +67,7 @@ Typical flow: run `next`, run `show` to read the task, do the work, run `done`. 
 | 14 | 3 | Post-MVP Hardening & Build Modernization | 079–083, 087–095, 112, 114, 117–119 |
 | 15 | 4 | Pluggable Estimation Methods | 096 (planning), 097–108, 113, 115–116 |
 | 16 | 2 | Internationalization | 111 (planning), 121–127 |
+| 17 | 1 | Branding & Visual Identity | 130 |
 
 Total: roughly 10 weeks of focused work for one developer, less with parallel tracks.
 

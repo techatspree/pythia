@@ -23,8 +23,9 @@
 	let submitted = $state(false);
 	let busy = $state(false);
 
-	// Everyone is expected to vote, so the denominator is the participant count.
-	const voterCount = $derived(store.session?.participants.length ?? 0);
+	// Denominator = participants expected to estimate (excludes a moderate-only
+	// moderator).
+	const voterCount = $derived(store.expectedVoterCount);
 
 	async function submit() {
 		busy = true;
@@ -82,37 +83,39 @@
 		</div>
 	{/if}
 
-	<h3 class="text-sm font-semibold uppercase tracking-wide text-gray-500">
-		{$_('session.phaseOne.yourEstimate')}
-	</h3>
-	<div class="grid grid-cols-3 gap-3">
-		<label class="text-sm">
-			<span class="block mb-1">{$_('session.phaseOne.optimistic')}</span>
-			<input type="number" min="0" step="0.5" bind:value={optimistic} class="w-full border rounded px-2 py-1 text-sm text-right" />
-		</label>
-		<label class="text-sm">
-			<span class="block mb-1">{$_('session.phaseOne.likely')}</span>
-			<input type="number" min="0" step="0.5" bind:value={likely} class="w-full border rounded px-2 py-1 text-sm text-right" />
-		</label>
-		<label class="text-sm">
-			<span class="block mb-1">{$_('session.phaseOne.pessimistic')}</span>
-			<input type="number" min="0" step="0.5" bind:value={pessimistic} class="w-full border rounded px-2 py-1 text-sm text-right" />
-		</label>
-	</div>
+	{#if store.iEstimate}
+		<h3 class="text-sm font-semibold uppercase tracking-wide text-gray-500">
+			{$_('session.phaseOne.yourEstimate')}
+		</h3>
+		<div class="grid grid-cols-3 gap-3">
+			<label class="text-sm">
+				<span class="block mb-1">{$_('session.phaseOne.optimistic')}</span>
+				<input type="number" min="0" step="0.5" bind:value={optimistic} class="w-full border rounded px-2 py-1 text-sm text-right" />
+			</label>
+			<label class="text-sm">
+				<span class="block mb-1">{$_('session.phaseOne.likely')}</span>
+				<input type="number" min="0" step="0.5" bind:value={likely} class="w-full border rounded px-2 py-1 text-sm text-right" />
+			</label>
+			<label class="text-sm">
+				<span class="block mb-1">{$_('session.phaseOne.pessimistic')}</span>
+				<input type="number" min="0" step="0.5" bind:value={pessimistic} class="w-full border rounded px-2 py-1 text-sm text-right" />
+			</label>
+		</div>
 
-	<div class="flex items-center gap-3">
-		<button
-			type="button"
-			onclick={submit}
-			disabled={busy}
-			class="px-4 py-2 text-sm bg-brand-green text-white rounded hover:bg-[#007a45] disabled:opacity-50"
-		>
-			{submitted ? $_('session.phaseOne.resubmit') : $_('session.phaseOne.submit')}
-		</button>
-		{#if submitted}
-			<span class="text-sm text-green-600">✓ {$_('session.phaseOne.submitted')}</span>
-		{/if}
-	</div>
+		<div class="flex items-center gap-3">
+			<button
+				type="button"
+				onclick={submit}
+				disabled={busy}
+				class="px-4 py-2 text-sm bg-brand-green text-white rounded hover:bg-[#007a45] disabled:opacity-50"
+			>
+				{submitted ? $_('session.phaseOne.resubmit') : $_('session.phaseOne.submit')}
+			</button>
+			{#if submitted}
+				<span class="text-sm text-green-600">✓ {$_('session.phaseOne.submitted')}</span>
+			{/if}
+		</div>
+	{/if}
 
 	<p class="text-sm text-gray-500" data-testid="phase1-count">
 		{$_('session.phaseOne.submittedCount', {

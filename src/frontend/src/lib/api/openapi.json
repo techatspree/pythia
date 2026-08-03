@@ -238,6 +238,9 @@
             "items" : {
               "type" : "string"
             }
+          },
+          "moderatorEstimates" : {
+            "type" : "boolean"
           }
         }
       },
@@ -1027,7 +1030,7 @@
       },
       "SessionDto" : {
         "type" : "object",
-        "required" : [ "id", "title", "estimationId", "status", "moderatorSubjectId", "currentItemIndex", "currentPhase", "items", "participants" ],
+        "required" : [ "id", "title", "estimationId", "status", "moderatorSubjectId", "currentItemIndex", "currentPhase", "moderatorEstimates", "items", "participants" ],
         "properties" : {
           "id" : {
             "$ref" : "#/components/schemas/UUID"
@@ -1050,6 +1053,9 @@
           },
           "currentPhase" : {
             "$ref" : "#/components/schemas/SessionPhase"
+          },
+          "moderatorEstimates" : {
+            "type" : "boolean"
           },
           "items" : {
             "type" : "array",

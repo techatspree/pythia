@@ -771,10 +771,22 @@
       "notes": "Improve estimation-session UX: start from active offer, preselect unestimated items, seed unestimated test data, select/deselect all, add join-session GUI"
     },
     "task-129": {
+      "status": "done",
+      "started_at": "2026-08-02T16:23:30+00:00",
+      "completed_at": "2026-08-02T16:49:55+00:00",
+      "notes": "Session moderator can moderate-only (no vote); moderator can revise own vote; persist per-item discussion notes into the finalized leaf's assumptions"
+    },
+    "task-130": {
+      "status": "done",
+      "started_at": "2026-08-02T17:05:58+00:00",
+      "completed_at": "2026-08-02T17:22:31+00:00",
+      "notes": "Design a new application logo matching TheEstimator's visual style and domain; replace the current logo and use it as favicon and everywhere else it fits"
+    },
+    "task-131": {
       "status": "pending",
       "started_at": null,
       "completed_at": null,
-      "notes": "Session moderator can moderate-only (no vote); moderator can revise own vote; persist per-item discussion notes into the finalized leaf's assumptions"
+      "notes": "Import a Merlin project file's Work Breakdown Structure into a tree of EstimationItems, for both estimation methods"
     }
   }
 }

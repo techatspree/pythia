@@ -1,0 +1,253 @@
+id: task-129
+phase: phase-11
+title: Session — optional moderator voting, revise fix, notes→assumptions
+depends_on: [task-128]
+description: |
+  Three defects/gaps in the collaborative estimation session, reported by
+  the user. All are targeted changes on the existing session stack
+  (domain VoteAggregation task-062; persistence task-063; REST/service
+  task-064; realtime task-065; frontend task-066/067; UX task-128). No
+  new domain math and no new REST endpoints — one new column, one DTO
+  field, service guards, a write-back tweak, and GUI wiring.
+
+  Current state:
+    - The moderator is ALWAYS a voting estimator. `createSession`
+      (`EstimationSessionService`) adds the creator as a `MODERATOR`
+      participant, and `PhaseOnePanel.svelte` renders the blind PERT-triple
+      form for EVERYONE (moderator included). The moderator's vote is
+      folded into the aggregate. There is no way to run a session where the
+      moderator only moderates.
+    - When the moderator IS estimating, they cannot change their estimate in
+      phase 2: in `PhaseTwoPanel.svelte` the revise-triple form lives in the
+      `{:else}` (non-moderator) branch, so the moderator branch shows only
+      the finalize controls. The moderator can vote blind in phase 1 but has
+      no GUI to revise afterwards — this is a bug.
+    - The submitted/total denominator is `participants.length`
+      (`PhaseOnePanel` `voterCount`), which is wrong once the moderator does
+      not estimate.
+    - Each session item carries `discussionNotes` (`SessionItem`, edited via
+      the moderator's PHASE1 textarea → `PUT …/items/current/notes`). These
+      notes are shown live but are **discarded** when the item is finalized —
+      they never reach the estimation. The leaf's `assumptions` field
+      (present end-to-end: domain `EstimationItem.assumptions`, the entity
+      nodes, `EstimationNodeUpdateDto.assumptions`, the draft mappers) is the
+      natural home for them.
+
+  Target state:
+    1. Optional moderator voting. A session records whether the moderator
+       also estimates: a new boolean `moderator_estimates` (default TRUE,
+       preserving today's behaviour) on `estimation_sessions`, chosen at
+       creation via `CreateSessionRequest.moderatorEstimates` (default
+       true) and exposed on `SessionDto.moderatorEstimates`. When false the
+       moderator is moderate-only: the GUI hides the estimate/revise forms
+       for them, they are excluded from the expected-voter denominator, and
+       the backend rejects a vote from a non-estimating moderator with
+       `409`.
+    2. Moderator can revise. When the moderator DOES estimate, phase 2 shows
+       them the revise-triple form (in addition to their finalize controls),
+       so they can change their vote like any estimator. The "agree" toggle
+       stays estimator-only (the moderator drives finalize, not agreement).
+    3. Notes persist into assumptions. On finalize, the item's
+       `discussionNotes` are APPENDED to the matching draft leaf's
+       `assumptions` field **through the same draft-update/undo path**
+       that already writes the mean triple (`writeBackToDraft`), so the
+       write is undoable and behaves like a manual edit. The appended entry
+       is prefixed with the estimation session's name (its `title`) and a
+       `: ` — i.e. the text added is `"<session.title>: <discussionNotes>"`.
+       This is done ONLY when the notes are non-blank; when there are no
+       notes the leaf's `assumptions` is left untouched. Appending (not
+       overwriting) preserves any assumptions already on the leaf: the new
+       value is `existingAssumptions` + a newline separator (only when the
+       existing value is non-blank) + `"<session.title>: <discussionNotes>"`.
+       (Finalize runs once per item — guarded by PHASE2 status — so no
+       duplicate-append concern.) The moderator may also edit the notes
+       during phase 2 (the notes textarea is shown to the moderator in BOTH
+       phases; estimators see the notes read-only in both phases), so
+       discussion captured at reveal time is not lost.
+
+  Design decisions (no ambiguity for the implementer):
+    - "Expected voters" = the ESTIMATOR participants plus the moderator iff
+      `moderatorEstimates`. The moderator's participant role stays
+      `MODERATOR` (unchanged); do NOT add a second role. A frontend store
+      getter derives the count and an `iEstimate` predicate.
+    - `moderatorEstimates` is immutable after creation (like the item set).
+    - This is NOT a domain change — `assumptions` already exists on the leaf
+      and the update DTO; the write-back only needs to also set it. Do not
+      touch `src/domain/`.
+    - Contract change (new DTO field) ⇒ regenerate the committed OpenAPI +
+      typed client (`schema.d.ts`) exactly as task-066/128 did.
+
+steps:
+  - |
+    Migration: add
+    `src/backend/implementation/src/main/resources/db/migration/V14__session_moderator_estimates.sql`
+    with `ALTER TABLE estimation_sessions ADD COLUMN moderator_estimates boolean NOT NULL DEFAULT true;`
+
+  - |
+    Entity: add `@Column(name = "moderator_estimates", nullable = false) var moderatorEstimates: Boolean = true`
+    to `src/backend/implementation/src/main/kotlin/io/github/theestimator/domain/session/EstimationSession.kt`.
+
+  - |
+    DTOs in `src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/dto/SessionDtos.kt`:
+      - add `val moderatorEstimates: Boolean` to `SessionDto`.
+      - add `val moderatorEstimates: Boolean = true` to `CreateSessionRequest`.
+
+  - |
+    Service `EstimationSessionService`:
+      - `createSession(...)` takes the new flag (thread it from the resource)
+        and sets `session.moderatorEstimates`; keep adding the moderator as a
+        `MODERATOR` participant regardless. Log the flag at INFO.
+      - `submitVote(...)`: if the caller is the moderator and
+        `!session.moderatorEstimates`, throw `conflict(...)` (409) — a
+        moderate-only moderator must not vote. Log the rejection at WARN
+        (session id + subject).
+      - `buildDto(...)`: populate `SessionDto.moderatorEstimates`.
+      - Finalize write-back: extend `writeBackToDraft`/`setEffort` so that,
+        for the target leaf, when `item.discussionNotes` is non-blank it also
+        APPENDS to the patched `EstimationNodeUpdateDto.assumptions`
+        (alongside the existing min/expected/max). The new assumptions value
+        is `existingAssumptions` + a newline separator (only when the
+        existing value is non-blank) + `"<session.title>: <item.discussionNotes>"`.
+        Read the session title from `session.title`. Do NOT overwrite a
+        pre-existing assumptions value, and leave it untouched when there are
+        no notes. Keep everything else identical (same undo-log record). Log
+        at DEBUG that notes were appended to assumptions.
+
+  - |
+    Resource `SessionResource.create`: pass `body.moderatorEstimates` into
+    `sessionService.createSession(...)`. No path/verb change; update the
+    `@Operation`/`@RequestBody` docs only if present.
+
+  - |
+    Regenerate the typed client:
+      ./gradlew :backend:implementation:build
+      cp src/backend/implementation/target/openapi/openapi.json src/frontend/src/lib/api/openapi.json
+      (cd src/frontend && npm run gen:api)
+    Confirm `SessionDto.moderatorEstimates` and
+    `CreateSessionRequest.moderatorEstimates` appear in `schema.d.ts`.
+
+  - |
+    Frontend store `src/frontend/src/lib/session/store.svelte.ts`: add
+      - `get iEstimate(): boolean` — true when the current user is expected
+        to estimate: an ESTIMATOR participant, OR the moderator when
+        `session.moderatorEstimates`.
+      - `get expectedVoterCount(): number` — count of ESTIMATOR participants
+        plus 1 when `session.moderatorEstimates`.
+
+  - |
+    `PhaseOnePanel.svelte`:
+      - Render the blind estimate form only when `store.iEstimate` (hide it
+        from a moderate-only moderator).
+      - Use `store.expectedVoterCount` as the submitted/total denominator
+        (replace `voterCount = participants.length`).
+
+  - |
+    `PhaseTwoPanel.svelte`:
+      - Show the revise-triple form whenever `store.iEstimate` (so an
+        estimating moderator can revise), independent of the finalize
+        controls. Keep the "agree" toggle estimator-only (non-moderator).
+      - Show the discussion notes: read-only for estimators; for the
+        moderator render the same debounced notes textarea as PHASE1
+        (reuse `updateNotes`) so notes taken during the reveal persist.
+
+  - |
+    Setup page `src/frontend/src/routes/sessions/+page.svelte`: add a
+    "moderator estimates too" checkbox (default checked) bound to a
+    `moderatorEstimates` state, and include it in the `createSession({...})`
+    body.
+
+  - |
+    i18n: add keys to BOTH `src/frontend/src/lib/i18n/de.json` and `en.json`
+    (equal key sets) — at least `session.setup.moderatorEstimates`,
+    `session.phaseTwo.notes` (if not already present reuse
+    `session.phaseOne.notes`), and any new labels. No inline literals.
+
+  - |
+    Backend tests in
+    `src/backend/implementation/src/test/kotlin/io/github/theestimator/rest/SessionResourceIT.kt`:
+      - moderate-only session (`moderatorEstimates:false`): a moderator vote
+        POST returns `409`.
+      - finalize write-back: set the current item's notes, finalize, then
+        `GET …/versions/draft` and assert the finalized leaf's `assumptions`
+        CONTAINS both the session title and the notes text (the appended
+        `"<session.title>: <notes>"` entry).
+
+  - |
+    Frontend e2e `src/frontend/e2e/session.test.ts`: keep the existing
+    default-moderator-estimates flow green, and add an assertion that in
+    PHASE2 the moderator sees the revise form (the task-fix), e.g. the
+    revise submit control is visible in the moderator context.
+
+  - |
+    Docs: update `docs/estimation-sessions.md` (optional moderator voting,
+    moderator revise in phase 2, notes→assumptions on finalize) and the
+    "Collaborative estimation sessions" area of `CLAUDE.md` (new
+    `moderator_estimates` column + `SessionDto`/`CreateSessionRequest`
+    field; finalize also writes `discussionNotes` into the leaf's
+    `assumptions` via the undoable draft-update path). Extend, do not
+    duplicate.
+
+  - |
+    Validate — full stack (migration + backend + frontend), then the e2e:
+      ./gradlew build
+      cd src/frontend && npm run test:e2e
+
+validation:
+  - |
+    Migration, column, and DTO field exist:
+      test -f src/backend/implementation/src/main/resources/db/migration/V14__session_moderator_estimates.sql
+      grep -q "moderator_estimates" src/backend/implementation/src/main/resources/db/migration/V14__session_moderator_estimates.sql
+      grep -q "moderatorEstimates" src/backend/implementation/src/main/kotlin/io/github/theestimator/domain/session/EstimationSession.kt
+      grep -q "moderatorEstimates" src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/dto/SessionDtos.kt
+  - |
+    Service enforces moderate-only and persists notes into assumptions:
+      grep -q "moderatorEstimates" src/backend/implementation/src/main/kotlin/io/github/theestimator/service/EstimationSessionService.kt
+      grep -q "assumptions" src/backend/implementation/src/main/kotlin/io/github/theestimator/service/EstimationSessionService.kt
+      grep -q "Log\." src/backend/implementation/src/main/kotlin/io/github/theestimator/service/EstimationSessionService.kt
+  - |
+    Regenerated client carries the new field:
+      grep -q "moderatorEstimates" src/frontend/src/lib/api/schema.d.ts
+  - |
+    Store exposes the voting predicate + denominator; panels use them:
+      grep -qE "iEstimate|expectedVoterCount" src/frontend/src/lib/session/store.svelte.ts
+      grep -q "iEstimate" src/frontend/src/lib/session/PhaseOnePanel.svelte
+      grep -q "iEstimate" src/frontend/src/lib/session/PhaseTwoPanel.svelte
+  - |
+    Setup page offers the moderator-estimates choice; no bare console.*:
+      grep -q "moderatorEstimates" src/frontend/src/routes/sessions/+page.svelte
+      ! grep -q "console\." src/frontend/src/lib/session/PhaseTwoPanel.svelte
+      ! grep -q "console\." src/frontend/src/lib/session/PhaseOnePanel.svelte
+  - |
+    Backend tests assert moderate-only reject + notes→assumptions write-back:
+      grep -q "moderatorEstimates" src/backend/implementation/src/test/kotlin/io/github/theestimator/rest/SessionResourceIT.kt
+      grep -qi "assumptions" src/backend/implementation/src/test/kotlin/io/github/theestimator/rest/SessionResourceIT.kt
+  - |
+    de/en i18n catalogs keep equal key sets:
+      cd src/frontend && node -e "const d=require('./src/lib/i18n/de.json'),e=require('./src/lib/i18n/en.json');const f=(o,p='')=>Object.entries(o).flatMap(([k,v])=>typeof v==='object'&&v?f(v,p+k+'.'):[p+k]);const a=f(d).sort(),b=f(e).sort();if(JSON.stringify(a)!==JSON.stringify(b))throw new Error('key sets differ');console.log('ok',a.length)"
+  - |
+    Docs updated:
+      grep -qi "moderator_estimates\|moderate-only\|assumptions" docs/estimation-sessions.md
+      grep -qi "moderator_estimates\|moderatorEstimates" CLAUDE.md
+  - |
+    Full build (migration + backend + frontend) and the e2e suite pass:
+      ./gradlew build
+      cd src/frontend && npm run test:e2e
+
+outputs:
+  - created: src/backend/implementation/src/main/resources/db/migration/V14__session_moderator_estimates.sql
+  - modified: src/backend/implementation/src/main/kotlin/io/github/theestimator/domain/session/EstimationSession.kt
+  - modified: src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/dto/SessionDtos.kt
+  - modified: src/backend/implementation/src/main/kotlin/io/github/theestimator/service/EstimationSessionService.kt
+  - modified: src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/SessionResource.kt
+  - modified: src/backend/implementation/src/test/kotlin/io/github/theestimator/rest/SessionResourceIT.kt
+  - modified: src/frontend/src/lib/api/openapi.json
+  - modified: src/frontend/src/lib/api/schema.d.ts
+  - modified: src/frontend/src/lib/session/store.svelte.ts
+  - modified: src/frontend/src/lib/session/PhaseOnePanel.svelte
+  - modified: src/frontend/src/lib/session/PhaseTwoPanel.svelte
+  - modified: src/frontend/src/routes/sessions/+page.svelte
+  - modified: src/frontend/src/lib/i18n/de.json
+  - modified: src/frontend/src/lib/i18n/en.json
+  - modified: src/frontend/e2e/session.test.ts
+  - modified: docs/estimation-sessions.md
+  - modified: CLAUDE.md

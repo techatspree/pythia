@@ -2038,6 +2038,7 @@ export interface components {
             estimationId: components["schemas"]["UUID"];
             title: string;
             itemLogicalIds: string[];
+            moderatorEstimates?: boolean;
         };
         CurrentUserDto: {
             subjectId: string;
@@ -2294,6 +2295,7 @@ export interface components {
             /** Format: int32 */
             currentItemIndex: number;
             currentPhase: components["schemas"]["SessionPhase"];
+            moderatorEstimates: boolean;
             items: components["schemas"]["SessionItemDto"][];
             participants: components["schemas"]["ParticipantDto"][];
         };

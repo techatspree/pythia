@@ -2,7 +2,7 @@
 	import { _, locale } from 'svelte-i18n';
 	import { formatFixed, DEFAULT_LOCALE } from '$lib/format';
 	import { log } from '$lib/log';
-	import { submitVote, agree, finalize } from '$lib/session/api';
+	import { submitVote, agree, finalize, updateNotes } from '$lib/session/api';
 	import type { SessionStore } from '$lib/session/store.svelte';
 	// Single source of truth for mean/spread: reduce the votes with the SAME
 	// domain code the backend uses (task-062), reached through the JS-friendly
@@ -82,6 +82,22 @@
 			busy = false;
 		}
 	}
+
+	// Moderator discussion-notes textarea (debounced PUT) — also editable in
+	// phase 2 so discussion captured at reveal time is persisted on finalize.
+	let notesTimer: ReturnType<typeof setTimeout> | undefined;
+	function onNotesInput(e: Event) {
+		const value = (e.currentTarget as HTMLTextAreaElement).value;
+		clearTimeout(notesTimer);
+		notesTimer = setTimeout(async () => {
+			try {
+				store.apply(await updateNotes(sessionId, value));
+			} catch (err: unknown) {
+				log.error('phase2: update notes failed', err);
+				onError(err instanceof Error ? err.message : String(err));
+			}
+		}, 500);
+	}
 </script>
 
 <div class="space-y-5">
@@ -91,6 +107,27 @@
 			data-testid="diverged-banner"
 		>
 			{$_('session.phaseTwo.diverged')}
+		</div>
+	{/if}
+
+	{#if store.isModerator}
+		<div>
+			<label class="block text-sm font-medium mb-1" for="notes-p2">{$_('session.phaseOne.notes')}</label>
+			<textarea
+				id="notes-p2"
+				rows="3"
+				value={store.currentItem?.discussionNotes ?? ''}
+				oninput={onNotesInput}
+				placeholder={$_('session.phaseOne.notesPlaceholder')}
+				class="w-full border rounded px-3 py-2 text-sm"
+			></textarea>
+		</div>
+	{:else if store.currentItem?.discussionNotes}
+		<div class="border rounded p-3 bg-gray-50 text-sm">
+			<span class="block text-xs font-semibold uppercase tracking-wide text-gray-500 mb-1">
+				{$_('session.phaseOne.notes')}
+			</span>
+			<p class="whitespace-pre-wrap">{store.currentItem.discussionNotes}</p>
 		</div>
 	{/if}
 
@@ -154,25 +191,7 @@
 		</div>
 	{/if}
 
-	{#if store.isModerator}
-		<div class="flex items-center gap-3">
-			<span class="text-sm {allAgreed ? 'text-green-600' : 'text-gray-500'}">
-				{allAgreed
-					? $_('session.phaseTwo.allAgreed')
-					: $_('session.phaseTwo.notAllAgreed', {
-							values: { count: agreedCount, total: estimators.length }
-						})}
-			</span>
-			<button
-				type="button"
-				onclick={finalizeItem}
-				disabled={busy}
-				class="ml-auto px-4 py-2 text-sm bg-brand-green text-white rounded hover:bg-[#007a45] disabled:opacity-50"
-			>
-				{$_('session.phaseTwo.finalize')}
-			</button>
-		</div>
-	{:else}
+	{#if store.iEstimate}
 		<div class="space-y-3">
 			<h3 class="text-sm font-semibold uppercase tracking-wide text-gray-500">
 				{$_('session.phaseTwo.revise')}
@@ -196,22 +215,45 @@
 					type="button"
 					onclick={submitRevision}
 					disabled={busy}
+					data-testid="revise-submit"
 					class="px-4 py-2 text-sm border border-brand-green text-brand-green rounded hover:bg-brand-green/10 disabled:opacity-50"
 				>
 					{$_('session.phaseTwo.reviseSubmit')}
 				</button>
-				<button
-					type="button"
-					onclick={toggleAgree}
-					disabled={busy || store.myParticipant?.agreed}
-					class="px-4 py-2 text-sm bg-brand-green text-white rounded hover:bg-[#007a45] disabled:opacity-50"
-				>
-					{$_('session.phaseTwo.agree')}
-				</button>
-				{#if store.myParticipant?.agreed}
-					<span class="text-sm text-green-600">✓ {$_('session.phaseTwo.agreed')}</span>
+				{#if !store.isModerator}
+					<button
+						type="button"
+						onclick={toggleAgree}
+						disabled={busy || store.myParticipant?.agreed}
+						class="px-4 py-2 text-sm bg-brand-green text-white rounded hover:bg-[#007a45] disabled:opacity-50"
+					>
+						{$_('session.phaseTwo.agree')}
+					</button>
+					{#if store.myParticipant?.agreed}
+						<span class="text-sm text-green-600">✓ {$_('session.phaseTwo.agreed')}</span>
+					{/if}
 				{/if}
 			</div>
+		</div>
+	{/if}
+
+	{#if store.isModerator}
+		<div class="flex items-center gap-3">
+			<span class="text-sm {allAgreed ? 'text-green-600' : 'text-gray-500'}">
+				{allAgreed
+					? $_('session.phaseTwo.allAgreed')
+					: $_('session.phaseTwo.notAllAgreed', {
+							values: { count: agreedCount, total: estimators.length }
+						})}
+			</span>
+			<button
+				type="button"
+				onclick={finalizeItem}
+				disabled={busy}
+				class="ml-auto px-4 py-2 text-sm bg-brand-green text-white rounded hover:bg-[#007a45] disabled:opacity-50"
+			>
+				{$_('session.phaseTwo.finalize')}
+			</button>
 		</div>
 	{/if}
 </div>

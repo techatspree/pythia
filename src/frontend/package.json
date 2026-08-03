@@ -11,6 +11,7 @@
 		"check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
 		"check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch",
 		"gen:api": "openapi-typescript src/lib/api/openapi.json -o src/lib/api/schema.d.ts",
+		"gen:icons": "node scripts/generate-icons.mjs",
 		"test:e2e": "playwright test",
 		"lint": "eslint .",
 		"lint:report": "node -e \"require('fs').mkdirSync('reports',{recursive:true})\" && (eslint . -f json -o reports/eslint.json || true) && (eslint . -f html -o reports/eslint.html || true)"

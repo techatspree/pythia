@@ -90,6 +90,15 @@ export default [
 	},
 
 	{
+		// Build-time Node scripts (e.g. the icon generator): they run under Node,
+		// not the browser, so `console` / `Buffer` and friends must be in scope.
+		files: ['scripts/**/*.mjs'],
+		languageOptions: {
+			globals: { ...globals.node }
+		}
+	},
+
+	{
 		...htmlPlugin.configs['flat/recommended'],
 		files: ['**/*.html'],
 		languageOptions: {

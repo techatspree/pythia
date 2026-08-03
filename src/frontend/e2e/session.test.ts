@@ -113,6 +113,9 @@ test('two-phase session: broadcast, blind count, reveal aggregate, finalize + wr
 		await expect(mod.getByTestId('aggregate')).toBeVisible();
 		await expect(est.getByTestId('aggregate')).toBeVisible();
 		await expect(est.getByTestId('diverged-banner')).toBeVisible();
+			// The moderator estimates in this session, so PHASE2 gives them a revise
+			// form too — the moderator can change their own vote (task-129).
+			await expect(mod.getByTestId('revise-submit')).toBeVisible();
 
 		const sRes = await mod.request.get(`${API}/api/sessions/${sessionId}`, {
 			headers: { Authorization: 'Dev dev-admin' }

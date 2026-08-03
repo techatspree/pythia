@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { _ } from 'svelte-i18n';
 	import { DEV_USERS, setDevSubject } from '$lib/auth/DevAuthProvider';
+	import logo from '$lib/assets/logo.svg';
 
 	let { onlogin }: { onlogin: () => void } = $props();
 
@@ -17,6 +18,7 @@
 	aria-label={$_('dialog.devLogin.ariaLabel')}
 >
 	<div class="bg-white rounded-lg shadow-lg p-6 w-full max-w-sm">
+		<img src={logo} alt={$_('brand.logoAlt')} width="40" height="40" class="w-10 h-10 mb-2" />
 		<h2 class="text-lg font-semibold text-brand-green mb-1">{$_('dialog.devLogin.title')}</h2>
 		<p class="text-xs text-gray-500 mb-4">
 			{$_('dialog.devLogin.subtitle')}

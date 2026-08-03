@@ -60,9 +60,13 @@ class EstimationSessionService(
         title: String,
         itemLogicalIds: List<String>,
         moderatorSubjectId: String,
-        moderatorDisplayName: String?
+        moderatorDisplayName: String?,
+        moderatorEstimates: Boolean
     ): SessionDto {
-        Log.info("Creating session over estimation $estimationId (${itemLogicalIds.size} items) by $moderatorSubjectId")
+        Log.info(
+            "Creating session over estimation $estimationId (${itemLogicalIds.size} items) " +
+                "by $moderatorSubjectId (moderatorEstimates=$moderatorEstimates)"
+        )
         val estimation = estimationRepository.findById(estimationId)
             ?: throw notFound("Estimation not found: $estimationId")
         val draft = draftRepository.findByEstimationId(estimationId)
@@ -79,6 +83,7 @@ class EstimationSessionService(
             this.status = SessionStatus.CREATED
             this.currentItemIndex = 0
             this.currentPhase = SessionPhase.PHASE1
+            this.moderatorEstimates = moderatorEstimates
         }
         itemLogicalIds.forEachIndexed { idx, lid ->
             session.items.add(SessionItem().apply {
@@ -191,6 +196,10 @@ class EstimationSessionService(
         if (session.participants.none { it.subjectId == subjectId }) {
             throw conflict("$subjectId is not a participant of session $id")
         }
+        if (subjectId == session.moderatorSubjectId && !session.moderatorEstimates) {
+            Log.warn("Rejected vote from moderate-only moderator $subjectId on session $id")
+            throw conflict("The moderator does not estimate in session $id")
+        }
         val item = currentItem(session) ?: throw conflict("Session $id has no current item")
         val phase = session.currentPhase
         val existing = voteRepository.findByItemAndPhase(item.id!!, phase)
@@ -291,8 +300,13 @@ class EstimationSessionService(
         val before = draftVersionMapper.toDomain(draft)
 
         val targetId = item.nodeLogicalId
+        // The item's discussion notes are appended to the leaf's assumptions,
+        // prefixed with the session name, so they survive the session (task-129).
+        val noteEntry = item.discussionNotes?.takeIf { it.isNotBlank() }?.let { "${session.title}: $it" }
         val newRoots = beforeDto.roots?.map {
-            setEffort(it, targetId, item.finalMinEffort!!, item.finalExpectedEffort!!, item.finalMaxEffort!!)
+            patchFinalizedLeaf(
+                it, targetId, item.finalMinEffort!!, item.finalExpectedEffort!!, item.finalMaxEffort!!, noteEntry
+            )
         }
         draftUpdateApplier.apply(draft, beforeDto.copy(roots = newRoots))
 
@@ -301,20 +315,34 @@ class EstimationSessionService(
         undoService.recordMutation(draft, before, after, beforeDto, afterDto, moderator)
     }
 
-    private fun setEffort(
+    private fun patchFinalizedLeaf(
         node: EstimationNodeUpdateDto,
         targetLogicalId: String?,
         min: Double,
         expected: Double,
-        max: Double
+        max: Double,
+        noteEntry: String?
     ): EstimationNodeUpdateDto {
         val patched = if (targetLogicalId != null && node.logicalId?.toString() == targetLogicalId) {
-            node.copy(minEffort = min, expectedEffort = expected, maxEffort = max)
+            val assumptions = if (noteEntry != null) {
+                Log.debug("Appending session notes to assumptions of leaf $targetLogicalId")
+                appendAssumption(node.assumptions, noteEntry)
+            } else {
+                node.assumptions
+            }
+            node.copy(minEffort = min, expectedEffort = expected, maxEffort = max, assumptions = assumptions)
         } else {
             node
         }
-        return patched.copy(children = patched.children.map { setEffort(it, targetLogicalId, min, expected, max) })
+        return patched.copy(
+            children = patched.children.map { patchFinalizedLeaf(it, targetLogicalId, min, expected, max, noteEntry) }
+        )
     }
+
+    // Appends a note entry to existing assumptions (newline-separated), never
+    // overwriting a pre-existing value.
+    private fun appendAssumption(existing: String?, entry: String): String =
+        if (existing.isNullOrBlank()) entry else "$existing\n$entry"
 
     // Votes that count for reveal/finalize: PHASE2 revisions if any, else PHASE1.
     private fun effectiveVotes(item: SessionItem): List<SessionVote> {
@@ -347,6 +375,7 @@ class EstimationSessionService(
             moderatorSubjectId = session.moderatorSubjectId ?: "",
             currentItemIndex = session.currentItemIndex,
             currentPhase = session.currentPhase,
+            moderatorEstimates = session.moderatorEstimates,
             items = session.items.map { itemDto(it, descriptions, participantNames) },
             participants = session.participants.map {
                 ParticipantDto(it.subjectId ?: "", it.displayName, it.participantRole, it.agreed)

@@ -42,4 +42,20 @@ export class SessionStore {
 	get submittedCount(): number {
 		return this.currentItem?.submittedVoteCount ?? 0;
 	}
+
+	// True when the current user is expected to estimate: an ESTIMATOR
+	// participant, or the moderator when the session lets the moderator vote.
+	get iEstimate(): boolean {
+		if (!this.session) return false;
+		if (this.isModerator) return this.session.moderatorEstimates;
+		return this.myParticipant?.role === 'ESTIMATOR';
+	}
+
+	// Denominator for the submitted/total count: the ESTIMATOR participants
+	// plus the moderator iff the moderator estimates.
+	get expectedVoterCount(): number {
+		if (!this.session) return 0;
+		const estimators = this.session.participants.filter((p) => p.role === 'ESTIMATOR').length;
+		return estimators + (this.session.moderatorEstimates ? 1 : 0);
+	}
 }

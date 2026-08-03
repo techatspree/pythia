@@ -32,6 +32,12 @@ class EstimationSession : BaseEntity() {
     @Column(name = "moderator_subject_id", nullable = false)
     var moderatorSubjectId: String? = null
 
+    // Whether the moderator also estimates (votes). When false the moderator
+    // only moderates: the GUI hides the estimate/revise forms and the service
+    // rejects a vote from them (task-129).
+    @Column(name = "moderator_estimates", nullable = false)
+    var moderatorEstimates: Boolean = true
+
     @Enumerated(EnumType.STRING)
     @Column(name = "status", nullable = false)
     var status: SessionStatus = SessionStatus.CREATED

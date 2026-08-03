@@ -32,6 +32,7 @@
 	let leaves = $state<Leaf[]>([]);
 	const selected = new SvelteSet<string>();
 	let title = $state('');
+	let moderatorEstimates = $state(true);
 	let existing = $state<SessionDto[]>([]);
 	let openSessions = $state<SessionDto[]>([]);
 	let noDraft = $state(false);
@@ -160,7 +161,8 @@
 			const session = await createSession({
 				estimationId,
 				title: title.trim(),
-				itemLogicalIds: [...selected]
+				itemLogicalIds: [...selected],
+				moderatorEstimates
 			});
 			await goto(resolve('/sessions/[id]', { id: session.id }));
 		} catch (e: unknown) {
@@ -268,6 +270,11 @@
 			<label class="block text-sm font-medium mb-1" for="title">{$_('session.setup.sessionTitle')}</label>
 			<input id="title" bind:value={title} class="w-full border rounded px-3 py-2 text-sm" />
 		</div>
+
+		<label class="flex items-center gap-2 mb-4 text-sm cursor-pointer">
+			<input type="checkbox" class="accent-brand-green" bind:checked={moderatorEstimates} />
+			<span>{$_('session.setup.moderatorEstimates')}</span>
+		</label>
 
 		<button
 			type="button"

@@ -26,6 +26,7 @@ data class SessionDto(
     val moderatorSubjectId: String,
     val currentItemIndex: Int,
     val currentPhase: SessionPhase,
+    val moderatorEstimates: Boolean,
     val items: List<SessionItemDto>,
     val participants: List<ParticipantDto>
 )
@@ -91,7 +92,8 @@ fun VoteAggregate.toDto(): AggregateDto = AggregateDto(
 data class CreateSessionRequest(
     val estimationId: UUID,
     val title: String,
-    val itemLogicalIds: List<String>
+    val itemLogicalIds: List<String>,
+    val moderatorEstimates: Boolean = true
 )
 
 data class NotesRequest(val notes: String)

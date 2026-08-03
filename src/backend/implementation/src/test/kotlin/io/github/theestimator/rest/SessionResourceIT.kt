@@ -117,6 +117,55 @@ class SessionResourceIT {
     }
 
     @Test
+    fun `a moderate-only moderator cannot vote — 409`() {
+        val draft = createDraftWithTwoLeaves()
+        val sessionId = given().header("Authorization", moderator)
+            .contentType(ContentType.JSON)
+            .body(
+                """{"estimationId":"${draft.estimationId}","title":"t","itemLogicalIds":["${draft.leaf1}"],"moderatorEstimates":false}"""
+            )
+            .`when`().post("/api/sessions").then().statusCode(201)
+            .body("moderatorEstimates", equalTo(false))
+            .extract().path<String>("id")
+        given().header("Authorization", moderator).post("/api/sessions/$sessionId/start").then().statusCode(200)
+
+        given().header("Authorization", moderator)
+            .contentType(ContentType.JSON).body("""{"minEffort":1.0,"expectedEffort":2.0,"maxEffort":3.0}""")
+            .`when`().post("/api/sessions/$sessionId/votes")
+            .then().statusCode(409)
+    }
+
+    @Test
+    fun `finalize appends the session notes to the leaf assumptions`() {
+        val draft = createDraftWithTwoLeaves()
+        val sessionId = given().header("Authorization", moderator)
+            .contentType(ContentType.JSON)
+            .body("""{"estimationId":"${draft.estimationId}","title":"Delphi run","itemLogicalIds":["${draft.leaf1}"]}""")
+            .`when`().post("/api/sessions").then().statusCode(201).extract().path<String>("id")
+        given().header("Authorization", moderator).post("/api/sessions/$sessionId/start").then().statusCode(200)
+
+        vote(sessionId, moderator, 2.0, 4.0, 6.0)
+
+        given().header("Authorization", moderator)
+            .contentType(ContentType.JSON).body("""{"notes":"Assume the SSO service is available"}""")
+            .`when`().put("/api/sessions/$sessionId/items/current/notes")
+            .then().statusCode(200)
+
+        given().header("Authorization", moderator)
+            .`when`().post("/api/sessions/$sessionId/items/current/phase2").then().statusCode(200)
+        given().header("Authorization", moderator)
+            .`when`().post("/api/sessions/$sessionId/items/current/finalize").then().statusCode(200)
+
+        val assumptions = given().header("Authorization", moderator)
+            .`when`().get("/api/estimations/${draft.estimationId}/versions/draft")
+            .then().statusCode(200).extract().path<String>("roots[0].assumptions")
+        org.junit.jupiter.api.Assertions.assertTrue(
+            assumptions.contains("Delphi run") && assumptions.contains("Assume the SSO service is available"),
+            "assumptions should carry the session name + notes, was: $assumptions"
+        )
+    }
+
+    @Test
     fun `a non-moderator finalize is 403`() {
         val draft = createDraftWithTwoLeaves()
         val sessionId = given().header("Authorization", moderator)

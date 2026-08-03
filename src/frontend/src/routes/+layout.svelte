@@ -1,7 +1,7 @@
 <script lang="ts">
 	import '../app.css';
 	import { onMount } from 'svelte';
-	import favicon from '$lib/assets/favicon.svg';
+	import logo from '$lib/assets/logo.svg';
 	import RequireAuth from '$lib/auth/RequireAuth.svelte';
 	import UserMenu from '$lib/components/UserMenu.svelte';
 	import ErrorBanner from '$lib/components/ErrorBanner.svelte';
@@ -60,26 +60,31 @@
 </script>
 
 <svelte:head>
-	<link rel="icon" href={favicon} />
+	<link rel="icon" type="image/svg+xml" href={logo} />
+	<link rel="alternate icon" href="/favicon-32.png" />
+	<link rel="shortcut icon" href="/favicon.ico" />
+	<link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+	<link rel="manifest" href="/site.webmanifest" />
 </svelte:head>
 
 {#if !isSessionRoute}
 	<header class="bg-white">
 		<div class="px-6 py-3 flex items-center gap-3">
-			<a href={resolve('/projects')}>
-				<picture>
-					<source srcset="/estimator_logo.webp" type="image/webp" />
-					<img
-						src="/estimator_logo_w120.png"
-						alt="The Estimator"
-						width="120"
-						height="88"
-						loading="eager"
-						class="w-30 h-auto"
-					/>
-				</picture>
+			<a href={resolve('/projects')} class="flex items-center gap-2">
+				<!-- Decorative: the wordmark beside it already announces the product
+				     name, so a non-empty alt would be read out twice. -->
+				<img
+					src={logo}
+					alt=""
+					aria-hidden="true"
+					width="36"
+					height="36"
+					loading="eager"
+					class="w-9 h-9"
+					data-testid="brand-logo"
+				/>
+				<span class="font-heading text-lg tracking-tight text-gray-900">{$_('brand.name')}</span>
 			</a>
-			<span class="text-brand-green text-xs font-semibold tracking-widest uppercase">Estimator</span>
 			{#if account}
 				<a
 					href={resolve('/sessions')}

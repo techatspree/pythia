@@ -1,0 +1,346 @@
+id: task-130
+phase: phase-17
+title: Brand — "The Estimator" logo, favicon, app icons
+depends_on: [task-129]
+description: |
+  The application has no logo of its own. What the UI shows today is the
+  **The Estimator corporate mark** (`src/frontend/static/estimator_logo.png`
+  / `.webp` / `_w120.png`, introduced by task-037) rendered in the root
+  header next to a plain uppercase text badge `Estimator`, plus a
+  placeholder favicon (`src/frontend/src/lib/assets/favicon.svg` — a bare
+  `@` glyph in the brand gradient, also from task-037). The session route
+  group (`src/frontend/src/routes/sessions/+layout.svelte`) shows an inline
+  literal `Estimator · Session` with no mark at all, and `app.html` carries
+  `<title>The Estimator Estimator</title>`.
+
+  Target state: a purpose-designed **"The Estimator"** product logo that
+  matches the app's existing visual language and its domain, used
+  consistently everywhere a brand mark belongs. Per the user's explicit
+  decision, the new logo **fully replaces** the The Estimator corporate mark —
+  the `estimator_logo.*` files are deleted from `static/` and no longer
+  referenced anywhere.
+
+  Design constraints (the visual language is already fixed by
+  `src/frontend/src/app.css` — do not invent new brand colours):
+    - Brand gradient `linear-gradient(135deg, #009e5a, #bade4e)`
+      (`--gradient-brand`), brand green `#009e5a`, light green `#bade4e`.
+    - Headings are Poppins (`--font-heading`), body Montserrat.
+    - The existing chrome is flat, rounded, light-on-white.
+
+  Logo concept (this is the design decision — implement it, do not
+  re-invent it): a **rounded-square "chip" filled with the brand gradient,
+  carrying a white PERT curve over a baseline with three points**. The
+  three points are the domain's core idea — optimistic / likely /
+  pessimistic — and the skewed bell is the PERT/beta distribution the whole
+  tool is built on. It reads as a product mark, ties directly to the
+  domain, and reuses the corporate gradient so it still sits in the
+  The Estimator family.
+
+  Key implementation decisions (no ambiguity for the implementer):
+    - **The logo is a mark only — the wordmark is NOT baked into the SVG.**
+      Text inside an SVG loaded via `<img>` cannot rely on the Google-hosted
+      Poppins webfont and would render with a fallback face. The header
+      lockup is therefore `mark <img>` + HTML text styled with
+      `font-heading`, which also keeps the wordmark selectable and
+      themeable.
+    - There is **one canonical source asset**:
+      `src/frontend/src/lib/assets/logo.svg`. Components import it (Vite
+      hashes and inlines/serves it); the raster icons in `static/` are
+      *generated* from it, never hand-drawn. The old
+      `src/frontend/src/lib/assets/favicon.svg` is deleted (the layout's
+      `import favicon from '$lib/assets/favicon.svg'` becomes an import of
+      `logo.svg`).
+    - Raster icons are produced by a committed generator script driven by
+      **Playwright's bundled Chromium** (`@playwright/test` is already a
+      devDependency — do **not** add `sharp`, `rsvg-convert`, or any new
+      image dependency). The generated PNGs are committed so a plain
+      `npm run build` never needs a browser.
+    - The mark must stay legible at 16×16 — that is why the curve is a
+      thick round-capped stroke and the three points are solid dots, and
+      why the generator also emits a 16 px PNG to eyeball.
+    - Brand strings go through i18n like every other UI string
+      (CLAUDE.md "Frontend — i18n"): no inline literals. This also cleans
+      up the existing inline `Estimator · Session` literal in the sessions
+      layout.
+    - Nothing outside `src/frontend/` changes — no domain, no backend, no
+      Flyway migration, no OpenAPI regeneration.
+
+steps:
+  - |
+    Create the canonical mark `src/frontend/src/lib/assets/logo.svg` —
+    a square `viewBox="0 0 64 64"` (no width/height attributes, so it
+    scales), containing:
+      - `<defs>` with `<linearGradient id="theEstimatorBrand" x1="0" y1="1"
+        x2="1" y2="0">` stops `#009e5a` → `#bade4e` (the 135° brand
+        gradient; use a unique gradient id, the generic `id="g"` of the old
+        favicon can collide when the SVG is inlined).
+      - a rounded-square chip: `<rect x="2" y="2" width="60" height="60"
+        rx="16" ry="16" fill="url(#theEstimatorBrand)"/>`.
+      - a white baseline: `<path d="M12 47 H52" stroke="#fff"
+        stroke-width="3" stroke-linecap="round"/>`.
+      - the white PERT curve, right-skewed so it peaks left of centre (the
+        "likely" mode sits nearer the optimistic end):
+        `<path d="M13 46 C19 46 21 17 29 17 C39 17 43 40 51 46" fill="none"
+        stroke="#fff" stroke-width="5" stroke-linecap="round"
+        stroke-linejoin="round"/>`.
+      - the three estimate points as white dots on the baseline —
+        optimistic `<circle cx="13" cy="47" r="3.5"/>`, likely
+        `<circle cx="29" cy="47" r="4.5"/>` (the mode, deliberately
+        larger), pessimistic `<circle cx="51" cy="47" r="3.5"/>` — all
+        `fill="#fff"`.
+      - `<title>The Estimator</title>` as the first child for a11y.
+    Keep the file hand-readable and under 2 KB. Tune only the curve control
+    points if the 16 px render (step 3) looks muddy — the chip, the three
+    dots, and the gradient are fixed.
+
+  - |
+    Delete the placeholder favicon `src/frontend/src/lib/assets/favicon.svg`
+    and the corporate marks
+    `src/frontend/static/estimator_logo.png`,
+    `src/frontend/static/estimator_logo.webp`,
+    `src/frontend/static/estimator_logo_w120.png`.
+
+  - |
+    Add the icon generator `src/frontend/scripts/generate-icons.mjs`:
+    a Node ESM script that imports `chromium` from `@playwright/test`,
+    reads `src/lib/assets/logo.svg`, and for each of
+    `[16, 32, 180, 192, 512]` sets a viewport of that size, loads the SVG
+    as a data URL in a page whose body has zero margin and a transparent
+    background, and screenshots (`omitBackground: true`) to
+    `static/icon-<size>.png`. Additionally write the 32 px result to
+    `static/favicon-32.png` and the 180 px result to
+    `static/apple-touch-icon.png` (copy the produced buffers; do not
+    re-render). Log progress with `console.log` — this is a **build-time
+    Node script, not app code**, so the `$lib/log` rule does not apply.
+    Register it in `src/frontend/package.json` scripts as
+    `"gen:icons": "node scripts/generate-icons.mjs"`.
+
+  - |
+    Teach ESLint about the new script. `src/frontend/eslint.config.js` is a
+    flat config whose only broad entry is `js.configs.recommended` with NO
+    Node globals in scope, so `console` / `process` / `URL` in a linted
+    `.mjs` would trip `no-undef`. Append one config block before the final
+    HTML block:
+      `{ files: ['scripts/**/*.mjs'], languageOptions: { globals: { ...globals.node } } }`
+    (`globals` is already imported at the top of that file). Do not touch
+    the existing `no-restricted-syntax` fetch ban — it is scoped to
+    `**/*.ts` / `**/*.svelte` and does not reach the script.
+
+  - |
+    Run `cd src/frontend && npm run gen:icons` and commit the produced
+    `static/icon-16.png`, `static/icon-32.png`, `static/icon-180.png`,
+    `static/icon-192.png`, `static/icon-512.png`, `static/favicon-32.png`,
+    `static/apple-touch-icon.png`. Open `static/icon-16.png` and confirm
+    the curve + chip are still distinguishable; adjust the curve stroke
+    width / control points in `logo.svg` and re-run if not.
+
+  - |
+    Add the web app manifest `src/frontend/static/site.webmanifest`:
+    `{"name":"The Estimator","short_name":"Estimator","icons":[{"src":"/icon-192.png","sizes":"192x192","type":"image/png"},{"src":"/icon-512.png","sizes":"512x512","type":"image/png"}],"theme_color":"#009e5a","background_color":"#ffffff","display":"standalone","start_url":"/"}`.
+
+  - |
+    `src/frontend/src/app.html`: change the title to
+    `<title>The Estimator</title>` and add
+    `<meta name="theme-color" content="#009e5a">`. Leave the Google Fonts
+    preconnect/stylesheet links untouched.
+
+  - |
+    `src/frontend/src/routes/+layout.svelte`:
+      - replace `import favicon from '$lib/assets/favicon.svg'` with
+        `import logo from '$lib/assets/logo.svg'`.
+      - in `<svelte:head>`, emit
+        `<link rel="icon" type="image/svg+xml" href={logo} />`,
+        `<link rel="alternate icon" href="/favicon-32.png" />`,
+        `<link rel="apple-touch-icon" href="/apple-touch-icon.png" />`,
+        `<link rel="manifest" href="/site.webmanifest" />`.
+      - replace the whole `<picture>`/`<source>`/`<img src="/estimator_logo_w120.png">`
+        block AND the plain `<span>Estimator</span>` badge with the new
+        lockup inside the existing `<a href={resolve('/projects')}>`:
+        an `<img src={logo} alt="" aria-hidden="true" width="36"
+        height="36" class="w-9 h-9" data-testid="brand-logo" />` —
+        **decorative here on purpose**: the adjacent wordmark already
+        announces the product name, so a non-empty `alt` would make a
+        screen reader read "The Estimator" twice — followed by a
+        `<span class="font-heading text-lg tracking-tight text-gray-900">`
+        that renders `{$_('brand.name')}`. Keep the trailing
+        `--gradient-brand` hairline `<div class="h-0.75">` under the header
+        and keep the `nav.sessions` link + `UserMenu` in the `ml-auto`
+        group exactly as they are.
+
+  - |
+    `src/frontend/src/routes/sessions/+layout.svelte`: put the same mark in
+    the room chrome — `<img src={logo} alt="" aria-hidden="true" width="24"
+    height="24" class="w-6 h-6" />` (decorative for the same reason as the
+    header: `brand.sessionTitle` next to it already names the product)
+    (import `logo` from
+    `$lib/assets/logo.svg`) followed by the session label, and replace the
+    inline literal `Estimator · Session` with `{$_('brand.sessionTitle')}`.
+    Keep the `session.layout.leave` link unchanged.
+
+  - |
+    `src/frontend/src/lib/components/DevLoginDialog.svelte`: show the mark
+    above the dialog heading — `<img src={logo} alt={$_('brand.logoAlt')}
+    width="40" height="40" class="w-10 h-10 mb-2" />` (import from
+    `$lib/assets/logo.svg`), so the first screen a dev user sees carries
+    the product identity. Do not otherwise change the dialog.
+
+  - |
+    i18n — add the same keys to BOTH `src/frontend/src/lib/i18n/de.json`
+    and `src/frontend/src/lib/i18n/en.json` (identical key sets; the brand
+    name is a proper noun and stays `The Estimator` in both):
+      `brand.name` = "The Estimator"
+      `brand.logoAlt` = "The Estimator" (de) / "The Estimator" (en)
+      `brand.sessionTitle` = "The Estimator · Session" (both)
+    Remove nothing else. No inline string literals may remain in the two
+    layouts.
+
+  - |
+    `README.md`: add the mark at the top of the document, above the
+    `# TheEstimator` heading —
+    `<img src="src/frontend/src/lib/assets/logo.svg" alt="The Estimator" width="72" height="72">`
+    — and leave the rest of the file unchanged.
+
+  - |
+    Add the branding e2e `src/frontend/e2e/branding.test.ts` (Playwright).
+    **No login code is needed** — `playwright.config.ts` pre-seeds
+    `localStorage.devAuthSubject = 'dev-admin'` via `storageState`, so a
+    test starts authenticated; just `await page.goto('/projects')` like
+    `e2e/smoke.test.ts` does. Assert that
+      - `[data-testid="brand-logo"]` is visible, and its `src` matches
+        `/(^data:image\/svg\+xml)|(\.svg)/` — Vite serves the asset as a
+        URL under `vite dev` but **inlines it as a base64 data URI** in a
+        production build (default `assetsInlineLimit` is 4096 bytes and the
+        mark is smaller), so the assertion must accept both forms,
+      - the header contains the text `The Estimator`,
+      - `page.locator('img[src*="estimator"]')` has count `0`,
+      - `page.title()` is `The Estimator` (no route sets its own
+        `<svelte:head><title>`, so `app.html`'s title is authoritative).
+
+  - |
+    Update the docs: in `CLAUDE.md`, under the frontend/architecture prose,
+    record that the product mark is the single asset
+    `src/frontend/src/lib/assets/logo.svg` (gradient chip + white PERT
+    curve + three points), that `static/` PNG icons + `site.webmanifest`
+    are generated from it via `npm run gen:icons` (Playwright Chromium, no
+    new image dependency), that brand strings live under the `brand.*`
+    i18n keys, and that the The Estimator corporate mark was removed in
+    task-130. Extend the existing prose; do not duplicate sections.
+
+  - |
+    Register the new phase in the planning docs (the phase was created with
+    this task): confirm `planning/plan.yaml` carries the `phase-17`
+    ("Branding & Visual Identity", `tasks: [task-130]`) entry, and add the
+    matching row to the "Phase summary" table in `planning/README.md`
+    directly after the phase-16 row:
+      `| 17 | 1 | Branding & Visual Identity | 130 |`
+
+  - |
+    Validate. `./gradlew :frontend:check` runs svelte-check plus
+    `lint:report`, and `lint:report` is deliberately `|| true` — ESLint
+    findings can NEVER fail it. Since this task adds a linted `.mjs`, run
+    the strict lint explicitly:
+      ./gradlew :frontend:check
+      cd src/frontend && npm run lint
+      cd src/frontend && npm run test:e2e
+
+validation:
+  - |
+    Canonical mark exists, is the gradient chip + curve + three points, and
+    the placeholder/corporate marks are gone:
+      test -f src/frontend/src/lib/assets/logo.svg
+      grep -q "theEstimatorBrand" src/frontend/src/lib/assets/logo.svg
+      grep -q "009e5a" src/frontend/src/lib/assets/logo.svg
+      grep -q "bade4e" src/frontend/src/lib/assets/logo.svg
+      test "$(grep -c '<circle' src/frontend/src/lib/assets/logo.svg)" -ge 3
+      ! test -f src/frontend/src/lib/assets/favicon.svg
+      ! test -f src/frontend/static/estimator_logo.png
+      ! test -f src/frontend/static/estimator_logo.webp
+      ! test -f src/frontend/static/estimator_logo_w120.png
+  - |
+    Generator script is committed, wired into package.json, and its output
+    (icons + manifest) is present:
+      test -f src/frontend/scripts/generate-icons.mjs
+      grep -q "gen:icons" src/frontend/package.json
+      test -f src/frontend/static/favicon-32.png
+      test -f src/frontend/static/apple-touch-icon.png
+      test -f src/frontend/static/icon-192.png
+      test -f src/frontend/static/icon-512.png
+      test -f src/frontend/static/site.webmanifest
+      grep -q "The Estimator" src/frontend/static/site.webmanifest
+  - |
+    Every generated icon is a real, non-empty PNG whose pixel dimensions
+    match its filename (reads the IHDR header directly — no image
+    dependency):
+      cd src/frontend && node -e "const fs=require('fs');const want={'icon-16.png':16,'icon-32.png':32,'icon-180.png':180,'icon-192.png':192,'icon-512.png':512,'favicon-32.png':32,'apple-touch-icon.png':180};for(const [f,n] of Object.entries(want)){const b=fs.readFileSync('static/'+f);if(b.length<100)throw new Error(f+' is empty');if(b.readUInt32BE(16)!==n||b.readUInt32BE(20)!==n)throw new Error(f+' is '+b.readUInt32BE(16)+'x'+b.readUInt32BE(20)+', expected '+n);}console.log('icons ok')"
+  - |
+    ESLint is clean under the strict (non-`|| true`) run, which is what
+    proves the new scripts/**.mjs config block works:
+      cd src/frontend && npm run lint
+  - |
+    Title, head links, and the header lockup are wired to the new asset;
+    no corporate-mark references survive anywhere in the frontend source:
+      grep -q "<title>The Estimator</title>" src/frontend/src/app.html
+      grep -q "apple-touch-icon" src/frontend/src/routes/+layout.svelte
+      grep -q "site.webmanifest" src/frontend/src/routes/+layout.svelte
+      grep -q "brand-logo" src/frontend/src/routes/+layout.svelte
+      grep -q "assets/logo.svg" src/frontend/src/routes/+layout.svelte
+      grep -q "assets/logo.svg" src/frontend/src/routes/sessions/+layout.svelte
+      grep -q "assets/logo.svg" src/frontend/src/lib/components/DevLoginDialog.svelte
+      ! grep -rq "estimator" src/frontend/src src/frontend/static src/frontend/e2e
+  - |
+    Brand strings are internationalised (no inline literals left in the two
+    layouts) and the de/en catalogs keep equal key sets:
+      grep -q "brand.name" src/frontend/src/routes/+layout.svelte
+      grep -q "brand.logoAlt" src/frontend/src/lib/components/DevLoginDialog.svelte
+      grep -q "brand.sessionTitle" src/frontend/src/routes/sessions/+layout.svelte
+      ! grep -q "Estimator · Session" src/frontend/src/routes/sessions/+layout.svelte
+      grep -q "\"brand\"" src/frontend/src/lib/i18n/de.json
+      grep -q "\"brand\"" src/frontend/src/lib/i18n/en.json
+      cd src/frontend && node -e "const d=require('./src/lib/i18n/de.json'),e=require('./src/lib/i18n/en.json');const f=(o,p='')=>Object.entries(o).flatMap(([k,v])=>typeof v==='object'&&v?f(v,p+k+'.'):[p+k]);const a=f(d).sort(),b=f(e).sort();if(JSON.stringify(a)!==JSON.stringify(b))throw new Error('key sets differ');console.log('ok',a.length)"
+  - |
+    README, CLAUDE.md, and the planning docs document the new mark and the
+    new phase:
+      grep -q "assets/logo.svg" README.md
+      grep -q "logo.svg" CLAUDE.md
+      grep -q "gen:icons" CLAUDE.md
+      grep -q "phase-17" planning/plan.yaml
+      grep -q "Branding & Visual Identity" planning/plan.yaml
+      grep -q "Branding & Visual Identity" planning/README.md
+  - |
+    Branding e2e exists and asserts the swap:
+      test -f src/frontend/e2e/branding.test.ts
+      grep -q "brand-logo" src/frontend/e2e/branding.test.ts
+      grep -q "estimator" src/frontend/e2e/branding.test.ts
+  - |
+    Frontend type-check and the e2e suite pass:
+      ./gradlew :frontend:check
+      cd src/frontend && npm run test:e2e
+
+outputs:
+  - created: src/frontend/src/lib/assets/logo.svg
+  - deleted: src/frontend/src/lib/assets/favicon.svg
+  - deleted: src/frontend/static/estimator_logo.png
+  - deleted: src/frontend/static/estimator_logo.webp
+  - deleted: src/frontend/static/estimator_logo_w120.png
+  - created: src/frontend/scripts/generate-icons.mjs
+  - created: src/frontend/static/icon-16.png
+  - created: src/frontend/static/icon-32.png
+  - created: src/frontend/static/icon-180.png
+  - created: src/frontend/static/icon-192.png
+  - created: src/frontend/static/icon-512.png
+  - created: src/frontend/static/favicon-32.png
+  - created: src/frontend/static/apple-touch-icon.png
+  - created: src/frontend/static/site.webmanifest
+  - created: src/frontend/e2e/branding.test.ts
+  - modified: src/frontend/package.json
+  - modified: src/frontend/eslint.config.js
+  - modified: src/frontend/src/app.html
+  - modified: src/frontend/src/routes/+layout.svelte
+  - modified: src/frontend/src/routes/sessions/+layout.svelte
+  - modified: src/frontend/src/lib/components/DevLoginDialog.svelte
+  - modified: src/frontend/src/lib/i18n/de.json
+  - modified: src/frontend/src/lib/i18n/en.json
+  - modified: README.md
+  - modified: CLAUDE.md
+  - modified: planning/plan.yaml
+  - modified: planning/README.md

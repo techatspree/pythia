@@ -1,3 +1,5 @@
+<img src="src/frontend/src/lib/assets/logo.svg" alt="The Estimator" width="72" height="72">
+
 # TheEstimator
 
 Project effort estimation tool for software development tasks.
