@@ -18,6 +18,21 @@
 
 	const flipDurationMs = 180;
 
+	// TreeTable globally renames svelte-dnd-action's id key to `__treeTableId`
+	// (`overrideItemIdKeyNameBeforeInitialisingDndZones`), and that override is
+	// process-wide — it applies to THIS zone too, because the editor renders both
+	// components on one page. Feeding raw buckets here therefore throws
+	// "missing '__treeTableId' property for item" during zone init, which killed
+	// drag-and-drop for the whole page. Wrap each bucket instead, keeping the
+	// object identity so the label editor still mutates the real bucket.
+	type Wrapped = { __treeTableId: string; bucket: Bucket };
+
+	const wrapped = $derived(buckets.map((b) => ({ __treeTableId: b.id, bucket: b })));
+
+	function unwrap(items: Wrapped[]): Bucket[] {
+		return items.filter((w) => w.bucket != null).map((w) => w.bucket);
+	}
+
 	// Positions are the persisted order; keep them contiguous after every edit.
 	function reindex(list: Bucket[]): Bucket[] {
 		return list.map((b, i) => ({ ...b, position: i }));
@@ -34,11 +49,11 @@
 		buckets = reindex(buckets.filter((b) => b.id !== id));
 	}
 
-	function onConsider(e: CustomEvent<DndEvent<Bucket>>) {
-		buckets = e.detail.items;
+	function onConsider(e: CustomEvent<DndEvent<Wrapped>>) {
+		buckets = unwrap(e.detail.items);
 	}
-	function onFinalize(e: CustomEvent<DndEvent<Bucket>>) {
-		buckets = reindex(e.detail.items);
+	function onFinalize(e: CustomEvent<DndEvent<Wrapped>>) {
+		buckets = reindex(unwrap(e.detail.items));
 	}
 </script>
 
@@ -57,11 +72,12 @@
 
 	<div
 		class="flex flex-wrap gap-2 min-h-[2.25rem]"
-		use:dndzone={{ items: buckets, flipDurationMs, dragDisabled: !editable }}
+		use:dndzone={{ items: wrapped, flipDurationMs, dragDisabled: !editable }}
 		onconsider={onConsider}
 		onfinalize={onFinalize}
 	>
-		{#each buckets as bucket (bucket.id)}
+		{#each wrapped as w (w.__treeTableId)}
+			{@const bucket = w.bucket}
 			<div
 				animate:flip={{ duration: flipDurationMs }}
 				class="flex items-center gap-1 border rounded px-2 py-1 bg-white"

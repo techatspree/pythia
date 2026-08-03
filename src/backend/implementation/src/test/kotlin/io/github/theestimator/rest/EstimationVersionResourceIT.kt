@@ -930,6 +930,61 @@ class EstimationVersionResourceIT {
             .body("buckets[1].label", equalTo("Backend"))
     }
 
+    // Bucket estimations may nest their leaves in GROUPs — the Merlin importer
+    // (task-131) builds exactly that shape, and the editor's hierarchy view
+    // (task-132) edits it. GROUP is method-agnostic, so this path is already
+    // supported; this pins it.
+    @Test
+    fun `bucketedLeavesSurviveInsideAGroup`() {
+        val eid = createBucketEstimation()
+        val b1 = UUID.randomUUID().toString()
+        given().post("/api/estimations/$eid/versions").then().statusCode(201)
+
+        val body = """
+            {
+                "parameters": [{"name": "stdDevFactor", "value": 0.0}],
+                "buckets": [{"id": "$b1", "position": 0, "label": "Frontend"}],
+                "roots": [
+                    {
+                        "type": "GROUP",
+                        "title": "WBS 1",
+                        "children": [
+                            {"type": "BUCKETED", "description": "Nested sample", "bucketId": "$b1", "isSample": true, "minEffort": 1.0, "expectedEffort": 2.0, "maxEffort": 3.0},
+                            {"type": "BUCKETED", "description": "Nested non-sample", "bucketId": "$b1", "isSample": false}
+                        ]
+                    }
+                ]
+            }
+        """.trimIndent()
+
+        given()
+            .contentType(ContentType.JSON)
+            .body(body)
+            .`when`().put("/api/estimations/$eid/versions/draft")
+            .then()
+            .statusCode(200)
+
+        given()
+            .`when`().get("/api/estimations/$eid/versions/draft")
+            .then()
+            .statusCode(200)
+            .body("roots.size()", equalTo(1))
+            .body("roots[0].type", equalTo("GROUP"))
+            .body("roots[0].title", equalTo("WBS 1"))
+            .body("roots[0].children.size()", equalTo(2))
+            // The bucket-specific input survives nesting.
+            .body("roots[0].children.find { it.description == 'Nested sample' }.type", equalTo("BUCKETED"))
+            .body("roots[0].children.find { it.description == 'Nested sample' }.bucketId", equalTo(b1))
+            .body("roots[0].children.find { it.description == 'Nested sample' }.isSample", equalTo(true))
+            .body("roots[0].children.find { it.description == 'Nested sample' }.mean", equalTo(2.0f))
+            // The non-sample still inherits its bucket's average through calculate().
+            .body("roots[0].children.find { it.description == 'Nested non-sample' }.isSample", equalTo(false))
+            .body("roots[0].children.find { it.description == 'Nested non-sample' }.bucketId", equalTo(b1))
+            .body("roots[0].children.find { it.description == 'Nested non-sample' }.mean", equalTo(2.0f))
+            // The group accumulates its subtree.
+            .body("roots[0].offerPT", equalTo(4.0f))
+    }
+
     @Test
     fun `submitting a bucket estimation persists neutral and raw bucket columns`() {
         val eid = createBucketEstimation()

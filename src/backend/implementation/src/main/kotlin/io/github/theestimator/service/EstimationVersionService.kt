@@ -1,5 +1,6 @@
 package io.github.theestimator.service
 
+import io.github.theestimator.domain.Estimation
 import io.github.theestimator.domain.draft.DraftAdditionalCost
 import io.github.theestimator.domain.draft.DraftEffortDriver
 import io.github.theestimator.domain.draft.DraftEstimationNode
@@ -35,6 +36,7 @@ import jakarta.enterprise.context.ApplicationScoped
 import jakarta.transaction.Transactional
 import jakarta.ws.rs.WebApplicationException
 import jakarta.ws.rs.core.Response
+import java.io.InputStream
 import java.time.Instant
 import java.util.UUID
 
@@ -48,7 +50,8 @@ class EstimationVersionService(
     private val submittedRepository: SubmittedEstimationVersionRepository,
     private val estimationRepository: EstimationRepository,
     private val draftVersionMapper: DraftVersionMapper,
-    private val auditLogService: AuditLogService
+    private val auditLogService: AuditLogService,
+    private val merlinImporter: MerlinImporter
 ) {
 
     fun findDraft(estimationId: UUID): DraftEstimationVersion? =
@@ -104,6 +107,45 @@ class EstimationVersionService(
 
         Log.info("Created draft ${draft.id} (version=$newVersionNumber) for estimation $estimationId")
         return draft
+    }
+
+    @Transactional
+    fun importMerlinDraft(estimationId: UUID, input: InputStream): DraftEstimationVersion {
+        Log.info("Importing Merlin draft for estimation $estimationId")
+        val estimation = requireEstimationWithoutDraft(estimationId)
+        val latestSubmitted = submittedRepository.findLatestByEstimationId(estimationId)
+        val newVersionNumber = (latestSubmitted?.versionNumber ?: 0) + 1
+        val draft = try {
+            merlinImporter.import(input, estimation, newVersionNumber)
+        } catch (e: IllegalArgumentException) {
+            Log.error("Merlin import failed for estimation $estimationId: ${e.message}")
+            throw WebApplicationException("Invalid Merlin file: ${e.message}", e, Response.Status.BAD_REQUEST)
+        }
+        draftRepository.persist(draft)
+        auditLogService.log(
+            null, "DraftEstimationVersion", draft.id, "IMPORT_MERLIN", "version=$newVersionNumber"
+        )
+        Log.info("Imported Merlin draft ${draft.id} (version=$newVersionNumber) for estimation $estimationId")
+        return draft
+    }
+
+    // Loads the estimation for a new draft, enforcing the "one draft at a time"
+    // rule (404 if missing, 409 if a draft already exists). Logs the rejection so
+    // a failed Merlin import is diagnosable server-side (task-131 follow-up).
+    private fun requireEstimationWithoutDraft(estimationId: UUID): Estimation {
+        val estimation = estimationRepository.findById(estimationId)
+            ?: run {
+                Log.warn("Merlin import rejected: estimation $estimationId not found")
+                throw WebApplicationException("Estimation not found: $estimationId", Response.Status.NOT_FOUND)
+            }
+        if (draftRepository.findByEstimationId(estimationId) != null) {
+            Log.warn("Merlin import rejected: a draft already exists for estimation $estimationId")
+            throw WebApplicationException(
+                "A draft already exists for estimation $estimationId",
+                Response.Status.CONFLICT
+            )
+        }
+        return estimation
     }
 
     @Transactional

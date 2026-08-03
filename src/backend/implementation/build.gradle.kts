@@ -45,6 +45,10 @@ dependencies {
     implementation("io.quarkus:quarkus-logging-json")
     implementation("io.quarkus:quarkus-arc")
     implementation("org.apache.poi:poi-ooxml:5.4.1")
+    // Read-only, used by MerlinImporter via plain java.sql.DriverManager to read
+    // an uploaded Merlin .mproject SQLite (Core Data) document — NOT a Quarkus
+    // datasource (task-131). The app DB is PostgreSQL.
+    implementation("org.xerial:sqlite-jdbc:3.50.1.0")
 
     testImplementation("io.quarkus:quarkus-junit5")
     testImplementation("io.rest-assured:rest-assured")

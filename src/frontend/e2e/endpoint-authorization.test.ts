@@ -42,6 +42,17 @@ test.describe('creating a project through the UI sends the auth header', () => {
 	test.use({ storageState: { cookies: [], origins: [] } });
 
 	test('a UI create carries Authorization and succeeds', async ({ page }) => {
+		// The German locators below depend on dev-estimator's PERSISTED language,
+		// which e2e/language.test.ts switches to English — shared backend state
+		// that races when the two specs run in different workers. Pin it here so
+		// this test only proves what it is about (the Authorization header seam).
+		const ctx = await playwrightRequest.newContext({
+			baseURL: API,
+			extraHTTPHeaders: { Authorization: 'Dev dev-estimator' }
+		});
+		await ctx.put('/api/auth/me/language', { data: { language: 'de' } });
+		await ctx.dispose();
+
 		await loginAsDev(page, 'dev-estimator');
 
 		// Unique per run — the dev-stack DB persists across runs, so a fixed

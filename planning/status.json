@@ -783,10 +783,22 @@
       "notes": "Design a new application logo matching TheEstimator's visual style and domain; replace the current logo and use it as favicon and everywhere else it fits"
     },
     "task-131": {
+      "status": "done",
+      "started_at": "2026-08-03T09:18:55+00:00",
+      "completed_at": "2026-08-03T09:39:55+00:00",
+      "notes": "Import a Merlin project file's Work Breakdown Structure into a tree of EstimationItems, for both estimation methods"
+    },
+    "task-132": {
+      "status": "done",
+      "started_at": "2026-08-03T10:01:43+00:00",
+      "completed_at": "2026-08-03T12:54:30+00:00",
+      "notes": "Bucket estimations need two switchable editor views: a per-bucket view with drag-and-drop of items between buckets, and the classical nested-group hierarchical view"
+    },
+    "task-133": {
       "status": "pending",
       "started_at": null,
       "completed_at": null,
-      "notes": "Import a Merlin project file's Work Breakdown Structure into a tree of EstimationItems, for both estimation methods"
+      "notes": "Export estimated values back into a copy of a Merlin project, guarded by a structure-drift check the user can override"
     }
   }
 }

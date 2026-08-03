@@ -39,6 +39,8 @@ import jakarta.ws.rs.QueryParam
 import jakarta.ws.rs.core.MediaType
 import jakarta.ws.rs.core.Response
 import jakarta.ws.rs.core.StreamingOutput
+import org.jboss.resteasy.reactive.RestForm
+import org.jboss.resteasy.reactive.multipart.FileUpload
 import org.eclipse.microprofile.openapi.annotations.Operation
 import org.eclipse.microprofile.openapi.annotations.enums.SchemaType
 import org.eclipse.microprofile.openapi.annotations.media.Content
@@ -104,6 +106,35 @@ class EstimationVersionResource(
     fun createDraft(@PathParam("estimationId") estimationId: UUID): Response {
         ensureEstimationExists(estimationId)
         val draft = versionService.createDraft(estimationId)
+        val result = versionService.calculateDraft(draft)
+        return Response.status(Response.Status.CREATED).entity(draft.toDto(result)).build()
+    }
+
+    @POST
+    @Path("/import/merlin")
+    @Transactional
+    @RolesAllowed("ESTIMATOR")
+    @Consumes(MediaType.MULTIPART_FORM_DATA)
+    @Operation(
+        summary = "Import a Merlin project WBS as a new draft version (method-aware: tree for " +
+            "THREE_POINT_PERT, flattened bucketed leaves for BUCKET_SAMPLED_PERT)"
+    )
+    @APIResponse(
+        responseCode = "201",
+        description = "The created draft with calculated values",
+        content = [Content(schema = Schema(implementation = EstimationVersionDto::class))]
+    )
+    @APIResponse(responseCode = "400", description = "The upload is not a readable Merlin/SQLite file")
+    @APIResponse(responseCode = "404", description = "Estimation not found")
+    @APIResponse(responseCode = "409", description = "A draft already exists for this estimation")
+    fun importMerlin(
+        @PathParam("estimationId") estimationId: UUID,
+        @RestForm("file") file: FileUpload
+    ): Response {
+        ensureEstimationExists(estimationId)
+        val draft = file.uploadedFile().toFile().inputStream().use {
+            versionService.importMerlinDraft(estimationId, it)
+        }
         val result = versionService.calculateDraft(draft)
         return Response.status(Response.Status.CREATED).entity(draft.toDto(result)).build()
     }

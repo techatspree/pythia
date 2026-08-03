@@ -6,6 +6,7 @@
 	import EstimationDetail from '$lib/components/EstimationDetail.svelte';
 	import VersionList from '$lib/components/VersionList.svelte';
 	import ErrorBanner from '$lib/components/ErrorBanner.svelte';
+	import ReplaceDraftDialog from '$lib/components/ReplaceDraftDialog.svelte';
 	import type { ApiEstimationDetail } from '$lib/api/types.js';
 	import { apiFetch } from '$lib/api/fetch';
 	import { assertOk } from '$lib/api/errors';
@@ -55,6 +56,62 @@
 			: ''
 	);
 
+	// Import a Merlin project WBS as a new draft version. The backend accepts a
+	// zipped .mproject bundle or its raw state.sql; we POST it as multipart
+	// FormData (apiFetch leaves the body untouched so the browser sets the
+	// multipart boundary itself).
+	let fileInput = $state<HTMLInputElement | null>(null);
+	let importing = $state(false);
+	// Set when an import is blocked by an existing draft (409): holds the chosen
+	// file so the user can confirm replacing the draft in one click.
+	let pendingMerlinFile = $state<File | null>(null);
+
+	async function onMerlinFileSelected(e: Event) {
+		const input = e.currentTarget as HTMLInputElement;
+		const file = input.files?.[0];
+		input.value = '';
+		if (!file) return;
+		await runMerlinImport(file, false);
+	}
+
+	async function runMerlinImport(file: File, replaceDraft: boolean) {
+		if (!estimation?.id) return;
+		importing = true;
+		bannerMessage = null;
+		try {
+			if (replaceDraft) {
+				const del = await apiFetch(`/api/estimations/${estimation.id}/versions/draft`, {
+					method: 'DELETE'
+				});
+				await assertOk(del, $_('estimation.importMerlinFailed'));
+			}
+			const form = new FormData();
+			form.append('file', file);
+			const res = await apiFetch(`/api/estimations/${estimation.id}/versions/import/merlin`, {
+				method: 'POST',
+				body: form
+			});
+			// A draft already exists → replacing it is destructive, so open a
+			// confirmation dialog (setting pendingMerlinFile) rather than acting.
+			if (res.status === 409 && !replaceDraft) {
+				pendingMerlinFile = file;
+				return;
+			}
+			const fallback =
+				res.status === 400
+					? $_('estimation.importMerlinInvalidFile')
+					: $_('estimation.importMerlinFailed');
+			await assertOk(res, fallback);
+			pendingMerlinFile = null;
+			await loadEstimation();
+		} catch (e: any) {
+			log.error('importMerlin failed:', e);
+			bannerMessage = e.message;
+		} finally {
+			importing = false;
+		}
+	}
+
 	async function submitVersion() {
 		if (!estimation) return;
 		try {
@@ -73,18 +130,46 @@
 		<p class="text-gray-500">{$_('estimation.pageLoading')}</p>
 	{:else}
 		<ErrorBanner message={bannerMessage} ondismiss={() => (bannerMessage = null)} />
+		{#if pendingMerlinFile}
+			<ReplaceDraftDialog
+				onconfirm={() => {
+					const file = pendingMerlinFile;
+					pendingMerlinFile = null;
+					if (file) runMerlinImport(file, true);
+				}}
+				oncancel={() => (pendingMerlinFile = null)}
+			/>
+		{/if}
 		{#if estimation}
 		{#if estimation.projectId}
 			<a href={resolve('/projects/[id]', { id: estimation.projectId })} class="text-sm text-brand-green hover:underline mb-4 inline-block">{$_('estimation.pageBack', { values: { project: estimation.projectName ?? $_('estimation.pageProjectFallback') } })}</a>
 		{/if}
 		<div class="flex items-start justify-between gap-4">
 			<div class="flex-1"><EstimationDetail {estimation} /></div>
-			<!-- sessionHref resolves the route via resolve(); only the dynamic
-			     estimationId/projectId query is concatenated, which this rule cannot model. -->
-			<!-- eslint-disable-next-line svelte/no-navigation-without-resolve -->
-			<a href={sessionHref} class="shrink-0 mt-1 px-4 py-2 text-sm bg-brand-green text-white rounded hover:bg-[#007a45]">
-				{$_('estimation.startSession')}
-			</a>
+			<div class="shrink-0 mt-1 flex items-center gap-2">
+				<input
+					type="file"
+					accept=".zip,.sql,.sqlite,.mproject"
+					class="hidden"
+					bind:this={fileInput}
+					onchange={onMerlinFileSelected}
+				/>
+				<button
+					type="button"
+					onclick={() => fileInput?.click()}
+					disabled={importing}
+					title={$_('estimation.importMerlinHint')}
+					class="px-4 py-2 text-sm border border-brand-green text-brand-green rounded hover:bg-brand-green/10 disabled:opacity-50"
+				>
+					{$_('estimation.importMerlin')}
+				</button>
+				<!-- sessionHref resolves the route via resolve(); only the dynamic
+				     estimationId/projectId query is concatenated, which this rule cannot model. -->
+				<!-- eslint-disable-next-line svelte/no-navigation-without-resolve -->
+				<a href={sessionHref} class="px-4 py-2 text-sm bg-brand-green text-white rounded hover:bg-[#007a45]">
+					{$_('estimation.startSession')}
+				</a>
+			</div>
 		</div>
 		<VersionList versions={estimation.versions} estimationId={estimation.id ?? ''} oncreate={createVersion} onsubmit={submitVersion} />
 		{/if}

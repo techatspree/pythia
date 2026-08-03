@@ -1698,6 +1698,67 @@
         } ]
       }
     },
+    "/api/estimations/{estimationId}/versions/import/merlin" : {
+      "post" : {
+        "summary" : "Import a Merlin project WBS as a new draft version (method-aware: tree for THREE_POINT_PERT, flattened bucketed leaves for BUCKET_SAMPLED_PERT)",
+        "tags" : [ "Estimation versions" ],
+        "parameters" : [ {
+          "name" : "estimationId",
+          "in" : "path",
+          "required" : true,
+          "schema" : {
+            "$ref" : "#/components/schemas/UUID"
+          }
+        } ],
+        "requestBody" : {
+          "content" : {
+            "multipart/form-data" : {
+              "schema" : {
+                "type" : "object",
+                "required" : [ "file" ],
+                "properties" : {
+                  "file" : {
+                    "type" : "string",
+                    "format" : "binary"
+                  }
+                }
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "201" : {
+            "description" : "The created draft with calculated values",
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/EstimationVersionDto"
+                }
+              }
+            }
+          },
+          "400" : {
+            "description" : "The upload is not a readable Merlin/SQLite file"
+          },
+          "404" : {
+            "description" : "Estimation not found"
+          },
+          "409" : {
+            "description" : "A draft already exists for this estimation"
+          },
+          "401" : {
+            "description" : "Not Authorized"
+          },
+          "403" : {
+            "description" : "Not Allowed"
+          }
+        },
+        "security" : [ {
+          "SecurityScheme" : [ "ESTIMATOR" ]
+        } ]
+      }
+    },
     "/api/estimations/{estimationId}/versions/{versionA}/compare/{versionB}" : {
       "get" : {
         "summary" : "Diff two versions (use \"draft\" for the live draft)",

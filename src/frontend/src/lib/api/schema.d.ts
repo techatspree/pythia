@@ -668,6 +668,86 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/estimations/{estimationId}/versions/import/merlin": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Import a Merlin project WBS as a new draft version (method-aware: tree for THREE_POINT_PERT, flattened bucketed leaves for BUCKET_SAMPLED_PERT) */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    estimationId: components["schemas"]["UUID"];
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "multipart/form-data": {
+                        /** Format: binary */
+                        file: string;
+                    };
+                };
+            };
+            responses: {
+                /** @description The created draft with calculated values */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["EstimationVersionDto"];
+                    };
+                };
+                /** @description The upload is not a readable Merlin/SQLite file */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Not Authorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Not Allowed */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Estimation not found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description A draft already exists for this estimation */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/estimations/{estimationId}/versions/{versionA}/compare/{versionB}": {
         parameters: {
             query?: never;

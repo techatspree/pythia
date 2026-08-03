@@ -185,7 +185,15 @@
 		"pageNotFound": "Estimation not found",
 		"pageCreateVersionFailed": "Failed to create version",
 		"pageSubmitFailed": "Failed to submit version",
-		"startSession": "Start estimation session"
+		"startSession": "Start estimation session",
+		"importMerlin": "Import from Merlin",
+		"importMerlinHint": "Pick a Merlin project (.mproject) zipped, or its state.sql file",
+		"importMerlinFailed": "Failed to import the Merlin project",
+		"importMerlinInvalidFile": "The file could not be read as a Merlin project. Upload the .mproject bundle as a .zip, or its state.sql file.",
+		"importMerlinReplace": "Replace draft and import",
+		"replaceDraftTitle": "Replace draft?",
+		"replaceDraftBody": "This offer already has a draft version. Replacing it will permanently delete the current draft and any unsaved work in it, then create a new draft from the imported WBS. This cannot be undone.",
+		"replaceDraftCancel": "Cancel"
 	},
 	"compare": {
 		"back": "← Back to estimation",
@@ -238,6 +246,12 @@
 	},
 	"bucket": {
 		"panelTitle": "Buckets",
+		"viewBucket": "By bucket",
+		"viewHierarchy": "Hierarchy",
+		"viewAria": "View",
+		"unassigned": "Unassigned",
+		"groupTitlePlaceholder": "Group title…",
+		"colItems": "Items",
 		"add": "+ Bucket",
 		"addTitle": "Add bucket",
 		"dragTitle": "Drag to reorder",
