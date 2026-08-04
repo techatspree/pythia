@@ -1,6 +1,6 @@
 id: task-134
 phase: phase-15
-title: Bucket view — collapsed rows + spring-loaded drop targets
+title: Bucket view — collapsed rows that stay drop targets
 depends_on: [task-132, task-133]
 description: |
   Re-bucketing by drag is impractical on a real estimation. A Merlin import
@@ -14,118 +14,143 @@ description: |
   so all buckets are visible together and a cross-bucket drag is a short
   movement. The user expands the bucket they want to work in.
 
-  ── The constraint that makes the naive version worse, not better ──
-  `TreeTable` renders a row's children dndzone only when the row is expanded
-  (`{#if isGroup && ctx.expanded}`). A COLLAPSED row therefore has **no drop
-  zone at all** — collapsing every bucket by default would make every bucket
-  an impossible drop target, reintroducing (in a harder form) the empty-zone
-  bug fixed right after task-133, where a zero-height zone could never be
-  hovered. Default-collapsing is only correct if a collapsed row can still
-  receive a drop.
+  ── The constraint, and the ONE mechanism that satisfies it ──
+  `TreeTable` currently renders a row's children dndzone only when the row is
+  expanded (`{#if isGroup && ctx.expanded}`), so a collapsed row has no drop
+  zone and could not receive a drop.
 
-  This task therefore pairs the two changes:
-    1. bucket rows start collapsed, and
-    2. a collapsed group row **auto-expands while a drag hovers over it**
-       ("spring-loaded", like a Finder/Explorer folder), revealing its zone
-       so the drop lands normally.
+  A first attempt at fixing that by "spring-loading" (expanding a collapsed
+  row when a drag hovers it) was implemented, measured and **reverted** —
+  do NOT re-attempt it. `svelte-dnd-action`'s `watchDraggedElement()` reads
+  the `typeToDropZones` registry ONCE at drag start, attaches its
+  `draggedEntered`/`draggedOver` listeners to exactly those zones, and passes
+  that captured set to `observe(...)`. A zone created **during** a drag is
+  registered but never observed, so it can never become the target. Measured
+  A/B on the real UI: target expanded BEFORE the drag → drop lands; identical
+  drag with the target sprung open mid-drag → the zone opens under the cursor
+  and the drop does NOT land.
+
+  The mechanism must therefore make the zone **exist at drag start**. This
+  task does that by rendering a group's zone and its child rows ALWAYS, and
+  merely collapsing the children VISUALLY when the row is collapsed:
+    - the zone is always in the DOM, so it is registered and observed like
+      any other zone;
+    - its `items` array and its DOM children stay in one-to-one
+      correspondence, so `applyChildren` keeps its current REPLACE semantics
+      and the cycle/anomaly protection is untouched. (The alternative —
+      rendering a collapsed zone with `items: []` — would need TreeTable to
+      append instead of replace, or a collapsed group's real children would
+      be destroyed. Rejected as too risky for the generic component.)
 
   ── Key design decisions (do not deviate) ──
-  - **Spring-loading belongs in the generic `TreeTable`**, not in the bucket
-    editor: it is a property of "collapsed row + drag", and it equally fixes
-    dropping into a collapsed group in `EstimationGrid`. It must be inert
-    when no drag is in flight.
-  - **A drag is "in flight" when `draggedSubtreeIds` is non-empty** —
-    TreeTable already populates that `SvelteSet` on the first `consider` and
-    clears it on finalize/`dragStopped`. Do not add a second drag-state flag.
-  - **Never spring-load the dragged node's own subtree.** `draggedSubtreeIds`
-    already lists those ids; expanding into them is how a group gets dropped
-    inside itself, which the existing cycle protection would then have to
-    undo.
-  - **Hover must be deliberate**: expand only after the cursor has rested on
-    the row for ~300 ms, and cancel the pending expansion when it leaves.
-    Passing over a row on the way somewhere else must not expand it.
-  - **An auto-expanded row stays expanded after the drop.** The user needs to
-    see where the item landed; silently re-collapsing hides the result of the
-    action. (This differs from Finder and is deliberate.)
+  - **Visual collapse = zero height + `visibility: hidden`** on the child row
+    wrapper (Tailwind `h-0 overflow-hidden invisible`). NOT `display: none`:
+    a `display:none` element has no layout box, which breaks the library's
+    geometry. `visibility: hidden` keeps the box (so measurement works) AND
+    removes the subtree from the tab order, which matters — otherwise every
+    hidden row's inputs would stay keyboard-reachable while invisible.
+  - **Hiding is inherited.** `renderRow` takes a `hidden` flag; a collapsed
+    row passes `true` to its children, and a child passes
+    `hidden || !ctx.expanded` down, so a collapsed subtree stays hidden at
+    every depth.
+  - **A collapsed zone only claims space while a drag is in flight.** Give it
+    `min-h-8` when `!ctx.expanded && dragActive`, where
+    `dragActive = $derived(draggedSubtreeIds.size > 0)` reuses the EXISTING
+    drag-state set — do not add a second drag flag. Idle, a collapsed row
+    stays visually tight; during a drag each collapsed row exposes a hittable
+    strip. Keep the existing unconditional `min-h-8` for genuinely EMPTY
+    zones (the task-133 follow-up fix) — that is a separate case.
   - **Only the bucket view seeds `initialCollapsed`.** The hierarchy view
     keeps today's fully expanded tree — there the nesting *is* the
-    information. `TreeTable.initialCollapsed` already exists as a prop and is
-    currently used by no caller; this is its first consumer.
+    information. `TreeTable.initialCollapsed` already exists as a prop with
+    no caller; this is its first consumer.
   - **Collapse state is transient.** `collapsed` is seeded once from
     `initialCollapsed` (the deliberate local-`$state` exception recorded in
     CLAUDE.md) and is NOT persisted — unlike the view choice, which lives in
-    `localStorage` under `estimator.bucketView`. A bucket created after mount
-    renders expanded; that is fine (it is empty) and must not be "fixed" by
-    re-seeding, which would fight the user's own toggles.
-  - **Keyboard is unaffected and must stay usable.** Spring-loading is
-    pointer-only. The chevron is already keyboard-reachable (Space/Enter), so
-    a keyboard user expands the target bucket first; the per-row bucket
-    `<select>` remains the primary keyboard path for re-bucketing and is
-    untouched.
+    `localStorage` under `estimator.bucketView`.
+  - **Two consequences of "seeded once" that are EXPECTED, not bugs.**
+    (a) The bucket-view `TreeTable` lives in the view toggle's `{:else}`
+    branch, so switching to the hierarchy view and back remounts it and the
+    rows collapse again, discarding the user's expansions. (b) The seed is
+    only non-empty because the route assigns `currentBuckets` (in
+    `loadVersion`) BEFORE it resolves `EditorComponent`. Do not reorder those
+    two assignments, and do not add a `buckets.length > 0` render gate.
+  - **Accepted trade-offs:** every row stays in the DOM even when collapsed
+    (this buys visual distance, not rendering volume), and the bucket view
+    opens showing no leaf rows, which is worse for simply reading numbers —
+    the hierarchy view (unchanged, fully expanded) remains the reading view.
+    An expand/collapse-all control would soften the latter and is a separate
+    task; do NOT add one here.
+  - **Keyboard stays usable.** The chevron is already keyboard-reachable
+    (Space/Enter) so a keyboard user expands a bucket before dragging, and
+    the per-row bucket `<select>` remains the primary keyboard path for
+    re-bucketing. `visibility: hidden` keeps collapsed rows out of the tab
+    order, which is the correct behaviour.
   - Frontend-only: no domain, backend, DTO, OpenAPI or migration change.
 
 steps:
   - |
-    In `src/frontend/src/lib/components/treetable/TreeTable.svelte`, add
-    pointer-hover auto-expansion for collapsed rows:
-      - derive an in-flight flag from the existing state, e.g.
-        `const dragActive = $derived(draggedSubtreeIds.size > 0)`.
-      - hold one pending timer plus the id it belongs to, e.g.
-        `let springTimer: ReturnType<typeof setTimeout> | null` and
-        `let springId: string | null`, and a `cancelSpring()` helper that
-        clears both.
-      - on the row wrapper (`<div data-testid="tt-row-{getId(node)}">`) add
-        `onpointerenter` / `onpointerleave`. On enter: return immediately
-        unless `dragActive && isGroup && !ctx.expanded` and
-        `!draggedSubtreeIds.has(getId(node))`; otherwise start a 300 ms timer
-        that expands the row (remove its id from `collapsed`, reassigning the
-        Set the way `toggle` already does). On leave: `cancelSpring()`.
-      - cancel any pending timer when the drag ends (the existing
-        `dragItems.clear()` / `draggedSubtreeIds.clear()` paths in
-        `handleZoneEvent`) so a timer cannot fire after the drop.
-    **Verify the events actually arrive**: svelte-dnd-action drags a floating
-    `#dnd-action-dragged-el` under the cursor. If it does not carry
-    `pointer-events: none`, the row will never see `pointerenter` — in that
-    case drive the hover from a `pointermove` listener that is registered
-    only while `dragActive`, resolving the row under the cursor with
-    `document.elementFromPoint(...)?.closest('[data-testid^="tt-row-"]')`.
-    Pick whichever of the two works and note which in a comment.
+    In `src/frontend/src/lib/components/treetable/TreeTable.svelte`:
+      - add `const dragActive = $derived(draggedSubtreeIds.size > 0);` next to
+        the existing drag state (no new flag, no timers).
+      - change the children-zone gate from `{#if isGroup && ctx.expanded}` to
+        `{#if isGroup}` so the zone is always in the DOM and is therefore
+        registered before any drag starts.
+      - on that zone div, keep the existing
+        `class:min-h-8={wrappedChildren.length === 0}` and add
+        `class:min-h-8={!ctx.expanded && dragActive}` (combine into one
+        expression if cleaner) so a collapsed row exposes a hittable strip
+        only while a drag is in flight.
+      - give the `renderRow` snippet a fourth parameter `hidden: boolean`.
+        Apply `class:h-0={hidden} class:overflow-hidden={hidden}
+        class:invisible={hidden}` to the row's outer
+        `<div data-testid="tt-row-…">`. Pass `false` from the root zone's
+        `{@render renderRow(w.node, [idx], 0, false)}` and
+        `hidden || !ctx.expanded` from the children zone's render call.
+    Add a short comment recording WHY the zone is always rendered (the
+    library captures its drop zones at drag start).
 
   - |
     In `src/frontend/src/lib/methods/bucketSampled/EditorModule.svelte`, seed
-    the bucket view's TreeTable with every bucket row collapsed: build a
+    the bucket view's TreeTable with every bucket row collapsed: a plain
+    `const` (NOT `$derived` — it is a mount-time seed) holding a
     `Set<string>` of the synthetic row ids (`bucket:<id>` for each bucket plus
-    `bucket:unassigned`) and pass it as `initialCollapsed` on the
-    bucket-view `<TreeTable>` only. Leave the hierarchy-view instance
-    untouched. Compute the set at mount from the current buckets — it is a
-    seed, not reactive state; do NOT rebuild it from the `$derived`
-    projection on every change.
+    `bucket:unassigned`), passed as `initialCollapsed` on the bucket-view
+    `<TreeTable>` only. Leave the hierarchy-view instance untouched.
 
   - |
-    Extend `src/frontend/e2e/bucket-views.test.ts` with two tests:
+    Extend `src/frontend/e2e/bucket-views.test.ts` with two tests whose
+    titles contain the exact phrases **"collapsed by default"** and
+    **"collapsed bucket"** (the validation greps assert them):
       - **collapsed by default**: open the draft in bucket view and assert
-        the bucket rows are present while their leaf rows are NOT rendered
-        (e.g. `[data-testid="tt-row-<leafC>"]` has count 0), and that
-        clicking the bucket row's Expand control reveals them.
-      - **spring-loaded drop**: with the target bucket collapsed, drag a leaf
-        from another bucket, hold the cursor over the collapsed target row
-        (dwell past the 300 ms threshold — re-read its bounding box between
-        moves as the existing `mouseDragIntoZone` helper does), and assert
-        the drop lands: the leaf's bucket `<select>` shows the target bucket
-        and the row is now inside that bucket's children zone.
-    Keep the existing tests in that file green — the empty-bucket and
-    cross-bucket drags now start from a collapsed view, so they may need to
-    expand the source bucket first; adjust them rather than weakening them.
+        the bucket rows are present while their leaf rows are not VISIBLE —
+        the rows still exist in the DOM by design, so assert visibility
+        (`toBeHidden()` / a zero bounding box), NOT `toHaveCount(0)` — and
+        that clicking the row's Expand control reveals them.
+      - **collapsed bucket**: drag a leaf from an expanded source bucket into
+        a still-COLLAPSED target bucket's zone and assert the drop lands (the
+        leaf's bucket `<select>` shows the target). This is the case the
+        reverted spring-load approach could not do.
+    **Both tests must register a `page.on('pageerror', …)` collector and
+    assert it stayed empty.** Every DnD defect here so far surfaced as a
+    thrown exception that aborted the render mid-update, leaving the UI
+    silently inconsistent rather than visibly failing.
+    Keep the existing tests green — they now start from a collapsed view, so
+    they may need to expand the source bucket first; adjust them rather than
+    weakening them.
 
   - |
     Update `CLAUDE.md`: in the `treetable/TreeTable.svelte` paragraph record
-    the spring-loaded expansion (collapsed row + drag hover → auto-expand
-    after a dwell, never into the dragged subtree, stays expanded after the
-    drop) next to the existing `min-h-8` note, since the two together are
-    what make a collapsed row a usable drop target. In the
-    `methods/bucketSampled/` prose record that the bucket view starts with
-    all bucket rows collapsed via `initialCollapsed` (transient, not
-    persisted) while the hierarchy view stays expanded.
+    that a group's children zone is now rendered even when collapsed —
+    because `svelte-dnd-action` captures its drop zones **at drag start**, so
+    a zone that appears later can never receive the drop — with the children
+    visually collapsed via `h-0 overflow-hidden invisible` (keeping items and
+    DOM in sync, so the replace semantics and cycle protection are unchanged)
+    and a `min-h-8` strip while a drag is in flight. In the
+    `methods/bucketSampled/` prose record — using the exact phrase **"bucket
+    rows collapsed"** — that the bucket view starts with all bucket rows
+    collapsed via `initialCollapsed` (transient, re-seeded when the view
+    toggle remounts the table) while the hierarchy view stays expanded.
 
   - |
     Validate — type-check, strict lint, full build, and the e2e suite
@@ -138,11 +163,13 @@ steps:
 
 validation:
   - |
-    TreeTable gained spring-loading, wired to the EXISTING drag-state set:
-      grep -qE "springTimer|springId" src/frontend/src/lib/components/treetable/TreeTable.svelte
+    The zone is no longer gated on expansion, and the drag-state reuse plus
+    the empty-zone fix are both in place:
+      ! grep -q "isGroup && ctx.expanded" src/frontend/src/lib/components/treetable/TreeTable.svelte
+      grep -q "dragActive" src/frontend/src/lib/components/treetable/TreeTable.svelte
       grep -q "draggedSubtreeIds" src/frontend/src/lib/components/treetable/TreeTable.svelte
-      grep -qE "onpointerenter|pointermove" src/frontend/src/lib/components/treetable/TreeTable.svelte
       grep -q "min-h-8" src/frontend/src/lib/components/treetable/TreeTable.svelte
+      grep -q "invisible" src/frontend/src/lib/components/treetable/TreeTable.svelte
   - |
     The bucket view seeds initialCollapsed (it had no caller before this
     task) and the hierarchy view does not:
@@ -150,17 +177,23 @@ validation:
       grep -q "bucket:unassigned" src/frontend/src/lib/methods/bucketSampled/EditorModule.svelte
       test "$(grep -c 'initialCollapsed' src/frontend/src/lib/methods/bucketSampled/EditorModule.svelte)" -le 2
   - |
-    Frontend logging/console convention still holds on the touched files:
+    Frontend console convention still holds on the touched files:
       ! grep -q "console\." src/frontend/src/lib/components/treetable/TreeTable.svelte
       ! grep -q "console\." src/frontend/src/lib/methods/bucketSampled/EditorModule.svelte
   - |
-    The e2e covers both the collapsed default and the spring-loaded drop:
-      grep -qi "collaps" src/frontend/e2e/bucket-views.test.ts
-      grep -qiE "spring|auto-expand|autoExpand" src/frontend/e2e/bucket-views.test.ts
+    The e2e covers the collapsed default AND the drop into a collapsed
+    bucket, and guards the silent-crash failure mode. Assert the NEW test
+    titles by their exact phrases — a bare "collaps" already matches an
+    existing comment in this file and would pass without any change:
+      grep -q "collapsed by default" src/frontend/e2e/bucket-views.test.ts
+      grep -q "collapsed bucket" src/frontend/e2e/bucket-views.test.ts
+      test "$(grep -c "pageerror" src/frontend/e2e/bucket-views.test.ts)" -ge 3
   - |
-    Docs record both halves (assert phrases this task introduces):
-      grep -qiE "spring-load|spring load" CLAUDE.md
-      grep -q "initialCollapsed" CLAUDE.md
+    Docs record both halves. Assert phrases this task INTRODUCES — bare
+    `initialCollapsed` already appears in the `$bindable` prose and would
+    pass unchanged:
+      grep -qi "at drag start" CLAUDE.md
+      grep -qi "bucket rows collapsed" CLAUDE.md
   - |
     Type-check, strict lint, full build and the e2e suite pass:
       ./gradlew :frontend:check
@@ -172,4 +205,5 @@ outputs:
   - modified: src/frontend/src/lib/components/treetable/TreeTable.svelte
   - modified: src/frontend/src/lib/methods/bucketSampled/EditorModule.svelte
   - modified: src/frontend/e2e/bucket-views.test.ts
+  - modified: src/frontend/e2e/tree-table.test.ts
   - modified: CLAUDE.md

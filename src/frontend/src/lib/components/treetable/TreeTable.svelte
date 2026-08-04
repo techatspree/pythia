@@ -44,6 +44,11 @@
 	// the group would be dropped into itself (a cycle). Empty when idle.
 	const draggedSubtreeIds = new SvelteSet<string>();
 
+	// True while a pointer/keyboard drag is in flight (the set above is filled on
+	// the first `consider` and cleared on finalize). Used to give collapsed rows
+	// a hittable drop strip only when it can actually be used.
+	const dragActive = $derived(draggedSubtreeIds.size > 0);
+
 	let scrollHost: HTMLDivElement | null = $state(null);
 	let containerWidth = $state(Infinity);
 
@@ -284,12 +289,23 @@
 	{/if}
 {/snippet}
 
-{#snippet renderRow(node: T, path: number[], depth: number)}
+{#snippet renderRow(node: T, path: number[], depth: number, hidden: boolean)}
 	{@const kids = getChildren(node)}
 	{@const isGroup = kids != null}
 	{@const ctx = makeCtx(node, depth, path, isGroup)}
 	{@const extraAttrs = rowAttrs ? rowAttrs(node, ctx) : {}}
-	<div data-testid="tt-row-{getId(node)}" {...extraAttrs}>
+	<!-- A collapsed row's descendants stay in the DOM (see the zone below) but
+	     are collapsed to nothing. `visibility: hidden` rather than
+	     `display: none` on purpose: it keeps a layout box, which the drag
+	     library needs to measure, while still removing the subtree from the tab
+	     order so hidden inputs are not keyboard-reachable. -->
+	<div
+		data-testid="tt-row-{getId(node)}"
+		class:h-0={hidden}
+		class:overflow-hidden={hidden}
+		class:invisible={hidden}
+		{...extraAttrs}
+	>
 		<div
 			class="grid items-center border-b hover:bg-gray-50"
 			style="grid-template-columns: {gridTemplateColumns}"
@@ -335,18 +351,26 @@
 			{/if}
 		</div>
 
-		{#if isGroup && ctx.expanded}
+		{#if isGroup}
 			{@const wrappedChildren = itemsForZone(node, kids as T[])}
 			{@const childZoneAttrs = childrenZoneAttrs
 				? childrenZoneAttrs(node)
 				: { 'aria-label': 'Children' }}
-			<!-- An EMPTY zone collapses to 0px, and `useCursorForDetection` means a
-			     zone with no area can never be hovered — so an empty group (or an
-			     empty bucket in the bucket view) was impossible to drop into. Give
-			     it a hittable strip; once a drag enters, the library's shadow
-			     placeholder supplies the height. -->
+			<!-- The zone is rendered even when the row is COLLAPSED (its children
+			     are then hidden by renderRow above). svelte-dnd-action captures its
+			     drop zones AT DRAG START — `watchDraggedElement` instruments exactly
+			     the zones registered at that moment — so a zone that only appears
+			     once a drag is under way can never receive the drop. Rendering it
+			     always is what makes a collapsed group/bucket a valid target, and
+			     keeping the child rows in the DOM keeps `items` and the DOM in
+			     one-to-one correspondence, so the replace semantics and the cycle
+			     protection are unchanged.
+			     Heights: an EMPTY zone would collapse to 0px and, with
+			     `useCursorForDetection`, could never be hovered; a COLLAPSED zone
+			     has the same problem but only matters mid-drag, so it claims its
+			     strip only then. -->
 			<div
-				class:min-h-8={wrappedChildren.length === 0}
+				class:min-h-8={wrappedChildren.length === 0 || (!ctx.expanded && dragActive)}
 				use:dndzone={{
 					items: wrappedChildren,
 					type: 'tree-table-node',
@@ -361,7 +385,7 @@
 				{...childZoneAttrs}
 			>
 				{#each wrappedChildren as w, idx (w.__treeTableId)}
-					{@render renderRow(w.node, [...path, idx], depth + 1)}
+					{@render renderRow(w.node, [...path, idx], depth + 1, hidden || !ctx.expanded)}
 				{/each}
 			</div>
 		{/if}
@@ -402,7 +426,7 @@
 				{...rootZoneAttrs}
 			>
 				{#each wrappedRoots as w, idx (w.__treeTableId)}
-					{@render renderRow(w.node, [idx], 0)}
+					{@render renderRow(w.node, [idx], 0, false)}
 				{/each}
 			</div>
 

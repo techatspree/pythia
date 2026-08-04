@@ -47,8 +47,13 @@ test('collapsing a group hides its descendants', async ({ page }) => {
 	await page.locator('button[aria-label="Collapse"]').first().click();
 	await page.waitForTimeout(200);
 
-	await expect(page.locator('[data-testid="tt-row-g1a"]')).toHaveCount(0);
-	await expect(page.locator('[data-testid="tt-row-l1"]')).toHaveCount(0);
+	// Descendants stay in the DOM by design (task-134): a group's dndzone must
+	// exist at DRAG START to be a valid drop target, so collapsing hides the
+	// rows visually (`h-0 overflow-hidden invisible`) instead of removing them.
+	// Assert what the user perceives — hidden, and taking up no space.
+	await expect(page.locator('[data-testid="tt-row-g1a"]')).toBeHidden();
+	await expect(page.locator('[data-testid="tt-row-l1"]')).toBeHidden();
+	expect((await page.locator('[data-testid="tt-row-g1a"]').boundingBox())?.height ?? 0).toBe(0);
 	await expect(page.locator('[data-testid="tt-row-g2"]')).toBeVisible();
 });
 

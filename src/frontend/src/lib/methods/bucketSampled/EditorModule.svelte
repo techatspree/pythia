@@ -208,6 +208,19 @@
 		];
 	});
 
+	// Every bucket row starts collapsed, so all buckets are visible together and
+	// a cross-bucket drag stays a short movement instead of a drag-while-
+	// scrolling past a bucket's whole contents. A SEED, not reactive state:
+	// TreeTable reads `initialCollapsed` only at init, so this is evaluated once
+	// at mount — non-empty because the route assigns `currentBuckets` before it
+	// resolves the editor component. A bucket added later renders expanded (it
+	// is empty anyway), and toggling to the hierarchy view and back remounts the
+	// table, re-collapsing the rows.
+	const initiallyCollapsedBuckets = new Set<string>([
+		...buckets.map((b) => `bucket:${b.id}`),
+		'bucket:unassigned'
+	]);
+
 	function bucketTotals(row: BucketRow): CalcEntry {
 		let mean = 0;
 		let offerPT = 0;
@@ -629,6 +642,7 @@
 			getChildren={bucketGetChildren}
 			treeColumnKey="description"
 			{editable}
+			initialCollapsed={initiallyCollapsedBuckets}
 			onChildrenChange={onBucketChildrenChange}
 		/>
 		{#if editable}

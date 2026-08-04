@@ -87,6 +87,14 @@ tasks.test {
     useJUnitPlatform()
     // Quarkus requires the JBoss LogManager during tests.
     systemProperty("java.util.logging.manager", "org.jboss.logmanager.LogManager")
+    // Keep the test build hermetic: pin the auth provider to `dev` as a system
+    // property (SmallRye ordinal 400) so an ambient `APP_AUTH_PROVIDER` env var
+    // (ordinal 300) — e.g. from a developer's Entra shell that also exports
+    // ENTRA_TENANT_ID — cannot flip @QuarkusTest onto the `entra` path. That
+    // path's beans (EntraAuthFilter) inject a JsonWebToken which OIDC — disabled
+    // in %test — does not provide, which otherwise fails Arc's build-time
+    // validation with an UnsatisfiedResolutionException.
+    systemProperty("app.auth.provider", "dev")
 }
 
 // Static analysis: detekt over the backend Kotlin sources. Reports are

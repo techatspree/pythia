@@ -152,6 +152,13 @@ async function mouseDragIntoZone(
 	return engaged;
 }
 
+/** Bucket rows start collapsed (task-134), so a test that needs to see or grab
+ *  a leaf expands its bucket first. */
+async function expandBucket(page: Page, bucketId: string) {
+	await page.locator(`${row(`bucket:${bucketId}`)} button[aria-label="Expand"]`).first().click();
+	await page.waitForTimeout(250);
+}
+
 test('bucket view groups leaves by bucket, including leaves nested in groups', async ({
 	page,
 	request
@@ -173,13 +180,73 @@ test('bucket view groups leaves by bucket, including leaves nested in groups', a
 
 	// The GROUP-nested leaf appears under its bucket: the projection flattens
 	// the whole tree, so nesting no longer hides items.
+	await expandBucket(page, b2);
+	await expandBucket(page, b1);
 	await expect(page.locator(`${row(`bucket:${b2}`)} ${row(leafB)}`)).toBeVisible();
 	await expect(page.locator(`${row(`bucket:${b1}`)} ${row(leafC)}`)).toBeVisible();
+});
+
+test('bucket rows are collapsed by default', async ({ page, request }) => {
+	const errors: string[] = [];
+	page.on('pageerror', (e) => errors.push(String(e)));
+
+	const { estimationId, b1, leafC } = await seed(request);
+	await openDraft(page, estimationId);
+
+	await expect(page.locator(row(`bucket:${b1}`))).toBeVisible();
+	// The leaf rows stay in the DOM ON PURPOSE — the drop zone must exist at
+	// drag start — so assert VISIBILITY, not presence.
+	await expect(page.locator(row(leafC))).toHaveCount(1);
+	await expect(page.locator(row(leafC))).toBeHidden();
+
+	await expandBucket(page, b1);
+	await expect(page.locator(row(leafC))).toBeVisible();
+
+	expect(errors).toEqual([]);
+});
+
+test('a leaf can be dropped into a still-collapsed bucket', async ({ page, request }) => {
+	const errors: string[] = [];
+	page.on('pageerror', (e) => errors.push(String(e)));
+
+	const { estimationId, b1, b2, leafC } = await seed(request);
+	await openDraft(page, estimationId);
+
+	// Expand only the SOURCE; the target bucket stays collapsed. This is the
+	// case a spring-loaded (expand-on-hover) approach could not do: the library
+	// captures its drop zones at drag start, so a zone appearing mid-drag is
+	// never a valid target. The zone is therefore always rendered.
+	await expandBucket(page, b1);
+	const select = page.locator(`${row(leafC)} select`).first();
+	await expect(select).toHaveValue(b1);
+
+	const zone = page.locator(`${row(`bucket:${b2}`)} > [aria-label="Children"]`);
+	await page.locator(row(leafC)).scrollIntoViewIfNeeded();
+	const handle = page.locator(`${row(leafC)} [data-dnd-handle]`).first();
+	const sb = await handle.boundingBox();
+	if (!sb) throw new Error('source row not found');
+	await page.mouse.move(sb.x + sb.width / 2, sb.y + sb.height / 2);
+	await page.mouse.down();
+	await page.mouse.move(sb.x + sb.width / 2, sb.y + sb.height / 2 + 6, { steps: 4 });
+	await page.waitForTimeout(200);
+	for (let i = 0; i < 5; i++) {
+		const z = await zone.boundingBox();
+		if (!z) break;
+		await page.mouse.move(z.x + Math.min(z.width / 2, 400), z.y + z.height / 2, { steps: 6 });
+		await page.waitForTimeout(180);
+	}
+	await page.mouse.up();
+	await page.waitForTimeout(700);
+
+	await expect(select).toHaveValue(b2);
+	expect(errors).toEqual([]);
 });
 
 test('dragging a leaf between buckets re-buckets it and autosaves', async ({ page, request }) => {
 	const { estimationId, b1, b2, leafC, leafB } = await seed(request);
 	await openDraft(page, estimationId);
+	await expandBucket(page, b1);
+	await expandBucket(page, b2);
 
 	const select = page.locator(`${row(leafC)} select`).first();
 	await expect(select).toHaveValue(b1);
@@ -245,6 +312,7 @@ test('reordering bucket chips keeps every bucket', async ({ page, request }) => 
 test('a leaf can be dragged into an EMPTY bucket', async ({ page, request }) => {
 	const { estimationId, b1, b3, leafC } = await seed(request);
 	await openDraft(page, estimationId);
+	await expandBucket(page, b1);
 
 	const select = page.locator(`${row(leafC)} select`).first();
 	await expect(select).toHaveValue(b1);
@@ -284,6 +352,7 @@ test('dropping into the unassigned row is ignored (a null bucket cannot be saved
 }) => {
 	const { estimationId, b1, leafC } = await seed(request);
 	await openDraft(page, estimationId);
+	await expandBucket(page, b1);
 
 	const select = page.locator(`${row(leafC)} select`).first();
 	await expect(select).toHaveValue(b1);
