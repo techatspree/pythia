@@ -5,6 +5,8 @@
 	import RequireAuth from '$lib/auth/RequireAuth.svelte';
 	import UserMenu from '$lib/components/UserMenu.svelte';
 	import ErrorBanner from '$lib/components/ErrorBanner.svelte';
+	import ConnectionLostDialog from '$lib/components/ConnectionLostDialog.svelte';
+	import { connection } from '$lib/stores/connection.svelte';
 	import { getAuthProvider } from '$lib/auth';
 	import type { AuthAccount } from '$lib/auth/AuthProvider';
 	import { setUserLanguage } from '$lib/i18n';
@@ -111,3 +113,8 @@
 		<p class="p-6 text-sm text-gray-600">Loading…</p>
 	{/if}
 </main>
+
+<!-- Global connection watchdog: overlays every route (session chrome included). -->
+{#if connection.blocked}
+	<ConnectionLostDialog />
+{/if}

@@ -1,5 +1,10 @@
 import { getAuthProvider } from '$lib/auth';
 import { log } from '$lib/log';
+import { connection } from '$lib/stores/connection.svelte';
+
+// A hung backend (connection accepted, response never arrives) never rejects on
+// its own, so cap every request and treat the timeout as a connection loss.
+const REQUEST_TIMEOUT_MS = 10000;
 
 // Single entry point for backend calls: attaches the active auth provider's
 // Authorization header so requests are authenticated (dev: `Dev <subject>`,
@@ -24,5 +29,35 @@ export async function apiFetch(input: string, init: RequestInit = {}): Promise<R
 	// A null header is "no credentials available" (not signed in), NOT a failure:
 	// the request goes out anonymous and the backend 401 drives the sign-in message.
 	if (auth) headers.set('Authorization', auth);
-	return fetch(input, { ...init, headers });
+
+	// Impose our own timeout, forwarding a caller-supplied signal so a caller can
+	// still cancel. A caller-initiated cancel is NOT a connection loss; our
+	// timeout or a network rejection is.
+	const controller = new AbortController();
+	const timer = setTimeout(
+		() => controller.abort(new DOMException('Request timed out', 'TimeoutError')),
+		REQUEST_TIMEOUT_MS
+	);
+	const callerSignal = init.signal ?? undefined;
+	callerSignal?.addEventListener('abort', () => controller.abort(callerSignal.reason), { once: true });
+
+	let res: Response;
+	try {
+		res = await fetch(input, { ...init, headers, signal: controller.signal });
+	} catch (e) {
+		if (callerSignal?.aborted !== true) {
+			connection.reportLost('The backend could not be reached.');
+		}
+		throw e;
+	} finally {
+		clearTimeout(timer);
+	}
+
+	// Gateway / service-unavailable statuses mean the backend is not reachable
+	// behind the proxy — a connection loss, unlike an ordinary 4xx/5xx business
+	// error (those keep the non-blocking ErrorBanner path via assertOk).
+	if (res.status === 502 || res.status === 503 || res.status === 504) {
+		connection.reportLost('The backend is temporarily unavailable.');
+	}
+	return res;
 }

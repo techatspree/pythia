@@ -13,6 +13,12 @@
 		"generic": "An unexpected error occurred.",
 		"backHome": "Back to start"
 	},
+	"connection": {
+		"title": "Connection to the server lost",
+		"body": "Your last change could not be saved and is lost. To avoid saving inconsistent data, the application is paused until the server is reachable again.",
+		"reconnecting": "Reconnecting…",
+		"acknowledge": "I understand — my last change is lost"
+	},
 	"menu": {
 		"user": {
 			"logout": "Logout"

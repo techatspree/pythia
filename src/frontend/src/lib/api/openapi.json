@@ -1273,6 +1273,9 @@
     "name" : "Estimations",
     "description" : "Estimations and their draft calculation"
   }, {
+    "name" : "Health",
+    "description" : "Liveness heartbeat for the frontend connection watchdog"
+  }, {
     "name" : "Projects",
     "description" : "Projects and their estimations"
   } ],
@@ -2058,6 +2061,22 @@
         "security" : [ {
           "SecurityScheme" : [ "VIEWER" ]
         } ]
+      }
+    },
+    "/api/ping" : {
+      "get" : {
+        "summary" : "Unauthenticated liveness heartbeat",
+        "tags" : [ "Health" ],
+        "responses" : {
+          "200" : {
+            "description" : "The backend is reachable",
+            "content" : {
+              "application/json" : {
+                "schema" : { }
+              }
+            }
+          }
+        }
       }
     },
     "/api/projects" : {

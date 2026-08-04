@@ -98,9 +98,12 @@ steps:
     original error. After a successful `fetch`, if `res.status` is 502/503/504
     call `connection.reportLost(<message>)` (still return the response so existing
     `assertOk` handling is unchanged). Do NOT treat the existing
-    `Authentication failed` throw (token acquisition) as a connection loss. If the
-    caller passed its own `init.signal`, respect it (combine or prefer the
-    caller's) rather than silently overriding.
+    `Authentication failed` throw (token acquisition) as a connection loss. Treat
+    ONLY our own ~10s timeout abort as a connection loss — a caller-initiated
+    cancel (a caller-supplied `init.signal` firing) must NOT trigger the dialog;
+    if a caller passed its own signal, respect it and distinguish it from the
+    timeout (e.g. compare the abort reason / signal). (No current call site passes
+    a signal, so `AbortSignal.timeout(10000)` alone is sufficient today.)
   - |
     Add `src/frontend/src/lib/components/ConnectionLostDialog.svelte`: a blocking
     modal (`fixed inset-0 bg-black/50 z-50`, `role="dialog" aria-modal="true"`),

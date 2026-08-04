@@ -1,0 +1,272 @@
+id: task-138
+phase: phase-16
+title: Hardwire the standard estimation parameters as typed fields
+depends_on: [task-135]
+description: |
+  The three parameters the calculation depends on — daily rate, std-deviation
+  factor, sales surcharge — are stored as GENERIC name/value rows and looked
+  up by **English string names** at calculation time:
+
+      // EstimationVersion.calculate()
+      val stdDevFactor  = parameterValue("stdDevFactor")  ?: EstimationDefaults.STD_DEV_FACTOR
+      val dailyRate     = parameterValue("dailyRate")     ?: EstimationDefaults.DAILY_RATE
+      val salesSurcharge= parameterValue("salesSurcharge") ?: EstimationDefaults.SALES_SURCHARGE
+
+  and `ParametersPanel.svelte` renders the NAME as an editable `<input>` plus
+  an "+ Add parameter" button. So a user can rename `dailyRate` — and the
+  lookup then misses and **silently falls back to the default**. No error, no
+  warning: the estimate just quietly computes with 800 €/day.
+
+  This is not hypothetical — it was OBSERVED in the production database, which
+  at the time held a row named `Tagessatz` instead of `dailyRate`, so that
+  estimation was silently calculating on the 800 €/day fallback. It has since
+  been renamed back by hand, so the data is currently clean
+  (`dailyRate` / `stdDevFactor` / `salesSurcharge` only) — which is precisely
+  why the migration needs NO alias handling. The trap has now bitten twice:
+  `V11` already had to rename German keys to English after task-121 changed
+  the lookup strings. Renaming will stay a hazard for as long as the lookup
+  key is user-editable text, which is what this task removes.
+
+  ## Target state
+
+  The three parameters become **first-class typed fields** — part of the
+  model, not user-named data. They cannot be renamed, added, or deleted, so
+  the calculation can never miss them, and the GUI shows three fixed inputs
+  whose LABELS come from the i18n catalogs (which is what makes the panel
+  translatable without touching semantics).
+
+  ## Frozen decisions (do not re-open)
+
+  - **Domain.** Replace `EstimationVersion.parameters: List<EstimationParameter>`
+    with three non-null `Double` fields carrying the existing defaults from
+    `EstimationDefaults`: `dailyRate = 800.0`, `stdDevFactor = 2.0`,
+    `salesSurcharge = 0.1`. `calculate()` and
+    `EstimationCalculator`'s invariant checks read the fields directly;
+    `parameterValue(name)` and the string constants disappear. Keep
+    `EstimationDefaults` as the single source of the default values.
+  - **Delete `EstimationParameter` and the generic list entirely.** There is
+    no "custom parameter" feature to preserve: the query above shows only the
+    three canonical rows exist in production. Do NOT add a generic
+    escape-hatch list "just in case" — that would reintroduce exactly the
+    modelling this task removes.
+  - **KMP.** `EstimationVersion` is `@DomainEntity` and compiles to JS for the
+    frontend. Adding value fields is safe, but the frontend `adapter.ts` and
+    `DomainFactory.kt`'s `createVersion(...)` factory take the parameter list —
+    both must move to the new signature. Remember the Kotlin/JS rules already
+    recorded in CLAUDE.md: `@JsExport` secondary constructors need `@JsName`,
+    and two `data class` constructors whose value types erase to the same JVM
+    signature clash — differentiate by arity. Do NOT call
+    `super.<computed property>` anywhere (infinite recursion on Kotlin/JS).
+  - **Persistence.** Add `daily_rate`, `std_dev_factor`, `sales_surcharge`
+    (`DOUBLE PRECISION NOT NULL DEFAULT …`) to BOTH
+    `draft_estimation_versions` and `submitted_estimation_versions` in a new
+    `V16__hardwire_estimation_parameters.sql`, backfill each from the matching
+    parameter row, then DROP `draft_estimation_parameters` and
+    `submitted_estimation_parameters`.
+    **Match the canonical English names EXACTLY — no alias handling.** The
+    single renamed row that motivated this task has since been renamed back;
+    the database now holds only `dailyRate`, `stdDevFactor` and
+    `salesSurcharge`, so there is nothing to translate. Do NOT reintroduce
+    V11's German aliases. A row that matches no canonical name simply leaves
+    the column at its default.
+    Note the value column is `param_value` (not `value`), and the join column
+    is `version_id`.
+  - **The constraint is also declared on the entity.** Whatever the migration
+    adds must be reflected in the JPA entities, because `%dev`/`%test` build
+    their schema from Hibernate with Flyway disabled — a migration-only change
+    does not exist where the tests run (the lesson recorded in CLAUDE.md after
+    the bucket-position bug).
+  - **Undo log compatibility.** `DraftMutationLogEntry.payload` /
+    `inverse_payload` store serialised `DraftUpdateDto` JSON, and existing rows
+    contain a `parameters` array. After the DTO changes, replaying an old entry
+    must not explode: configure the DTO deserialisation to IGNORE unknown
+    properties (`@JsonIgnoreProperties(ignoreUnknown = true)` on
+    `DraftUpdateDto`, if not already effective), and treat a missing typed
+    field as its default. Do NOT attempt to rewrite historical log payloads.
+  - **REST contract.** `DraftUpdateDto`, `EstimationVersionDto` and the
+    submitted DTOs expose the three fields instead of a `parameters` array.
+    This changes the OpenAPI document, so regenerate the committed client the
+    way task-114's wiring expects (`./gradlew build` refreshes
+    `src/frontend/src/lib/api/openapi.json`; `schema.d.ts` follows).
+  - **Frontend.** `ParametersPanel.svelte` renders exactly three labelled
+    number inputs bound to the typed fields — no name `<input>`, no
+    "+ Add parameter", no delete. Labels/units come from NEW i18n keys in BOTH
+    `de.json` and `en.json` (equal key sets), e.g.
+    `panel.parameters.dailyRate` / `.stdDevFactor` / `.salesSurcharge`. Keep
+    the existing "use defaults" affordance if it still makes sense; drop
+    `panel.parameters.colName`/`.addRow` keys that become dead.
+  - Exports (`ExcelExporter`), `TestDataSeeder`, and the ~15 test files that
+    build parameter lists all move to the typed fields. Excel/CSV output
+    should keep showing the three values; their column labels stay in
+    `ExcelGermanLabels` (customer-facing German labels are external data).
+
+steps:
+  - |
+    Domain first. In `src/domain/src/main/kotlin/io/github/theestimator/model/`:
+      - add `dailyRate`, `stdDevFactor`, `salesSurcharge` (`Double`, defaulted
+        from `EstimationDefaults`) to `EstimationVersion`; delete the
+        `parameters` property and `parameterValue(name)`.
+      - update `calculate()` to read the fields.
+      - delete `EstimationParameter.kt`.
+      - update `service/EstimationCalculator.kt`'s invariant checks the same
+        way.
+      - update the JS-facing factory in `DomainFactory.kt` (`createVersion`)
+        to take the three values instead of a parameter array.
+    Then: `./gradlew :domain:build`
+
+  - |
+    Backend persistence. Add
+    `src/backend/implementation/src/main/resources/db/migration/V16__hardwire_estimation_parameters.sql`:
+      - `ALTER TABLE draft_estimation_versions ADD COLUMN daily_rate DOUBLE PRECISION NOT NULL DEFAULT 800`,
+        likewise `std_dev_factor` (DEFAULT 2) and `sales_surcharge` (DEFAULT 0.1);
+        same three columns on `submitted_estimation_versions`.
+      - backfill each column with an `UPDATE … FROM (SELECT …)` over the
+        parameter table, matching `name` against the canonical English key
+        exactly (`param_value` holds the number, `version_id` is the join
+        column). No alias handling — see the frozen decision.
+      - `DROP TABLE draft_estimation_parameters, submitted_estimation_parameters`.
+    Mirror the columns on `DraftEstimationVersion` / `SubmittedEstimationVersion`
+    entities and delete the `*EstimationParameter` entities + their collections.
+
+  - |
+    Backend service/REST layer: update `DraftUpdateApplier.applyParameters`
+    (now a plain field assignment), `DraftVersionMapper`,
+    `EstimationVersionMapper`, `DraftSnapshotMapper`, and the DTOs
+    (`DraftUpdateDto`, `EstimationParameterDto` removal, version DTOs) so the
+    three values travel as typed fields. Ensure old undo payloads still
+    deserialise (ignore-unknown). Keep the existing `Log` statements; add a
+    `Log.warn` if a persisted value is missing and the default is substituted.
+
+  - |
+    Regenerate the committed OpenAPI client (contract change):
+      ./gradlew build
+    then confirm `src/frontend/src/lib/api/openapi.json` and `schema.d.ts`
+    carry the new fields and no longer carry a parameters array.
+
+  - |
+    Frontend: rewrite `src/frontend/src/lib/components/ParametersPanel.svelte`
+    as three labelled number inputs bound to the typed fields (`$bindable`, in
+    line with the editor's existing two-way-binding convention — do NOT
+    reintroduce snapshot+onchange). Update the version editor route that owns
+    `currentParameters` accordingly, and `adapter.ts` where it calls
+    `createVersion(...)`. Add the new i18n keys to BOTH catalogs and remove the
+    dead ones. No bare `console.*`; surface failures via `ErrorBanner` as today.
+
+  - |
+    Update every test that builds parameter lists — the domain tests
+    (`EstimationVersionTreeTest`, `EstimationCalculatorInvariantsTest`,
+    `EstimationNodeTest`, `TimeRelativeEstimationItemTest`, the three
+    method-module tests), the backend ITs (`EstimationVersionResourceIT`,
+    `SubmissionTreeIT`, `DraftSnapshotRoundTripIT`, `UndoServiceIT`), and the
+    Playwright specs that PUT `parameters` (`smoke`, `undo`, `session`,
+    `bucket-views`). Add a backend IT proving a non-default value survives the
+    round trip: PUT a draft with e.g. `dailyRate = 1234.0`, GET it back, and
+    assert the typed field still reads 1234.0 (i.e. the value is persisted in
+    the new column, not silently replaced by the 800 default).
+
+  - |
+    Update `CLAUDE.md`: the parameter keys are no longer looked up by name —
+    record the typed fields, that they cannot be renamed by users, that the
+    generic parameter tables/entities are gone, and that GUI labels are i18n
+    keys. Remove/replace the task-121 wording about Anglicised parameter keys
+    being the lookup contract.
+
+  - |
+    Full gate:
+      ./gradlew build
+      cd src/frontend && npm run test:e2e
+
+validation:
+  - |
+    The generic parameter model is gone from the domain:
+      ! test -f src/domain/src/main/kotlin/io/github/theestimator/model/EstimationParameter.kt
+      ! grep -q "parameterValue" src/domain/src/main/kotlin/io/github/theestimator/model/EstimationVersion.kt
+      ! grep -q '"dailyRate"' src/domain/src/main/kotlin/io/github/theestimator/model/EstimationVersion.kt
+      # NOTE: assert the CONSTRUCTOR PROPERTY (typed), not a bare `val dailyRate`
+      # — today `calculate()` declares local vals with those exact names, so the
+      # untyped form matches before any change is made.
+      grep -qE "val dailyRate: Double" src/domain/src/main/kotlin/io/github/theestimator/model/EstimationVersion.kt
+      grep -qE "val stdDevFactor: Double" src/domain/src/main/kotlin/io/github/theestimator/model/EstimationVersion.kt
+      grep -qE "val salesSurcharge: Double" src/domain/src/main/kotlin/io/github/theestimator/model/EstimationVersion.kt
+  - |
+    The migration exists, backfills from the real value column, drops the old
+    tables, and does NOT reintroduce the German aliases:
+      M=src/backend/implementation/src/main/resources/db/migration/V16__hardwire_estimation_parameters.sql
+      test -f "$M"
+      grep -q "daily_rate" "$M"
+      grep -q "param_value" "$M"
+      grep -qi "DROP TABLE" "$M"
+      ! grep -qi "Tagessatz\|Standardabweichungsfaktor\|Vertriebszuschlag" "$M"
+  - |
+    The columns are ALSO on the entities (dev/test build their schema from
+    Hibernate, so a migration-only change would not exist where tests run):
+      grep -q "daily_rate" src/backend/implementation/src/main/kotlin/io/github/theestimator/domain/draft/DraftEstimationVersion.kt
+      grep -q "daily_rate" src/backend/implementation/src/main/kotlin/io/github/theestimator/domain/submitted/SubmittedEstimationVersion.kt
+  - |
+    The GUI can no longer rename a parameter, and the labels are i18n keys:
+      ! grep -q "update(i, 'name'" src/frontend/src/lib/components/ParametersPanel.svelte
+      ! grep -q "addRow" src/frontend/src/lib/components/ParametersPanel.svelte
+      grep -q "panel.parameters.dailyRate" src/frontend/src/lib/components/ParametersPanel.svelte
+      grep -q "panel.parameters.dailyRate" src/frontend/src/lib/i18n/de.json
+      grep -q "panel.parameters.dailyRate" src/frontend/src/lib/i18n/en.json
+      ! grep -q "console\." src/frontend/src/lib/components/ParametersPanel.svelte
+  - |
+    de/en catalogs keep equal key sets:
+      cd src/frontend && node -e "const d=require('./src/lib/i18n/de.json'),e=require('./src/lib/i18n/en.json');const f=(o,p='')=>Object.entries(o).flatMap(([k,v])=>typeof v==='object'&&v?f(v,p+k+'.'):[p+k]);const a=f(d).sort(),b=f(e).sort();if(JSON.stringify(a)!==JSON.stringify(b))throw new Error('key sets differ');console.log('ok',a.length)"
+  - |
+    The regenerated contract carries the typed fields, not a parameter array:
+      grep -q "dailyRate" src/frontend/src/lib/api/openapi.json
+      ! grep -q "EstimationParameterDto" src/frontend/src/lib/api/openapi.json
+  - |
+    A test proves a non-default value round-trips through the new column
+    (rather than being silently replaced by the 800 default):
+      grep -rq "1234" src/backend/implementation/src/test/kotlin/io/github/theestimator/rest/EstimationVersionResourceIT.kt
+  - |
+    Domain, full build and the e2e suite are green:
+      ./gradlew :domain:build
+      ./gradlew build
+      cd src/frontend && npm run test:e2e
+  - |
+    CLAUDE.md documents the typed fields rather than name-based lookup:
+      grep -qi "dailyRate" CLAUDE.md
+      grep -qiE "typed field|hardwired" CLAUDE.md
+
+outputs:
+  - modified: src/domain/src/main/kotlin/io/github/theestimator/model/EstimationVersion.kt
+  - deleted: src/domain/src/main/kotlin/io/github/theestimator/model/EstimationParameter.kt
+  - modified: src/domain/src/main/kotlin/io/github/theestimator/model/EstimationDefaults.kt
+  - modified: src/domain/src/main/kotlin/io/github/theestimator/service/EstimationCalculator.kt
+  - modified: src/domain/src/main/kotlin/io/github/theestimator/model/DomainFactory.kt
+  - created: src/backend/implementation/src/main/resources/db/migration/V16__hardwire_estimation_parameters.sql
+  - modified: src/backend/implementation/src/main/kotlin/io/github/theestimator/domain/draft/DraftEstimationVersion.kt
+  - modified: src/backend/implementation/src/main/kotlin/io/github/theestimator/domain/submitted/SubmittedEstimationVersion.kt
+  - modified: src/backend/implementation/src/main/kotlin/io/github/theestimator/service/DraftUpdateApplier.kt
+  - modified: src/backend/implementation/src/main/kotlin/io/github/theestimator/service/DraftVersionMapper.kt
+  - modified: src/backend/implementation/src/main/kotlin/io/github/theestimator/service/DraftSnapshotMapper.kt
+  - modified: src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/dto/EstimationVersionMapper.kt
+  - modified: src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/dto/DraftUpdateDto.kt
+  - modified: src/backend/implementation/src/main/kotlin/io/github/theestimator/service/ExcelExporter.kt
+  - modified: src/backend/implementation/src/main/kotlin/io/github/theestimator/testdata/TestDataSeeder.kt
+  - modified: src/backend/implementation/src/test/kotlin/io/github/theestimator/rest/EstimationVersionResourceIT.kt
+  - modified: src/backend/implementation/src/test/kotlin/io/github/theestimator/rest/SubmissionTreeIT.kt
+  - modified: src/backend/implementation/src/test/kotlin/io/github/theestimator/service/DraftSnapshotRoundTripIT.kt
+  - modified: src/backend/implementation/src/test/kotlin/io/github/theestimator/service/UndoServiceIT.kt
+  - modified: src/domain/src/test/kotlin/io/github/theestimator/model/EstimationVersionTreeTest.kt
+  - modified: src/domain/src/test/kotlin/io/github/theestimator/model/EstimationCalculatorInvariantsTest.kt
+  - modified: src/domain/src/test/kotlin/io/github/theestimator/model/EstimationNodeTest.kt
+  - modified: src/domain/src/test/kotlin/io/github/theestimator/model/TimeRelativeEstimationItemTest.kt
+  - modified: src/domain/src/test/kotlin/io/github/theestimator/method/threepoint/ThreePointMethodModuleTest.kt
+  - modified: src/domain/src/test/kotlin/io/github/theestimator/method/bucketsampled/BucketMethodModuleTest.kt
+  - modified: src/domain/src/test/kotlin/io/github/theestimator/method/bucketsampled/BucketedEstimationItemTest.kt
+  - modified: src/frontend/src/lib/components/ParametersPanel.svelte
+  - modified: src/frontend/src/routes/estimations/[id]/versions/[versionNumber]/+page.svelte
+  - modified: src/frontend/src/lib/adapter.ts
+  - modified: src/frontend/src/lib/i18n/de.json
+  - modified: src/frontend/src/lib/i18n/en.json
+  - modified: src/frontend/src/lib/api/openapi.json
+  - modified: src/frontend/src/lib/api/schema.d.ts
+  - modified: src/frontend/e2e/smoke.test.ts
+  - modified: src/frontend/e2e/undo.test.ts
+  - modified: src/frontend/e2e/session.test.ts
+  - modified: src/frontend/e2e/bucket-views.test.ts
+  - modified: CLAUDE.md

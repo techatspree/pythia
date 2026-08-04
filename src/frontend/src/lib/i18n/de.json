@@ -13,6 +13,12 @@
 		"generic": "Ein unerwarteter Fehler ist aufgetreten.",
 		"backHome": "Zurück zum Start"
 	},
+	"connection": {
+		"title": "Verbindung zum Server verloren",
+		"body": "Ihre letzte Änderung konnte nicht gespeichert werden und ist verloren. Um das Speichern inkonsistenter Daten zu vermeiden, ist die Anwendung angehalten, bis der Server wieder erreichbar ist.",
+		"reconnecting": "Verbindung wird wiederhergestellt…",
+		"acknowledge": "Verstanden — meine letzte Änderung ist verloren"
+	},
 	"menu": {
 		"user": {
 			"logout": "Abmelden"
