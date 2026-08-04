@@ -1,6 +1,6 @@
 import { test, expect, type Page } from '@playwright/test';
 
-const API = 'http://localhost:8080';
+const API = 'http://localhost:8090';
 
 // The API endpoints are role-protected (task-091); authenticate the raw
 // request context as dev-admin. UI navigations already run as dev-admin via
@@ -122,7 +122,7 @@ test('undo/redo revert and re-apply via toolbar buttons', async ({ page }) => {
 	await expect(page.locator(cellSelector)).toHaveValue('9');
 });
 
-test('Verlauf button reveals the history panel and scrolls it into view', async ({ page }) => {
+test('Verlauf button toggles the history section under the toolbar', async ({ page }) => {
 	const projectId = await createProject(page);
 	const estimationId = await createEstimation(page, projectId);
 	const versionNumber = await createDraft(page, estimationId);
@@ -141,11 +141,20 @@ test('Verlauf button reveals the history panel and scrolls it into view', async 
 
 	await verlaufBtn.click();
 
-	// The button reflects the open state and the panel is brought into view.
+	// The button reflects the open state, and the panel is already in view —
+	// it renders directly under the toolbar (task-109), so NO scrolling is
+	// involved. Do not add a scroll here: that would let the old
+	// scroll-into-view workaround be reintroduced without failing this test.
 	await expect(verlaufBtn).toHaveAttribute('aria-pressed', 'true');
 	const panelHeader = page.getByText('Verlauf', { exact: true }).last();
 	await expect(panelHeader).toBeInViewport();
 	await expect(page.locator('ul li')).not.toHaveCount(0);
+
+	// Toggling off hides it again. Note "Verlauf" also matches the toolbar
+	// button's own label, so assert on the panel's rows rather than its header.
+	await verlaufBtn.click();
+	await expect(verlaufBtn).toHaveAttribute('aria-pressed', 'false');
+	await expect(page.locator('ul li')).toHaveCount(0);
 });
 
 test('undo conflict opens the dialog; reload adopts the other user value', async ({ page }) => {

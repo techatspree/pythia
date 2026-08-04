@@ -1,6 +1,6 @@
 import { test, expect, type Page, type Locator } from '@playwright/test';
 
-const API = 'http://localhost:8080';
+const API = 'http://localhost:8090';
 
 // The API endpoints are role-protected (task-091). Raw `page.request` calls
 // bypass the frontend's apiFetch, so authenticate the request context as

@@ -1,0 +1,160 @@
+id: task-137
+phase: phase-14
+title: Move the local dev backend to port 8090
+depends_on: [task-114]
+description: |
+  The local dev backend (`./scripts/dev.sh` → `:backend:implementation:quarkusDev`)
+  listens on Quarkus' default port **8080**, which is the same port used to
+  reach the minikube deployment:
+
+      kubectl -n estimation port-forward svc/frontend 8080:80
+
+  Both can bind at once on macOS (the port-forward binds `127.0.0.1:8080`,
+  Quarkus binds `0.0.0.0:8080`), and the more specific loopback binding wins
+  for `localhost` traffic. The result is silent and confusing: the Vite dev
+  proxy and the Playwright suite reach the CLUSTER instead of the local dev
+  backend, which rejects `Authorization: Dev …` headers, so dozens of e2e
+  tests fail with `401 Authentication required` while both stacks look
+  healthy. This has cost three separate debugging detours; the port-forward
+  has to be killed to run the suite, and restarted afterwards.
+
+  Target state: the local dev backend listens on **8090**, so 8080 stays
+  free for the minikube port-forward and the two never collide.
+
+  ## Frozen decisions (do not re-open)
+
+  - **Scope the change to the `dev` profile only:**
+    `%dev.quarkus.http.port=8090`. It MUST NOT be unprofiled. The generated
+    OpenAPI document embeds a `servers` block built from the augmentation-time
+    HTTP port (`http://localhost:8080`, `http://0.0.0.0:8080`), and the
+    committed `src/frontend/src/lib/api/openapi.json` is verified against the
+    backend by task-114's wiring. An unprofiled port change would rewrite
+    that block and churn the committed schema for no reason.
+  - **Do NOT touch anything cluster-side.** `k8s/base/backend/service.yaml`
+    and `deployment.yaml` use 8080 as the in-cluster container/service port —
+    that is unrelated to the local collision and must stay. Likewise leave
+    `scripts/minikube-deploy.sh`'s port-forward hints (`svc/frontend 8080:80`,
+    `svc/backend 8080:8080`) and its `VITE_ENTRA_REDIRECT_URI` default
+    (`http://localhost:8080`, the URL the port-forwarded frontend is served
+    on) exactly as they are — 8080 remains correct for all of those.
+  - **Leave `%test` alone.** `@QuarkusTest` uses `quarkus.http.test-port` /
+    random ports; the backend ITs are unaffected.
+  - **Leave `src/backend/end2end`'s default** (`System.getProperty(
+    "backend.url", "http://localhost:8080")`) as is: that module targets the
+    minikube port-forward `svc/backend 8080:8080` and is always invoked with
+    an explicit `-Dbackend.url` on that path.
+  - **8090** specifically: verified free, and clear of 8080 (minikube
+    port-forward), 5173 (Vite), 5432 (Dev Services PostgreSQL), and 8081
+    (used in the docs for the port-forwarded frontend during e2e).
+  - Every LIVE consumer of the dev backend URL moves together — the Vite
+    proxy, the Playwright specs, `dev.sh`'s readiness poll, and the docs.
+    Historical `planning/tasks/*.yaml` files are records of past work and
+    MUST NOT be edited.
+
+steps:
+  - |
+    In `src/backend/implementation/src/main/resources/application.properties`,
+    add next to the other `%dev.` settings:
+      %dev.quarkus.http.port=8090
+    with a comment saying why (8080 is left free for
+    `kubectl port-forward svc/frontend 8080:80`), and noting that it is
+    profile-scoped so the generated OpenAPI `servers` block stays on 8080.
+
+  - |
+    Update `scripts/dev.sh`: the readiness poll and the "Backend ready at …"
+    message currently hardcode `http://localhost:8080`. Point both at 8090.
+    Do not change how the backend is launched (`quarkusDev` picks the port
+    up from the `dev` profile).
+
+  - |
+    Update `src/frontend/vite.config.ts`: both proxy targets
+    (`'/api'` and the `'/ws'` websocket entry) must point at
+    `http://localhost:8090`.
+
+  - |
+    Update every Playwright spec that talks to the API directly. Each of
+    these declares `const API = 'http://localhost:8080'`:
+      src/frontend/e2e/auth.test.ts
+      src/frontend/e2e/auth-gate.test.ts
+      src/frontend/e2e/endpoint-authorization.test.ts
+      src/frontend/e2e/language.test.ts
+      src/frontend/e2e/merlin-import.test.ts
+      src/frontend/e2e/session.test.ts
+      src/frontend/e2e/smoke.test.ts
+      src/frontend/e2e/undo.test.ts
+    Change each to `http://localhost:8090`, plus the comment in
+    `auth-gate.test.ts` that mentions ":8080". Note `merlin-export.test.ts`
+    and `bucket-views.test.ts` use relative `/api/...` paths through the
+    Playwright `baseURL` (Vite) and therefore need no change.
+
+  - |
+    Update the docs that state the dev backend port: `docs/authentication.md`
+    (several mentions of ":8080" / "port 8080" for the dev backend) and the
+    dev-stack line in `.claude/commands/implement-task.md`. Add a short note
+    to `CLAUDE.md`'s "Build & run" section recording the port AND the reason,
+    so nobody "helpfully" moves it back to 8080.
+
+  - |
+    Verify end to end. Restart the dev stack so the new port takes effect,
+    and prove the collision is gone by running the suite WITH a
+    `kubectl port-forward svc/frontend 8080:80` active (if minikube is
+    available; otherwise just confirm nothing binds 8080):
+      ./scripts/dev.sh          # backend must come up on :8090
+      curl -s -o /dev/null -w '%{http_code}' -H 'Authorization: Dev dev-admin' \
+        http://localhost:8090/api/auth/me     # expect 200
+      cd src/frontend && npm run test:e2e
+
+  - |
+    Full gate:
+      ./gradlew build
+      cd src/frontend && npm run test:e2e
+
+validation:
+  - |
+    The port is set for the dev profile ONLY (an unprofiled key would churn
+    the committed OpenAPI servers block):
+      grep -q "^%dev.quarkus.http.port=8090" src/backend/implementation/src/main/resources/application.properties
+      ! grep -qE "^quarkus\.http\.port=" src/backend/implementation/src/main/resources/application.properties
+  - |
+    Every live consumer moved; no live source still points the DEV backend
+    at 8080:
+      grep -q "8090" scripts/dev.sh
+      ! grep -q "localhost:8080" scripts/dev.sh
+      grep -c "localhost:8090" src/frontend/vite.config.ts | grep -qx 2
+      ! grep -q "localhost:8080" src/frontend/vite.config.ts
+      ! grep -rq "http://localhost:8080" src/frontend/e2e/
+  - |
+    Cluster-side ports are untouched (8080 is still correct there):
+      grep -q "8080" k8s/base/backend/service.yaml
+      grep -q "8080" k8s/base/backend/deployment.yaml
+      grep -q "svc/frontend 8080:80" scripts/minikube-deploy.sh
+  - |
+    The committed OpenAPI schema did NOT change (proves the profile scoping
+    worked — an unprofiled port would rewrite the servers block):
+      ./gradlew :frontend:syncBackendOpenapi
+      grep -q '"url" : "http://localhost:8080"' src/frontend/src/lib/api/openapi.json
+  - |
+    Docs record the new port and the reason:
+      grep -q "8090" docs/authentication.md
+      grep -q "8090" CLAUDE.md
+      ! grep -q "dev backend on :8080" docs/authentication.md
+  - |
+    Full build and the e2e suite pass against the relocated backend:
+      ./gradlew build
+      cd src/frontend && npm run test:e2e
+
+outputs:
+  - modified: src/backend/implementation/src/main/resources/application.properties
+  - modified: scripts/dev.sh
+  - modified: src/frontend/vite.config.ts
+  - modified: src/frontend/e2e/auth.test.ts
+  - modified: src/frontend/e2e/auth-gate.test.ts
+  - modified: src/frontend/e2e/endpoint-authorization.test.ts
+  - modified: src/frontend/e2e/language.test.ts
+  - modified: src/frontend/e2e/merlin-import.test.ts
+  - modified: src/frontend/e2e/session.test.ts
+  - modified: src/frontend/e2e/smoke.test.ts
+  - modified: src/frontend/e2e/undo.test.ts
+  - modified: docs/authentication.md
+  - modified: .claude/commands/implement-task.md
+  - modified: CLAUDE.md

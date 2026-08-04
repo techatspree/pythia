@@ -85,7 +85,7 @@ anonymous → 401; a malformed header, wrong scheme (`Bearer`, lowercase
 runs the dev module (`%dev`, `%test`), so authz paths are exercised the same
 way locally as under Entra.
 
-Because the dev backend on :8080 enforces this itself, the
+Because the dev backend on :8090 enforces this itself, the
 `e2e/auth-gate.test.ts` cases run directly against it — no separate strict
 backend, and no environment switch needed to enable them.
 
@@ -94,7 +94,7 @@ backend, and no environment switch needed to enable them.
 `src/frontend/e2e/auth.test.ts` exercises the canary endpoint
 `/api/admin/ping` (gated by `@RolesAllowed("ADMIN")`) and the
 provider-agnostic `/api/auth/me` endpoint against the **dev**
-backend (port 8080), which runs the strict dev module. Five API-level
+backend (port 8090), which runs the strict dev module. Five API-level
 cases, all using Playwright's `request` fixture (no browser navigation):
 
 | #  | Case                                                                                              | Expectation                                                 |
@@ -112,16 +112,16 @@ can distinguish `dev-viewer` (403) from `dev-admin` (200).
 
 `e2e/auth-gate.test.ts` adds three API-level cases proving the strict
 rejection (no header, unknown `Dev` subject, and a `Bearer` token) plus
-the SPA dev-login-dialog gate, all against the dev backend on :8080.
+the SPA dev-login-dialog gate, all against the dev backend on :8090.
 
-Run the full suite (dev backend on :8080 must be up):
+Run the full suite (dev backend on :8090 must be up):
 
 ```bash
 cd src/frontend && npx playwright test
 ```
 
 Expected count: **27 passing** (smoke 13 + tree-table 5 + auth-gate 4 +
-auth 5); all run against the dev backend on :8080, Docker up.
+auth 5); all run against the dev backend on :8090, Docker up.
 
 
 ## What NOT to do

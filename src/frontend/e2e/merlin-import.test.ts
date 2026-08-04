@@ -1,7 +1,7 @@
 import { test, expect, type APIRequestContext } from '@playwright/test';
 import { fileURLToPath } from 'node:url';
 
-const API = 'http://localhost:8080';
+const API = 'http://localhost:8090';
 const LOCAL = 'http://localhost:5173';
 
 // Merlin WBS import (task-131): from the estimation detail page, upload the real

@@ -1,9 +1,9 @@
 import { test, expect, request as playwrightRequest } from '@playwright/test';
 
 // The dev module is strict (no default-user fallback), so the dev backend on
-// :8080 rejects unauthenticated/invalid requests itself — no separate strict
+// :8090 rejects unauthenticated/invalid requests itself — no separate strict
 // backend needed.
-const API = 'http://localhost:8080';
+const API = 'http://localhost:8090';
 
 test.describe('unauthenticated SPA gate', () => {
 	// Override the globally pre-seeded dev-admin localStorage so this

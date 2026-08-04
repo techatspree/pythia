@@ -5,7 +5,7 @@ import { loginAsDev } from './helpers';
 // as a DEDICATED dev user (dev-estimator), NOT the globally pre-seeded dev-admin,
 // so persisting a switch here can never contaminate the German assertions in the
 // rest of the suite (files run in parallel against one shared backend).
-const API = 'http://localhost:8080';
+const API = 'http://localhost:8090';
 const AUTH = { Authorization: 'Dev dev-estimator' } as const;
 
 async function setLanguage(page: Page, code: 'de' | 'en'): Promise<void> {

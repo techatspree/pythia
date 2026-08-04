@@ -1,6 +1,6 @@
 import { test, expect, request as playwrightRequest } from '@playwright/test';
 
-const API = 'http://localhost:8080';
+const API = 'http://localhost:8090';
 
 test('unauthenticated /api/auth/me is rejected with 401 (strict dev module)', async () => {
 	const ctx = await playwrightRequest.newContext({ baseURL: API });

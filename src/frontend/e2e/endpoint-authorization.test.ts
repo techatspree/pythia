@@ -1,7 +1,7 @@
 import { test, expect, request as playwrightRequest } from '@playwright/test';
 import { loginAsDev } from './helpers';
 
-const API = 'http://localhost:8080';
+const API = 'http://localhost:8090';
 
 // ── API-level authorization contract ────────────────────────────────────────
 

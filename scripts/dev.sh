@@ -102,10 +102,10 @@ cd "$PROJECT_ROOT"
 BACKEND_PID=$!
 
 echo "Waiting for backend to be ready..."
-until curl -s -o /dev/null http://localhost:8080/q/health 2>/dev/null; do
+until curl -s -o /dev/null http://localhost:8090/q/health 2>/dev/null; do
     sleep 2
 done
-echo "Backend ready at http://localhost:8080"
+echo "Backend ready at http://localhost:8090"
 
 echo "Starting frontend..."
 cd "$FRONTEND_DIR"

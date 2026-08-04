@@ -25,7 +25,11 @@ description: |
       `showHistory` turns true.
     - The toolbar "Verlauf" button (in the `flex items-center gap-3`
       action row) toggles `showHistory` and carries `aria-pressed`.
-    - The panel is rendered at the bottom, after `<EstimationGrid>`:
+    - The panel is rendered at the bottom, after the editor —
+      NOTE: the editor is no longer `<EstimationGrid>`; task-116 made
+      the per-method editor pluggable, so the page renders a dynamic
+      `<EditorComponent … />` (`<EstimationGrid>` does not appear in this
+      file at all any more):
         {#if versionData.isDraft && showHistory}
           <div bind:this={historyEl} class="scroll-mt-4">
             <UndoHistoryPanel history={undoStore.history} />
@@ -36,10 +40,19 @@ description: |
     - Move the `{#if versionData.isDraft && showHistory}` +
       `<UndoHistoryPanel history={undoStore.history} />` block to sit
       immediately AFTER the header row (`<div class="flex items-center
-      justify-between mb-4"> … </div>`) and BEFORE the
-      `<h1>Version {versionData.versionNumber}</h1>` title. The panel's
-      own root already carries `mt-4` spacing, so no extra wrapper is
-      needed.
+      justify-between mb-4"> … </div>`) and BEFORE the title block. The
+      panel's own root already carries `mt-4` spacing, so no extra
+      wrapper is needed.
+    - **The title is no longer a bare `<h1>`.** Since task-118 it is
+      wrapped together with the method badge:
+        <div class="flex items-center gap-3 mb-2">
+          <h1 class="text-2xl font-bold">{$_('editor.versionHeading', …)}</h1>
+          <span data-testid="version-editor.method" …>…</span>
+        </div>
+      Insert the history block BEFORE that wrapper `<div>` — NOT before
+      the `<h1>` inside it. Inserting before the `<h1>` would place the
+      panel inside the flex row, rendering it horizontally beside the
+      title instead of as a full-width section.
     - Delete the now-dead `historyEl` state, the `scrollIntoView`
       `$effect`, and the `bind:this` / `scroll-mt-4` wrapper `<div>`.
     - Keep everything else from task-077 unchanged: the `showHistory`
@@ -57,8 +70,9 @@ steps:
         null>(null)` and the `$effect(() => { if (showHistory &&
         historyEl) historyEl.scrollIntoView(...) })` block (and their
         explanatory comment). Keep `let showHistory = $state(false)`.
-      - Remove the bottom history block that currently follows
-        `<EstimationGrid …/>`:
+      - Remove the bottom history block that currently follows the
+        dynamic `<EditorComponent … />` (task-116; there is no
+        `<EstimationGrid>` in this file):
           {#if versionData.isDraft && showHistory}
             <div bind:this={historyEl} class="scroll-mt-4">
               <UndoHistoryPanel history={undoStore.history} />
@@ -68,8 +82,9 @@ steps:
         block in place.
       - Insert the history section directly under the toolbar — right
         after the header row `<div class="flex items-center
-        justify-between mb-4"> … </div>` closes and before
-        `<h1 class="text-2xl font-bold mb-2">Version …</h1>`:
+        justify-between mb-4"> … </div>` closes and before the title
+        wrapper `<div class="flex items-center gap-3 mb-2">` (see the
+        design note above — NOT inside that wrapper):
           {#if versionData.isDraft && showHistory}
             <UndoHistoryPanel history={undoStore.history} />
           {/if}
@@ -86,6 +101,10 @@ steps:
     "Verlauf" panel header is in the viewport (now without any scroll),
     and there is at least one history row (`ul li`). The tall-grid setup
     is no longer required but is harmless to keep.
+    The test must NOT call `scrollIntoView`/`scrollIntoViewIfNeeded`
+    anywhere — reaching the panel without scrolling IS the behaviour
+    change, so a test that scrolls would still pass if the workaround
+    were reintroduced.
   - |
     Update CLAUDE.md — the "Frontend — undo/redo store (`UndoStore`)"
     paragraph describes the panel as "a collapsible `UndoHistoryPanel`
@@ -94,8 +113,10 @@ steps:
     title) on the editor page.
   - |
     Build + tests (the dev stack must be running for e2e —
-    `./scripts/dev.sh` with Docker up, backend on :8080 + Vite on :5173):
+    `./scripts/dev.sh` with Docker up, backend on :8080 + Vite on :5173).
+    `./gradlew build` is the project's mandatory full gate, so run it too:
       ./gradlew :frontend:check
+      ./gradlew build
       cd src/frontend && npx playwright test undo
 
 validation:
@@ -105,16 +126,29 @@ validation:
       ! grep -q "scrollIntoView" "src/frontend/src/routes/estimations/[id]/versions/[versionNumber]/+page.svelte"
       ! grep -q "historyEl" "src/frontend/src/routes/estimations/[id]/versions/[versionNumber]/+page.svelte"
   - |
-    The panel now sits above the version title, not after the grid
-    (the UndoHistoryPanel usage appears before the "Version" heading and
-    before <EstimationGrid> in the file):
-      test "$(grep -n 'UndoHistoryPanel history=' 'src/frontend/src/routes/estimations/[id]/versions/[versionNumber]/+page.svelte' | head -1 | cut -d: -f1)" -lt "$(grep -n '<EstimationGrid' 'src/frontend/src/routes/estimations/[id]/versions/[versionNumber]/+page.svelte' | head -1 | cut -d: -f1)"
+    The panel now sits above the version title, not after the editor.
+    NOTE: compare against `<EditorComponent`, not `<EstimationGrid` —
+    task-116 replaced the latter, so grepping for it yields an empty
+    string and the numeric test errors out even on a correct
+    implementation:
+      P='src/frontend/src/routes/estimations/[id]/versions/[versionNumber]/+page.svelte'
+      test "$(grep -n 'UndoHistoryPanel history=' "$P" | head -1 | cut -d: -f1)" -lt "$(grep -n '<EditorComponent' "$P" | head -1 | cut -d: -f1)"
+  - |
+    …and it is a SIBLING ABOVE the title block, not nested inside the
+    title's flex row (the mistake the old `<h1>` anchor invited):
+      P='src/frontend/src/routes/estimations/[id]/versions/[versionNumber]/+page.svelte'
+      test "$(grep -n 'UndoHistoryPanel history=' "$P" | head -1 | cut -d: -f1)" -lt "$(grep -n 'flex items-center gap-3 mb-2' "$P" | head -1 | cut -d: -f1)"
   - |
     CLAUDE.md wording updated to describe the new placement:
       grep -q "under the toolbar" CLAUDE.md
   - |
-    Frontend gate passes and the undo e2e (incl. the Verlauf test) is green:
+    The e2e no longer relies on scrolling to reach the panel:
+      ! grep -q "scrollIntoView" src/frontend/e2e/undo.test.ts
+  - |
+    Frontend gate, full build, and the undo e2e (incl. the Verlauf test)
+    are green:
       ./gradlew :frontend:check
+      ./gradlew build
       cd src/frontend && npx playwright test undo
 
 outputs:

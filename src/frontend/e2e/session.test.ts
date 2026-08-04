@@ -1,6 +1,6 @@
 import { test, expect, type APIRequestContext, type BrowserContext } from '@playwright/test';
 
-const API = 'http://localhost:8080';
+const API = 'http://localhost:8090';
 const LOCAL = 'http://localhost:5173';
 
 // Full two-phase collaborative-session flow (task-067) driven with TWO browser

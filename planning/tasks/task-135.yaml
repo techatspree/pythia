@@ -1,0 +1,183 @@
+id: task-135
+phase: phase-14
+title: Make the generated OpenAPI document environment-independent
+depends_on: [task-114]
+description: |
+  task-114 wired the backend's OpenAPI document into the frontend build so
+  the committed `src/frontend/src/lib/api/openapi.json` and the typed client
+  can never drift from the REST contract, with an opt-in CI drift gate.
+  That exposed a pre-existing flaw: **the generated document is not
+  environment-independent**, so two people building the same commit can
+  legitimately produce different files.
+
+  ## The defect (measured, not theorised)
+
+  The document contains
+
+      "components": {
+        "securitySchemes": {
+          "SecurityScheme": {
+            "type": "openIdConnect",
+            "openIdConnectUrl": "https://login.microsoftonline.com/<TENANT-UUID>/v2.0/.well-known/openid-configuration",
+            "description": "Authentication"
+          }
+        }
+      }
+
+  Quarkus' `SecurityConfigFilter` derives that `openIdConnectUrl` from the
+  OIDC configuration resolved AT AUGMENTATION TIME, and
+  `application.properties` line 76 is
+
+      %prod.quarkus.oidc.auth-server-url=https://login.microsoftonline.com/${ENTRA_TENANT_ID}/v2.0
+
+  So the emitted value depends on whether `ENTRA_TENANT_ID` is set in the
+  building shell:
+    - with it set  → the real tenant UUID is baked into the document;
+    - without it   → the `openIdConnectUrl` line is omitted entirely.
+
+  Observed on this repo: `HEAD` contains the tenant UUID (committed from an
+  environment that had the variable), while a build without it drops the
+  line — a one-line diff that reappears on every build.
+
+  ## Why it matters
+
+  1. **task-114's drift gate becomes environment-dependent.** CI (or any
+     developer whose environment differs from the last committer) fails
+     `:frontend:verifyOpenApiSchemaCommitted` for a change nobody made.
+     A gate that cries wolf gets disabled, which loses the protection
+     task-114 was built for.
+  2. **A tenant identifier is committed as build output.** Entra tenant ids
+     are not secrets (they are discoverable from a login domain), so this is
+     hygiene rather than an incident — but deployment-environment
+     configuration does not belong in a generated artifact that ships in the
+     frontend source tree.
+  3. The committed schema silently describes ONE deployment. Anyone building
+     for a different tenant gets a document that misdescribes their own.
+
+  ## The fix (verified to work before writing this task)
+
+  Quarkus exposes `quarkus.smallrye-openapi.oidc-open-id-connect-url`
+  (`OpenApiDocumentConfig.oidcOpenIdConnectUrl()` in
+  `quarkus-smallrye-openapi-common-deployment`). Setting it overrides the
+  value the filter would otherwise derive from the live OIDC config.
+  Confirmed empirically on this repo: augmenting with
+  `-Dquarkus.smallrye-openapi.oidc-open-id-connect-url=<value>` produced
+  exactly that string in `openIdConnectUrl`, with the rest of the
+  `securitySchemes` block unchanged.
+
+  ## Frozen decisions (do not re-open)
+
+  - **Pin the URL; do NOT delete the security scheme.** The neighbouring
+    knob `quarkus.smallrye-openapi.auto-add-security` would drop the block
+    altogether, but the document SHOULD keep saying "this API is protected
+    by OpenID Connect" — that is true of every deployment and is useful to a
+    client developer. Only the tenant-specific URL is the problem.
+  - **Use the tenant-independent Microsoft endpoint as the pinned value:**
+        https://login.microsoftonline.com/common/v2.0/.well-known/openid-configuration
+    It is a real, resolvable, non-tenant-specific discovery document, so the
+    published contract stays meaningful and honest. Do NOT use a fake host
+    (`example.invalid`) — that would document something untrue.
+  - **Set it unprofiled** (plain `quarkus.smallrye-openapi.*` key, not
+    `%prod.`), so EVERY augmentation — prod, test, dev — emits the same
+    value and the document stops depending on which profile ran. This is a
+    build-time property; it only shapes the generated document and does not
+    touch the runtime OIDC configuration, which keeps using
+    `%prod.quarkus.oidc.auth-server-url` with `${ENTRA_TENANT_ID}` exactly
+    as today. Do NOT change any `quarkus.oidc.*` setting.
+  - **Regenerate and commit the schema** as part of this task, so `HEAD`
+    stops carrying the tenant UUID.
+  - Backend-config + regenerated-artifact change only: no domain, no
+    frontend source, no REST endpoint, no migration.
+
+steps:
+  - |
+    In `src/backend/implementation/src/main/resources/application.properties`,
+    next to the existing `quarkus.smallrye-openapi.store-schema-directory`
+    line, add the unprofiled pin with a comment explaining WHY (the document
+    must not embed `${ENTRA_TENANT_ID}`, or the committed schema and
+    task-114's drift gate become environment-dependent):
+      quarkus.smallrye-openapi.oidc-open-id-connect-url=https://login.microsoftonline.com/common/v2.0/.well-known/openid-configuration
+
+  - |
+    Regenerate the committed client through the task-114 wiring and inspect
+    the result:
+      ./gradlew :frontend:syncBackendOpenapi
+    `src/frontend/src/lib/api/openapi.json` must now contain the `common`
+    URL, no tenant UUID, and must still carry the `securitySchemes` block.
+    `schema.d.ts` is expected to be UNCHANGED (openapi-typescript does not
+    turn security schemes into types) — if it does change, stop and
+    investigate rather than committing the churn.
+
+  - |
+    Prove environment independence — this is the point of the task, so run
+    it exactly as the validation block does (below). Generate the document
+    twice, WITHOUT and WITH `ENTRA_TENANT_ID`, and diff the two results.
+    **Force regeneration on both runs.** `ENTRA_TENANT_ID` is not a declared
+    Gradle input, so a plain invocation can be `UP-TO-DATE` and leave the
+    previous file in place — the diff would then compare a stale file with
+    itself and pass no matter what. Delete the output and pass
+    `--rerun-tasks` each time. Do NOT involve `git diff` or a commit here:
+    the assertion is "same bytes with and without the variable", and
+    committing is the user's separate step.
+
+  - |
+    Update `CLAUDE.md` where task-114's wiring is described (the "REST API
+    surface" paragraph): record that the OpenAPI document is pinned to a
+    tenant-independent `oidc-open-id-connect-url` ON PURPOSE, because the
+    value is otherwise resolved from `${ENTRA_TENANT_ID}` at augmentation
+    and would make the committed schema — and the drift gate — depend on the
+    building environment. Note explicitly that this is a documentation-only
+    pin and does NOT affect runtime OIDC.
+
+  - |
+    Full gate:
+      ./gradlew build
+      cd src/frontend && npm run test:e2e
+
+validation:
+  - |
+    The pin exists, is unprofiled, and runtime OIDC is untouched:
+      grep -q "quarkus.smallrye-openapi.oidc-open-id-connect-url" src/backend/implementation/src/main/resources/application.properties
+      ! grep -qE "^%[a-z-]+\.quarkus\.smallrye-openapi\.oidc-open-id-connect-url" src/backend/implementation/src/main/resources/application.properties
+      grep -q 'quarkus.oidc.auth-server-url=https://login.microsoftonline.com/\${ENTRA_TENANT_ID}' src/backend/implementation/src/main/resources/application.properties
+  - |
+    The committed schema no longer carries a tenant UUID, but still
+    documents that the API is OIDC-protected:
+      ! grep -qE "login\.microsoftonline\.com/[0-9a-f]{8}-[0-9a-f]{4}" src/frontend/src/lib/api/openapi.json
+      grep -q "securitySchemes" src/frontend/src/lib/api/openapi.json
+      grep -q "login.microsoftonline.com/common" src/frontend/src/lib/api/openapi.json
+  - |
+    The document is identical with and without ENTRA_TENANT_ID — the actual
+    defect this task fixes. BOTH runs must force regeneration: the env var
+    is not a declared Gradle input, so a plain invocation can be UP-TO-DATE
+    and the diff would compare a stale file with itself and pass regardless:
+      OUT=src/backend/implementation/target/openapi/openapi.json
+      SNAP=src/backend/implementation/build/openapi-noenv.json
+      rm -f "$OUT"; ./gradlew :backend:implementation:quarkusAppPartsBuild --rerun-tasks
+      test -s "$OUT"; mkdir -p "$(dirname "$SNAP")"; cp "$OUT" "$SNAP"
+      rm -f "$OUT"; ENTRA_TENANT_ID=00000000-0000-0000-0000-000000000000 \
+        ./gradlew :backend:implementation:quarkusAppPartsBuild --rerun-tasks
+      test -s "$OUT"; diff -q "$SNAP" "$OUT"
+      # and specifically: the security scheme is identical in both
+      python3 -c "import json,sys; a=json.load(open('$SNAP')); b=json.load(open('$OUT')); k='securitySchemes'; assert a['components'][k]==b['components'][k], 'securitySchemes differ across environments'; print('securitySchemes identical')"
+  - |
+    task-114's gate reports ONLY this task's own regenerated schema and
+    nothing else. It cannot be fully clean until the user commits that file
+    (the gate diffs against HEAD, which is why task-114 made it opt-in and
+    kept it out of `check`); the checkable assertion is that `schema.d.ts`
+    is NOT among the drifted files:
+      ./gradlew :frontend:verifyOpenApiSchemaCommitted 2>&1 | tee /dev/stderr | grep -q "schema.d.ts" && exit 1 || true
+      git diff --name-only HEAD -- src/frontend/src/lib/api/ | grep -qx "src/frontend/src/lib/api/openapi.json"
+      test -z "$(git diff --name-only HEAD -- src/frontend/src/lib/api/schema.d.ts)"
+  - |
+    CLAUDE.md explains the pin:
+      grep -qi "oidc-open-id-connect-url" CLAUDE.md
+  - |
+    Full build and e2e are green:
+      ./gradlew build
+      cd src/frontend && npm run test:e2e
+
+outputs:
+  - modified: src/backend/implementation/src/main/resources/application.properties
+  - modified: src/frontend/src/lib/api/openapi.json
+  - modified: CLAUDE.md

@@ -50,17 +50,10 @@
 	const undoStore = new UndoStore(page.params.id!);
 	undoStore.onResult = (version) => applyVersionData(version as unknown as ApiVersionResponse);
 
-	// Undo/redo GUI (task-077).
+	// Undo/redo GUI (task-077). The history section renders directly under the
+	// toolbar (task-109), so toggling it is visible where the button is and no
+	// scroll-into-view workaround is needed.
 	let showHistory = $state(false);
-	// The history panel sits below the (potentially tall) grid, so scroll it
-	// into view when opened — otherwise toggling it from the top toolbar looks
-	// like nothing happened.
-	let historyEl = $state<HTMLElement | null>(null);
-	$effect(() => {
-		if (showHistory && historyEl) {
-			historyEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
-		}
-	});
 
 	// The entry a given action would target, for the toolbar tooltips.
 	function latestByStatus(status: string) {
@@ -356,6 +349,10 @@
 			</div>
 		</div>
 
+		{#if versionData.isDraft && showHistory}
+			<UndoHistoryPanel history={undoStore.history} />
+		{/if}
+
 		<div class="flex items-center gap-3 mb-2">
 			<h1 class="text-2xl font-bold">{$_('editor.versionHeading', { values: { n: versionData.versionNumber } })}</h1>
 			<span
@@ -396,12 +393,6 @@
 			/>
 		{:else}
 			<p class="text-gray-500">{$_('editor.loadingEditor')}</p>
-		{/if}
-
-		{#if versionData.isDraft && showHistory}
-			<div bind:this={historyEl} class="scroll-mt-4">
-				<UndoHistoryPanel history={undoStore.history} />
-			</div>
 		{/if}
 
 		{#if undoStore.conflict}

@@ -651,9 +651,9 @@
       "notes": "E2E: bucket+sampled full-stack Playwright test (create/estimate/submit/export)"
     },
     "task-109": {
-      "status": "pending",
-      "started_at": null,
-      "completed_at": null,
+      "status": "done",
+      "started_at": "2026-08-04T12:28:56+00:00",
+      "completed_at": "2026-08-04T12:34:57+00:00",
       "notes": "Move the undo/redo history from below the grid to a collapsible section directly under the toolbar (follow-up to task-077)"
     },
     "task-110": {
@@ -805,6 +805,24 @@
       "started_at": "2026-08-04T08:55:12+00:00",
       "completed_at": "2026-08-04T09:04:01+00:00",
       "notes": ""
+    },
+    "task-135": {
+      "status": "done",
+      "started_at": "2026-08-04T14:01:36+00:00",
+      "completed_at": "2026-08-04T14:09:33+00:00",
+      "notes": "OpenAPI document embeds the environment-resolved Entra tenant OIDC URL, making the committed schema and task-114's drift gate environment-dependent"
+    },
+    "task-136": {
+      "status": "pending",
+      "started_at": null,
+      "completed_at": null,
+      "notes": "Block the app with a modal on backend connection loss during estimation editing; dismiss only after a backend heartbeat + user acknowledges the lost action (prevents silent data loss)"
+    },
+    "task-137": {
+      "status": "done",
+      "started_at": "2026-08-04T14:16:52+00:00",
+      "completed_at": "2026-08-04T14:22:26+00:00",
+      "notes": "Move the local dev backend off port 8080 (to 8090) so it stops colliding with the minikube kubectl port-forward"
     }
   }
 }

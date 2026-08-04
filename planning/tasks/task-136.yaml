@@ -1,0 +1,192 @@
+id: task-136
+phase: phase-14
+title: Block the app on backend connection loss (prevent silent data loss)
+depends_on: [task-026]
+description: |
+  Prevent silent data loss when the backend becomes unreachable while a user
+  is editing an estimation.
+
+  Current state: every failed backend call surfaces only through the shared
+  top-of-page `ErrorBanner` (`$lib/components/ErrorBanner.svelte`) — a call site
+  does `await assertOk(...)` then `catch → log.error + bannerMessage`. The single
+  request seam is `apiFetch` (`$lib/api/fetch.ts`); a genuine connection failure
+  makes its `fetch(...)` REJECT (network-level: backend down, DNS, refused).
+  Because the banner sits at the top of the page, a user editing a long
+  estimation near the bottom does not see it, keeps typing, and their autosaved
+  edits never reach the backend → data is lost. (Autosave is a debounced PUT in
+  the version editor page; see the `$bindable` editor note in CLAUDE.md.)
+
+  Target state: when a **connection error to the backend** occurs, the whole
+  application is BLOCKED by a modal dialog that overlays every route, so the user
+  cannot keep working obliviously. The dialog explains that the last change could
+  not be saved and is lost. It is NOT dismissible by ESC, backdrop click, or a
+  close button. Its acknowledge button stays DISABLED until the backend is
+  reachable again (a heartbeat/"life beat"). Only once the backend answers AND
+  the user clicks "acknowledge (my last change is lost)" does the dialog vanish —
+  and acknowledging RELOADS the current route so the editor rehydrates from the
+  backend's last-saved state, discarding the unsaved (lost) in-memory edit (a
+  plain `ErrorBanner` or `invalidateAll()` would keep the lost edit in memory and
+  a later autosave would silently persist it, which is exactly what must NOT
+  happen).
+
+  Key design decisions (no ambiguity for the implementer):
+    - "Connection error" is narrowly defined so ordinary business errors keep
+      using the non-blocking `ErrorBanner`: it is (a) `apiFetch`'s `fetch(...)`
+      REJECTING (network-level), OR (b) a response status of 502/503/504 (gateway
+      / service unavailable — backend not reachable behind the proxy), OR (c) a
+      request that HANGS past a timeout (backend accepted the connection but never
+      responds) — `fetch` never rejects on its own for a hung response, so
+      `apiFetch` must impose an `AbortController` deadline (~10s) and treat the
+      resulting abort as a connection loss. A normal 4xx/5xx WITH a response
+      (400/401/403/404/409/500) is NOT a connection loss and must stay on the
+      banner path unchanged.
+    - Detection is centralised in `apiFetch` (the one request seam) so every
+      call — autosave PUTs, loads, undo, sessions — is covered without touching
+      call sites. Note: `apiFetch`'s existing `Authentication failed` throw
+      (auth-provider token acquisition failing) is deliberately NOT treated as a
+      connection loss — it keeps its current banner path — even though an Entra
+      token-endpoint outage is also a connectivity failure; scoping that in is out
+      of scope here.
+    - A global runes store `ConnectionStore` (`$lib/stores/connection.svelte.ts`)
+      holds `blocked` / `backendAlive` / `message` `$state`; `reportLost(...)` is
+      idempotent (the first failure wins; subsequent failures do not reset the
+      state or restart anything). It owns the heartbeat.
+    - Heartbeat endpoint: a NEW unauthenticated backend `GET /api/ping` (so it is
+      reachable through the existing `/api` vite/nginx proxy and needs no token —
+      the failure may be network, not auth). The store polls it with a PLAIN
+      `fetch('/api/ping')` (NOT `apiFetch`, to avoid auth-token acquisition) every
+      ~3s while blocked; the first `res.ok` sets `backendAlive = true` and stops
+      polling.
+    - The dialog is mounted once in the root `+layout.svelte` so it overlays all
+      routes; the session route group's own chrome does not matter because the
+      overlay is `fixed inset-0` at a high z-index.
+
+  This touches the frontend request seam + root layout + a tiny backend endpoint.
+  No domain change, no DB change, no DTO change.
+
+steps:
+  - |
+    Backend: add `src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/PingResource.kt`
+    — `@Path("/api/ping") @Produces(MediaType.APPLICATION_JSON) @ApplicationScoped`
+    with a single `@GET @PermitAll fun ping(): Response` returning
+    `Response.ok(mapOf("status" to "ok")).build()`. It is a liveness heartbeat, so
+    do NOT log per call (a 3s poll would spam the log); document that in a comment.
+    Use `jakarta.annotation.security.PermitAll` so an anonymous request is allowed
+    (the whole point is to probe reachability without auth).
+  - |
+    Add `src/frontend/src/lib/stores/connection.svelte.ts` exporting a singleton
+    `ConnectionStore` runes instance (module-level, like the undo store pattern):
+      - `$state`: `blocked=false`, `backendAlive=false`, `message=''`.
+      - `reportLost(message: string)`: no-op if already `blocked`; else set
+        `blocked=true`, `backendAlive=false`, `message`, `log.error(...)`, and
+        start the heartbeat.
+      - private heartbeat: `setInterval` (~3000ms) that does
+        `fetch('/api/ping')` in a try/catch (swallow errors, keep polling); on
+        `res.ok` set `backendAlive=true`, `log.info(...)`, and `clearInterval`.
+      - `acknowledge()`: clear the interval, then do a FULL page reload via
+        `window.location.reload()` — NOT SvelteKit `invalidateAll()`, which would
+        keep the unsaved (lost) edit in component `$state` and let a later
+        autosave silently persist it. The full reload discards the in-memory edit
+        and re-syncs the editor from the backend's last-saved state. Log via
+        `$lib/log`; never bare `console.*`.
+  - |
+    Wire detection into `src/frontend/src/lib/api/fetch.ts`: give the final
+    `fetch(input, ...)` an `AbortController` deadline (~10s via
+    `AbortSignal.timeout(10000)` or a manual controller + `setTimeout`) so a hung
+    backend is caught, and wrap it in try/catch. On catch (network rejection OR
+    the abort/timeout) call `connection.reportLost(<message>)` and re-throw the
+    original error. After a successful `fetch`, if `res.status` is 502/503/504
+    call `connection.reportLost(<message>)` (still return the response so existing
+    `assertOk` handling is unchanged). Do NOT treat the existing
+    `Authentication failed` throw (token acquisition) as a connection loss. If the
+    caller passed its own `init.signal`, respect it (combine or prefer the
+    caller's) rather than silently overriding.
+  - |
+    Add `src/frontend/src/lib/components/ConnectionLostDialog.svelte`: a blocking
+    modal (`fixed inset-0 bg-black/50 z-50`, `role="dialog" aria-modal="true"`),
+    NOT closable by ESC or backdrop. Show `connection.message` + an explanation
+    that the last change was not saved and is lost. While `!backendAlive` show a
+    "reconnecting…" state; render the acknowledge button `disabled` until
+    `backendAlive`, and on click call `connection.acknowledge()`. All strings via
+    `$_('...')`; no inline literals, no `console.*`.
+  - |
+    Mount the dialog once in `src/frontend/src/routes/+layout.svelte`:
+    `{#if connection.blocked}<ConnectionLostDialog />{/if}` at the top level (so
+    it overlays the header/content and the session room chrome alike).
+  - |
+    Add i18n keys to BOTH `src/frontend/src/lib/i18n/de.json` and `en.json`
+    (equal key sets) under a `connection.*` group: at least `title`, `body`
+    (explains the last action is lost), `reconnecting`, `acknowledge`.
+  - |
+    Backend test
+    `src/backend/implementation/src/test/kotlin/io/github/theestimator/rest/PingResourceIT.kt`
+    (@QuarkusTest): an ANONYMOUS `GET /api/ping` (no `Authorization` header)
+    returns 200 with body `status = "ok"` — proves `@PermitAll` reachability.
+  - |
+    Frontend e2e `src/frontend/e2e/connection-lost.test.ts`: load a page whose
+    data comes from the backend, then `page.route('**/api/**', r => r.abort())` to
+    simulate backend loss. Trigger ONE deterministic backend call — prefer
+    `page.goto('/projects')` (its load calls `GET /api/projects`) or a navigation
+    to an estimation route — rather than relying on the debounced autosave. Assert
+    the blocking dialog (`getByRole('dialog')`) is visible and the acknowledge
+    button is `disabled`. Then `page.unroute('**/api/**')`, wait (up to the ~3s
+    heartbeat) for acknowledge to become enabled, click it, and assert the dialog
+    is gone after the reload.
+  - |
+    Update `CLAUDE.md` (Frontend — error surfacing section): document that a
+    genuine connection loss (fetch rejection or 502/503/504) is escalated by
+    `apiFetch` to the global `ConnectionStore`, which blocks the app with
+    `ConnectionLostDialog` until `GET /api/ping` answers and the user
+    acknowledges the lost action (reloading the route) — as opposed to ordinary
+    HTTP errors which keep using the non-blocking `ErrorBanner`.
+  - |
+    Build + test (full stack) and run the e2e:
+      ./gradlew build
+      cd src/frontend && npm run test:e2e
+
+validation:
+  - |
+    Backend ping endpoint exists and is unauthenticated:
+      test -f src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/PingResource.kt
+      grep -q "/api/ping" src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/PingResource.kt
+      grep -q "PermitAll" src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/PingResource.kt
+  - |
+    The connection store + blocking dialog exist and are wired into the seam + layout:
+      test -f src/frontend/src/lib/stores/connection.svelte.ts
+      grep -q "reportLost" src/frontend/src/lib/stores/connection.svelte.ts
+      grep -q "/api/ping" src/frontend/src/lib/stores/connection.svelte.ts
+      grep -q "reportLost" src/frontend/src/lib/api/fetch.ts
+      test -f src/frontend/src/lib/components/ConnectionLostDialog.svelte
+      grep -q "ConnectionLostDialog" src/frontend/src/routes/+layout.svelte
+  - |
+    Frontend logs via $lib/log and never bare console.*:
+      grep -q "\$lib/log" src/frontend/src/lib/stores/connection.svelte.ts
+      ! grep -q "console\." src/frontend/src/lib/stores/connection.svelte.ts
+      ! grep -q "console\." src/frontend/src/lib/components/ConnectionLostDialog.svelte
+  - |
+    Dialog is internationalised and de/en catalogs stay in sync:
+      grep -q "connection" src/frontend/src/lib/i18n/de.json
+      grep -q "connection" src/frontend/src/lib/i18n/en.json
+      cd src/frontend && node -e "const d=require('./src/lib/i18n/de.json'),e=require('./src/lib/i18n/en.json');const f=(o,p='')=>Object.entries(o).flatMap(([k,v])=>typeof v==='object'&&v?f(v,p+k+'.'):[p+k]);const a=f(d).sort(),b=f(e).sort();if(JSON.stringify(a)!==JSON.stringify(b))throw new Error('key sets differ');console.log('ok',a.length)"
+  - |
+    Tests exist:
+      test -f src/backend/implementation/src/test/kotlin/io/github/theestimator/rest/PingResourceIT.kt
+      test -f src/frontend/e2e/connection-lost.test.ts
+  - |
+    CLAUDE.md documents the blocking behaviour:
+      grep -qi "ConnectionStore\|ConnectionLostDialog\|/api/ping" CLAUDE.md
+  - |
+    Full build (backend + frontend) is green:
+      ./gradlew build
+
+outputs:
+  - created: src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/PingResource.kt
+  - created: src/backend/implementation/src/test/kotlin/io/github/theestimator/rest/PingResourceIT.kt
+  - created: src/frontend/src/lib/stores/connection.svelte.ts
+  - created: src/frontend/src/lib/components/ConnectionLostDialog.svelte
+  - created: src/frontend/e2e/connection-lost.test.ts
+  - modified: src/frontend/src/lib/api/fetch.ts
+  - modified: src/frontend/src/routes/+layout.svelte
+  - modified: src/frontend/src/lib/i18n/de.json
+  - modified: src/frontend/src/lib/i18n/en.json
+  - modified: CLAUDE.md
