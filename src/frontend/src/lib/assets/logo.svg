@@ -32,8 +32,8 @@
   <rect x="35" y="22" width="5" height="16" rx="1.2" fill="#12a866" opacity="0.5"/>
 
   <!-- The estimate: a dotted lead-in becoming a solid rising trend arrow. -->
-  <circle cx="17.6" cy="38.6" r="1.4" fill="#007a45"/>
-  <circle cx="20.2" cy="37" r="1.4" fill="#007a45"/>
-  <path d="M22.5 35.5 C27.5 33 30 25.5 40 18.5" fill="none" stroke="#007a45" stroke-width="3.4" stroke-linecap="round"/>
-  <path d="M40 18 L44.5 14.5 L41 23 Z" fill="#007a45"/>
+  <circle cx="17.8" cy="38.4" r="1.1" fill="#007a45"/>
+  <circle cx="20.3" cy="36.9" r="1.1" fill="#007a45"/>
+  <path d="M22.5 35.5 C27.5 33 30 25.5 40 18.5" fill="none" stroke="#007a45" stroke-width="2.2" stroke-linecap="round"/>
+  <path d="M40.5 18.2 L44.8 15 L41.6 21.6 Z" fill="#007a45"/>
 </svg>

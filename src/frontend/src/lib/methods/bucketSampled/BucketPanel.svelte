@@ -25,12 +25,21 @@
 	// "missing '__treeTableId' property for item" during zone init, which killed
 	// drag-and-drop for the whole page. Wrap each bucket instead, keeping the
 	// object identity so the label editor still mutates the real bucket.
-	type Wrapped = { __treeTableId: string; bucket: Bucket };
+	type Wrapped = { __treeTableId: string; bucket?: Bucket };
 
 	const wrapped = $derived(buckets.map((b) => ({ __treeTableId: b.id, bucket: b })));
 
-	function unwrap(items: Wrapped[]): Bucket[] {
-		return items.filter((w) => w.bucket != null).map((w) => w.bucket);
+	// While a pointer drag is in flight svelte-dnd-action inserts a shadow
+	// placeholder into the `consider` items and requires that exact array back —
+	// re-deriving `wrapped` from the model regenerates the wrappers, destroying
+	// the shadow's identity, which crashed the zone and LOST the dragged bucket.
+	// So render the library's array verbatim during a drag and only commit to
+	// the model on finalize. (Same rule TreeTable follows for its own zones.)
+	let dragItems = $state<Wrapped[] | null>(null);
+	const items = $derived(dragItems ?? wrapped);
+
+	function unwrap(list: Wrapped[]): Bucket[] {
+		return list.filter((w) => w.bucket != null).map((w) => w.bucket as Bucket);
 	}
 
 	// Positions are the persisted order; keep them contiguous after every edit.
@@ -50,9 +59,10 @@
 	}
 
 	function onConsider(e: CustomEvent<DndEvent<Wrapped>>) {
-		buckets = unwrap(e.detail.items);
+		dragItems = e.detail.items;
 	}
 	function onFinalize(e: CustomEvent<DndEvent<Wrapped>>) {
+		dragItems = null;
 		buckets = reindex(unwrap(e.detail.items));
 	}
 </script>
@@ -72,17 +82,21 @@
 
 	<div
 		class="flex flex-wrap gap-2 min-h-[2.25rem]"
-		use:dndzone={{ items: wrapped, flipDurationMs, dragDisabled: !editable }}
+		use:dndzone={{ items, flipDurationMs, dragDisabled: !editable }}
 		onconsider={onConsider}
 		onfinalize={onFinalize}
 	>
-		{#each wrapped as w (w.__treeTableId)}
+		{#each items as w (w.__treeTableId)}
 			{@const bucket = w.bucket}
 			<div
 				animate:flip={{ duration: flipDurationMs }}
 				class="flex items-center gap-1 border rounded px-2 py-1 bg-white"
 			>
-				{#if editable}
+				{#if bucket == null}
+					<!-- svelte-dnd-action's shadow placeholder: it stands in for the
+					     dragged chip and carries no bucket of its own. -->
+					<span class="w-24 h-5" aria-hidden="true"></span>
+				{:else if editable}
 					<span class="cursor-grab text-gray-300 select-none" aria-hidden="true" title={$_('bucket.dragTitle')}>⠿</span>
 					<input
 						type="text"

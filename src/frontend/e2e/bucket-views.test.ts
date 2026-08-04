@@ -204,6 +204,44 @@ test('dragging a leaf between buckets re-buckets it and autosaves', async ({ pag
 	expect(body.roots.some((n: { logicalId?: string }) => n.logicalId === leafC)).toBe(true);
 });
 
+test('reordering bucket chips keeps every bucket', async ({ page, request }) => {
+	const { estimationId } = await seed(request);
+	await openDraft(page, estimationId);
+
+	const chipNames = () =>
+		page.evaluate(() =>
+			Array.from(document.querySelectorAll('input'))
+				.filter((i) => /Bucket/i.test(i.getAttribute('aria-label') ?? ''))
+				.map((i) => (i as HTMLInputElement).value)
+		);
+
+	expect(await chipNames()).toEqual(['Frontend', 'Backend', 'Untouched']);
+
+	// svelte-dnd-action inserts a shadow placeholder into `consider` and needs
+	// that exact array back. Re-deriving the chips from the model on every
+	// consider destroyed the shadow's identity, which crashed the zone and LOST
+	// the dragged bucket from the panel while it stayed in the per-row select.
+	const errors: string[] = [];
+	page.on('pageerror', (e) => errors.push(String(e)));
+
+	const handles = page.locator('[title="Ziehen zum Sortieren"]');
+	const from = await handles.nth(0).boundingBox();
+	const to = await handles.nth(2).boundingBox();
+	if (!from || !to) throw new Error('bucket drag handles not found');
+	await page.mouse.move(from.x + from.width / 2, from.y + from.height / 2);
+	await page.mouse.down();
+	await page.mouse.move(from.x + from.width / 2 + 8, from.y + from.height / 2, { steps: 4 });
+	await page.waitForTimeout(200);
+	await page.mouse.move(to.x + to.width / 2 + 20, to.y + to.height / 2, { steps: 10 });
+	await page.waitForTimeout(300);
+	await page.mouse.up();
+	await page.waitForTimeout(600);
+
+	// No bucket may go missing, and the move must be the one requested.
+	expect(await chipNames()).toEqual(['Backend', 'Untouched', 'Frontend']);
+	expect(errors, 'the drag must not throw').toEqual([]);
+});
+
 test('a leaf can be dragged into an EMPTY bucket', async ({ page, request }) => {
 	const { estimationId, b1, b3, leafC } = await seed(request);
 	await openDraft(page, estimationId);
