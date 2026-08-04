@@ -1,19 +1,114 @@
 id: task-026
 phase: phase-7
-title: Add observability - logs, metrics, traces
+title: Add observability - correlation IDs + metrics + error boundary
 depends_on: [task-025]
 description: |
-  Wire up structured logging with correlation IDs, Prometheus metrics,
-  and optionally OpenTelemetry tracing.
+  Round out backend/frontend observability. This task was written before the
+  build conventions solidified; it is rescoped here to only the work that is
+  actually still missing.
+
+  Already in place (do NOT re-add):
+    - Structured JSON logging: the `quarkus-logging-json` dependency is present
+      and `%prod.quarkus.log.console.json.enabled=true` (human-readable console
+      stays the default in dev). The JSON encoder already emits the MDC map, so
+      any MDC entry a filter sets is logged automatically.
+    - Prometheus metrics: `quarkus-micrometer-registry-prometheus` is present
+      and `/q/metrics` is served (Micrometer's `http_server_requests_*` timers
+      included).
+
+  Genuinely missing, and the scope of this task:
+    1. Request correlation IDs. Add a JAX-RS filter pair (one Kotlin class
+       implementing both `ContainerRequestFilter` and `ContainerResponseFilter`)
+       that, per request: reads an incoming `X-Correlation-ID` header (or
+       generates a UUID when absent), puts it into the logging MDC under key
+       `correlationId` so every log line for that request carries it in the JSON
+       output, echoes it back on the response `X-Correlation-ID` header, and
+       clears the MDC entry in the response filter (so pooled worker threads
+       don't leak it). Log at DEBUG when a new id is generated, via the
+       `io.quarkus.logging.Log` API (never a per-class logger) per the CLAUDE.md
+       Logging conventions.
+    2. A frontend error boundary. Add the SvelteKit root `+error.svelte` that
+       renders a friendly message for uncaught load/render errors and logs the
+       error via `log` from `$lib/log.ts` (NEVER bare `console.*`), consistent
+       with the error-surfacing rule. It should show `page.error?.message` (or a
+       generic fallback) and a link back to `/`.
+
+  Explicitly OUT of scope / deferred: OpenTelemetry distributed tracing. It
+  needs a running collector, which would make the build non-hermetic and the
+  validation non-runnable; split it into its own phase-7 follow-up task if
+  wanted. Do not add `quarkus-opentelemetry` here.
+
+  No new REST endpoints, no domain change, no DB change. The filter is a
+  cross-cutting backend concern; the error boundary is frontend-only.
+
 steps:
-  - configure JSON logging via quarkus-logging-json (so log aggregators can parse)
-  - add a request filter that propagates X-Correlation-ID header
-  - verify /q/metrics returns Prometheus-format metrics
-  - add quarkus-opentelemetry if a collector is available
-  - on the frontend, add a simple error boundary that logs to console (and later to a service)
+  - |
+    Add `src/backend/implementation/src/main/kotlin/io/github/theestimator/observability/CorrelationIdFilter.kt`:
+    a `@Provider @ApplicationScoped` class implementing both
+    `jakarta.ws.rs.container.ContainerRequestFilter` and
+    `ContainerResponseFilter`. In the request filter, resolve the correlation id
+    from the `X-Correlation-ID` request header (generate `UUID.randomUUID()` when
+    missing/blank — `Log.debug` that a new one was generated), store it on the
+    request context property AND `org.jboss.logmanager.MDC.put("correlationId", id)`
+    (or `org.slf4j.MDC`). In the response filter, add the id to the response
+    `X-Correlation-ID` header and `MDC.remove("correlationId")`. Annotate the
+    request side `@Priority(Priorities.AUTHENTICATION - 100)` so the id is set
+    before other filters log.
+  - |
+    Add `src/frontend/src/routes/+error.svelte`: a SvelteKit error boundary that
+    reads `page.error` from `$app/state`, renders a friendly message + a link to
+    `/`, and logs via `import { log } from '$lib/log'` (`log.error(...)`). Do NOT
+    use `console.*`. Keep strings i18n-friendly (use `$_('...')` with keys added
+    to BOTH `src/lib/i18n/de.json` and `en.json`, or a minimal literal if the
+    catalogs are not appropriate for a boundary — prefer i18n).
+  - |
+    Add a `@QuarkusTest`
+    `src/backend/implementation/src/test/kotlin/io/github/theestimator/observability/CorrelationIdFilterIT.kt`
+    (RestAssured, `DevAdminAuth`) asserting: (a) a request WITH
+    `X-Correlation-ID: test-corr-123` to a real endpoint (e.g. `/api/auth/me`)
+    gets the SAME value back in the response header; (b) a request WITHOUT the
+    header gets a non-blank generated `X-Correlation-ID` back; (c)
+    `GET /q/metrics` returns 200 and its body contains
+    `http_server_requests_seconds_count` (proves metrics are wired).
+  - |
+    Update `CLAUDE.md` (the "Logging" section): note that every request carries a
+    `correlationId` (from/into the `X-Correlation-ID` header) propagated through
+    the MDC into the JSON logs by `CorrelationIdFilter`, and that `/q/metrics`
+    exposes Micrometer/Prometheus metrics.
+  - |
+    Build + test (both modules touched):
+      ./gradlew :backend:implementation:test
+      ./gradlew :frontend:check
+
 validation:
-  - logs are JSON with correlationId field
-  - /q/metrics shows http_server_requests_seconds_count among others
+  - |
+    The correlation-id filter exists, sets the header + MDC, and logs via the Quarkus Log API:
+      test -f src/backend/implementation/src/main/kotlin/io/github/theestimator/observability/CorrelationIdFilter.kt
+      grep -q "X-Correlation-ID" src/backend/implementation/src/main/kotlin/io/github/theestimator/observability/CorrelationIdFilter.kt
+      grep -qE "MDC" src/backend/implementation/src/main/kotlin/io/github/theestimator/observability/CorrelationIdFilter.kt
+      grep -q "Log\." src/backend/implementation/src/main/kotlin/io/github/theestimator/observability/CorrelationIdFilter.kt
+  - |
+    The frontend error boundary exists and logs via $lib/log (never console.*):
+      test -f src/frontend/src/routes/+error.svelte
+      grep -q "\$lib/log" src/frontend/src/routes/+error.svelte
+      ! grep -q "console\." src/frontend/src/routes/+error.svelte
+  - |
+    The integration test asserts the correlation-id round-trip AND the metrics endpoint:
+      test -f src/backend/implementation/src/test/kotlin/io/github/theestimator/observability/CorrelationIdFilterIT.kt
+      grep -q "X-Correlation-ID" src/backend/implementation/src/test/kotlin/io/github/theestimator/observability/CorrelationIdFilterIT.kt
+      grep -q "http_server_requests_seconds_count" src/backend/implementation/src/test/kotlin/io/github/theestimator/observability/CorrelationIdFilterIT.kt
+  - |
+    CLAUDE.md documents the correlation id:
+      grep -qi "correlationId\|X-Correlation-ID" CLAUDE.md
+  - |
+    Both modules build/test green:
+      ./gradlew :backend:implementation:test
+      ./gradlew :frontend:check
+
 outputs:
-  - backend logging config
-  - backend CorrelationIdFilter.java
+  - created: src/backend/implementation/src/main/kotlin/io/github/theestimator/observability/CorrelationIdFilter.kt
+  - created: src/backend/implementation/src/test/kotlin/io/github/theestimator/observability/CorrelationIdFilterIT.kt
+  - created: src/frontend/src/routes/+error.svelte
+  - modified: src/frontend/src/lib/i18n/de.json
+  - modified: src/frontend/src/lib/i18n/en.json
+  - modified: CLAUDE.md

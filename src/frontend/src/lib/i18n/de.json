@@ -8,6 +8,11 @@
 		"delete": "Löschen",
 		"dismiss": "Verwerfen"
 	},
+	"error": {
+		"title": "Etwas ist schiefgelaufen",
+		"generic": "Ein unerwarteter Fehler ist aufgetreten.",
+		"backHome": "Zurück zum Start"
+	},
 	"menu": {
 		"user": {
 			"logout": "Abmelden"

@@ -1252,6 +1252,7 @@
     "securitySchemes" : {
       "SecurityScheme" : {
         "type" : "openIdConnect",
+        "openIdConnectUrl" : "https://login.microsoftonline.com/5a17d8c3-ba14-4370-a2e7-773571a315f2/v2.0/.well-known/openid-configuration",
         "description" : "Authentication"
       }
     }

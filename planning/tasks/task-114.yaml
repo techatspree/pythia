@@ -60,6 +60,12 @@ description: |
     the developer to run `./gradlew build` and commit the
     regenerated file. No silent "green build, stale schema"
     outcome.
+  - **Locally the build stays green.** The drift gate is
+    OPT-IN (see the frozen decision below): a normal
+    `./gradlew build` on a developer machine regenerates the two
+    files and succeeds, leaving them as ordinary working-tree
+    changes to review and commit. Only CI (or an explicit
+    `-PopenApiGate`) turns drift into a build failure.
 
   ## Frozen decisions (do not re-open in implementation)
 
@@ -112,29 +118,53 @@ description: |
         leaves the siblings untouched.
       * Make the existing `genApi` task
         `dependsOn(syncBackendOpenapi)` so `npm run gen:api`
-        always runs against the freshly synced schema.
+        always runs against the freshly synced schema. This does
+        couple `:frontend:check` to the backend's `quarkusBuild`
+        (check → npmCheck → genApi → syncBackendOpenapi →
+        backend artifact). Accepted deliberately: correct ordering
+        for free, and when the backend is unchanged `quarkusBuild`
+        is UP-TO-DATE and costs ~nothing. Do NOT try to dodge it
+        with `mustRunAfter` — that reintroduces the possibility of
+        generating `schema.d.ts` from a stale `openapi.json`.
       * The existing `npmBuild` / `npmCheck` already depend on
         `genApi`; leave that wiring untouched.
       * `clean` should NOT delete the committed
         `openapi.json` (offline dev needs it to survive `git
         clean` or a `clean` build). The `Sync` task will
         overwrite in place; the file stays committed.
-  - **CI drift gate.** Add a Gradle task
+  - **CI drift gate — OPT-IN, never wired into `check`
+    unconditionally.** Add a Gradle task
     `verifyOpenApiSchemaCommitted` (in
-    `src/frontend/build.gradle.kts`) that
-    `dependsOn(syncBackendOpenapi)` and checks whether the
-    working-tree state of `src/frontend/src/lib/api/openapi.json`
-    is dirty relative to `HEAD`. Implementation:
-    `Runtime.getRuntime().exec("git diff --exit-code
-    src/frontend/src/lib/api/openapi.json")` (or use a small
-    Gradle exec spec) — fail the task with a clear message
-    ("OpenAPI schema has drifted — run `./gradlew build` and
-    commit the regenerated `src/lib/api/openapi.json` and
-    `src/lib/api/schema.d.ts`."). Wire it into `check`:
-    `tasks.named("check") { dependsOn(verifyOpenApiSchemaCommitted) }`.
-    Guard the task with a small "skip if we're not inside a git
-    working tree" fallback so CI containers that ship without
-    `.git` (unlikely, but possible) don't wedge.
+    `src/frontend/build.gradle.kts`) that `dependsOn(genApi)` and
+    fails when `src/frontend/src/lib/api/openapi.json` or
+    `schema.d.ts` differ from **`HEAD`** — i.e.
+    `git diff --exit-code HEAD -- <paths>`. Compare against
+    `HEAD`, NOT the bare `git diff` (which compares against the
+    INDEX): otherwise `git add`-ing a stale schema silently
+    satisfies the gate while `HEAD` stays wrong.
+    Guard the task with a "skip if there is no git working tree"
+    `onlyIf` so source-tarball builds don't wedge.
+    **Wire it into `check` only when opted in:**
+        val openApiGate = providers.environmentVariable("CI").isPresent ||
+            providers.gradleProperty("openApiGate").isPresent
+        if (openApiGate) {
+            tasks.named("check") { dependsOn(verifyOpenApiSchemaCommitted) }
+        }
+    Rationale — this is the decision that makes the task
+    executable at all, so do NOT re-open it:
+      * The committed schema is ALREADY diverged from the backend
+        today, so an unconditional gate would make this very
+        task's own mandatory `./gradlew build` fail on its first
+        run — the task would be unable to complete itself.
+      * Every future task that touches a REST DTO regenerates
+        these two files. An unconditional gate would fail that
+        task's mandatory build gate until the files were
+        committed, while the project's `/implement-task` protocol
+        requires a GREEN build BEFORE the (separate,
+        user-initiated) commit. That is a deadlock.
+      * CI has no such ordering problem: it builds an already
+        committed tree, so drift there is exactly the error the
+        gate should catch.
   - **`schema.d.ts` regen also gates on drift.** After the sync,
     `genApi` regenerates `schema.d.ts`; the same drift gate
     check applies to that file. Extend the diff check to cover
@@ -227,8 +257,10 @@ steps:
         val verifyOpenApiSchemaCommitted = tasks.register<Exec>("verifyOpenApiSchemaCommitted") {
             dependsOn(tasks.named("genApi"))
             workingDir = rootProject.projectDir
+            // Compare against HEAD, not the index: `git diff --exit-code <paths>`
+            // alone would be satisfied by `git add`-ing a stale schema.
             commandLine = listOf(
-                "git", "diff", "--exit-code",
+                "git", "diff", "--exit-code", "HEAD", "--",
                 "src/frontend/src/lib/api/openapi.json",
                 "src/frontend/src/lib/api/schema.d.ts"
             )
@@ -246,21 +278,19 @@ steps:
                 )
             }
         }
-        tasks.named("check") { dependsOn(verifyOpenApiSchemaCommitted) }
-    Rely on the non-zero `git diff` exit code to fail the build — the
-    Gradle failure names the task, and the `doFirst` hint above tells the
-    developer how to fix it.
-
-    NOTE (deliberate friction): wiring this into `check` means that after
-    ANY change to a REST DTO / on-wire type, `./gradlew build` and
-    `:frontend:check` will FAIL until the regenerated `openapi.json` +
-    `schema.d.ts` are committed — including the mandatory build gate of
-    every future DTO-touching `/implement-task`. That is the intended
-    drift safety. If that proves too aggressive for local dev, scope the
-    `check` wiring behind a property/env (e.g. only add the dependency
-    when `providers.environmentVariable("CI").isPresent` or a
-    `-PopenApiGate` project property is set) so the gate runs in CI but
-    local builds only WARN. Pick one and state it in CLAUDE.md.
+    Wire it into `check` ONLY when opted in, so local builds stay green
+    (see the frozen decision above for why this is not negotiable):
+        val openApiGate = providers.environmentVariable("CI").isPresent ||
+            providers.gradleProperty("openApiGate").isPresent
+        if (openApiGate) {
+            tasks.named("check") { dependsOn(verifyOpenApiSchemaCommitted) }
+        }
+    Rely on the non-zero `git diff` exit code to fail the task — the Gradle
+    failure names it, and the `doFirst` hint tells the developer how to fix
+    it. Make the failure actionable by printing the offending diff: add a
+    `doLast`-style summary or run `git --no-pager diff --stat HEAD -- <paths>`
+    first, so the developer sees WHICH of the two files moved rather than
+    only that something did.
   - |
     Prove it end-to-end:
       * `./gradlew clean :frontend:clean :backend:implementation:build :frontend:check`
@@ -270,12 +300,20 @@ steps:
         to any DTO), run `./gradlew build`, confirm
         `openapi.json` and `schema.d.ts` change on disk. Revert
         the tweak.
-      * The DTO tweak above is also the real drift demonstration:
-        with the DTO changed (and not yet committed), `./gradlew
-        :frontend:check` fails on `verifyOpenApiSchemaCommitted`.
+      * The DTO tweak above is also the real drift demonstration.
+        The gate is opt-in, so invoke it explicitly rather than
+        expecting a plain `check` to fail:
+        `./gradlew :frontend:verifyOpenApiSchemaCommitted` must
+        FAIL while the regenerated files are uncommitted, and
+        `./gradlew :frontend:check` (no gate) must still pass.
         Do NOT try to demonstrate drift by hand-corrupting
         `openapi.json` — `syncBackendOpenapi` overwrites it from the
         backend before the diff, so that would never fail.
+      * Because the committed schema is already diverged today, the
+        FIRST build legitimately rewrites `openapi.json` +
+        `schema.d.ts`. That is this task's own output (both are
+        listed under `outputs`) — leave them as working-tree changes
+        for the user to commit; do NOT commit them yourself.
   - |
     Update `CLAUDE.md` (the "Build & run" or "REST API surface"
     section — pick the one that already mentions the manual
@@ -283,10 +321,12 @@ steps:
     consumed by the frontend via the `openapiSchema` Gradle
     configuration; `./gradlew build` regenerates
     `src/frontend/src/lib/api/openapi.json` and
-    `schema.d.ts` from the backend. CI fails the build if
-    those files drift from `HEAD`; run `./gradlew build` and
-    commit the regenerated files." Remove the stale
-    "regenerated from it via `cd src/frontend && npm run
+    `schema.d.ts` from the backend — commit them with the change
+    that caused them. The drift gate
+    (`:frontend:verifyOpenApiSchemaCommitted`) is opt-in: it runs
+    when `CI` is set or `-PopenApiGate` is passed, so CI fails on a
+    stale committed schema while local builds stay green." Remove
+    the stale "regenerated from it via `cd src/frontend && npm run
     gen:api`" wording — that step is no longer manual.
   - |
     Build (the mandatory gate):
@@ -316,6 +356,12 @@ validation:
       diff -q src/backend/implementation/target/openapi/openapi.json \
               src/frontend/src/lib/api/openapi.json
   - |
+    The gate is OPT-IN — it must not be attached to `check` by
+    default, or this task (and every later DTO change) could never
+    reach a green build before committing:
+      grep -q "openApiGate" src/frontend/build.gradle.kts
+      grep -q "diff.*--exit-code.*HEAD" src/frontend/build.gradle.kts
+  - |
     Drift gate fires when the BACKEND contract changes but the
     committed schema hasn't been regenerated + committed. NOTE:
     corrupting the committed file directly does NOT test the gate —
@@ -326,10 +372,6 @@ validation:
       # (edit a DTO, e.g. add `val __drift: String? = null` to a *Dto)
       ! ./gradlew :frontend:verifyOpenApiSchemaCommitted
       # (revert the DTO edit)
-    (Since the committed openapi.json is currently already diverged
-    from the backend, the gate will also fail on the very first run
-    until the regenerated openapi.json + schema.d.ts are committed —
-    that is the expected first-run behaviour, not a bug.)
   - |
     CLAUDE.md is updated (mentions the automated wiring):
       grep -q "openapiSchema\|syncBackendOpenapi" CLAUDE.md

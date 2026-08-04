@@ -8,6 +8,11 @@
 		"delete": "Delete",
 		"dismiss": "Dismiss"
 	},
+	"error": {
+		"title": "Something went wrong",
+		"generic": "An unexpected error occurred.",
+		"backHome": "Back to start"
+	},
 	"menu": {
 		"user": {
 			"logout": "Logout"

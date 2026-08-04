@@ -20,8 +20,19 @@ val domainTypescript = configurations.create("domainTypescript") {
     isCanBeResolved = true
 }
 
+// Consume the backend's generated OpenAPI document (task-114) so the committed
+// copy — and the typed client generated from it — can never drift from the
+// actual REST contract.
+val backendOpenapi = configurations.create("backendOpenapi") {
+    isCanBeConsumed = false
+    isCanBeResolved = true
+}
+
 dependencies {
     domainTypescript(project(mapOf("path" to ":domain", "configuration" to "typescriptDist")))
+    backendOpenapi(
+        project(mapOf("path" to ":backend:implementation", "configuration" to "openapiSchema"))
+    )
 }
 
 // Unpack the domain TypeScript zip into src/lib/domain so the SvelteKit app
@@ -36,8 +47,22 @@ tasks.npmInstall {
     args.set(listOf("--legacy-peer-deps"))
 }
 
+// Refresh the committed OpenAPI document from the backend build. Deliberately a
+// `Copy`, NOT a `Sync`: `src/lib/api` also holds hand-written `fetch.ts` /
+// `types.ts` and the generated `schema.d.ts`, all of which a `Sync` would delete.
+val syncBackendOpenapi = tasks.register<Copy>("syncBackendOpenapi") {
+    description = "Copies the backend-generated OpenAPI document into src/lib/api."
+    from(backendOpenapi.elements.map { locs -> locs.map { it.asFile } })
+    into(layout.projectDirectory.dir("src/lib/api"))
+    rename { "openapi.json" }
+}
+
+// `gen:api` regenerates schema.d.ts FROM the committed openapi.json, so it must
+// run after the sync. This couples :frontend:check to the backend's
+// quarkusBuild, which is accepted: it gives correct ordering for free, and when
+// the backend is unchanged quarkusBuild is UP-TO-DATE and costs ~nothing.
 val genApi = tasks.register<NpmTask>("genApi") {
-    dependsOn(tasks.npmInstall)
+    dependsOn(tasks.npmInstall, syncBackendOpenapi)
     args.set(listOf("run", "gen:api"))
 }
 
@@ -79,8 +104,42 @@ tasks.named("assemble") {
     dependsOn(npmBuild)
 }
 
+// Drift gate (task-114): fail when the committed OpenAPI client differs from
+// what the backend just produced. Compares against HEAD, not the index — a bare
+// `git diff` would be satisfied by `git add`-ing a stale schema.
+val verifyOpenApiSchemaCommitted = tasks.register<Exec>("verifyOpenApiSchemaCommitted") {
+    group = "verification"
+    description = "Fails if the committed OpenAPI client has drifted from the backend contract."
+    dependsOn(genApi)
+    workingDir = rootProject.projectDir
+    commandLine = listOf(
+        "git", "diff", "--exit-code", "--stat", "HEAD", "--",
+        "src/frontend/src/lib/api/openapi.json",
+        "src/frontend/src/lib/api/schema.d.ts"
+    )
+    // Skip where there is no git working tree (e.g. a source-tarball build).
+    // Must be `onlyIf`: disabling inside `doFirst` would be too late.
+    onlyIf { rootProject.file(".git").exists() }
+    doFirst {
+        logger.lifecycle(
+            "Verifying the committed OpenAPI client is in sync with the backend; " +
+                "on failure run `./gradlew build` and commit " +
+                "src/lib/api/openapi.json + src/lib/api/schema.d.ts."
+        )
+    }
+}
+
+// OPT-IN only. Wiring this into `check` unconditionally would deadlock ordinary
+// development: any change to a REST DTO regenerates the two files, so the build
+// would fail until they were committed — while the task workflow requires a
+// green build BEFORE the commit. CI builds an already-committed tree, so there
+// the gate is exactly the right check.
+val openApiGate = providers.environmentVariable("CI").isPresent ||
+    providers.gradleProperty("openApiGate").isPresent
+
 tasks.named("check") {
     dependsOn(npmCheck, npmLintReport)
+    if (openApiGate) dependsOn(verifyOpenApiSchemaCommitted)
 }
 
 tasks.named<Delete>("clean") {

@@ -97,6 +97,65 @@ tasks.test {
     systemProperty("app.auth.provider", "dev")
 }
 
+// Expose the SmallRye-generated OpenAPI document as a consumable configuration
+// so :frontend can depend on it directly (task-114), mirroring the way :domain
+// publishes its packaged TypeScript through `typescriptDist`. This is what keeps
+// the committed `src/frontend/src/lib/api/openapi.json` from drifting: the
+// frontend resolves the artifact instead of relying on a manual `cp`.
+//
+// SmallRye writes the file during the Quarkus augmentation performed by
+// `quarkusBuild`, to `target/openapi/` (see
+// `quarkus.smallrye-openapi.store-schema-directory` in application.properties).
+val openapiFile = layout.projectDirectory.file("target/openapi/openapi.json")
+
+// SmallRye writes the document as a SIDE EFFECT of Quarkus augmentation, into
+// `target/openapi/` — a path no Quarkus task declares as an output. Gradle
+// therefore cannot tell that deleting it invalidates anything, so a cached or
+// up-to-date augmentation leaves it missing/stale. Declare it on the task that
+// actually augments (`quarkusAppPartsBuild`) so staleness is detected.
+tasks.named("quarkusAppPartsBuild") {
+    outputs.file(openapiFile)
+}
+
+// Snapshot the document into `build/` immediately after augmentation. Both the
+// PROD augmentation (`quarkusBuild`) and the TEST augmentation (@QuarkusTest)
+// write to the same `target/openapi/openapi.json`, and they do not agree — the
+// prod profile has OIDC active (`%prod.app.auth.provider=entra`) and therefore
+// emits `securitySchemes`, while `%test` (dev auth, no OIDC) does not. Whichever
+// ran last would win, making the consumed contract depend on task ordering.
+// Snapshotting pins the PROD document — the one that describes the deployed API.
+val openApiSchemaArtifact = tasks.register<Copy>("openApiSchemaArtifact") {
+    description = "Snapshots the generated OpenAPI document for consumption by :frontend."
+    dependsOn(tasks.named("quarkusAppPartsBuild"))
+    from(openapiFile)
+    into(layout.buildDirectory.dir("openapi"))
+    // A `Copy` whose source is missing silently produces nothing, which would
+    // hand :frontend a stale schema — the very failure this wiring prevents.
+    doFirst {
+        check(openapiFile.asFile.exists()) {
+            "The Quarkus augmentation did not produce ${openapiFile.asFile}. " +
+                "Re-run with `./gradlew :backend:implementation:quarkusAppPartsBuild --rerun-tasks`."
+        }
+    }
+}
+
+// …and make sure the tests cannot clobber `target/openapi/` before the snapshot
+// is taken, so a single `./gradlew build` is deterministic.
+tasks.named("test") {
+    mustRunAfter(openApiSchemaArtifact)
+}
+
+val openapiSchema = configurations.create("openapiSchema") {
+    isCanBeResolved = false
+    isCanBeConsumed = true
+}
+
+artifacts {
+    add(openapiSchema.name, layout.buildDirectory.file("openapi/openapi.json")) {
+        builtBy(openApiSchemaArtifact)
+    }
+}
+
 // Static analysis: detekt over the backend Kotlin sources. Reports are
 // informational; the build stays green regardless of findings.
 detekt {
