@@ -19,8 +19,21 @@ import java.util.UUID
 // The id is CLIENT-ASSIGNED (like a node's logicalId), not @GeneratedValue: a
 // single draft PUT sends new buckets together with the leaves that reference
 // them by id, so the id must be known client-side before persistence.
+// The unique constraint is declared here as well as in Flyway (V10/V15) so the
+// Hibernate-generated dev/test schema MATCHES production. Without it those
+// schemas had no constraint at all, so a bucket-reorder bug that reliably broke
+// the Flyway-managed cluster could not be reproduced — or regression-tested —
+// locally.
 @Entity
-@Table(name = "estimation_buckets")
+@Table(
+    name = "estimation_buckets",
+    uniqueConstraints = [
+        jakarta.persistence.UniqueConstraint(
+            name = "uq_estimation_buckets_position",
+            columnNames = ["estimation_id", "position"]
+        )
+    ]
+)
 class EstimationBucket {
 
     @Id

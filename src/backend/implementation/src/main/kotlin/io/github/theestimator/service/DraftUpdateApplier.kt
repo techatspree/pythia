@@ -30,6 +30,9 @@ import java.util.UUID
 @ApplicationScoped
 class DraftUpdateApplier {
 
+    @jakarta.persistence.PersistenceContext
+    lateinit var entityManager: jakarta.persistence.EntityManager
+
     fun apply(draft: DraftEstimationVersion, update: DraftUpdateDto) {
         update.notes?.let { draft.notes = it }
         update.parameters?.let { applyParameters(draft, it) }
@@ -49,6 +52,24 @@ class DraftUpdateApplier {
         val keptIds = bucketDtos.mapNotNull { it.id }.toSet()
         estimation.buckets.removeAll { it.id !in keptIds }
         val byId = estimation.buckets.associateBy { it.id }
+
+        // Reordering swaps positions, and these are applied as row-by-row
+        // UPDATEs. `estimation_buckets` has UNIQUE(estimation_id, position),
+        // which PostgreSQL evaluates after EVERY statement, so the transient
+        // state mid-swap ("two buckets briefly at position 0") aborted the whole
+        // transaction — the user saw "could not be saved" and lost the reorder.
+        // Park every existing bucket on a temporary NEGATIVE position first and
+        // flush, so no final position can collide with a stale one. Negatives
+        // are never handed out as real positions, so the parking slots are
+        // collision-free among themselves too.
+        // (V15 additionally makes the constraint DEFERRABLE in the Flyway-managed
+        // schemas; this keeps the write correct even where the constraint is
+        // immediate — e.g. the Hibernate-generated dev/test schema.)
+        if (byId.isNotEmpty()) {
+            estimation.buckets.forEachIndexed { idx, bucket -> bucket.position = -(idx + 1) }
+            entityManager.flush()
+        }
+
         bucketDtos.forEach { dto ->
             val existing = dto.id?.let { byId[it] }
             if (existing != null) {
