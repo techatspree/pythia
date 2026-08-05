@@ -5,7 +5,6 @@ import io.github.theestimator.domain.AdditionalCostType
 import io.github.theestimator.domain.Estimation
 import io.github.theestimator.domain.Project
 import io.github.theestimator.domain.draft.DraftAdditionalCost
-import io.github.theestimator.domain.draft.DraftEstimationParameter
 import io.github.theestimator.domain.draft.DraftEstimationVersion
 import io.github.theestimator.domain.draft.DraftFixedItemNode
 import io.github.theestimator.domain.draft.DraftGroupNode
@@ -66,11 +65,7 @@ class DraftSnapshotRoundTripIT {
         }
         draft.phases.add(phase)
 
-        draft.parameters.add(DraftEstimationParameter().apply {
-            name = "dailyRate"
-            value = 800.0
-            version = draft
-        })
+        draft.dailyRate = 800.0
 
         val group = DraftGroupNode().apply {
             title = "Group"

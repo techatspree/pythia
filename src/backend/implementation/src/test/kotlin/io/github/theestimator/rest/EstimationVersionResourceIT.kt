@@ -80,7 +80,7 @@ class EstimationVersionResourceIT {
             .statusCode(200)
             .body("isDraft", equalTo(true))
             .body("versionNumber", equalTo(1))
-            .body("parameters", notNullValue())
+            .body("dailyRate", notNullValue())
     }
 
     @Test
@@ -101,18 +101,16 @@ class EstimationVersionResourceIT {
             .body("""
                 {
                     "notes": "Updated notes",
-                    "parameters": [
-                        {"name": "dailyRate", "value": 1000.0},
-                        {"name": "stdDevFactor", "value": 2.5}
-                    ]
+                    "dailyRate": 1000.0,
+                    "stdDevFactor": 2.5
                 }
             """.trimIndent())
             .`when`().put("/api/estimations/$estimationId/versions/draft")
             .then()
             .statusCode(200)
             .body("notes", equalTo("Updated notes"))
-            .body("parameters.size()", equalTo(2))
-            .body("parameters.find { it.name == 'dailyRate' }.value", equalTo(1000.0f))
+            .body("stdDevFactor", equalTo(2.5f))
+            .body("dailyRate", equalTo(1000.0f))
     }
 
     @Test
@@ -210,7 +208,7 @@ class EstimationVersionResourceIT {
             .then()
             .statusCode(201)
             .body("versionNumber", equalTo(2))
-            .body("parameters.find { it.name == 'dailyRate' }.value", equalTo(900.0f))
+            .body("dailyRate", equalTo(900.0f))
             .body("effortDrivers.size()", equalTo(1))
             .body("effortDrivers[0].description", equalTo("QA"))
             .body("roots[0].children.size()", equalTo(2))
@@ -278,7 +276,7 @@ class EstimationVersionResourceIT {
             .contentType(ContentType.JSON)
             .body("""
                 {
-                    "parameters": [{"name": "stdDevFactor", "value": 0.0}],
+                    "stdDevFactor": 0.0,
                     "roots": [{
                         "type": "GROUP",
                         "title": "Backend",
@@ -370,7 +368,7 @@ class EstimationVersionResourceIT {
             .contentType(ContentType.JSON)
             .body("""
                 {
-                    "parameters": [{"name": "stdDevFactor", "value": 0.0}],
+                    "stdDevFactor": 0.0,
                     "roots": [{
                         "type": "GROUP",
                         "title": "Backend",
@@ -423,7 +421,7 @@ class EstimationVersionResourceIT {
             .contentType(ContentType.JSON)
             .body("""
                 {
-                    "parameters": [{"name": "stdDevFactor", "value": 0.0}],
+                    "stdDevFactor": 0.0,
                     "roots": [{"type": "GROUP", "title": "G", "children": [{"type": "FIXED", "description": "T", "minEffort": 2.0, "expectedEffort": 4.0, "maxEffort": 6.0}]}]
                 }
             """.trimIndent())
@@ -437,7 +435,7 @@ class EstimationVersionResourceIT {
             .contentType(ContentType.JSON)
             .body("""
                 {
-                    "parameters": [{"name": "stdDevFactor", "value": 0.0}],
+                    "stdDevFactor": 0.0,
                     "effortDrivers": [{"description": "QA", "factor": 0.5}],
                     "roots": [{"type": "GROUP", "title": "G", "children": [{"type": "FIXED", "description": "T", "minEffort": 2.0, "expectedEffort": 4.0, "maxEffort": 6.0}]}]
                 }
@@ -458,10 +456,8 @@ class EstimationVersionResourceIT {
             .contentType(ContentType.JSON)
             .body("""
                 {
-                    "parameters": [
-                        {"name": "dailyRate", "value": 800.0},
-                        {"name": "stdDevFactor", "value": 0.0}
-                    ],
+                    "dailyRate": 800.0,
+                    "stdDevFactor": 0.0,
                     "roots": [{"type": "GROUP", "title": "G", "children": [{"type": "FIXED", "description": "T", "minEffort": 2.0, "expectedEffort": 4.0, "maxEffort": 6.0}]}]
                 }
             """.trimIndent())
@@ -476,10 +472,8 @@ class EstimationVersionResourceIT {
             .contentType(ContentType.JSON)
             .body("""
                 {
-                    "parameters": [
-                        {"name": "dailyRate", "value": 1600.0},
-                        {"name": "stdDevFactor", "value": 0.0}
-                    ],
+                    "dailyRate": 1600.0,
+                    "stdDevFactor": 0.0,
                     "roots": [{"type": "GROUP", "title": "G", "children": [{"type": "FIXED", "description": "T", "minEffort": 2.0, "expectedEffort": 4.0, "maxEffort": 6.0}]}]
                 }
             """.trimIndent())
@@ -511,7 +505,7 @@ class EstimationVersionResourceIT {
             .body("""
                 {
                     "phases": [{"name": "Analysis", "abbreviation": "AN", "durationWeeks": 2.0}],
-                    "parameters": [{"name": "stdDevFactor", "value": 0.0}],
+                    "stdDevFactor": 0.0,
                     "roots": [{"type": "GROUP", "title": "G", "children": [
                         {"type": "FIXED", "description": "T", "minEffort": 2.0, "expectedEffort": 4.0, "maxEffort": 6.0, "phaseAbbreviation": "AN"}
                     ]}]
@@ -551,7 +545,7 @@ class EstimationVersionResourceIT {
             .body("""
                 {
                     "phases": [{"name": "Analysis", "abbreviation": "AN", "durationWeeks": 4.0}],
-                    "parameters": [{"name": "stdDevFactor", "value": 0.0}],
+                    "stdDevFactor": 0.0,
                     "roots": [{"type": "GROUP", "title": "G", "children": [{
                         "type": "TIME_RELATIVE",
                         "description": "T",
@@ -580,7 +574,7 @@ class EstimationVersionResourceIT {
             .contentType(ContentType.JSON)
             .body("""
                 {
-                    "parameters": [{"name": "stdDevFactor", "value": 0.0}],
+                    "stdDevFactor": 0.0,
                     "roots": [{"type": "GROUP", "title": "G", "children": [{
                         "type": "TIME_RELATIVE",
                         "description": "T",
@@ -835,11 +829,9 @@ class EstimationVersionResourceIT {
             .contentType(ContentType.JSON)
             .body("""
                 {
-                    "parameters": [
-                        {"name": "dailyRate", "value": 900.0},
-                        {"name": "stdDevFactor", "value": 2.0},
-                        {"name": "salesSurcharge", "value": 0.10}
-                    ],
+                    "dailyRate": 900.0,
+                    "stdDevFactor": 2.0,
+                    "salesSurcharge": 0.10,
                     "effortDrivers": [
                         {"description": "QA", "factor": 0.15}
                     ],
@@ -881,7 +873,7 @@ class EstimationVersionResourceIT {
     // b1 sample mean = PERT(1,2,a1Max); b2 sample mean = PERT(2,4,6) = 4.0.
     private fun bucketDraftBody(b1: String, b2: String, a1Max: Double = 3.0) = """
         {
-            "parameters": [{"name": "stdDevFactor", "value": 0.0}],
+            "stdDevFactor": 0.0,
             "buckets": [
                 {"id": "$b1", "position": 0, "label": "Frontend"},
                 {"id": "$b2", "position": 1, "label": "Backend"}
@@ -1006,6 +998,30 @@ class EstimationVersionResourceIT {
             .body("buckets[2].label", equalTo("Gamma"))
     }
 
+    // The three calculation inputs are typed FIELDS now (task-138), not
+    // user-named rows. Before, the domain looked them up by the English strings
+    // "dailyRate"/"stdDevFactor"/"salesSurcharge"; renaming one in the GUI made
+    // the lookup miss and SILENTLY fall back to the default. Pin that a
+    // non-default value actually round-trips instead of being replaced by 800.
+    @Test
+    fun `hardwired calculation parameters round-trip with non-default values`() {
+        val eid = createBucketEstimation()
+        given().post("/api/estimations/$eid/versions").then().statusCode(201)
+
+        given()
+            .contentType(ContentType.JSON)
+            .body("""{"dailyRate": 1234.0, "stdDevFactor": 3.5, "salesSurcharge": 0.25, "roots": []}""")
+            .`when`().put("/api/estimations/$eid/versions/draft")
+            .then().statusCode(200)
+
+        given()
+            .`when`().get("/api/estimations/$eid/versions/draft")
+            .then().statusCode(200)
+            .body("dailyRate", equalTo(1234.0f))
+            .body("stdDevFactor", equalTo(3.5f))
+            .body("salesSurcharge", equalTo(0.25f))
+    }
+
     @Test
     fun `bucketedLeavesSurviveInsideAGroup`() {
         val eid = createBucketEstimation()
@@ -1014,7 +1030,7 @@ class EstimationVersionResourceIT {
 
         val body = """
             {
-                "parameters": [{"name": "stdDevFactor", "value": 0.0}],
+                "stdDevFactor": 0.0,
                 "buckets": [{"id": "$b1", "position": 0, "label": "Frontend"}],
                 "roots": [
                     {

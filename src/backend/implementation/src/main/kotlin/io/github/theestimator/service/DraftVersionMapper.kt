@@ -3,7 +3,6 @@ package io.github.theestimator.service
 import io.github.theestimator.domain.draft.DraftAdditionalCost
 import io.github.theestimator.domain.draft.DraftEffortDriver
 import io.github.theestimator.domain.draft.DraftEstimationNode
-import io.github.theestimator.domain.draft.DraftEstimationParameter
 import io.github.theestimator.domain.draft.DraftEstimationVersion
 import io.github.theestimator.domain.draft.DraftBucketedItemNode
 import io.github.theestimator.domain.draft.DraftFixedItemNode
@@ -17,7 +16,6 @@ import io.github.theestimator.model.AdditionalCost
 import io.github.theestimator.model.EffortDriver
 import io.github.theestimator.model.EstimationGroup
 import io.github.theestimator.model.EstimationNode
-import io.github.theestimator.model.EstimationParameter
 import io.github.theestimator.model.EstimationVersion
 import io.github.theestimator.model.ProjectPhase
 import jakarta.enterprise.context.ApplicationScoped
@@ -30,7 +28,9 @@ class DraftVersionMapper {
         return EstimationVersion(
             versionNumber = draft.versionNumber,
             notes = draft.notes ?: "",
-            parameters = draft.parameters.map { it.toDomain() },
+            dailyRate = draft.dailyRate,
+            stdDevFactor = draft.stdDevFactor,
+            salesSurcharge = draft.salesSurcharge,
             effortDrivers = draft.effortDrivers.map { it.toDomain() },
             phases = phaseMap.values.toList(),
             additionalCosts = draft.additionalCosts.map { it.toDomain(phaseMap) },
@@ -38,11 +38,6 @@ class DraftVersionMapper {
         )
     }
 
-    private fun DraftEstimationParameter.toDomain() = EstimationParameter(
-        name = name,
-        value = value,
-        comment = comment ?: ""
-    )
 
     private fun DraftEffortDriver.toDomain() = EffortDriver(
         description = description,

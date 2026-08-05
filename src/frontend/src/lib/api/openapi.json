@@ -258,11 +258,17 @@
           "notes" : {
             "type" : [ "string", "null" ]
           },
-          "parameters" : {
-            "type" : [ "array", "null" ],
-            "items" : {
-              "$ref" : "#/components/schemas/EstimationParameterDto"
-            }
+          "dailyRate" : {
+            "type" : [ "number", "null" ],
+            "format" : "double"
+          },
+          "stdDevFactor" : {
+            "type" : [ "number", "null" ],
+            "format" : "double"
+          },
+          "salesSurcharge" : {
+            "type" : [ "number", "null" ],
+            "format" : "double"
           },
           "effortDrivers" : {
             "type" : [ "array", "null" ],
@@ -565,29 +571,6 @@
         },
         "required" : [ "type" ]
       },
-      "EstimationParameterDto" : {
-        "type" : "object",
-        "properties" : {
-          "id" : {
-            "anyOf" : [ {
-              "$ref" : "#/components/schemas/UUID"
-            }, {
-              "type" : "null"
-            } ]
-          },
-          "name" : {
-            "type" : "string"
-          },
-          "value" : {
-            "type" : "number",
-            "format" : "double"
-          },
-          "comment" : {
-            "type" : [ "string", "null" ]
-          }
-        },
-        "required" : [ "name", "value" ]
-      },
       "EstimationSummaryDto" : {
         "type" : "object",
         "required" : [ "id", "offer", "description", "method", "latestVersionNumber", "versionCount", "hasDraft", "createdAt" ],
@@ -630,7 +613,7 @@
       },
       "EstimationVersionDto" : {
         "type" : "object",
-        "required" : [ "versionNumber", "isDraft", "totalEffort", "notes", "createdAt", "submittedAt", "parameters", "effortDrivers", "phases", "roots", "additionalCosts" ],
+        "required" : [ "versionNumber", "isDraft", "totalEffort", "notes", "createdAt", "submittedAt", "dailyRate", "stdDevFactor", "salesSurcharge", "effortDrivers", "phases", "roots", "additionalCosts" ],
         "properties" : {
           "versionNumber" : {
             "type" : "integer",
@@ -660,11 +643,17 @@
               "type" : "null"
             } ]
           },
-          "parameters" : {
-            "type" : "array",
-            "items" : {
-              "$ref" : "#/components/schemas/EstimationParameterDto"
-            }
+          "dailyRate" : {
+            "type" : "number",
+            "format" : "double"
+          },
+          "stdDevFactor" : {
+            "type" : "number",
+            "format" : "double"
+          },
+          "salesSurcharge" : {
+            "type" : "number",
+            "format" : "double"
           },
           "effortDrivers" : {
             "type" : "array",

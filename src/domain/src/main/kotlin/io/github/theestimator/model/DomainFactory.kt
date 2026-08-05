@@ -93,7 +93,9 @@ fun createVersion(
     versionNumber: Int,
     isDraft: Boolean,
     notes: String = "",
-    parameters: Array<EstimationParameter> = emptyArray(),
+    dailyRate: Double = EstimationDefaults.DAILY_RATE,
+    stdDevFactor: Double = EstimationDefaults.STD_DEV_FACTOR,
+    salesSurcharge: Double = EstimationDefaults.SALES_SURCHARGE,
     effortDrivers: Array<EffortDriver> = emptyArray(),
     phases: Array<ProjectPhase> = emptyArray(),
     roots: Array<EstimationNode> = emptyArray()
@@ -101,7 +103,9 @@ fun createVersion(
     versionNumber = versionNumber,
     status = if (isDraft) EstimationVersionStatus.DRAFT else EstimationVersionStatus.SUBMITTED,
     notes = notes,
-    parameters = parameters.toList(),
+    dailyRate = dailyRate,
+    stdDevFactor = stdDevFactor,
+    salesSurcharge = salesSurcharge,
     effortDrivers = effortDrivers.toList(),
     phases = phases.toList(),
     roots = roots.toList()

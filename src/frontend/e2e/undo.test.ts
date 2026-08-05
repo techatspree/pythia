@@ -32,10 +32,8 @@ async function createDraft(page: Page, estimationId: string): Promise<number> {
 async function populateDraft(page: Page, estimationId: string) {
 	const res = await page.request.put(`${API}/api/estimations/${estimationId}/versions/draft`, {
 		data: {
-			parameters: [
-				{ name: 'dailyRate', value: 900 },
-				{ name: 'stdDevFactor', value: 2 }
-			],
+			dailyRate: 900,
+			stdDevFactor: 2,
 			roots: [
 				{
 					type: 'GROUP',
@@ -178,10 +176,8 @@ test('undo conflict opens the dialog; reload adopts the other user value', async
 	const put = await page.request.put(`${API}/api/estimations/${estimationId}/versions/draft`, {
 		headers: { Authorization: 'Dev dev-estimator' },
 		data: {
-			parameters: [
-				{ name: 'dailyRate', value: 900 },
-				{ name: 'stdDevFactor', value: 2 }
-			],
+			dailyRate: 900,
+			stdDevFactor: 2,
 			roots: [
 				{
 					type: 'GROUP',

@@ -825,9 +825,9 @@
       "notes": "Move the local dev backend off port 8080 (to 8090) so it stops colliding with the minikube kubectl port-forward"
     },
     "task-138": {
-      "status": "pending",
-      "started_at": null,
-      "completed_at": null,
+      "status": "done",
+      "started_at": "2026-08-04T15:49:52+00:00",
+      "completed_at": "2026-08-05T07:01:51+00:00",
       "notes": "Standard estimation parameters are looked up by user-editable English names; renaming one silently falls back to defaults and corrupts the calculation. Make them first-class typed fields."
     }
   }

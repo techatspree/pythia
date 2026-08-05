@@ -99,19 +99,15 @@ class VersionComparisonService {
         versionA: SubmittedEstimationVersion,
         versionB: SubmittedEstimationVersion
     ): List<ParameterChangeDto> {
-        val paramsA = versionA.parameters.associate { it.name to it.value }
-        val paramsB = versionB.parameters.associate { it.name to it.value }
-
-        val allNames = paramsA.keys + paramsB.keys
-        return allNames.mapNotNull { name ->
-            val oldVal = paramsA[name]
-            val newVal = paramsB[name]
-            when {
-                oldVal == null && newVal != null -> ParameterChangeDto(name, null, newVal, "ADDED")
-                oldVal != null && newVal == null -> ParameterChangeDto(name, oldVal, null, "REMOVED")
-                oldVal != newVal -> ParameterChangeDto(name, oldVal, newVal, "MODIFIED")
-                else -> null
-            }
+        // The parameters are a fixed triple now (task-138), so a comparison can
+        // only ever report MODIFIED — there is nothing to add or remove.
+        val pairs = listOf(
+            Triple("dailyRate", versionA.dailyRate, versionB.dailyRate),
+            Triple("stdDevFactor", versionA.stdDevFactor, versionB.stdDevFactor),
+            Triple("salesSurcharge", versionA.salesSurcharge, versionB.salesSurcharge)
+        )
+        return pairs.mapNotNull { (name, oldVal, newVal) ->
+            if (oldVal != newVal) ParameterChangeDto(name, oldVal, newVal, "MODIFIED") else null
         }
     }
 

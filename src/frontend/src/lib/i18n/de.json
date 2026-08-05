@@ -56,13 +56,10 @@
 	"panel": {
 		"parameters": {
 			"title": "Parameter",
-			"empty": "Keine Parameter definiert.",
 			"useDefaults": "Standardwerte verwenden",
-			"emptyReadonly": "Keine Parameter",
-			"colName": "Name",
-			"colValue": "Wert",
-			"colComment": "Kommentar",
-			"addRow": "+ Parameter hinzufügen"
+			"dailyRate": "Tagessatz (€/PT)",
+			"stdDevFactor": "Standardabweichungsfaktor",
+			"salesSurcharge": "Vertriebszuschlag"
 		},
 		"effortDrivers": {
 			"title": "Aufwandstreiber",

@@ -10,7 +10,6 @@ import io.github.theestimator.rest.dto.BucketUpdateDto
 import io.github.theestimator.rest.dto.DraftUpdateDto
 import io.github.theestimator.rest.dto.EffortDriverDto
 import io.github.theestimator.rest.dto.EstimationNodeUpdateDto
-import io.github.theestimator.rest.dto.EstimationParameterDto
 import io.github.theestimator.rest.dto.PhaseUpdateDto
 
 // Captures a draft entity's full current state as the wire DraftUpdateDto —
@@ -21,9 +20,9 @@ fun DraftEstimationVersion.toUpdateDto(): DraftUpdateDto = DraftUpdateDto(
     // field as "leave unchanged" (wire-PUT semantics), which would make undo
     // unable to clear notes. Every list field below is likewise always present.
     notes = notes ?: "",
-    parameters = parameters.map {
-        EstimationParameterDto(name = it.name, value = it.value, comment = it.comment)
-    },
+    dailyRate = dailyRate,
+    stdDevFactor = stdDevFactor,
+    salesSurcharge = salesSurcharge,
     effortDrivers = effortDrivers.map {
         EffortDriverDto(description = it.description, factor = it.factor, comment = it.comment)
     },

@@ -17,11 +17,9 @@ class EstimationVersionTreeTest {
 
     private fun versionWith(roots: List<EstimationNode>) = EstimationVersion(
         versionNumber = 1,
-        parameters = listOf(
-            EstimationParameter("stdDevFactor", 2.0),
-            EstimationParameter("dailyRate", 800.0),
-            EstimationParameter("salesSurcharge", 0.1)
-        ),
+        stdDevFactor = 2.0,
+        dailyRate = 800.0,
+        salesSurcharge = 0.1,
         roots = roots
     )
 

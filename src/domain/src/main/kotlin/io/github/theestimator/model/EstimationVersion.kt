@@ -19,7 +19,16 @@ data class EstimationVersion(
     val createdBy: User? = null,
     val totalEffort: Double = 0.0,
     val notes: String = "",
-    val parameters: List<EstimationParameter> = emptyList(),
+    // The three values the calculation depends on are FIRST-CLASS FIELDS, not
+    // user-named rows (task-138). They were previously looked up by their
+    // English names as string keys in a generic
+    // name/value list that the GUI let users rename — a rename made the lookup
+    // miss and SILENTLY fall back to the default, quietly recomputing the whole
+    // estimate. Being fields, they cannot be renamed away; GUI labels are i18n
+    // keys instead.
+    val dailyRate: Double = EstimationDefaults.DAILY_RATE,
+    val stdDevFactor: Double = EstimationDefaults.STD_DEV_FACTOR,
+    val salesSurcharge: Double = EstimationDefaults.SALES_SURCHARGE,
     val effortDrivers: List<EffortDriver> = emptyList(),
     val phases: List<ProjectPhase> = emptyList(),
     val additionalCosts: List<AdditionalCost> = emptyList(),
@@ -29,13 +38,7 @@ data class EstimationVersion(
     private val _updatedAt: String? = null
 ) : BaseDomain(_id, _createdAt, _updatedAt) {
 
-    fun parameterValue(name: String): Double? =
-        parameters.find { it.name == name }?.value
-
     fun calculate(): EstimationVersion {
-        val stdDevFactor = parameterValue("stdDevFactor") ?: EstimationDefaults.STD_DEV_FACTOR
-        val dailyRate = parameterValue("dailyRate") ?: EstimationDefaults.DAILY_RATE
-        val salesSurcharge = parameterValue("salesSurcharge") ?: EstimationDefaults.SALES_SURCHARGE
         val totalDriverFactor = effortDrivers.sumOf { it.factor }
 
         val leaves = roots.flatMap { it.leaves().toList() }

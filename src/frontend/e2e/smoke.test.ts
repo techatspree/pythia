@@ -67,11 +67,9 @@ async function populateDraft(page: Page, estimationId: string) {
 		headers: API_HEADERS,
 		data: {
 			notes: 'smoke test notes',
-			parameters: [
-				{ name: 'dailyRate', value: 900 },
-				{ name: 'stdDevFactor', value: 2 },
-				{ name: 'salesSurcharge', value: 0.1 }
-			],
+			dailyRate: 900,
+			stdDevFactor: 2,
+			salesSurcharge: 0.1,
 			effortDrivers: [{ description: 'QA', factor: 0.15, comment: null }],
 			roots: [{
 				type: 'GROUP',
@@ -91,10 +89,8 @@ async function populateDraftWithTree(page: Page, estimationId: string) {
 	const res = await page.request.put(`${API}/api/estimations/${estimationId}/versions/draft`, {
 		headers: API_HEADERS,
 		data: {
-			parameters: [
-				{ name: 'dailyRate', value: 900 },
-				{ name: 'stdDevFactor', value: 0 }
-			],
+			dailyRate: 900,
+			stdDevFactor: 0,
 			roots: [{
 				type: 'GROUP',
 				title: 'Backend',

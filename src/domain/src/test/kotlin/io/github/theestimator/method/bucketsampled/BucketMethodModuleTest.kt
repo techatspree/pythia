@@ -4,7 +4,6 @@ import io.github.theestimator.method.EstimationMethod
 import io.github.theestimator.method.EstimationMethodRegistry
 import io.github.theestimator.model.CalculationParameters
 import io.github.theestimator.model.EstimationGroup
-import io.github.theestimator.model.EstimationParameter
 import io.github.theestimator.model.EstimationVersion
 import io.github.theestimator.model.leaves
 import org.junit.jupiter.api.Assertions.assertEquals
@@ -79,11 +78,9 @@ class BucketMethodModuleTest {
     fun `a bucketed tree computes end-to-end via EstimationVersion calculate`() {
         val version = EstimationVersion(
             versionNumber = 1,
-            parameters = listOf(
-                EstimationParameter("stdDevFactor", 2.0),
-                EstimationParameter("dailyRate", 800.0),
-                EstimationParameter("salesSurcharge", 0.1)
-            ),
+            stdDevFactor = 2.0,
+            dailyRate = 800.0,
+            salesSurcharge = 0.1,
             roots = listOf(
                 EstimationGroup(
                     title = "Bucket b1",

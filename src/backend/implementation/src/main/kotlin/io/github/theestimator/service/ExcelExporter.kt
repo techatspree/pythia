@@ -180,8 +180,8 @@ class ExcelExporter {
             ExcelGermanLabels.Phases.OFFER_PRICE_WITH_SALES_SURCHARGE
         ).forEachIndexed { idx, h -> headerRow.createCell(idx).setCellValue(h) }
 
-        val salesSurcharge = version.parameterValue("salesSurcharge") ?: 0.1
-        val dailyRate = version.parameterValue("dailyRate") ?: 800.0
+        val salesSurcharge = version.salesSurcharge
+        val dailyRate = version.dailyRate
         val allLeaves = allLeaves(version)
 
         version.phases.forEachIndexed { idx, phase ->
@@ -215,11 +215,16 @@ class ExcelExporter {
         headerRow.createCell(1).setCellValue(ExcelGermanLabels.Parameters.VALUE)
         headerRow.createCell(2).setCellValue(ExcelGermanLabels.Parameters.COMMENT)
 
-        version.parameters.forEachIndexed { idx, param ->
+        // Three fixed rows — the parameters are typed fields, not user-named
+        // rows, so the sheet shape no longer depends on what a user typed.
+        listOf(
+            ExcelGermanLabels.Parameters.DAILY_RATE to version.dailyRate,
+            ExcelGermanLabels.Parameters.STD_DEV_FACTOR to version.stdDevFactor,
+            ExcelGermanLabels.Parameters.SALES_SURCHARGE to version.salesSurcharge
+        ).forEachIndexed { idx, (label, value) ->
             val row = sheet.createRow(idx + 1)
-            row.createCell(0).setCellValue(param.name)
-            row.createCell(1).setCellValue(param.value)
-            param.comment?.let { row.createCell(2).setCellValue(it) }
+            row.createCell(0).setCellValue(label)
+            row.createCell(1).setCellValue(value)
         }
     }
 

@@ -34,7 +34,9 @@ fun SubmittedEstimationVersion.toDto() = EstimationVersionDto(
     notes = notes,
     createdAt = createdAt,
     submittedAt = submittedAt,
-    parameters = parameters.map { it.toDto() },
+    dailyRate = dailyRate,
+    stdDevFactor = stdDevFactor,
+    salesSurcharge = salesSurcharge,
     effortDrivers = effortDrivers.map { it.toDto() },
     phases = phases.map { it.toDto() },
     roots = roots.map { it.toDto() },
@@ -50,7 +52,9 @@ fun DraftEstimationVersion.toDto(calculated: EstimationVersion): EstimationVersi
         notes = notes,
         createdAt = createdAt,
         submittedAt = null,
-        parameters = parameters.map { it.toDto() },
+        dailyRate = dailyRate,
+    stdDevFactor = stdDevFactor,
+    salesSurcharge = salesSurcharge,
         effortDrivers = effortDrivers.map { it.toDto() },
         phases = phases.map { it.toDto() },
         roots = roots.map { it.toDtoWithCalc(calcMap) },
@@ -66,12 +70,6 @@ private fun collectNodes(nodes: List<EstimationNode>): List<EstimationNode> =
         }
     }
 
-fun DraftEstimationParameter.toDto() = EstimationParameterDto(
-    id = id,
-    name = name,
-    value = value,
-    comment = comment
-)
 
 fun DraftEffortDriver.toDto() = EffortDriverDto(
     id = id,
@@ -150,12 +148,6 @@ fun DraftAdditionalCost.toDto() = AdditionalCostDto(
     phaseAbbreviation = phase?.abbreviation
 )
 
-fun SubmittedEstimationParameter.toDto() = EstimationParameterDto(
-    id = id,
-    name = name,
-    value = value,
-    comment = comment
-)
 
 fun SubmittedEffortDriver.toDto() = EffortDriverDto(
     id = id,

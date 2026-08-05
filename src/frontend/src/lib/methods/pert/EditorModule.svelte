@@ -13,7 +13,9 @@
 	// propagate back to the route (the task-081/109 pattern).
 	let {
 		roots = $bindable(),
-		parameters = $bindable(),
+		dailyRate = $bindable<number>(800),
+		stdDevFactor = $bindable<number>(2.0),
+		salesSurcharge = $bindable<number>(0.1),
 		effortDrivers = $bindable(),
 		phases = $bindable(),
 		additionalCosts = $bindable(),
@@ -25,7 +27,9 @@
 		editable
 	}: {
 		roots: any[];
-		parameters: any[];
+		dailyRate: number;
+		stdDevFactor: number;
+		salesSurcharge: number;
 		effortDrivers: any[];
 		phases: any[];
 		additionalCosts: ApiAdditionalCost[];
@@ -35,7 +39,7 @@
 	} = $props();
 </script>
 
-<ParametersPanel bind:parameters {editable} />
+<ParametersPanel bind:dailyRate bind:stdDevFactor bind:salesSurcharge {editable} />
 
 <EffortDriversPanel bind:effortDrivers {editable} />
 

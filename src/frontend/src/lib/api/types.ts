@@ -2,13 +2,6 @@ import type { components } from './schema';
 
 type EstimationMethod = components['schemas']['EstimationMethod'];
 
-export interface ApiParameter {
-	id: string | null;
-	name: string;
-	value: number;
-	comment: string | null;
-}
-
 export interface ApiEffortDriver {
 	id: string | null;
 	description: string;
@@ -78,7 +71,9 @@ export interface ApiVersionResponse {
 	notes: string | null;
 	createdAt: string | null;
 	submittedAt: string | null;
-	parameters: ApiParameter[];
+	dailyRate: number;
+	stdDevFactor: number;
+	salesSurcharge: number;
 	effortDrivers: ApiEffortDriver[];
 	phases: ApiPhase[];
 	roots: ApiEstimationNode[];

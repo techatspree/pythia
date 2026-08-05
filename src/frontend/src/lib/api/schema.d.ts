@@ -2251,7 +2251,12 @@ export interface components {
         };
         DraftUpdateDto: {
             notes?: string | null;
-            parameters?: components["schemas"]["EstimationParameterDto"][] | null;
+            /** Format: double */
+            dailyRate?: number | null;
+            /** Format: double */
+            stdDevFactor?: number | null;
+            /** Format: double */
+            salesSurcharge?: number | null;
             effortDrivers?: components["schemas"]["EffortDriverDto"][] | null;
             phases?: components["schemas"]["PhaseUpdateDto"][] | null;
             buckets?: components["schemas"]["BucketUpdateDto"][] | null;
@@ -2347,13 +2352,6 @@ export interface components {
             bucketId?: string | null;
             isSample?: boolean;
         };
-        EstimationParameterDto: {
-            id?: components["schemas"]["UUID"] | null;
-            name: string;
-            /** Format: double */
-            value: number;
-            comment?: string | null;
-        };
         EstimationSummaryDto: {
             id: components["schemas"]["UUID"] | null;
             offer: string | null;
@@ -2375,7 +2373,12 @@ export interface components {
             notes: string | null;
             createdAt: components["schemas"]["Instant"] | null;
             submittedAt: components["schemas"]["Instant"] | null;
-            parameters: components["schemas"]["EstimationParameterDto"][];
+            /** Format: double */
+            dailyRate: number;
+            /** Format: double */
+            stdDevFactor: number;
+            /** Format: double */
+            salesSurcharge: number;
             effortDrivers: components["schemas"]["EffortDriverDto"][];
             phases: components["schemas"]["ProjectPhaseDto"][];
             roots: components["schemas"]["EstimationNodeDto"][];

@@ -57,7 +57,7 @@ class SubmissionTreeIT {
             .body(
                 """
                 {
-                    "parameters": [{"name": "stdDevFactor", "value": 0.0}],
+                    "stdDevFactor": 0.0,
                     "roots": [{
                         "type": "GROUP",
                         "title": "Backend",

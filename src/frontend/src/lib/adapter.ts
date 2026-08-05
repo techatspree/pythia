@@ -5,7 +5,6 @@ import {
 	createTimeRelativeItem,
 	createBucketedItem,
 	ProjectPhase,
-	EstimationParameter,
 	EffortDriver,
 	type EstimationNode,
 	EstimationGroup
@@ -51,12 +50,6 @@ interface EditingGroup {
 
 type EditingNode = EditingLeaf | EditingGroup;
 
-interface EditingParam {
-	name: string;
-	value: number;
-	comment: string | null;
-}
-
 interface EditingDriver {
 	description: string;
 	factor: number;
@@ -65,7 +58,7 @@ interface EditingDriver {
 
 export function computeCalcMap(
 	roots: EditingNode[],
-	parameters: EditingParam[],
+	params: { dailyRate: number; stdDevFactor: number; salesSurcharge: number },
 	drivers: EditingDriver[],
 	phases: EditingPhase[]
 ): Map<string, CalcEntry> {
@@ -76,7 +69,6 @@ export function computeCalcMap(
 		])
 	);
 
-	const params = parameters.map((p) => new EstimationParameter(p.name, p.value, p.comment ?? ''));
 	const effortDrivers = drivers.map((d) => new EffortDriver(d.description, d.factor, d.comment ?? ''));
 
 	function buildNode(node: EditingNode): EstimationNode {
@@ -123,7 +115,17 @@ export function computeCalcMap(
 	}
 
 	const domainRoots = roots.map(buildNode);
-	const version = createVersion(1, true, '', params, effortDrivers, [], domainRoots);
+	const version = createVersion(
+		1,
+		true,
+		'',
+		params.dailyRate,
+		params.stdDevFactor,
+		params.salesSurcharge,
+		effortDrivers,
+		[],
+		domainRoots
+	);
 	const calculated = version.calculate();
 
 	const m = new Map<string, CalcEntry>();

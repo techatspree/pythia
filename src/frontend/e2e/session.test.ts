@@ -39,10 +39,8 @@ async function setUp(req: APIRequestContext) {
 	const put = await req.put(`${API}/api/estimations/${estimationId}/versions/draft`, {
 		headers: H,
 		data: {
-			parameters: [
-				{ name: 'dailyRate', value: 900 },
-				{ name: 'stdDevFactor', value: 2 }
-			],
+			dailyRate: 900,
+			stdDevFactor: 2,
 			roots: [
 				{ type: 'FIXED', description: 'Feature A', minEffort: 1, expectedEffort: 2, maxEffort: 3 },
 				{ type: 'FIXED', description: 'Feature B', minEffort: 1, expectedEffort: 2, maxEffort: 3 }

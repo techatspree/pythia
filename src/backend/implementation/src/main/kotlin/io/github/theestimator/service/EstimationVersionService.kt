@@ -4,7 +4,6 @@ import io.github.theestimator.domain.Estimation
 import io.github.theestimator.domain.draft.DraftAdditionalCost
 import io.github.theestimator.domain.draft.DraftEffortDriver
 import io.github.theestimator.domain.draft.DraftEstimationNode
-import io.github.theestimator.domain.draft.DraftEstimationParameter
 import io.github.theestimator.domain.draft.DraftEstimationVersion
 import io.github.theestimator.domain.draft.DraftBucketedItemNode
 import io.github.theestimator.domain.draft.DraftFixedItemNode
@@ -14,7 +13,6 @@ import io.github.theestimator.domain.draft.DraftTimeRelativeItemNode
 import io.github.theestimator.domain.submitted.SubmittedAdditionalCost
 import io.github.theestimator.domain.submitted.SubmittedEffortDriver
 import io.github.theestimator.domain.submitted.SubmittedEstimationNode
-import io.github.theestimator.domain.submitted.SubmittedEstimationParameter
 import io.github.theestimator.domain.submitted.SubmittedEstimationVersion
 import io.github.theestimator.domain.submitted.SubmittedBucketedItemNode
 import io.github.theestimator.domain.submitted.SubmittedFixedItemNode
@@ -193,14 +191,9 @@ class EstimationVersionService(
             this.createdAt = draft.createdAt ?: Instant.now()
         }
 
-        draft.parameters.forEach { p ->
-            submitted.parameters.add(SubmittedEstimationParameter().apply {
-                name = p.name
-                value = p.value
-                comment = p.comment
-                version = submitted
-            })
-        }
+        submitted.dailyRate = draft.dailyRate
+        submitted.stdDevFactor = draft.stdDevFactor
+        submitted.salesSurcharge = draft.salesSurcharge
 
         draft.effortDrivers.forEach { d ->
             submitted.effortDrivers.add(SubmittedEffortDriver().apply {
@@ -330,14 +323,9 @@ class EstimationVersionService(
     }
 
     private fun cloneFromSubmitted(source: SubmittedEstimationVersion, target: DraftEstimationVersion) {
-        source.parameters.forEach { p ->
-            target.parameters.add(DraftEstimationParameter().apply {
-                name = p.name
-                value = p.value
-                comment = p.comment
-                version = target
-            })
-        }
+        target.dailyRate = source.dailyRate
+        target.stdDevFactor = source.stdDevFactor
+        target.salesSurcharge = source.salesSurcharge
 
         source.effortDrivers.forEach { d ->
             target.effortDrivers.add(DraftEffortDriver().apply {

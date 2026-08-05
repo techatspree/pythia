@@ -93,12 +93,16 @@ description: |
     "+ Add parameter", no delete. Labels/units come from NEW i18n keys in BOTH
     `de.json` and `en.json` (equal key sets), e.g.
     `panel.parameters.dailyRate` / `.stdDevFactor` / `.salesSurcharge`. Keep
-    the existing "use defaults" affordance if it still makes sense; drop
+    the "use defaults" button — with typed fields it becomes a genuine
+    reset-to-`EstimationDefaults` action — and drop the
     `panel.parameters.colName`/`.addRow` keys that become dead.
   - Exports (`ExcelExporter`), `TestDataSeeder`, and the ~15 test files that
     build parameter lists all move to the typed fields. Excel/CSV output
     should keep showing the three values; their column labels stay in
     `ExcelGermanLabels` (customer-facing German labels are external data).
+    `ExcelExporter` today does its OWN name-based lookup AND duplicates the
+    default constants (`?: 0.1`, `?: 800.0`, ~lines 183–184); reading the typed
+    fields removes both — do not re-add literal defaults there.
 
 steps:
   - |
@@ -125,8 +129,13 @@ steps:
         exactly (`param_value` holds the number, `version_id` is the join
         column). No alias handling — see the frozen decision.
       - `DROP TABLE draft_estimation_parameters, submitted_estimation_parameters`.
-    Mirror the columns on `DraftEstimationVersion` / `SubmittedEstimationVersion`
-    entities and delete the `*EstimationParameter` entities + their collections.
+    Mirror the columns on `DraftEstimationVersion` / `SubmittedEstimationVersion`,
+    delete their `parameters` collections AND their own
+    `fun parameterValue(name: String)` helpers (both entities carry one), and
+    delete the entity files `domain/draft/DraftEstimationParameter.kt` and
+    `domain/submitted/SubmittedEstimationParameter.kt`.
+    NOTE: the DTOs all live in ONE file, `rest/dto/EstimationVersionDtos.kt` —
+    there is no `DraftUpdateDto.kt`.
 
   - |
     Backend service/REST layer: update `DraftUpdateApplier.applyParameters`
@@ -244,8 +253,14 @@ outputs:
   - modified: src/backend/implementation/src/main/kotlin/io/github/theestimator/service/DraftVersionMapper.kt
   - modified: src/backend/implementation/src/main/kotlin/io/github/theestimator/service/DraftSnapshotMapper.kt
   - modified: src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/dto/EstimationVersionMapper.kt
-  - modified: src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/dto/DraftUpdateDto.kt
+  - modified: src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/dto/EstimationVersionDtos.kt
+  - deleted: src/backend/implementation/src/main/kotlin/io/github/theestimator/domain/draft/DraftEstimationParameter.kt
+  - deleted: src/backend/implementation/src/main/kotlin/io/github/theestimator/domain/submitted/SubmittedEstimationParameter.kt
   - modified: src/backend/implementation/src/main/kotlin/io/github/theestimator/service/ExcelExporter.kt
+  - modified: src/backend/implementation/src/main/kotlin/io/github/theestimator/service/ExcelImporter.kt
+  - modified: src/backend/implementation/src/main/kotlin/io/github/theestimator/service/ExcelGermanLabels.kt
+  - modified: src/backend/implementation/src/main/kotlin/io/github/theestimator/service/VersionComparisonService.kt
+  - modified: src/backend/implementation/src/main/kotlin/io/github/theestimator/service/EstimationVersionService.kt
   - modified: src/backend/implementation/src/main/kotlin/io/github/theestimator/testdata/TestDataSeeder.kt
   - modified: src/backend/implementation/src/test/kotlin/io/github/theestimator/rest/EstimationVersionResourceIT.kt
   - modified: src/backend/implementation/src/test/kotlin/io/github/theestimator/rest/SubmissionTreeIT.kt
@@ -261,6 +276,10 @@ outputs:
   - modified: src/frontend/src/lib/components/ParametersPanel.svelte
   - modified: src/frontend/src/routes/estimations/[id]/versions/[versionNumber]/+page.svelte
   - modified: src/frontend/src/lib/adapter.ts
+  - modified: src/frontend/src/lib/api/types.ts
+  - modified: src/frontend/src/lib/methods/pert/EditorModule.svelte
+  - modified: src/frontend/src/lib/methods/bucketSampled/EditorModule.svelte
+  - modified: src/frontend/src/routes/estimations/[id]/compare/+page.svelte
   - modified: src/frontend/src/lib/i18n/de.json
   - modified: src/frontend/src/lib/i18n/en.json
   - modified: src/frontend/src/lib/api/openapi.json

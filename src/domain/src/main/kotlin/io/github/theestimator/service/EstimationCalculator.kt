@@ -30,7 +30,7 @@ open class EstimationCalculator {
 
         val totalMean = allItems.sumOf { it.mean }
         val totalVariance = allItems.sumOf { it.variance }
-        val stdDevFactor = version.parameterValue("stdDevFactor") ?: EstimationDefaults.STD_DEV_FACTOR
+        val stdDevFactor = version.stdDevFactor
         val totalDriverFactor = version.effortDrivers.sumOf { it.factor }
         val calculatedTotal = totalMean + sqrt(totalVariance) * stdDevFactor + totalMean * totalDriverFactor
         results.add(InvariantResult(
@@ -47,7 +47,7 @@ open class EstimationCalculator {
         ))
 
         val totalCost = allItems.sumOf { it.cost }
-        val dailyRate = version.parameterValue("dailyRate") ?: EstimationDefaults.DAILY_RATE
+        val dailyRate = version.dailyRate
         val costFromEffort = totalOfferPT * dailyRate
         results.add(InvariantResult(
             "Cost in WBS = cost in package overview",

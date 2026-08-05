@@ -5,7 +5,6 @@ import io.github.theestimator.domain.Estimation
 import io.github.theestimator.domain.draft.DraftAdditionalCost
 import io.github.theestimator.domain.draft.DraftEffortDriver
 import io.github.theestimator.domain.draft.DraftEstimationNode
-import io.github.theestimator.domain.draft.DraftEstimationParameter
 import io.github.theestimator.domain.draft.DraftEstimationVersion
 import io.github.theestimator.domain.draft.DraftFixedItemNode
 import io.github.theestimator.domain.draft.DraftGroupNode
@@ -59,12 +58,16 @@ class ExcelImporter {
             val name = row.cellStringValue(0) ?: continue
             val value = row.cellNumericValue(1) ?: continue
 
-            version.parameters.add(DraftEstimationParameter().apply {
-                this.name = name
-                this.value = value
-                this.comment = row.cellStringValue(2)
-                this.version = version
-            })
+            // The parameters are typed fields now (task-138), so map the sheet's
+            // labels onto them instead of storing arbitrary rows. Accepts the
+            // German labels this exporter writes; any other row is ignored
+            // rather than silently becoming a parameter nothing reads.
+            when (name.trim()) {
+                ExcelGermanLabels.Parameters.DAILY_RATE -> version.dailyRate = value
+                ExcelGermanLabels.Parameters.STD_DEV_FACTOR -> version.stdDevFactor = value
+                ExcelGermanLabels.Parameters.SALES_SURCHARGE -> version.salesSurcharge = value
+                else -> Log.debug("Ignoring unknown parameter row '\$name' in the imported workbook")
+            }
         }
     }
 

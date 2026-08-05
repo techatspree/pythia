@@ -20,19 +20,15 @@ data class EstimationVersionDto(
     val notes: String?,
     val createdAt: Instant?,
     val submittedAt: Instant?,
-    val parameters: List<EstimationParameterDto>,
+    val dailyRate: Double,
+    val stdDevFactor: Double,
+    val salesSurcharge: Double,
     val effortDrivers: List<EffortDriverDto>,
     val phases: List<ProjectPhaseDto>,
     val roots: List<EstimationNodeDto>,
     val additionalCosts: List<AdditionalCostDto>
 )
 
-data class EstimationParameterDto(
-    val id: UUID? = null,
-    val name: String,
-    val value: Double,
-    val comment: String? = null
-)
 
 data class EffortDriverDto(
     val id: UUID? = null,
@@ -101,7 +97,9 @@ data class PhaseUpdateDto(
 
 data class DraftUpdateDto(
     val notes: String? = null,
-    val parameters: List<EstimationParameterDto>? = null,
+    val dailyRate: Double? = null,
+    val stdDevFactor: Double? = null,
+    val salesSurcharge: Double? = null,
     val effortDrivers: List<EffortDriverDto>? = null,
     val phases: List<PhaseUpdateDto>? = null,
     // Applied before roots so bucketed leaves can resolve their bucket

@@ -7,7 +7,6 @@ import io.github.theestimator.domain.draft.DraftAdditionalCost
 import io.github.theestimator.domain.draft.DraftBucketedItemNode
 import io.github.theestimator.domain.draft.DraftEffortDriver
 import io.github.theestimator.domain.draft.DraftEstimationNode
-import io.github.theestimator.domain.draft.DraftEstimationParameter
 import io.github.theestimator.domain.draft.DraftEstimationVersion
 import io.github.theestimator.domain.draft.DraftFixedItemNode
 import io.github.theestimator.domain.draft.DraftGroupNode
@@ -165,12 +164,9 @@ class TestDataSeeder(
             this.versionNumber = 1
         }
 
-        draft1.parameters.addAll(
-            listOf(
-            DraftEstimationParameter().apply { name = "dailyRate"; value = 900.0; version = draft1 },
-            DraftEstimationParameter().apply { name = "stdDevFactor"; value = 2.0; version = draft1 },
-            DraftEstimationParameter().apply { name = "salesSurcharge"; value = 0.12; version = draft1 }
-        ))
+        draft1.dailyRate = 900.0
+        draft1.stdDevFactor = 2.0
+        draft1.salesSurcharge = 0.12
 
         draft1.effortDrivers.add(DraftEffortDriver().apply {
             description = "Qualitätssicherung (QA)"
@@ -276,12 +272,9 @@ class TestDataSeeder(
             this.notes = "Scope nach Kunden-Feedback angepasst — Mobile-Optimierung ersetzt durch UX-Konzept"
         }
 
-        draft2.parameters.addAll(
-            listOf(
-            DraftEstimationParameter().apply { name = "dailyRate"; value = 900.0; version = draft2 },
-            DraftEstimationParameter().apply { name = "stdDevFactor"; value = 2.0; version = draft2 },
-            DraftEstimationParameter().apply { name = "salesSurcharge"; value = 0.12; version = draft2 }
-        ))
+        draft2.dailyRate = 900.0
+        draft2.stdDevFactor = 2.0
+        draft2.salesSurcharge = 0.12
 
         draft2.effortDrivers.addAll(
             listOf(
@@ -411,17 +404,9 @@ class TestDataSeeder(
             this.versionNumber = 1
         }
 
-        draft.parameters.addAll(
-            listOf(
-            DraftEstimationParameter().apply {
-                name = "dailyRate"
-                value = 950.0
-                comment = "Mobile-Entwickler-Rate"
-                version = draft
-            },
-            DraftEstimationParameter().apply { name = "stdDevFactor"; value = 2.0; version = draft },
-            DraftEstimationParameter().apply { name = "salesSurcharge"; value = 0.15; version = draft }
-        ))
+        draft.dailyRate = 950.0
+        draft.stdDevFactor = 2.0
+        draft.salesSurcharge = 0.15
 
         draft.effortDrivers.add(DraftEffortDriver().apply {
             description = "iOS & Android Multiplattform"
@@ -559,12 +544,9 @@ class TestDataSeeder(
             this.versionNumber = 1
         }
 
-        draft.parameters.addAll(
-            listOf(
-            DraftEstimationParameter().apply { name = "dailyRate"; value = 950.0; version = draft },
-            DraftEstimationParameter().apply { name = "stdDevFactor"; value = 2.0; version = draft },
-            DraftEstimationParameter().apply { name = "salesSurcharge"; value = 0.12; version = draft }
-        ))
+        draft.dailyRate = 950.0
+        draft.stdDevFactor = 2.0
+        draft.salesSurcharge = 0.12
 
         // Each bucket: one sample (three-point) + one non-sample that inherits the
         // bucket's sample mean via EstimationVersion.calculate().

@@ -1,39 +1,75 @@
 <script lang="ts">
 	import { _ } from 'svelte-i18n';
+	import { EstimationDefaults } from '$lib/domain/domain.mjs';
 
-	type Param = { name: string; value: number; comment: string };
-
-	const DEFAULTS: Param[] = [
-		{ name: 'dailyRate', value: 800, comment: '' },
-		{ name: 'stdDevFactor', value: 2.0, comment: '' },
-		{ name: 'salesSurcharge', value: 0.1, comment: '' }
-	];
+	// The three calculation inputs are TYPED FIELDS, not user-named rows
+	// (task-138). This panel used to let the user edit the parameter NAME while
+	// the domain looked values up by the English strings
+	// "dailyRate"/"stdDevFactor"/"salesSurcharge" — so a rename made the lookup
+	// miss and the estimate silently fell back to the defaults. Fixed inputs
+	// with i18n labels remove that failure mode and make the panel translatable.
+	// The defaults come from the domain (EstimationDefaults), not a local copy —
+	// the backend entities seed their columns from the same object, so "use
+	// defaults" here can never drift from what an untouched draft actually holds.
+	const defaults = EstimationDefaults.getInstance();
+	const DEFAULT_DAILY_RATE = defaults.DAILY_RATE;
+	const DEFAULT_STD_DEV_FACTOR = defaults.STD_DEV_FACTOR;
+	const DEFAULT_SALES_SURCHARGE = defaults.SALES_SURCHARGE;
 
 	let {
-		parameters = $bindable<Param[]>([]),
+		dailyRate = $bindable<number>(DEFAULT_DAILY_RATE),
+		stdDevFactor = $bindable<number>(DEFAULT_STD_DEV_FACTOR),
+		salesSurcharge = $bindable<number>(DEFAULT_SALES_SURCHARGE),
 		editable
 	}: {
-		parameters?: Param[];
+		dailyRate?: number;
+		stdDevFactor?: number;
+		salesSurcharge?: number;
 		editable: boolean;
 	} = $props();
 
 	let open = $state(false);
 
-	function addRow() {
-		parameters.push({ name: '', value: 0, comment: '' });
-	}
-
-	function deleteRow(i: number) {
-		parameters.splice(i, 1);
-	}
-
 	function useDefaults() {
-		parameters = DEFAULTS.map((p) => ({ ...p }));
+		dailyRate = DEFAULT_DAILY_RATE;
+		stdDevFactor = DEFAULT_STD_DEV_FACTOR;
+		salesSurcharge = DEFAULT_SALES_SURCHARGE;
 	}
 
-	function update(i: number, field: keyof Param, raw: string) {
-		(parameters[i] as any)[field] = field === 'value' ? (raw === '' ? 0 : parseFloat(raw)) : raw;
+	function num(raw: string, fallback: number): number {
+		const parsed = parseFloat(raw);
+		return raw === '' || Number.isNaN(parsed) ? fallback : parsed;
 	}
+
+	const rows = $derived([
+		{
+			key: 'dailyRate',
+			id: 'param-daily-rate',
+			label: $_('panel.parameters.dailyRate'),
+			step: '1',
+			value: dailyRate,
+			set: (v: number) => (dailyRate = v),
+			fallback: DEFAULT_DAILY_RATE
+		},
+		{
+			key: 'stdDevFactor',
+			id: 'param-std-dev-factor',
+			label: $_('panel.parameters.stdDevFactor'),
+			step: '0.1',
+			value: stdDevFactor,
+			set: (v: number) => (stdDevFactor = v),
+			fallback: DEFAULT_STD_DEV_FACTOR
+		},
+		{
+			key: 'salesSurcharge',
+			id: 'param-sales-surcharge',
+			label: $_('panel.parameters.salesSurcharge'),
+			step: '0.01',
+			value: salesSurcharge,
+			set: (v: number) => (salesSurcharge = v),
+			fallback: DEFAULT_SALES_SURCHARGE
+		}
+	]);
 </script>
 
 <div class="border rounded-lg overflow-hidden mb-4">
@@ -46,92 +82,36 @@
 	</button>
 
 	{#if open}
-		{#if parameters.length === 0}
+		<div class="p-4">
+			<div class="grid grid-cols-[1fr_10rem] gap-x-4 gap-y-2 items-center max-w-xl">
+				{#each rows as row (row.key)}
+					<label class="text-sm text-gray-700" for={row.id}>{row.label}</label>
+					{#if editable}
+						<input
+							id={row.id}
+							type="number"
+							step={row.step}
+							min="0"
+							data-testid="param-{row.key}"
+							class="w-full text-right border rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-brand-green/40"
+							value={row.value}
+							oninput={(e) => row.set(num(e.currentTarget.value, row.fallback))}
+						/>
+					{:else}
+						<span class="text-right tabular-nums" data-testid="param-{row.key}">{row.value}</span>
+					{/if}
+				{/each}
+			</div>
+
 			{#if editable}
-				<div class="p-4 text-center">
-					<p class="text-sm text-gray-400 mb-3">{$_('panel.parameters.empty')}</p>
-					<button
-						onclick={useDefaults}
-						class="px-3 py-1.5 text-sm bg-brand-green text-white rounded hover:bg-[#007a45]"
-					>
-						{$_('panel.parameters.useDefaults')}
-					</button>
-				</div>
-			{:else}
-				<p class="p-4 text-sm text-gray-400 text-center">{$_('panel.parameters.emptyReadonly')}</p>
+				<button
+					type="button"
+					onclick={useDefaults}
+					class="mt-4 text-sm text-brand-green hover:text-[#007a45]"
+				>
+					{$_('panel.parameters.useDefaults')}
+				</button>
 			{/if}
-		{:else}
-			<table class="w-full text-sm border-collapse">
-				<thead>
-					<tr class="border-b text-xs text-gray-500 uppercase tracking-wide">
-						<th class="py-2 px-3 text-left">{$_('panel.parameters.colName')}</th>
-						<th class="py-2 px-3 text-right w-32">{$_('panel.parameters.colValue')}</th>
-						<th class="py-2 px-3 text-left">{$_('panel.parameters.colComment')}</th>
-						{#if editable}<th class="py-2 px-3 w-8"></th>{/if}
-					</tr>
-				</thead>
-				<tbody>
-					{#each parameters as item, i (i)}
-						<tr class="border-b hover:bg-gray-50">
-							<td class="py-1 px-3">
-								{#if editable}
-									<input
-										type="text"
-										class="w-full bg-transparent focus:outline-none focus:ring-1 focus:ring-brand-green/40 rounded px-1 py-0.5"
-										value={item.name}
-										oninput={(e) => update(i, 'name', e.currentTarget.value)}
-									/>
-								{:else}
-									{item.name}
-								{/if}
-							</td>
-							<td class="py-1 px-3 text-right">
-								{#if editable}
-									<input
-										type="number"
-										step="any"
-										class="w-full text-right bg-transparent focus:outline-none focus:ring-1 focus:ring-brand-green/40 rounded px-1 py-0.5"
-										value={item.value}
-										oninput={(e) => update(i, 'value', e.currentTarget.value)}
-									/>
-								{:else}
-									<span class="tabular-nums">{item.value}</span>
-								{/if}
-							</td>
-							<td class="py-1 px-3">
-								{#if editable}
-									<input
-										type="text"
-										class="w-full bg-transparent focus:outline-none focus:ring-1 focus:ring-brand-green/40 rounded px-1 py-0.5"
-										value={item.comment}
-										oninput={(e) => update(i, 'comment', e.currentTarget.value)}
-									/>
-								{:else}
-									<span class="text-gray-500">{item.comment}</span>
-								{/if}
-							</td>
-							{#if editable}
-								<td class="py-1 px-3">
-									<button
-										onclick={() => deleteRow(i)}
-										class="text-gray-300 hover:text-red-500 transition-colors leading-none"
-										title={$_('common.delete')}
-									>
-										✕
-									</button>
-								</td>
-							{/if}
-						</tr>
-					{/each}
-				</tbody>
-			</table>
-			{#if editable}
-				<div class="p-3 border-t bg-gray-50/40">
-					<button onclick={addRow} class="text-sm text-brand-green hover:text-[#007a45]">
-						{$_('panel.parameters.addRow')}
-					</button>
-				</div>
-			{/if}
-		{/if}
+		</div>
 	{/if}
 </div>

@@ -67,6 +67,13 @@ object ExcelGermanLabels {
         const val NAME = "Name"
         const val VALUE = "Wert"
         const val COMMENT = "Kommentar"
+
+        // Row labels for the three hardwired calculation inputs (task-138).
+        // These are the customer-facing German names of the former generic
+        // parameter rows — display text only; the values are typed fields now.
+        const val DAILY_RATE = "Tagessatz"
+        const val STD_DEV_FACTOR = "Standardabweichungsfaktor"
+        const val SALES_SURCHARGE = "Vertriebszuschlag"
     }
 
     /** Vocabulary of the Aufwandstreiber sheet — the summary end marker plus column headers. */

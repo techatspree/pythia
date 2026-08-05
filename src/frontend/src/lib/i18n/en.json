@@ -56,13 +56,10 @@
 	"panel": {
 		"parameters": {
 			"title": "Parameters",
-			"empty": "No parameters defined.",
 			"useDefaults": "Use defaults",
-			"emptyReadonly": "No parameters",
-			"colName": "Name",
-			"colValue": "Value",
-			"colComment": "Comment",
-			"addRow": "+ Add parameter"
+			"dailyRate": "Daily rate (€/PD)",
+			"stdDevFactor": "Std-deviation factor",
+			"salesSurcharge": "Sales surcharge"
 		},
 		"effortDrivers": {
 			"title": "Effort Drivers",

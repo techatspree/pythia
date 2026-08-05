@@ -1,5 +1,6 @@
 package io.github.theestimator.domain.submitted
 
+import io.github.theestimator.model.EstimationDefaults
 import io.github.theestimator.domain.Estimation
 import jakarta.persistence.CascadeType
 import jakarta.persistence.Column
@@ -47,8 +48,17 @@ class SubmittedEstimationVersion {
     @Column(name = "created_at", nullable = false)
     var createdAt: Instant = Instant.now()
 
-    @OneToMany(mappedBy = "version", cascade = [CascadeType.ALL], orphanRemoval = true)
-    var parameters: MutableList<SubmittedEstimationParameter> = mutableListOf()
+    // Typed, non-renameable calculation inputs (task-138) — formerly generic
+    // name/value rows that a GUI rename could make the lookup miss, silently
+    // falling back to defaults.
+    @Column(name = "daily_rate", nullable = false)
+    var dailyRate: Double = EstimationDefaults.DAILY_RATE
+
+    @Column(name = "std_dev_factor", nullable = false)
+    var stdDevFactor: Double = EstimationDefaults.STD_DEV_FACTOR
+
+    @Column(name = "sales_surcharge", nullable = false)
+    var salesSurcharge: Double = EstimationDefaults.SALES_SURCHARGE
 
     @OneToMany(mappedBy = "version", cascade = [CascadeType.ALL], orphanRemoval = true)
     var effortDrivers: MutableList<SubmittedEffortDriver> = mutableListOf()
@@ -64,6 +74,4 @@ class SubmittedEstimationVersion {
     @OneToMany(mappedBy = "version", cascade = [CascadeType.ALL], orphanRemoval = true)
     var additionalCosts: MutableList<SubmittedAdditionalCost> = mutableListOf()
 
-    fun parameterValue(name: String): Double? =
-        parameters.find { it.name == name }?.value
 }

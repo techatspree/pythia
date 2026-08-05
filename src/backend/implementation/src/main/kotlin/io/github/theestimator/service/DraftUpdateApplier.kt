@@ -3,7 +3,6 @@ package io.github.theestimator.service
 import io.github.theestimator.domain.draft.DraftAdditionalCost
 import io.github.theestimator.domain.draft.DraftEffortDriver
 import io.github.theestimator.domain.draft.DraftEstimationNode
-import io.github.theestimator.domain.draft.DraftEstimationParameter
 import io.github.theestimator.domain.draft.DraftEstimationVersion
 import io.github.theestimator.domain.EstimationBucket
 import io.github.theestimator.domain.draft.DraftBucketedItemNode
@@ -17,7 +16,6 @@ import io.github.theestimator.rest.dto.BucketUpdateDto
 import io.github.theestimator.rest.dto.DraftUpdateDto
 import io.github.theestimator.rest.dto.EffortDriverDto
 import io.github.theestimator.rest.dto.EstimationNodeUpdateDto
-import io.github.theestimator.rest.dto.EstimationParameterDto
 import io.github.theestimator.rest.dto.PhaseUpdateDto
 import io.quarkus.logging.Log
 import jakarta.enterprise.context.ApplicationScoped
@@ -35,7 +33,9 @@ class DraftUpdateApplier {
 
     fun apply(draft: DraftEstimationVersion, update: DraftUpdateDto) {
         update.notes?.let { draft.notes = it }
-        update.parameters?.let { applyParameters(draft, it) }
+        update.dailyRate?.let { draft.dailyRate = it }
+        update.stdDevFactor?.let { draft.stdDevFactor = it }
+        update.salesSurcharge?.let { draft.salesSurcharge = it }
         update.effortDrivers?.let { applyEffortDrivers(draft, it) }
         update.phases?.let { applyPhases(draft, it) }
         // Buckets before roots: a bucketed leaf resolves its bucket by id.
@@ -83,18 +83,6 @@ class DraftUpdateApplier {
                     label = dto.label
                 })
             }
-        }
-    }
-
-    private fun applyParameters(draft: DraftEstimationVersion, params: List<EstimationParameterDto>) {
-        draft.parameters.clear()
-        params.forEach { dto ->
-            draft.parameters.add(DraftEstimationParameter().apply {
-                name = dto.name
-                value = dto.value
-                comment = dto.comment
-                version = draft
-            })
         }
     }
 

@@ -61,7 +61,7 @@ async function seed(request: APIRequestContext): Promise<Seeded> {
 	const putRes = await request.put(`/api/estimations/${estimationId}/versions/draft`, {
 		headers: JSON_HEADERS,
 		data: {
-			parameters: [{ name: 'stdDevFactor', value: 0.0 }],
+			stdDevFactor: 0.0,
 			buckets: [
 				{ id: b1, position: 0, label: 'Frontend' },
 				{ id: b2, position: 1, label: 'Backend' },

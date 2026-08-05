@@ -32,7 +32,10 @@
 
 	let currentNotes = $state('');
 	let currentRoots = $state<any[]>([]);
-	let currentParameters = $state<any[]>([]);
+	// Typed calculation inputs (task-138) — no longer a renameable name/value list.
+	let currentDailyRate = $state(800);
+	let currentStdDevFactor = $state(2.0);
+	let currentSalesSurcharge = $state(0.1);
 	let currentDrivers = $state<any[]>([]);
 	let currentPhases = $state<any[]>([]);
 	let currentAdditionalCosts = $state<ApiAdditionalCost[]>([]);
@@ -97,7 +100,16 @@
 
 	const calcMap = $derived.by(() => {
 		try {
-			return computeCalcMap(currentRoots, currentParameters, currentDrivers, currentPhases);
+			return computeCalcMap(
+				currentRoots,
+				{
+					dailyRate: currentDailyRate,
+					stdDevFactor: currentStdDevFactor,
+					salesSurcharge: currentSalesSurcharge
+				},
+				currentDrivers,
+				currentPhases
+			);
 		} catch (e: any) {
 			log.error('calcMap computation failed:', e);
 			bannerMessage = $_('editor.calculationFailed', { values: { message: e?.message ?? e } });
@@ -159,11 +171,9 @@
 		versionData = data;
 		currentNotes = data.notes ?? '';
 		currentRoots = normalizeRoots(data);
-		currentParameters = (data.parameters ?? []).map((p: any) => ({
-			name: p.name ?? '',
-			value: p.value ?? 0,
-			comment: p.comment ?? ''
-		}));
+		currentDailyRate = data.dailyRate ?? 800;
+		currentStdDevFactor = data.stdDevFactor ?? 2.0;
+		currentSalesSurcharge = data.salesSurcharge ?? 0.1;
 		currentDrivers = (data.effortDrivers ?? []).map((d: any) => ({
 			description: d.description ?? '',
 			factor: d.factor ?? 0,
@@ -207,7 +217,9 @@
 	function editableSnapshot(): string {
 		return JSON.stringify({
 			notes: currentNotes,
-			parameters: $state.snapshot(currentParameters),
+			dailyRate: currentDailyRate,
+			stdDevFactor: currentStdDevFactor,
+			salesSurcharge: currentSalesSurcharge,
 			effortDrivers: $state.snapshot(currentDrivers),
 			phases: $state.snapshot(currentPhases),
 			additionalCosts: $state.snapshot(currentAdditionalCosts),
@@ -242,7 +254,9 @@
 						phases: currentPhases,
 						buckets: currentBuckets,
 						roots: currentRoots,
-						parameters: currentParameters,
+						dailyRate: currentDailyRate,
+						stdDevFactor: currentStdDevFactor,
+						salesSurcharge: currentSalesSurcharge,
 						effortDrivers: currentDrivers,
 						additionalCosts: currentAdditionalCosts
 					})
@@ -383,7 +397,9 @@
 		{#if EditorComponent}
 			<EditorComponent
 				bind:roots={currentRoots}
-				bind:parameters={currentParameters}
+				bind:dailyRate={currentDailyRate}
+				bind:stdDevFactor={currentStdDevFactor}
+				bind:salesSurcharge={currentSalesSurcharge}
 				bind:effortDrivers={currentDrivers}
 				bind:phases={currentPhases}
 				bind:additionalCosts={currentAdditionalCosts}

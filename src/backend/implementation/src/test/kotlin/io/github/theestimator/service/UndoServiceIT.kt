@@ -11,7 +11,6 @@ import io.github.theestimator.repository.ProjectRepository
 import io.github.theestimator.repository.UserRepository
 import io.github.theestimator.rest.dto.DraftUpdateDto
 import io.github.theestimator.rest.dto.EstimationNodeUpdateDto
-import io.github.theestimator.rest.dto.EstimationParameterDto
 import io.quarkus.test.junit.QuarkusTest
 import jakarta.inject.Inject
 import jakarta.transaction.Transactional
@@ -50,7 +49,7 @@ class UndoServiceIT {
 
     private val v1 = DraftUpdateDto(
         notes = "v1",
-        parameters = listOf(EstimationParameterDto(name = "dailyRate", value = 800.0)),
+        dailyRate = 800.0,
         roots = listOf(
             EstimationNodeUpdateDto(
                 type = "GROUP", title = "G",
