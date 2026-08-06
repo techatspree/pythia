@@ -3,7 +3,8 @@ phase: phase-15
 title: Estimation summary panel at the top of the version editor
 depends_on: [task-138, task-134]
 description: |
-  A bucket+sampled estimation never shows a total for the WHOLE estimate.
+  A bucket+sampled estimation never shows a total for the WHOLE estimate —
+  and the total the PERT editor does show is wrong.
 
   The three-point PERT editor gets its total from `EstimationGrid.svelte`,
   which renders a `totalsFooter` snippet (`grid.total`, ~lines 479–495) summing
@@ -15,6 +16,25 @@ description: |
   on a bucket row in the bucket view, and `calcMap` group entries in the
   hierarchy view. There is no number anywhere for the estimate as a whole.
 
+  ## The footer bug this task must also fix
+
+  `EstimationGrid.svelte` (~line 135) computes
+
+      const calcEntries = $derived(Array.from(calcMap.values()));
+      const totalOfferPT = $derived(calcEntries.reduce((s, v) => s + v.offerPT, 0));
+
+  but `adapter.ts`'s `walk` writes a calc entry for **every node, GROUPS
+  INCLUDED**, and an `EstimationGroup` accumulates `offerPT`/`cost`/`offerPrice`
+  over its whole subtree. So the money rows of that footer **double-count every
+  grouped estimation**: a group of three leaves contributes its three leaves
+  AND their sum. The seeded Webshop draft has groups, so this is live today.
+  (The `minEffort`/`expectedEffort`/`maxEffort` sums directly above it are
+  leaf-based via `allLeaves(roots)` and are correct — leave those alone.)
+
+  This is in scope because the new panel sits directly above that footer: ship
+  the panel alone and its correct total visibly contradicts the inflated number
+  a few rows below it, and the panel is what will look broken.
+
   ## Target state
 
   A **summary panel at the top of the version editor**, above the method
@@ -23,7 +43,9 @@ description: |
   (`routes/estimations/[id]/versions/[versionNumber]/+page.svelte`), NOT by a
   method module, so both methods get it from one implementation and it cannot
   drift between them. It shows for a draft and for a submitted (read-only)
-  version alike — the route already renders both.
+  version alike — the route already renders both. The PERT grid footer is
+  re-pointed at the same domain-computed totals, so the two agree by
+  construction and the double-count disappears.
 
   This deliberately does not add a footer to the bucket editor's `TreeTable`.
   A top panel is what was asked for, it is reachable without scrolling past
@@ -34,17 +56,32 @@ description: |
   - **The domain computes the totals.** This is business math (risk surcharge,
     daily rate, sales surcharge, recurring cost × phase duration) and per
     CLAUDE.md it must not be re-derived in Svelte. Add an `EstimationTotals`
-    value type plus an `EstimationVersion.totals()` reducer in the domain;
-    the panel only formats what it is handed. Follow the existing
-    `VoteAggregate` / `VoteAggregation` shape in
-    `model/VoteAggregation.kt` — a `@JsExport data class` of plain values next
-    to the pure reducer that produces it.
+    value type plus the reducer that produces it in the domain; the panel and
+    the grid footer only format what they are handed. Follow the existing
+    `VoteAggregate` / `VoteAggregation` shape in `model/VoteAggregation.kt` —
+    a `@JsExport data class` of plain values next to a pure reducer.
+  - **`totals()` is a MEMBER function on `EstimationVersion`, not an extension
+    function.** `@JsExport` does not export extension functions, so an
+    `EstimationVersion.totals()` extension would compile, pass
+    `./gradlew :domain:build`, and then be uncallable from `adapter.ts` — the
+    same class of Kotlin/JS export limitation that `i18n/SupportedLanguage.kt`
+    documents for companions (and the reason `EstimationNode.leaves()` is an
+    unexported extension used only inside the domain). Concretely:
+    `EstimationTotals.kt` holds the data class AND
+    `internal fun computeTotals(version: EstimationVersion): EstimationTotals`
+    with the arithmetic and the log line; `EstimationVersion` gains a one-line
+    member `fun totals(): EstimationTotals = computeTotals(this)`. JS then calls
+    `version.totals()` exactly like `version.calculate()`.
   - **`totals()` reads already-calculated nodes.** `EstimationItem.cost` /
     `offerPrice` derive from the `calculationParameters` that `calculate()`
     stamps onto each leaf, so `totals()` on an uncalculated version returns
     zeros for the money fields. Callers must use `version.calculate().totals()`
     — document that on the function and rely on it in the adapter. Do NOT make
     `totals()` call `calculate()` itself (it would recompute on every read).
+  - **Reuse `totalEffort`.** `calculate()` already sets
+    `totalEffort = roots.sumOf { it.offerPT }`. `EstimationTotals.offerPT` must
+    read that field rather than re-summing the roots, so the two can never
+    drift.
   - **The total offer price uses the customer's canonical formula**, the one
     `ExcelExporter.writePhases` already applies per phase (~lines 187–208),
     summed over the whole estimate instead of per phase:
@@ -55,11 +92,14 @@ description: |
         totalOfferPrice      = (developmentCost + additionalOneTime + additionalRecurring)
                                × (1 + salesSurcharge)
 
-    A RECURRING cost with no phase (or a phase with no duration) contributes
-    **0** — and that must not be silent: `totals()` also returns
-    `recurringWithoutPhase: Int` and the panel shows a warning line when it is
-    non-zero. Silently substituting a plausible number is exactly the failure
-    mode task-138 existed to remove.
+    A RECURRING cost whose `phase` is **null** contributes 0, and that must not
+    be silent: `totals()` also returns `recurringWithoutPhase: Int` counting
+    exactly those, and the panel shows a warning line when it is non-zero.
+    Silently substituting a plausible number is the failure mode task-138
+    existed to remove. **Count `phase == null` ONLY** — domain
+    `ProjectPhase.durationWeeks` is a non-null `Double = 0.0`, so a zero-week
+    phase is indistinguishable from an unset duration and is a legitimate 0;
+    warning about it would be noise.
   - **Known divergence, deliberately NOT fixed here.** `ExcelExporter` writes
     `(it.amountPerWeek ?: it.amount) * durationWeeks` because the JPA entity's
     `amountPerWeek` is nullable; the domain `AdditionalCost.amountPerWeek` is a
@@ -72,15 +112,19 @@ description: |
     has no triple of its own and inherits its bucket's average, so summing the
     raw columns would silently under-count the estimate. Every figure in the
     panel is domain-derived and therefore method-agnostic. `EstimationGrid`'s
-    existing PERT footer keeps its triple sums — leave it alone.
+    footer keeps its own leaf-based triple sums (they are correct).
   - **`createVersion` must learn about additional costs and phases.** The
     JS-facing factory in `DomainFactory.kt` takes no `additionalCosts`, and
     `adapter.ts` currently passes an EMPTY array for `phases` — neither is
     needed for the per-leaf calc (a `TimeRelativeEstimationItem` carries its own
     `phase`), but the recurring-cost total needs both. Add an
-    `additionalCosts: Array<AdditionalCost>` parameter and have the adapter pass
-    the real phases. This is additive: existing calc results must not move, and
-    the domain tests are the guard.
+    `additionalCosts: Array<AdditionalCost>` parameter (an `Array`, never a
+    `List` — a `List` parameter is not callable from JS with a plain array) and
+    have the adapter pass the real phases. This is additive: existing calc
+    results must not move, and the domain tests are the guard.
+    NOTE when grepping: the factory has exactly ONE caller (`adapter.ts:118`);
+    the `createVersion()` in `routes/estimations/[id]/+page.svelte` is an
+    unrelated local function that only shares the name.
   - **One domain round-trip per edit.** `computeCalcMap` is called from exactly
     one place (the route's `calcMap` `$derived.by`). REPLACE it with
     `computeEstimation(...)` returning `{ calcMap, totals }` from a single
@@ -100,46 +144,69 @@ description: |
     `.toFixed()`, no hardcoded locale. Currency columns already carry a
     `(EUR)`-style header, so use `formatNumber`/`formatFixed`, not
     `formatCurrency`.
+  - **Phase note.** This task sits in `phase-15` (Pluggable Estimation Methods)
+    with task-131/132/134 because it is bucket-method editor work, while its
+    `task-138` dependency is filed under `phase-16`. That is intentional: this
+    plan's phases are workstreams, not a chronology (phase-15 tasks have been
+    implemented after phase-16 ones before). Do not renumber the phase.
 
 steps:
   - |
     Domain — add the reducer. Create
     `src/domain/src/main/kotlin/io/github/theestimator/model/EstimationTotals.kt`
-    with a `@JsExport data class EstimationTotals` carrying:
-      leafCount: Int, meanPT: Double, riskSurchargePT: Double,
-      driverSurchargePT: Double, offerPT: Double, developmentCost: Double,
-      additionalOneTime: Double, additionalRecurring: Double,
-      salesSurchargeAmount: Double, totalOfferPrice: Double,
-      recurringWithoutPhase: Int
-    Add `fun EstimationVersion.totals(): EstimationTotals` (an extension in the
-    same file, or a member on `EstimationVersion` — pick one and be consistent)
-    implementing the formulas in the description. Sum the PT/cost figures over
-    `roots` and the leaf-level surcharges over `roots.flatMap { it.leaves() }`
-    using the existing `leaves()` extension. `salesSurchargeAmount` is the
-    difference `totalOfferPrice - (developmentCost + additionalOneTime +
-    additionalRecurring)` so the panel's lines add up exactly.
-    KDoc it with the caller contract: **call on the result of `calculate()`**.
-    Add a `logger.debug { … }` line (`KotlinLogging`, lambda form) reporting
-    leafCount and totalOfferPrice. Do NOT reference `super.<computed property>`
-    anywhere — it infinite-loops on Kotlin/JS.
+    containing BOTH:
+      - `@JsExport data class EstimationTotals` carrying:
+        leafCount: Int, meanPT: Double, riskSurchargePT: Double,
+        driverSurchargePT: Double, offerPT: Double, developmentCost: Double,
+        additionalOneTime: Double, additionalRecurring: Double,
+        salesSurchargeAmount: Double, totalOfferPrice: Double,
+        recurringWithoutPhase: Int
+      - `internal fun computeTotals(version: EstimationVersion): EstimationTotals`
+        implementing the formulas in the description. Sum the cost figures over
+        `version.roots`, take `offerPT` from `version.totalEffort` (already set
+        by `calculate()`), and sum the leaf-level surcharges over
+        `version.roots.flatMap { it.leaves() }` using the existing `leaves()`
+        extension. `salesSurchargeAmount` is the difference
+        `totalOfferPrice - (developmentCost + additionalOneTime +
+        additionalRecurring)` so the panel's lines add up exactly.
+        Add a `logger.debug { … }` line (`KotlinLogging`, lambda form —
+        `private val logger = KotlinLogging.logger {}` at file top) reporting
+        leafCount and totalOfferPrice.
+    Do NOT reference `super.<computed property>` anywhere — it infinite-loops on
+    Kotlin/JS.
+
+  - |
+    Domain — expose it as a MEMBER so JS can call it. In
+    `src/domain/src/main/kotlin/io/github/theestimator/model/EstimationVersion.kt`
+    add `fun totals(): EstimationTotals = computeTotals(this)` to the class,
+    with KDoc stating the caller contract: **call on the result of
+    `calculate()`** — on an uncalculated version the money fields are 0.
+    It must be a member, NOT an extension function: `@JsExport` does not export
+    extension functions, so an extension would build cleanly and then be
+    missing from `domain.d.mts`.
 
   - |
     Domain — widen the JS factory. In
     `src/domain/src/main/kotlin/io/github/theestimator/model/DomainFactory.kt`
     add an `additionalCosts: Array<AdditionalCost> = emptyArray()` parameter to
-    `createVersion(...)` (before `roots`, so the positional call in the adapter
-    stays readable) and forward `additionalCosts.toList()`. Keep the existing
-    defaults so no other caller breaks.
+    `createVersion(...)` (after `phases`, before `roots`) and forward
+    `additionalCosts.toList()`. Keep the existing defaults so no other caller
+    breaks.
 
   - |
     Domain — test. Create
     `src/domain/src/test/kotlin/io/github/theestimator/model/EstimationTotalsTest.kt`
     covering:
       - a THREE_POINT_PERT version: `calculate().totals()` — `offerPT` equals
-        the sum of the roots' `offerPT`, `developmentCost` equals
-        `offerPT * dailyRate`, and `totalOfferPrice` equals
-        `developmentCost * (1 + salesSurcharge)` when there are no additional
-        costs.
+        the sum of the roots' `offerPT` AND equals `totalEffort`,
+        `developmentCost` equals `offerPT * dailyRate`, and `totalOfferPrice`
+        equals `developmentCost * (1 + salesSurcharge)` when there are no
+        additional costs.
+      - **a GROUPED tree**: totals must count each leaf exactly once — assert
+        `leafCount` equals the number of leaves and that `offerPT` equals the
+        sum over `roots.flatMap { it.leaves() }`, NOT the sum over every node.
+        This is the domain-side guard for the `EstimationGrid` double-count
+        fixed in step 6.
       - a BUCKET_SAMPLED_PERT version built from `BucketedEstimationItem`s with
         samples and non-samples: the totals include the non-samples' inherited
         bucket means (i.e. `meanPT` > the samples' mean alone). This is the
@@ -148,27 +215,45 @@ steps:
         `durationWeeks`: assert the exact `totalOfferPrice`, and that the
         component lines sum to it.
       - a RECURRING cost with `phase = null`: contributes 0 AND
-        `recurringWithoutPhase == 1`.
+        `recurringWithoutPhase == 1`; a RECURRING cost on a phase with
+        `durationWeeks = 0.0` contributes 0 but does NOT increment the counter.
     Then: `./gradlew :domain:build`
 
   - |
     Frontend adapter — one build, two results. In
     `src/frontend/src/lib/adapter.ts`:
       - export `interface EstimationTotalsView` mirroring the domain fields
-        (plain numbers, so the panel never touches Kotlin/JS objects).
+        (plain numbers, so consumers never touch Kotlin/JS objects).
       - replace `computeCalcMap` with
         `computeEstimation(roots, params, drivers, phases, additionalCosts)`
         returning `{ calcMap: Map<string, CalcEntry>; totals: EstimationTotalsView }`.
         Build the version ONCE, `calculate()` it once, then walk the tree for
-        the calc map and read `.totals()` for the totals.
+        the calc map and call `.totals()` on the same calculated version.
       - pass the REAL `phases` array to `createVersion` (it currently passes
         `[]`) and map the `ApiAdditionalCost[]` to domain `AdditionalCost`
-        objects: `amount ?? 0`, `amountPerWeek ?? 0`, the `type` string, and the
-        phase resolved through the existing `phaseByAbbr` map
-        (`phaseByAbbr.get(c.phaseAbbreviation ?? '') ?? null`).
-    Note `AdditionalCostType` is a domain enum — import it from
-    `./domain/domain.mjs` like the other domain types rather than passing a
-    bare string.
+        objects: `amount ?? 0`, `amountPerWeek ?? 0`, the phase resolved through
+        the existing `phaseByAbbr` map
+        (`phaseByAbbr.get(c.phaseAbbreviation ?? '') ?? null`), and the type
+        resolved from the wire string to the exported enum with the pattern
+        CLAUDE.md records for `SupportedLanguage`:
+        `AdditionalCostType.values().find((v) => v.name === c.type) ?? AdditionalCostType.ONE_TIME`.
+        Import `AdditionalCost` and `AdditionalCostType` from
+        `./domain/domain.mjs` like the other domain types (both are `@JsExport`ed).
+
+  - |
+    Frontend — fix the PERT footer to use the same totals. In
+    `src/frontend/src/lib/components/EstimationGrid.svelte` add a
+    `totals: EstimationTotalsView` prop and source the footer's `offerPT`,
+    `cost` and `offerPrice` cells from it, DELETING the
+    `Array.from(calcMap.values())` reduction that double-counts group rows.
+    Keep the leaf-based `totalOpt`/`totalLik`/`totalPes`/`totalExp` derivations
+    exactly as they are — those are correct.
+    Thread the prop through: the route already renders the method module
+    generically, so pass `{totals}` on `<EditorComponent … />` and declare it in
+    BOTH `methods/pert/EditorModule.svelte` (which forwards it to
+    `EstimationGrid`) and `methods/bucketSampled/EditorModule.svelte` (which
+    does not render it — declare it the way that module already declares the
+    unused `buckets: _buckets` prop, so svelte-check and ESLint stay green).
 
   - |
     Frontend — the panel. Create
@@ -197,12 +282,13 @@ steps:
         as one `$derived` holding `{ calcMap, totals }`, and derive `calcMap`
         and `totals` from it. Keep the existing `try`/`catch` →
         `log.error(...)` + `bannerMessage` surfacing; on failure fall back to an
-        empty map AND a zeroed totals object so the panel cannot render
-        `undefined`.
+        empty map AND a zeroed totals object so neither the panel nor the grid
+        footer can render `undefined`.
       - render `<EstimationSummaryPanel {totals} />` directly ABOVE the
         `{#if EditorComponent}` block (i.e. after the notes textarea /
         submitted-read-only notice), so it sits at the top of the editor for
         both methods and both draft and submitted versions.
+      - pass `{totals}` down to `<EditorComponent … />` (step 6).
 
   - |
     Add the `summary.*` keys to BOTH `src/frontend/src/lib/i18n/de.json` and
@@ -214,17 +300,27 @@ steps:
     task-124 it is not a lift-and-shift — write real translations).
 
   - |
-    Add `src/frontend/e2e/summary-panel.test.ts` with two tests whose titles
-    contain the exact phrases **"summary panel"** and **"bucket estimation
-    total"**:
-      - **summary panel**: open a PERT draft, assert `version-summary` is
-        visible above the editor, and that its `version-summary.offerPT` value
-        matches the existing grid footer total (`grid.total` row) — proving the
-        panel and the footer agree.
+    Add `src/frontend/e2e/summary-panel.test.ts`, logging in via the existing
+    `e2e/helpers.ts::loginAsDev` like the neighbouring specs, with two tests
+    whose titles contain the exact phrases **"summary panel"** and **"bucket
+    estimation total"**:
+      - **summary panel**: open a PERT draft that HAS groups (the seeded
+        Webshop draft does), assert `version-summary` is visible above the
+        editor, and assert its `version-summary.offerPT` equals the sum of the
+        LEAF rows' offerPT cells — this is the regression test for the
+        group double-count, so it must not simply compare against the grid
+        footer's rendered value. Then assert the footer now shows that same
+        number.
       - **bucket estimation total**: open the bucket+sampled draft, assert
         `version-summary` is visible and its offer-PT reading equals the sum of
         the bucket rows' offerPT cells — the number that did not exist before.
-      Register a `page.on('pageerror', …)` collector in both and assert it
+        (Bucket rows render collapsed but the bucket ROWS themselves are
+        visible, so their cells are readable without expanding.)
+      Compare parsed NUMBERS with a tolerance (the cells are formatted to 2
+      decimals, so a sum of rendered values carries rounding error — assert
+      within ±0.05, not exact string equality), and parse with the locale the
+      Playwright config pins (`locale: 'de-DE'`, so a decimal comma).
+      Register a `page.on('pageerror', …)` collector in both tests and assert it
       stayed empty (the Kotlin/JS calc failure mode surfaces as a thrown
       exception, not a wrong number).
 
@@ -232,14 +328,20 @@ steps:
     Update `CLAUDE.md`: in the frontend section record that the version editor
     route renders `EstimationSummaryPanel` above the method module, that the
     whole-estimation totals come from the domain reducer
-    `EstimationVersion.totals()` (called on a `calculate()`d version) and never
-    from summation in Svelte, that `computeCalcMap` is now `computeEstimation`
-    returning `{ calcMap, totals }` from a single domain round-trip, and that a
-    RECURRING additional cost without a phase counts as 0 and is surfaced as a
-    warning rather than silently absorbed.
+    `EstimationVersion.totals()` (a MEMBER, because `@JsExport` cannot export
+    extension functions; called on a `calculate()`d version) and never from
+    summation in Svelte, that `computeCalcMap` is now `computeEstimation`
+    returning `{ calcMap, totals }` from a single domain round-trip, that
+    `EstimationGrid`'s footer reads those totals instead of reducing
+    `calcMap.values()` (which included GROUP entries and double-counted every
+    grouped estimation), and that a RECURRING additional cost without a phase
+    counts as 0 and is surfaced as a warning rather than silently absorbed.
 
   - |
-    Full gate:
+    Full gate. The domain's EXPORTED API changes (new `@JsExport` class, new
+    member, new factory arity), which is exactly the case CLAUDE.md warns
+    produces a stale `domain.d.mts` — so force the clean rebuild first:
+      ./gradlew :domain:clean :frontend:clean
       ./gradlew :domain:build
       ./gradlew :frontend:check
       cd src/frontend && npm run lint
@@ -248,32 +350,52 @@ steps:
 
 validation:
   - |
-    The domain owns the reducer and exports it to JS:
+    The domain owns the reducer, logs, and exports the value type:
       F=src/domain/src/main/kotlin/io/github/theestimator/model/EstimationTotals.kt
       test -f "$F"
       grep -q "data class EstimationTotals" "$F"
       grep -q "@JsExport" "$F"
       grep -q "totalOfferPrice" "$F"
       grep -q "recurringWithoutPhase" "$F"
+      grep -q "fun computeTotals" "$F"
       grep -q "logger\." "$F"
       ! grep -q "super\." "$F"
   - |
-    The JS factory can carry additional costs, and the domain test pins the
-    formulas including the bucket case:
-      grep -q "additionalCosts" src/domain/src/main/kotlin/io/github/theestimator/model/DomainFactory.kt
+    `totals()` is a MEMBER of EstimationVersion (an extension would compile but
+    not be callable from JS), and reuses the already-computed totalEffort:
+      V=src/domain/src/main/kotlin/io/github/theestimator/model/EstimationVersion.kt
+      grep -q "fun totals()" "$V"
+      ! grep -q "fun EstimationVersion.totals()" src/domain/src/main/kotlin/io/github/theestimator/model/EstimationTotals.kt
+      grep -q "totalEffort" src/domain/src/main/kotlin/io/github/theestimator/model/EstimationTotals.kt
+  - |
+    The JS factory can carry additional costs (as an Array, not a List), and the
+    domain test pins the formulas including the grouped and bucket cases:
+      D=src/domain/src/main/kotlin/io/github/theestimator/model/DomainFactory.kt
+      grep -q "additionalCosts: Array<AdditionalCost>" "$D"
       T=src/domain/src/test/kotlin/io/github/theestimator/model/EstimationTotalsTest.kt
       test -f "$T"
       grep -q "BucketedEstimationItem" "$T"
       grep -q "recurringWithoutPhase" "$T"
+      grep -q "leafCount" "$T"
   - |
-    The adapter does ONE domain round-trip and no longer drops phases:
+    The adapter does ONE domain round-trip, no longer drops phases, and maps the
+    cost type through the exported enum:
       A=src/frontend/src/lib/adapter.ts
       grep -q "computeEstimation" "$A"
       ! grep -q "export function computeCalcMap" "$A"
-      grep -q "AdditionalCost" "$A"
-      # exactly one calculate() call — a second would mean the version is
-      # rebuilt and recalculated per keystroke
-      test "$(grep -c "\.calculate()" "$A")" -eq 1
+      grep -q "AdditionalCostType" "$A"
+      # exactly one calculate() CALL — a second would mean the version is
+      # rebuilt and recalculated per keystroke. Comment lines are excluded so a
+      # KDoc-style mention of calculate() cannot trip this.
+      test "$(grep -v '^[[:space:]]*\(//\|\*\)' "$A" | grep -c '\.calculate()')" -eq 1
+  - |
+    The grid footer no longer double-counts group entries and reads the domain
+    totals instead:
+      G=src/frontend/src/lib/components/EstimationGrid.svelte
+      ! grep -q "Array.from(calcMap.values())" "$G"
+      grep -q "totals" "$G"
+      # the leaf-based triple sums stay
+      grep -q "allLeaves(roots)" "$G"
   - |
     The panel exists, is rendered by the ROUTE above the editor module, and is
     not duplicated into a method module:
@@ -299,18 +421,23 @@ validation:
       grep -q "totalOfferPrice" src/frontend/src/lib/i18n/en.json
       cd src/frontend && node -e "const d=require('./src/lib/i18n/de.json'),e=require('./src/lib/i18n/en.json');const f=(o,p='')=>Object.entries(o).flatMap(([k,v])=>typeof v==='object'&&v?f(v,p+k+'.'):[p+k]);const a=f(d).sort(),b=f(e).sort();if(JSON.stringify(a)!==JSON.stringify(b))throw new Error('key sets differ');console.log('ok',a.length)"
   - |
-    The e2e covers both methods and guards the silent-crash failure mode:
+    The e2e covers both methods, guards the double-count regression, and guards
+    the silent-crash failure mode:
       E=src/frontend/e2e/summary-panel.test.ts
       test -f "$E"
       grep -q "summary panel" "$E"
       grep -q "bucket estimation total" "$E"
+      grep -q "loginAsDev" "$E"
       test "$(grep -c "pageerror" "$E")" -ge 2
   - |
     CLAUDE.md records the new seam (assert phrases this task INTRODUCES):
       grep -q "EstimationSummaryPanel" CLAUDE.md
       grep -q "computeEstimation" CLAUDE.md
   - |
-    Domain, type-check, strict lint, full build and the e2e suite are green:
+    Clean rebuild (the domain's exported API changed — a stale domain.d.mts is
+    the documented trap), then domain, type-check, strict lint, full build and
+    the e2e suite are green:
+      ./gradlew :domain:clean :frontend:clean
       ./gradlew :domain:build
       ./gradlew :frontend:check
       cd src/frontend && npm run lint
@@ -319,10 +446,14 @@ validation:
 
 outputs:
   - created: src/domain/src/main/kotlin/io/github/theestimator/model/EstimationTotals.kt
+  - modified: src/domain/src/main/kotlin/io/github/theestimator/model/EstimationVersion.kt
   - modified: src/domain/src/main/kotlin/io/github/theestimator/model/DomainFactory.kt
   - created: src/domain/src/test/kotlin/io/github/theestimator/model/EstimationTotalsTest.kt
   - modified: src/frontend/src/lib/adapter.ts
   - created: src/frontend/src/lib/components/EstimationSummaryPanel.svelte
+  - modified: src/frontend/src/lib/components/EstimationGrid.svelte
+  - modified: src/frontend/src/lib/methods/pert/EditorModule.svelte
+  - modified: src/frontend/src/lib/methods/bucketSampled/EditorModule.svelte
   - modified: src/frontend/src/routes/estimations/[id]/versions/[versionNumber]/+page.svelte
   - modified: src/frontend/src/lib/i18n/de.json
   - modified: src/frontend/src/lib/i18n/en.json

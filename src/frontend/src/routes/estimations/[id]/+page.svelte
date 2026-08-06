@@ -13,6 +13,7 @@
 	import type { ApiEstimationDetail } from '$lib/api/types.js';
 	import { apiFetch } from '$lib/api/fetch';
 	import { assertOk } from '$lib/api/errors';
+	import { downloadResponse } from '$lib/api/download';
 	import { log } from '$lib/log';
 
 	let estimation = $state<ApiEstimationDetail | null>(null);
@@ -178,25 +179,13 @@
 			await assertOk(res, fallback);
 			structureDiff = null;
 			pendingExportFile = null;
-			downloadResponse(await res.blob(), res.headers.get('Content-Disposition'));
+			downloadResponse(await res.blob(), res.headers.get('Content-Disposition'), 'merlin-estimated.sql');
 		} catch (e: any) {
 			log.error('exportMerlin failed:', e);
 			bannerMessage = e.message;
 		} finally {
 			exporting = false;
 		}
-	}
-
-	function downloadResponse(blob: Blob, disposition: string | null) {
-		const match = disposition?.match(/filename="([^"]+)"/);
-		const url = URL.createObjectURL(blob);
-		const a = document.createElement('a');
-		a.href = url;
-		a.download = match?.[1] ?? 'merlin-estimated.sql';
-		document.body.appendChild(a);
-		a.click();
-		a.remove();
-		URL.revokeObjectURL(url);
 	}
 
 	async function submitVersion() {

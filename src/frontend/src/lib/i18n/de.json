@@ -254,6 +254,7 @@
 		"export": "Export",
 		"exportXlsx": "Excel (.xlsx)",
 		"exportCsv": "CSV (.csv)",
+		"exportFailed": "Der Export konnte nicht erstellt werden.",
 		"back": "← Zurück zur Schätzung",
 		"versionHeading": "Version {n}",
 		"submittedReadOnly": "Festgeschrieben — schreibgeschützt",

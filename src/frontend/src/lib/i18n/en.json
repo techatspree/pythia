@@ -254,6 +254,7 @@
 		"export": "Export",
 		"exportXlsx": "Excel (.xlsx)",
 		"exportCsv": "CSV (.csv)",
+		"exportFailed": "The export could not be created.",
 		"back": "← Back to estimation",
 		"versionHeading": "Version {n}",
 		"submittedReadOnly": "Submitted — read only",

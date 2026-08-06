@@ -14,6 +14,7 @@
 	import type { components } from '$lib/api/schema';
 	import { apiFetch } from '$lib/api/fetch';
 	import { assertOk } from '$lib/api/errors';
+	import { downloadResponse } from '$lib/api/download';
 	import { UndoStore } from '$lib/stores/undo.svelte';
 	import { installUndoShortcuts } from '$lib/stores/undoKeyboard.svelte';
 	import { loadEditorModule } from '$lib/methods/registry';
@@ -57,6 +58,37 @@
 	// toolbar (task-109), so toggling it is visible where the button is and no
 	// scroll-into-view workaround is needed.
 	let showHistory = $state(false);
+
+	// Export (xlsx/csv). It must NOT be a plain `<a href="/api/…" download>`:
+	// browser navigation sends no `Authorization` header, so the backend answers
+	// `401` and the browser saves that JSON error body as the export file. The
+	// request goes through `apiFetch` and the body is downloaded as a blob.
+	let exportMenuOpen = $state(false);
+	let exporting = $state(false);
+
+	async function exportVersion(format: 'xlsx' | 'csv') {
+		if (!versionData) return;
+		const versionRef = versionData.isDraft ? 'draft' : String(versionData.versionNumber);
+		exportMenuOpen = false;
+		exporting = true;
+		bannerMessage = null;
+		try {
+			const res = await apiFetch(
+				`/api/estimations/${page.params.id}/versions/${versionRef}/export?format=${format}`
+			);
+			await assertOk(res, $_('editor.exportFailed'));
+			downloadResponse(
+				await res.blob(),
+				res.headers.get('Content-Disposition'),
+				`estimation-${versionRef}.${format}`
+			);
+		} catch (e: any) {
+			log.error('exportVersion failed:', e);
+			bannerMessage = e.message;
+		} finally {
+			exporting = false;
+		}
+	}
 
 	// The entry a given action would target, for the toolbar tooltips.
 	function latestByStatus(status: string) {
@@ -343,21 +375,21 @@
 						{$_('editor.submit')}
 					</button>
 				{/if}
-				<details class="relative">
+				<details class="relative" bind:open={exportMenuOpen}>
 					<summary class="px-4 py-2 text-sm border rounded cursor-pointer select-none">{$_('editor.export')}</summary>
 					<div class="absolute right-0 mt-1 bg-white border rounded shadow text-sm z-10">
-						<a
-							class="block px-4 py-2 hover:bg-gray-50"
-							download
-							rel="external"
-							href="/api/estimations/{page.params.id}/versions/{versionData.isDraft ? 'draft' : versionData.versionNumber}/export?format=xlsx"
-						>{$_('editor.exportXlsx')}</a>
-						<a
-							class="block px-4 py-2 hover:bg-gray-50"
-							download
-							rel="external"
-							href="/api/estimations/{page.params.id}/versions/{versionData.isDraft ? 'draft' : versionData.versionNumber}/export?format=csv"
-						>{$_('editor.exportCsv')}</a>
+						<button
+							type="button"
+							class="block w-full text-left px-4 py-2 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed"
+							disabled={exporting}
+							onclick={() => exportVersion('xlsx')}
+						>{$_('editor.exportXlsx')}</button>
+						<button
+							type="button"
+							class="block w-full text-left px-4 py-2 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed"
+							disabled={exporting}
+							onclick={() => exportVersion('csv')}
+						>{$_('editor.exportCsv')}</button>
 					</div>
 				</details>
 			</div>
