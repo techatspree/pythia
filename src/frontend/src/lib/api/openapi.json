@@ -135,6 +135,34 @@
         },
         "required" : [ "position", "label" ]
       },
+      "ChangeSummaryDto" : {
+        "type" : "object",
+        "required" : [ "kind" ],
+        "properties" : {
+          "kind" : {
+            "type" : "string"
+          },
+          "path" : {
+            "type" : [ "string", "null" ]
+          },
+          "field" : {
+            "type" : [ "string", "null" ]
+          },
+          "oldValue" : {
+            "type" : [ "string", "null" ]
+          },
+          "newValue" : {
+            "type" : [ "string", "null" ]
+          },
+          "nodeType" : {
+            "type" : [ "string", "null" ]
+          },
+          "remaining" : {
+            "type" : [ "integer", "null" ],
+            "format" : "int32"
+          }
+        }
+      },
       "ComparisonNodeDto" : {
         "type" : "object",
         "required" : [ "logicalId", "type", "title", "description", "path", "minEffort", "expectedEffort", "maxEffort", "offerPT" ],
@@ -756,7 +784,7 @@
       },
       "MutationLogEntryDto" : {
         "type" : "object",
-        "required" : [ "id", "sequenceNumber", "revisionBefore", "revisionAfter", "userId", "userDisplayName", "kind", "status", "createdAt", "undoneAt" ],
+        "required" : [ "id", "sequenceNumber", "revisionBefore", "revisionAfter", "userId", "userDisplayName", "kind", "status", "createdAt", "undoneAt", "summary" ],
         "properties" : {
           "id" : {
             "$ref" : "#/components/schemas/UUID"
@@ -794,6 +822,12 @@
             }, {
               "type" : "null"
             } ]
+          },
+          "summary" : {
+            "type" : "array",
+            "items" : {
+              "$ref" : "#/components/schemas/ChangeSummaryDto"
+            }
           }
         }
       },

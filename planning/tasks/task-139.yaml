@@ -1,0 +1,330 @@
+id: task-139
+phase: phase-15
+title: Estimation summary panel at the top of the version editor
+depends_on: [task-138, task-134]
+description: |
+  A bucket+sampled estimation never shows a total for the WHOLE estimate.
+
+  The three-point PERT editor gets its total from `EstimationGrid.svelte`,
+  which renders a `totalsFooter` snippet (`grid.total`, ~lines 479–495) summing
+  the leaves' `minEffort`/`expectedEffort`/`maxEffort` and the calc entries'
+  `offerPT`/`cost`/`offerPrice`. The bucket+sampled editor
+  (`methods/bucketSampled/EditorModule.svelte`) does NOT use `EstimationGrid` —
+  it drives `TreeTable` directly and passes **no `footer` snippet at all**. So
+  the only aggregation a bucket estimation shows is per row: `bucketTotals(row)`
+  on a bucket row in the bucket view, and `calcMap` group entries in the
+  hierarchy view. There is no number anywhere for the estimate as a whole.
+
+  ## Target state
+
+  A **summary panel at the top of the version editor**, above the method
+  module, showing every summed figure of the whole estimation. It is rendered
+  by the ROUTE
+  (`routes/estimations/[id]/versions/[versionNumber]/+page.svelte`), NOT by a
+  method module, so both methods get it from one implementation and it cannot
+  drift between them. It shows for a draft and for a submitted (read-only)
+  version alike — the route already renders both.
+
+  This deliberately does not add a footer to the bucket editor's `TreeTable`.
+  A top panel is what was asked for, it is reachable without scrolling past
+  117 rows, and one panel on the route beats two footers in two modules.
+
+  ## Frozen decisions (do not re-open)
+
+  - **The domain computes the totals.** This is business math (risk surcharge,
+    daily rate, sales surcharge, recurring cost × phase duration) and per
+    CLAUDE.md it must not be re-derived in Svelte. Add an `EstimationTotals`
+    value type plus an `EstimationVersion.totals()` reducer in the domain;
+    the panel only formats what it is handed. Follow the existing
+    `VoteAggregate` / `VoteAggregation` shape in
+    `model/VoteAggregation.kt` — a `@JsExport data class` of plain values next
+    to the pure reducer that produces it.
+  - **`totals()` reads already-calculated nodes.** `EstimationItem.cost` /
+    `offerPrice` derive from the `calculationParameters` that `calculate()`
+    stamps onto each leaf, so `totals()` on an uncalculated version returns
+    zeros for the money fields. Callers must use `version.calculate().totals()`
+    — document that on the function and rely on it in the adapter. Do NOT make
+    `totals()` call `calculate()` itself (it would recompute on every read).
+  - **The total offer price uses the customer's canonical formula**, the one
+    `ExcelExporter.writePhases` already applies per phase (~lines 187–208),
+    summed over the whole estimate instead of per phase:
+
+        developmentCost      = Σ root.cost                (= offerPT × dailyRate)
+        additionalOneTime    = Σ ONE_TIME  cost.amount
+        additionalRecurring  = Σ RECURRING cost.amountPerWeek × cost.phase.durationWeeks
+        totalOfferPrice      = (developmentCost + additionalOneTime + additionalRecurring)
+                               × (1 + salesSurcharge)
+
+    A RECURRING cost with no phase (or a phase with no duration) contributes
+    **0** — and that must not be silent: `totals()` also returns
+    `recurringWithoutPhase: Int` and the panel shows a warning line when it is
+    non-zero. Silently substituting a plausible number is exactly the failure
+    mode task-138 existed to remove.
+  - **Known divergence, deliberately NOT fixed here.** `ExcelExporter` writes
+    `(it.amountPerWeek ?: it.amount) * durationWeeks` because the JPA entity's
+    `amountPerWeek` is nullable; the domain `AdditionalCost.amountPerWeek` is a
+    non-null `Double = 0.0`, so the reducer has no such fallback. Use the clean
+    rule above. Do NOT change `ExcelExporter`, and do NOT reroute it through
+    the new reducer — the exporter consumes `SubmittedEstimationVersion`
+    entities, not domain objects, so that is a separate mapping task.
+  - **No raw optimistic/likely/pessimistic sums in this panel.** They are
+    meaningless for a bucket estimation: a non-sample `BucketedEstimationItem`
+    has no triple of its own and inherits its bucket's average, so summing the
+    raw columns would silently under-count the estimate. Every figure in the
+    panel is domain-derived and therefore method-agnostic. `EstimationGrid`'s
+    existing PERT footer keeps its triple sums — leave it alone.
+  - **`createVersion` must learn about additional costs and phases.** The
+    JS-facing factory in `DomainFactory.kt` takes no `additionalCosts`, and
+    `adapter.ts` currently passes an EMPTY array for `phases` — neither is
+    needed for the per-leaf calc (a `TimeRelativeEstimationItem` carries its own
+    `phase`), but the recurring-cost total needs both. Add an
+    `additionalCosts: Array<AdditionalCost>` parameter and have the adapter pass
+    the real phases. This is additive: existing calc results must not move, and
+    the domain tests are the guard.
+  - **One domain round-trip per edit.** `computeCalcMap` is called from exactly
+    one place (the route's `calcMap` `$derived.by`). REPLACE it with
+    `computeEstimation(...)` returning `{ calcMap, totals }` from a single
+    `createVersion(...).calculate()`; the route derives both out of it. Do not
+    add a second exported function that rebuilds and recalculates the version a
+    second time on every keystroke.
+  - **Not sticky.** A plain block in normal flow, directly above the editor
+    module. Do not make it `position: sticky` — the editors below it are
+    `svelte-dnd-action` drop zones whose geometry the library measures at drag
+    start, and this project has already lost time to that interaction
+    (task-133/134).
+  - **Frontend + domain only.** No REST endpoint, no DTO, no OpenAPI
+    regeneration, no Flyway migration, no backend service change.
+  - Strings come from NEW `summary.*` i18n keys in BOTH `de.json` and `en.json`
+    (equal key sets); every number goes through `$lib/format.ts`
+    (`formatFixed` / `formatNumber` with `$locale ?? DEFAULT_LOCALE`) — no
+    `.toFixed()`, no hardcoded locale. Currency columns already carry a
+    `(EUR)`-style header, so use `formatNumber`/`formatFixed`, not
+    `formatCurrency`.
+
+steps:
+  - |
+    Domain — add the reducer. Create
+    `src/domain/src/main/kotlin/io/github/theestimator/model/EstimationTotals.kt`
+    with a `@JsExport data class EstimationTotals` carrying:
+      leafCount: Int, meanPT: Double, riskSurchargePT: Double,
+      driverSurchargePT: Double, offerPT: Double, developmentCost: Double,
+      additionalOneTime: Double, additionalRecurring: Double,
+      salesSurchargeAmount: Double, totalOfferPrice: Double,
+      recurringWithoutPhase: Int
+    Add `fun EstimationVersion.totals(): EstimationTotals` (an extension in the
+    same file, or a member on `EstimationVersion` — pick one and be consistent)
+    implementing the formulas in the description. Sum the PT/cost figures over
+    `roots` and the leaf-level surcharges over `roots.flatMap { it.leaves() }`
+    using the existing `leaves()` extension. `salesSurchargeAmount` is the
+    difference `totalOfferPrice - (developmentCost + additionalOneTime +
+    additionalRecurring)` so the panel's lines add up exactly.
+    KDoc it with the caller contract: **call on the result of `calculate()`**.
+    Add a `logger.debug { … }` line (`KotlinLogging`, lambda form) reporting
+    leafCount and totalOfferPrice. Do NOT reference `super.<computed property>`
+    anywhere — it infinite-loops on Kotlin/JS.
+
+  - |
+    Domain — widen the JS factory. In
+    `src/domain/src/main/kotlin/io/github/theestimator/model/DomainFactory.kt`
+    add an `additionalCosts: Array<AdditionalCost> = emptyArray()` parameter to
+    `createVersion(...)` (before `roots`, so the positional call in the adapter
+    stays readable) and forward `additionalCosts.toList()`. Keep the existing
+    defaults so no other caller breaks.
+
+  - |
+    Domain — test. Create
+    `src/domain/src/test/kotlin/io/github/theestimator/model/EstimationTotalsTest.kt`
+    covering:
+      - a THREE_POINT_PERT version: `calculate().totals()` — `offerPT` equals
+        the sum of the roots' `offerPT`, `developmentCost` equals
+        `offerPT * dailyRate`, and `totalOfferPrice` equals
+        `developmentCost * (1 + salesSurcharge)` when there are no additional
+        costs.
+      - a BUCKET_SAMPLED_PERT version built from `BucketedEstimationItem`s with
+        samples and non-samples: the totals include the non-samples' inherited
+        bucket means (i.e. `meanPT` > the samples' mean alone). This is the
+        regression that motivated the task.
+      - one-time + recurring additional costs with a phase of known
+        `durationWeeks`: assert the exact `totalOfferPrice`, and that the
+        component lines sum to it.
+      - a RECURRING cost with `phase = null`: contributes 0 AND
+        `recurringWithoutPhase == 1`.
+    Then: `./gradlew :domain:build`
+
+  - |
+    Frontend adapter — one build, two results. In
+    `src/frontend/src/lib/adapter.ts`:
+      - export `interface EstimationTotalsView` mirroring the domain fields
+        (plain numbers, so the panel never touches Kotlin/JS objects).
+      - replace `computeCalcMap` with
+        `computeEstimation(roots, params, drivers, phases, additionalCosts)`
+        returning `{ calcMap: Map<string, CalcEntry>; totals: EstimationTotalsView }`.
+        Build the version ONCE, `calculate()` it once, then walk the tree for
+        the calc map and read `.totals()` for the totals.
+      - pass the REAL `phases` array to `createVersion` (it currently passes
+        `[]`) and map the `ApiAdditionalCost[]` to domain `AdditionalCost`
+        objects: `amount ?? 0`, `amountPerWeek ?? 0`, the `type` string, and the
+        phase resolved through the existing `phaseByAbbr` map
+        (`phaseByAbbr.get(c.phaseAbbreviation ?? '') ?? null`).
+    Note `AdditionalCostType` is a domain enum — import it from
+    `./domain/domain.mjs` like the other domain types rather than passing a
+    bare string.
+
+  - |
+    Frontend — the panel. Create
+    `src/frontend/src/lib/components/EstimationSummaryPanel.svelte`:
+      - props: `totals: EstimationTotalsView` (read-only; NOT `$bindable` — it
+        is derived output, nothing edits it).
+      - render the figures as a compact labelled grid, grouped so the arithmetic
+        is legible: effort (mean PT, risk surcharge PT, driver surcharge PT,
+        **offer PT**), money (development cost, additional one-time, additional
+        recurring, sales surcharge, **total offer price**), and the leaf count.
+        Emphasise `offerPT` and `totalOfferPrice` as the two headline numbers.
+      - when `totals.recurringWithoutPhase > 0`, render a warning line from
+        `summary.recurringWithoutPhase` (ICU plural) stating those costs count
+        as 0 — do not hide it.
+      - give the root element `data-testid="version-summary"` and the two
+        headline values `data-testid="version-summary.offerPT"` /
+        `data-testid="version-summary.totalOfferPrice"` for the e2e.
+      - all labels via `$_('summary.…')`, all numbers via `$lib/format.ts`.
+        No bare `console.*`.
+
+  - |
+    Frontend — wire it into the route. In
+    `src/routes/estimations/[id]/versions/[versionNumber]/+page.svelte`:
+      - switch the `calcMap` `$derived.by` to call `computeEstimation(...)`
+        (now also passing `currentPhases` and `currentAdditionalCosts`), keep it
+        as one `$derived` holding `{ calcMap, totals }`, and derive `calcMap`
+        and `totals` from it. Keep the existing `try`/`catch` →
+        `log.error(...)` + `bannerMessage` surfacing; on failure fall back to an
+        empty map AND a zeroed totals object so the panel cannot render
+        `undefined`.
+      - render `<EstimationSummaryPanel {totals} />` directly ABOVE the
+        `{#if EditorComponent}` block (i.e. after the notes textarea /
+        submitted-read-only notice), so it sits at the top of the editor for
+        both methods and both draft and submitted versions.
+
+  - |
+    Add the `summary.*` keys to BOTH `src/frontend/src/lib/i18n/de.json` and
+    `src/frontend/src/lib/i18n/en.json`, key sets identical: `title`,
+    `leafCount`, `meanPT`, `riskSurchargePT`, `driverSurchargePT`, `offerPT`,
+    `developmentCost`, `additionalOneTime`, `additionalRecurring`,
+    `salesSurcharge`, `totalOfferPrice`, `recurringWithoutPhase`.
+    German in `de.json`, English in `en.json` (this is a NEW panel, so unlike
+    task-124 it is not a lift-and-shift — write real translations).
+
+  - |
+    Add `src/frontend/e2e/summary-panel.test.ts` with two tests whose titles
+    contain the exact phrases **"summary panel"** and **"bucket estimation
+    total"**:
+      - **summary panel**: open a PERT draft, assert `version-summary` is
+        visible above the editor, and that its `version-summary.offerPT` value
+        matches the existing grid footer total (`grid.total` row) — proving the
+        panel and the footer agree.
+      - **bucket estimation total**: open the bucket+sampled draft, assert
+        `version-summary` is visible and its offer-PT reading equals the sum of
+        the bucket rows' offerPT cells — the number that did not exist before.
+      Register a `page.on('pageerror', …)` collector in both and assert it
+      stayed empty (the Kotlin/JS calc failure mode surfaces as a thrown
+      exception, not a wrong number).
+
+  - |
+    Update `CLAUDE.md`: in the frontend section record that the version editor
+    route renders `EstimationSummaryPanel` above the method module, that the
+    whole-estimation totals come from the domain reducer
+    `EstimationVersion.totals()` (called on a `calculate()`d version) and never
+    from summation in Svelte, that `computeCalcMap` is now `computeEstimation`
+    returning `{ calcMap, totals }` from a single domain round-trip, and that a
+    RECURRING additional cost without a phase counts as 0 and is surfaced as a
+    warning rather than silently absorbed.
+
+  - |
+    Full gate:
+      ./gradlew :domain:build
+      ./gradlew :frontend:check
+      cd src/frontend && npm run lint
+      ./gradlew build
+      cd src/frontend && npm run test:e2e
+
+validation:
+  - |
+    The domain owns the reducer and exports it to JS:
+      F=src/domain/src/main/kotlin/io/github/theestimator/model/EstimationTotals.kt
+      test -f "$F"
+      grep -q "data class EstimationTotals" "$F"
+      grep -q "@JsExport" "$F"
+      grep -q "totalOfferPrice" "$F"
+      grep -q "recurringWithoutPhase" "$F"
+      grep -q "logger\." "$F"
+      ! grep -q "super\." "$F"
+  - |
+    The JS factory can carry additional costs, and the domain test pins the
+    formulas including the bucket case:
+      grep -q "additionalCosts" src/domain/src/main/kotlin/io/github/theestimator/model/DomainFactory.kt
+      T=src/domain/src/test/kotlin/io/github/theestimator/model/EstimationTotalsTest.kt
+      test -f "$T"
+      grep -q "BucketedEstimationItem" "$T"
+      grep -q "recurringWithoutPhase" "$T"
+  - |
+    The adapter does ONE domain round-trip and no longer drops phases:
+      A=src/frontend/src/lib/adapter.ts
+      grep -q "computeEstimation" "$A"
+      ! grep -q "export function computeCalcMap" "$A"
+      grep -q "AdditionalCost" "$A"
+      # exactly one calculate() call — a second would mean the version is
+      # rebuilt and recalculated per keystroke
+      test "$(grep -c "\.calculate()" "$A")" -eq 1
+  - |
+    The panel exists, is rendered by the ROUTE above the editor module, and is
+    not duplicated into a method module:
+      P=src/frontend/src/lib/components/EstimationSummaryPanel.svelte
+      R="src/routes/estimations/[id]/versions/[versionNumber]/+page.svelte"
+      test -f "$P"
+      grep -q "version-summary" "$P"
+      grep -q "EstimationSummaryPanel" "$R"
+      ! grep -q "EstimationSummaryPanel" src/frontend/src/lib/methods/pert/EditorModule.svelte
+      ! grep -q "EstimationSummaryPanel" src/frontend/src/lib/methods/bucketSampled/EditorModule.svelte
+  - |
+    Panel conventions hold — i18n keys not literals, the shared formatter, no
+    bare console, not sticky:
+      P=src/frontend/src/lib/components/EstimationSummaryPanel.svelte
+      grep -q "summary.totalOfferPrice" "$P"
+      grep -q "\$lib/format" "$P"
+      ! grep -q "console\." "$P"
+      ! grep -q "toFixed(" "$P"
+      ! grep -q "sticky" "$P"
+  - |
+    Both catalogs carry the new keys and keep equal key sets:
+      grep -q "totalOfferPrice" src/frontend/src/lib/i18n/de.json
+      grep -q "totalOfferPrice" src/frontend/src/lib/i18n/en.json
+      cd src/frontend && node -e "const d=require('./src/lib/i18n/de.json'),e=require('./src/lib/i18n/en.json');const f=(o,p='')=>Object.entries(o).flatMap(([k,v])=>typeof v==='object'&&v?f(v,p+k+'.'):[p+k]);const a=f(d).sort(),b=f(e).sort();if(JSON.stringify(a)!==JSON.stringify(b))throw new Error('key sets differ');console.log('ok',a.length)"
+  - |
+    The e2e covers both methods and guards the silent-crash failure mode:
+      E=src/frontend/e2e/summary-panel.test.ts
+      test -f "$E"
+      grep -q "summary panel" "$E"
+      grep -q "bucket estimation total" "$E"
+      test "$(grep -c "pageerror" "$E")" -ge 2
+  - |
+    CLAUDE.md records the new seam (assert phrases this task INTRODUCES):
+      grep -q "EstimationSummaryPanel" CLAUDE.md
+      grep -q "computeEstimation" CLAUDE.md
+  - |
+    Domain, type-check, strict lint, full build and the e2e suite are green:
+      ./gradlew :domain:build
+      ./gradlew :frontend:check
+      cd src/frontend && npm run lint
+      ./gradlew build
+      cd src/frontend && npm run test:e2e
+
+outputs:
+  - created: src/domain/src/main/kotlin/io/github/theestimator/model/EstimationTotals.kt
+  - modified: src/domain/src/main/kotlin/io/github/theestimator/model/DomainFactory.kt
+  - created: src/domain/src/test/kotlin/io/github/theestimator/model/EstimationTotalsTest.kt
+  - modified: src/frontend/src/lib/adapter.ts
+  - created: src/frontend/src/lib/components/EstimationSummaryPanel.svelte
+  - modified: src/frontend/src/routes/estimations/[id]/versions/[versionNumber]/+page.svelte
+  - modified: src/frontend/src/lib/i18n/de.json
+  - modified: src/frontend/src/lib/i18n/en.json
+  - created: src/frontend/e2e/summary-panel.test.ts
+  - modified: CLAUDE.md

@@ -657,8 +657,8 @@
       "notes": "Move the undo/redo history from below the grid to a collapsible section directly under the toolbar (follow-up to task-077)"
     },
     "task-110": {
-      "status": "pending",
-      "started_at": null,
+      "status": "in_progress",
+      "started_at": "2026-08-05T08:41:27+00:00",
       "completed_at": null,
       "notes": "Verlauf history — show meaningful per-mutation summary (what actually changed) instead of raw kind"
     },
@@ -829,6 +829,12 @@
       "started_at": "2026-08-04T15:49:52+00:00",
       "completed_at": "2026-08-05T07:01:51+00:00",
       "notes": "Standard estimation parameters are looked up by user-editable English names; renaming one silently falls back to defaults and corrupts the calculation. Make them first-class typed fields."
+    },
+    "task-139": {
+      "status": "pending",
+      "started_at": null,
+      "completed_at": null,
+      "notes": "Bucket estimation has no overall total - add a summary panel at the top of the version editor showing the summed values of the whole estimation"
     }
   }
 }

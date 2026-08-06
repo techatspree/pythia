@@ -2209,6 +2209,16 @@ export interface components {
             position: number;
             label: string;
         };
+        ChangeSummaryDto: {
+            kind: string;
+            path?: string | null;
+            field?: string | null;
+            oldValue?: string | null;
+            newValue?: string | null;
+            nodeType?: string | null;
+            /** Format: int32 */
+            remaining?: number | null;
+        };
         ComparisonNodeDto: {
             logicalId: components["schemas"]["UUID"];
             type: string;
@@ -2426,6 +2436,7 @@ export interface components {
             status: string;
             createdAt: components["schemas"]["Instant"];
             undoneAt: components["schemas"]["Instant"] | null;
+            summary: components["schemas"]["ChangeSummaryDto"][];
         };
         NodeModificationDto: {
             logicalId: components["schemas"]["UUID"];

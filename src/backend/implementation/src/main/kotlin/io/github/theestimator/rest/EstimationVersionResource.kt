@@ -15,6 +15,7 @@ import io.github.theestimator.rest.dto.toLogDto
 import io.github.theestimator.rest.dto.toSummaryDto
 import io.github.theestimator.service.CsvExporter
 import io.github.theestimator.service.CurrentUserService
+import io.github.theestimator.service.DraftMutationJackson
 import io.github.theestimator.service.DraftUpdateApplier
 import io.github.theestimator.service.DraftVersionMapper
 import io.github.theestimator.service.EstimationVersionService
@@ -67,7 +68,8 @@ class EstimationVersionResource(
     private val undoService: UndoService,
     private val draftVersionMapper: DraftVersionMapper,
     private val currentUserService: CurrentUserService,
-    private val currentUserProvider: CurrentUserProvider
+    private val currentUserProvider: CurrentUserProvider,
+    private val draftMutationJackson: DraftMutationJackson
 ) {
 
     @GET
@@ -271,7 +273,7 @@ class EstimationVersionResource(
     @APIResponse(responseCode = "404", description = "Estimation not found")
     fun draftHistory(@PathParam("estimationId") estimationId: UUID): Response {
         ensureEstimationExists(estimationId)
-        return Response.ok(undoService.historyFor(estimationId).map { it.toLogDto() }).build()
+        return Response.ok(undoService.historyFor(estimationId).map { it.toLogDto(draftMutationJackson) }).build()
     }
 
     // The undo/redo mutation happens on the draft entity; re-read it and return

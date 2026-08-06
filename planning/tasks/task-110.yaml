@@ -84,10 +84,13 @@ description: |
       * `NotesChanged`
       * `OtherChange(kind)` — fallback for anything the walker
         cannot classify (guard against future model growth).
-    All values are stringified via a common `formatValue(Any?):
-    String` helper (numbers with the German number style
-    `1.234,56`, nulls as `"–"`); the frontend does NOT re-parse
-    or re-format.
+    Scalar `oldValue`/`newValue` are carried as locale-NEUTRAL
+    strings (a plain numeric `toString`; null as an empty string
+    or omitted) — the domain does NOT apply German (or any locale)
+    number formatting. The FRONTEND formats every numeric value
+    for display via `$lib/format.ts` (`formatNumber`/`formatCurrency`
+    with the active `$locale`), per the task-126 convention; never
+    a hardcoded `de-DE` style in the domain.
   - **Node matching for rename/move detection.** Match nodes by
     stable `id` between the two trees. `NodeAdded` / `NodeRemoved`
     are reported only for ids present on exactly one side.
@@ -117,13 +120,19 @@ description: |
     frontend switches on `kind`. This keeps the OpenAPI schema
     stable and additive.
   - **Frontend rendering.** `UndoHistoryPanel.svelte` iterates
-    `entry.summary` and formats each in German via a small
-    per-variant lookup in the same component. All strings are
-    hard-coded German (matching the existing German UI). Long
-    lists are visually capped with a small `<details>` disclosure
-    for entries beyond the first 5 shown lines (independent of
-    the 25-cap on the wire). Preserve the existing "Aktiv" /
-    "Rückgängig gemacht" badge and the user/time header.
+    `entry.summary` and formats each via svelte-i18n `$_(...)` —
+    the panel ALREADY uses `$_('history.…')` and inline literals
+    are forbidden (task-124/125). Add per-variant message keys
+    under `history.change.*` to BOTH `src/lib/i18n/de.json` and
+    `en.json` (equal key sets), with ICU interpolation for the
+    `path`/`field`/`oldValue`/`newValue`/`remaining` values;
+    numeric values are formatted via `$lib/format.ts` before
+    interpolation. Long lists are visually capped with a small
+    `<details>` disclosure for entries beyond the first 5 shown
+    lines (its label is an i18n key too; independent of the 25-cap
+    on the wire). Preserve the existing status badge
+    (`history.statusActive`/`statusUndone`) and the user/time
+    header.
   - **Fallback for legacy rows.** If the stored payload cannot be
     deserialised into a valid before/after pair (e.g. schema
     drift from a very old row), the mapper falls back to a
@@ -149,15 +158,18 @@ description: |
     view on the same before/after snapshot — the internal
     mutation representation stays.
   - No schema migration; no new column on `draft_mutation_log`.
-  - No i18n framework — the panel keeps hard-coded German
-    strings, matching the existing UI convention.
+  - The panel is fully internationalised via svelte-i18n
+    (`$_(...)` keys in de.json + en.json), like the rest of the UI
+    (task-124/125) — do NOT introduce hard-coded strings.
   - No changes to undo/redo semantics or the conflict-detection
     rules.
-  - Not blocked by the phase-15 method work; treat the diff as
-    method-agnostic (it walks the neutral `EstimationVersion`
-    shape). If task-102's `BucketedEstimationItem` lands first,
-    add the corresponding leaf-field cases; otherwise limit to
-    the currently supported leaves.
+  - The diff is method-agnostic: it walks the neutral
+    `EstimationVersion` tree. phase-15 (tasks 102/103) is DONE, so
+    `BucketedEstimationItem` exists — `NodeValueChanged` must cover
+    its leaf fields (`bucketId`, `isSample`, and the sample
+    `optimistic`/`likely`/`pessimistic` triple) alongside the
+    three-point `FixedEstimationItem` / `TimeRelativeEstimationItem`
+    fields.
 
 steps:
   - |
@@ -262,13 +274,18 @@ steps:
           – A header row: user · relative time · Aktiv/Rückgängig
             badge (existing content, minus the raw kind).
           – A list of summary lines: iterate `entry.summary`,
-            switch on `line.kind`, format via a small local
-            dictionary of hard-coded German strings.
+            switch on `line.kind`, and render each via
+            `$_('history.change.<variant>', { values: { … } })`
+            with the keys added to BOTH de.json and en.json (equal
+            key sets). Numeric `oldValue`/`newValue` are run through
+            `$lib/format.ts` (locale-aware) before interpolation —
+            no inline literals, no hard-coded number formatting.
           – When `entry.summary.length > 5`, wrap the tail in a
-            `<details>` disclosure ("weitere Änderungen anzeigen").
-          – When a line's `kind == "TRUNCATED"`, render "( +
-            {remaining} weitere Änderungen serverseitig )" so the
-            user knows there's a wire cap.
+            `<details>` disclosure whose label is an i18n key
+            (e.g. `history.change.showMore`).
+          – When a line's `kind == "TRUNCATED"`, render
+            `$_('history.change.truncated', { values: { remaining } })`
+            so the user knows there's a wire cap.
         Never render raw `entry.kind` text in the UI.
       * Emit `log.debug` on mount with the entry count.
       * No `console.*`; errors continue to surface via
@@ -322,12 +339,18 @@ validation:
     Generated frontend schema includes the new summary field:
       grep -q "summary" src/frontend/src/lib/api/schema.d.ts
   - |
-    Frontend panel no longer renders raw `entry.kind` and uses
-    the log facade:
+    Frontend panel no longer renders raw `entry.kind`, is
+    internationalised, and uses the log facade:
       ! grep -q "{entry.kind}" src/frontend/src/lib/components/UndoHistoryPanel.svelte
       grep -q "entry.summary" src/frontend/src/lib/components/UndoHistoryPanel.svelte
+      grep -q "history.change" src/frontend/src/lib/components/UndoHistoryPanel.svelte
       grep -q "from '\$lib/log'" src/frontend/src/lib/components/UndoHistoryPanel.svelte
       ! grep -nE "^\\s*console\\." src/frontend/src/lib/components/UndoHistoryPanel.svelte
+  - |
+    History summary strings are internationalised in BOTH catalogs (de/en in sync):
+      grep -q "history" src/frontend/src/lib/i18n/de.json
+      grep -q "history" src/frontend/src/lib/i18n/en.json
+      cd src/frontend && node -e "const d=require('./src/lib/i18n/de.json'),e=require('./src/lib/i18n/en.json');const f=(o,p='')=>Object.entries(o).flatMap(([k,v])=>typeof v==='object'&&v?f(v,p+k+'.'):[p+k]);const a=f(d).sort(),b=f(e).sort();if(JSON.stringify(a)!==JSON.stringify(b))throw new Error('key sets differ');console.log('ok',a.length)"
   - |
     CLAUDE.md documents the enriched history:
       grep -q "diffSummary\|Verlauf" CLAUDE.md
@@ -346,4 +369,6 @@ outputs:
   - modified: src/frontend/src/lib/api/openapi.json
   - modified: src/frontend/src/lib/api/schema.d.ts
   - modified: src/frontend/src/lib/components/UndoHistoryPanel.svelte
+  - modified: src/frontend/src/lib/i18n/de.json
+  - modified: src/frontend/src/lib/i18n/en.json
   - modified: CLAUDE.md

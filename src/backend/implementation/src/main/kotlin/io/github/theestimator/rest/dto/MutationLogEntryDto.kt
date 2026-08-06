@@ -15,5 +15,8 @@ data class MutationLogEntryDto(
     val kind: String,
     val status: String,
     val createdAt: Instant,
-    val undoneAt: Instant?
+    val undoneAt: Instant?,
+    // Structured, human-readable summary of what this mutation changed (task-110),
+    // computed on read from the stored payload via EstimationVersion.diffSummary.
+    val summary: List<ChangeSummaryDto>
 )

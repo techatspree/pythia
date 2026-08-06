@@ -1176,4 +1176,31 @@ class EstimationVersionResourceIT {
             .body("additionalCosts.size()", equalTo(1))
             .body("additionalCosts[0].description", equalTo("Replaced"))
     }
+
+    @Test
+    fun `history entries carry a structured change summary (task-110)`() {
+        given().`when`().post("/api/estimations/$estimationId/versions").then().statusCode(201)
+
+        // Mutation 1: change the daily rate (800 → 900).
+        given().contentType(ContentType.JSON).body("""{"dailyRate": 900.0}""")
+            .`when`().put("/api/estimations/$estimationId/versions/draft")
+            .then().statusCode(200)
+
+        // Mutation 2: add a leaf.
+        given().contentType(ContentType.JSON)
+            .body("""{"roots": [{"type": "FIXED", "description": "Login", "minEffort": 1.0, "expectedEffort": 2.0, "maxEffort": 3.0}]}""")
+            .`when`().put("/api/estimations/$estimationId/versions/draft")
+            .then().statusCode(200)
+
+        given()
+            .`when`().get("/api/estimations/$estimationId/versions/draft/history")
+            .then().statusCode(200)
+            .body("size()", equalTo(2))
+            // Both mutation summaries are present and human-readable, not the raw kind.
+            .body("summary.kind.flatten()", hasItems("PARAMETER_CHANGED", "NODE_ADDED"))
+            // The parameter change carries the before/after values.
+            .body("summary.field.flatten()", hasItem("dailyRate"))
+            .body("summary.oldValue.flatten()", hasItem("800"))
+            .body("summary.newValue.flatten()", hasItem("900"))
+    }
 }

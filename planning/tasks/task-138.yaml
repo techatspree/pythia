@@ -5,7 +5,7 @@ depends_on: [task-135]
 description: |
   The three parameters the calculation depends on — daily rate, std-deviation
   factor, sales surcharge — are stored as GENERIC name/value rows and looked
-  up by **English string names** at calculation time:
+  up by **English strin2g names** at calculation time:
 
       // EstimationVersion.calculate()
       val stdDevFactor  = parameterValue("stdDevFactor")  ?: EstimationDefaults.STD_DEV_FACTOR
