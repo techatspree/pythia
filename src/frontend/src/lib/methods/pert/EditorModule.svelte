@@ -6,6 +6,7 @@
 	import AdditionalCostsPanel from '$lib/components/AdditionalCostsPanel.svelte';
 	import type { ApiAdditionalCost } from '$lib/api/types.js';
 	import type { CalcEntry } from '$lib/estimationNodes';
+	import { ZERO_TOTALS, type EstimationTotalsView } from '$lib/adapter';
 
 	// Three-point PERT editor module (task-101). The route owns the state,
 	// autosave and undo/redo; this module is the pure $bindable view over the
@@ -24,6 +25,7 @@
 		// eslint-disable-next-line no-useless-assignment
 		buckets: _buckets = $bindable(),
 		calcMap,
+		totals = ZERO_TOTALS,
 		editable
 	}: {
 		roots: any[];
@@ -35,6 +37,7 @@
 		additionalCosts: ApiAdditionalCost[];
 		buckets?: unknown[];
 		calcMap: Map<string, CalcEntry>;
+		totals?: EstimationTotalsView;
 		editable: boolean;
 	} = $props();
 </script>
@@ -47,4 +50,4 @@
 
 <AdditionalCostsPanel bind:costs={additionalCosts} {phases} {editable} />
 
-<EstimationGrid bind:roots {editable} {calcMap} {phases} />
+<EstimationGrid bind:roots {editable} {calcMap} {phases} {totals} />

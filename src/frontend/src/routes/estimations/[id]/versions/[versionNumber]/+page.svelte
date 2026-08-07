@@ -7,8 +7,9 @@
 	import ErrorBanner from '$lib/components/ErrorBanner.svelte';
 	import UndoHistoryPanel, { relativeTime } from '$lib/components/UndoHistoryPanel.svelte';
 	import UndoConflictDialog from '$lib/components/UndoConflictDialog.svelte';
-	import { computeCalcMap } from '$lib/adapter.js';
-	import { normalizeRoots } from '$lib/estimationNodes';
+	import { computeEstimation, ZERO_TOTALS } from '$lib/adapter.js';
+	import EstimationSummaryPanel from '$lib/components/EstimationSummaryPanel.svelte';
+	import { normalizeRoots, type CalcEntry } from '$lib/estimationNodes';
 	import { log } from '$lib/log';
 	import type { ApiVersionResponse, ApiAdditionalCost } from '$lib/api/types.js';
 	import type { components } from '$lib/api/schema';
@@ -130,9 +131,12 @@
 		undoStore.clearConflict();
 	}
 
-	const calcMap = $derived.by(() => {
+	// One domain round-trip per edit: the version is built and calculated once,
+	// and both the per-node calc map and the whole-estimation totals are read off
+	// that single result.
+	const estimation = $derived.by(() => {
 		try {
-			return computeCalcMap(
+			return computeEstimation(
 				currentRoots,
 				{
 					dailyRate: currentDailyRate,
@@ -140,14 +144,17 @@
 					salesSurcharge: currentSalesSurcharge
 				},
 				currentDrivers,
-				currentPhases
+				currentPhases,
+				currentAdditionalCosts
 			);
 		} catch (e: any) {
-			log.error('calcMap computation failed:', e);
+			log.error('estimation computation failed:', e);
 			bannerMessage = $_('editor.calculationFailed', { values: { message: e?.message ?? e } });
-			return new Map<string, { offerPT: number; cost: number; offerPrice: number }>();
+			return { calcMap: new Map<string, CalcEntry>(), totals: ZERO_TOTALS };
 		}
 	});
+	const calcMap = $derived(estimation.calcMap);
+	const totals = $derived(estimation.totals);
 
 	async function loadVersion() {
 		loading = true;
@@ -426,6 +433,8 @@
 			<p class="mb-4 text-sm text-gray-600 italic">{versionData.notes}</p>
 		{/if}
 
+		<EstimationSummaryPanel {totals} />
+
 		{#if EditorComponent}
 			<EditorComponent
 				bind:roots={currentRoots}
@@ -437,6 +446,7 @@
 				bind:additionalCosts={currentAdditionalCosts}
 				bind:buckets={currentBuckets}
 				{calcMap}
+				{totals}
 				editable={versionData.isDraft}
 			/>
 		{:else}

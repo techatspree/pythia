@@ -99,6 +99,20 @@
 			"colTotal": "Total (€)"
 		}
 	},
+	"summary": {
+		"title": "Overall summary",
+		"leafCount": "{count, plural, one {# item} other {# items}}",
+		"meanPT": "Expected effort (PT)",
+		"riskSurchargePT": "Risk surcharge (PT)",
+		"driverSurchargePT": "Effort drivers (PT)",
+		"offerPT": "Offer effort (PT)",
+		"developmentCost": "Development cost (EUR)",
+		"additionalOneTime": "Additional costs, one-time (EUR)",
+		"additionalRecurring": "Additional costs, recurring (EUR)",
+		"salesSurcharge": "Sales surcharge (EUR)",
+		"totalOfferPrice": "Total offer price (EUR)",
+		"recurringWithoutPhase": "{count, plural, one {# recurring additional cost has} other {# recurring additional costs have}} no phase and therefore {count, plural, one {counts} other {count}} as 0 EUR in the total."
+	},
 	"grid": {
 		"colDescription": "Description",
 		"colType": "Type",

@@ -25,6 +25,7 @@
 		type CalcEntry
 	} from '$lib/estimationNodes';
 	import type { ApiAdditionalCost } from '$lib/api/types.js';
+	import type { EstimationTotalsView } from '$lib/adapter';
 	import { log } from '$lib/log';
 
 	type Bucket = { id: string; position: number; label: string };
@@ -59,6 +60,10 @@
 		additionalCosts = $bindable(),
 		buckets = $bindable<Bucket[]>([]),
 		calcMap = new Map<string, CalcEntry>(),
+		// The whole-estimation totals are rendered by the route's summary panel
+		// above this module, not here; declared only so the route can pass the
+		// same prop set to every method module.
+		totals: _totals = undefined,
 		editable
 	}: {
 		roots: Node[];
@@ -70,6 +75,7 @@
 		additionalCosts: ApiAdditionalCost[];
 		buckets: Bucket[];
 		calcMap: Map<string, CalcEntry>;
+		totals?: EstimationTotalsView;
 		editable: boolean;
 	} = $props();
 

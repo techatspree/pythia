@@ -831,10 +831,16 @@
       "notes": "Standard estimation parameters are looked up by user-editable English names; renaming one silently falls back to defaults and corrupts the calculation. Make them first-class typed fields."
     },
     "task-139": {
+      "status": "done",
+      "started_at": "2026-08-06T10:25:51+00:00",
+      "completed_at": "2026-08-06T10:44:01+00:00",
+      "notes": "Bucket estimation has no overall total - add a summary panel at the top of the version editor showing the summed values of the whole estimation"
+    },
+    "task-140": {
       "status": "pending",
       "started_at": null,
       "completed_at": null,
-      "notes": "Bucket estimation has no overall total - add a summary panel at the top of the version editor showing the summed values of the whole estimation"
+      "notes": "Column header labels in the estimation editor overlap and are barely readable"
     }
   }
 }

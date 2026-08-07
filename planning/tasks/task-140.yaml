@@ -1,0 +1,273 @@
+id: task-140
+phase: phase-15
+title: Stop TreeTable column headers from overlapping
+depends_on: [task-139, task-134]
+description: |
+  The column header labels in the estimation editor overlap each other and are
+  barely readable.
+
+  ## Why it happens
+
+  `src/frontend/src/lib/components/treetable/TreeTable.svelte` renders the
+  header row as a CSS grid whose tracks come from each column's fixed `width`
+  (`gridTemplateColumns`, ~line 243). The header cell itself is
+
+      <div class="py-2 px-2 {alignClass(col.align)}" title={col.header}>
+
+  on a header row styled `text-xs font-semibold uppercase tracking-wide`. That
+  cell has **no `min-w-0`, no `overflow-hidden`, and no wrapping control**, so
+  when the rendered label is wider than its track the text simply overflows the
+  grid item's box (CSS `overflow` is `visible` by default) and paints on top of
+  the neighbouring header. A **single long word cannot wrap**, so it always
+  overflows rather than breaking — which is exactly the case for the offenders.
+
+  Rough arithmetic at 12 px (`text-xs`) semibold: a 6rem track (96 px) minus
+  `px-2` on both sides leaves ~80 px of content box. Uppercase + `tracking-wide`
+  costs roughly 8 px per character, so:
+
+  - `grid.colOptimistic` — DE "OPTIMISTISCH" (12 chars) ≈ 100 px in 80 px
+  - `grid.colPessimistic` — DE "PESSIMISTISCH" (13 chars) ≈ 108 px in 80 px
+  - `grid.colOfferPT` — DE "ANGEBOTS-PT (PT)" in 80 px
+  - `grid.colOfferPrice` — DE "ANGEBOTSPREIS (EUR)" — "ANGEBOTSPREIS" alone
+    ≈ 108 px in a 7rem track's ~96 px content box
+  - `bucket.colSample` — DE "STICHPROBE" (10 chars) ≈ 83 px in a 5rem track's
+    ~64 px content box
+
+  (Numbers are approximations to explain the mechanism, not acceptance
+  criteria — the acceptance criterion is the measured e2e assertion below.)
+
+  Both editors are affected because both drive the same generic component:
+  `EstimationGrid.svelte` (three-point PERT) and
+  `methods/bucketSampled/EditorModule.svelte` (both its bucket and hierarchy
+  views). English is affected too ("PESSIMISTIC", "OFFER PRICE (EUR)").
+
+  ## Target state
+
+  A header label never paints outside its own column, in any locale, at any
+  container width — enforced structurally in `TreeTable` so no future column or
+  translation can reintroduce it — and the labels stay fully readable rather
+  than being truncated to "ANGEBOTSPR…".
+
+  ## Frozen decisions (do not re-open)
+
+  - **Two complementary changes, in this order of responsibility.**
+    (a) *Structural, in `TreeTable`*: the header cell is made incapable of
+    overflowing its track. (b) *Cosmetic, in the header row and the two column
+    definitions*: reduce how much width the labels need in the first place, so
+    (a) never has to break a word mid-way.
+  - **Drop `uppercase` and `tracking-wide` from the header row.** This is the
+    single highest-leverage change: normal-case text is ~20-25 % narrower, which
+    alone brings "Optimistisch" (~74 px) inside the 80 px content box. Keep
+    `text-xs font-semibold` and the `bg-brand-green/10` / `text-brand-green`
+    styling — the header must still read as a header. Do NOT compensate by
+    shrinking the font below `text-xs`; that trades one readability problem for
+    another.
+  - **The header cell wraps, it does NOT truncate.** Use `min-w-0` +
+    `overflow-hidden` + `whitespace-normal` + `break-words` + `leading-tight`,
+    and align the header row `items-end` so a two-line label sits on the same
+    baseline as its single-line neighbours. Truncation with an ellipsis is
+    explicitly rejected: a numeric column whose header reads "ANGEBOTSPR…" is
+    no more usable than one that overlaps, and the existing `title={col.header}`
+    tooltip is a discovery aid, not a substitute for a legible label.
+  - **`overflow-hidden` belongs on the HEADER cell only.** Do not add it to the
+    data-row cells (`renderRow`): those contain focusable `<input>`s and
+    `<select>`s whose focus rings would be clipped. Data-cell overflow is a
+    different problem and is out of scope.
+  - **Widen only the two EUR tracks**, `cost` and `offerPrice`, from `7rem` to
+    `8rem` in BOTH `EstimationGrid.svelte` and
+    `methods/bucketSampled/EditorModule.svelte`. Their labels carry a
+    parenthesised unit and stay the widest even in normal case. Leave every
+    other width alone — widening tracks pushes the grid into horizontal
+    scrolling sooner, which is a real cost, and the outer wrapper already
+    scrolls (`overflow-x-auto`), so nothing is lost off-screen either way.
+  - **Remove the doubled unit in the two offer-PT column labels only.**
+    `grid.colOfferPT` and `bucket.colOfferPT` currently read "Angebots-PT (PT)"
+    / "offerPT (PT)" — the unit is stated twice. Change them to "Angebots-PT" /
+    "Offer PT". Do NOT touch `summary.offerPT` or `panel.phases.colOfferPT`:
+    those live in panels rendered as ordinary auto-sizing `<table>`s, they have
+    no overlap problem, and task-139 has just settled the summary panel's
+    wording.
+  - **The panels are out of scope.** `ParametersPanel`, `EffortDriversPanel`,
+    `PhasesPanel` and `AdditionalCostsPanel` render `<table>` elements, which
+    size their columns to content and do not exhibit this defect.
+  - **Presentation only.** No domain change, no backend change, no REST/DTO or
+    OpenAPI regeneration, no change to `TreeColumn`'s type (`width` stays a
+    plain CSS track string), and no change to the collapse behaviour
+    (`collapsible` / `collapseBreakpointPx` / `isCollapsed`) — a collapsed
+    column still renders an empty header, and the `title` attribute stays on
+    every header cell.
+  - **No logging is added.** This task introduces no new flow, no async path and
+    no failure mode, so per the CLAUDE.md logging conventions there is nothing
+    to log; the validation below instead asserts that no bare `console.*` crept
+    into the touched components.
+  - **The guard is a MEASUREMENT, not a screenshot.** The regression test
+    asserts, in the browser, that every header cell satisfies
+    `scrollWidth <= clientWidth + 1` — the direct machine-checkable statement of
+    "this text fits in its column". It must run in BOTH locales, because the
+    defect is translation-dependent and a DE-only check would let an English
+    regression through.
+
+steps:
+  - |
+    Fix the header rendering in
+    `src/frontend/src/lib/components/treetable/TreeTable.svelte`:
+      - On the header row container (~line 398, the `grid ... bg-brand-green/10`
+        div): drop `uppercase` and `tracking-wide`, and change `items-center` to
+        `items-end` so wrapped two-line labels align with single-line ones.
+      - On the per-column header cell (~line 406): add `min-w-0 overflow-hidden
+        whitespace-normal break-words leading-tight` alongside the existing
+        `py-2 px-2 {alignClass(col.align)}`. Keep `title={col.header}` and keep
+        the `isCollapsed(col.key) ? '' : col.header` expression exactly as is.
+      - Add a short comment above the header cell recording WHY: a single long
+        word cannot wrap, so without `min-w-0`/`overflow-hidden` it overflows
+        the grid item and paints over the neighbouring header.
+    Do not touch `renderRow`, `gridTemplateColumns`, or any data cell.
+
+  - |
+    Widen the two EUR columns in `src/frontend/src/lib/components/EstimationGrid.svelte`:
+    change `width: '7rem'` to `width: '8rem'` for the `cost` (~line 226) and
+    `offerPrice` (~line 234) columns. Leave `description`, `type`, `phase`,
+    `optimistic`, `likely`, `pessimistic`, `pert`, `assumptions` and `offerPT`
+    untouched.
+
+  - |
+    Apply the same two width changes in
+    `src/frontend/src/lib/methods/bucketSampled/EditorModule.svelte` — the
+    `cost` (~line 310) and `offerPrice` (~line 317) entries of the shared
+    column list built by `columnsFor` (one edit each; both the bucket view and
+    the hierarchy view consume that list, so both are fixed at once).
+
+  - |
+    Remove the doubled unit from the two offer-PT column labels, keeping the
+    two catalogs key-for-key identical:
+      - `src/frontend/src/lib/i18n/de.json`: `grid.colOfferPT` and
+        `bucket.colOfferPT` → "Angebots-PT"
+      - `src/frontend/src/lib/i18n/en.json`: `grid.colOfferPT` and
+        `bucket.colOfferPT` → "Offer PT"
+    Add no keys and remove none.
+
+  - |
+    Add the regression guard `src/frontend/e2e/treetable-header-fit.test.ts`.
+    It must contain tests whose titles include the exact phrases **"header fits
+    its column"** and **"header fits its column in English"**.
+
+    Shape:
+      - Seed via the REST API with `Authorization: Dev dev-admin` (follow the
+        `seed(request)` helper in `e2e/bucket-views.test.ts`): one
+        THREE_POINT_PERT estimation with a draft, and one BUCKET_SAMPLED_PERT
+        estimation with buckets plus bucketed leaves.
+      - A shared helper `assertHeadersFit(page)` that evaluates in the browser
+        over every header cell and returns the offenders, e.g.
+
+            const bad = await page.$$eval(
+              '[data-testid="header-fit-probe"] > div',
+              (cells) => cells
+                .filter((c) => c.scrollWidth > c.clientWidth + 1)
+                .map((c) => `${c.textContent?.trim()}: ${c.scrollWidth}>${c.clientWidth}`)
+            );
+            expect(bad, 'header labels overflowing their column').toEqual([]);
+
+        Rather than inventing a new testid, select the header row by its
+        existing structure — it is the first child `div` of the
+        `min-width: max-content` wrapper and carries `bg-brand-green/10`. Use a
+        stable locator such as `.bg-brand-green\\/10 > div` scoped to the table
+        container, or add `data-testid="tt-header"` to the header row in
+        `TreeTable.svelte` if a stable hook is needed; if you add it, list it in
+        `outputs` and mention it in the CLAUDE.md note.
+      - **header fits its column**: open the PERT draft editor and the bucket
+        editor (both the `bucket` and the `hierarchy` view via
+        `bucket-view-toggle-*`), running `assertHeadersFit` on each.
+      - **header fits its column in English**: switch the user to English first
+        — `PUT /api/auth/me/language` with `{ language: 'en' }` using the dev
+        auth header, exactly as `e2e/language.test.ts` does — then reload and
+        repeat the same three assertions. Restore `de` at the end of the test so
+        the shared dev-admin user does not leak an English preference into
+        other specs (`language.test.ts` runs under its own user, but the
+        default-locale specs do not).
+      - Register a `page.on('pageerror', …)` collector and assert it stayed
+        empty.
+    Use a wide viewport (`test.use({ viewport: { width: 1400, height: 1000 } })`)
+    so no column is auto-collapsed by `collapseBreakpointPx` and every header is
+    actually measured.
+
+  - |
+    Update `CLAUDE.md` in the "Frontend — generic `TreeTable` component"
+    section: record that header cells never overflow their track — the header
+    row is normal-case (`uppercase`/`tracking-wide` were removed because they
+    cost ~20-25 % width for no legibility gain), and each header cell is
+    `min-w-0 overflow-hidden whitespace-normal break-words leading-tight` with
+    `items-end` on the row so a wrapped two-line label stays aligned. Note that
+    a single long word cannot wrap and therefore overflows and paints over the
+    neighbour without this, that `overflow-hidden` is deliberately NOT applied
+    to data cells (it would clip input focus rings), and that
+    `e2e/treetable-header-fit.test.ts` guards it by measuring
+    `scrollWidth <= clientWidth` in both locales.
+
+  - |
+    Full gate:
+      ./gradlew :frontend:check
+      cd src/frontend && npm run lint
+      cd src/frontend && npm run test:e2e
+
+validation:
+  - |
+    The header row is normal-case and the header cell can no longer overflow:
+      T=src/frontend/src/lib/components/treetable/TreeTable.svelte
+      ! grep -q "uppercase tracking-wide" "$T"
+      grep -q "items-end" "$T"
+      grep -q "min-w-0 overflow-hidden" "$T"
+      grep -q "break-words" "$T"
+      grep -q "title={col.header}" "$T"
+  - |
+    The data rows were NOT given overflow clipping (it would clip focus rings),
+    and the collapse behaviour is untouched:
+      T=src/frontend/src/lib/components/treetable/TreeTable.svelte
+      test "$(grep -c "overflow-hidden" "$T")" -le 3
+      grep -q "isCollapsed(col.key) ? '' : col.header" "$T"
+      grep -q "collapseBreakpointPx" "$T"
+  - |
+    Both editors widened the two EUR columns and nothing else changed shape:
+      G=src/frontend/src/lib/components/EstimationGrid.svelte
+      B=src/frontend/src/lib/methods/bucketSampled/EditorModule.svelte
+      test "$(grep -c "width: '8rem'" "$G")" -eq 2
+      test "$(grep -c "width: '8rem'" "$B")" -eq 2
+      ! grep -q "width: '7rem'" "$G"
+      ! grep -q "width: '7rem'" "$B"
+  - |
+    No bare console logging was introduced in the touched components:
+      ! grep -q "console\." src/frontend/src/lib/components/treetable/TreeTable.svelte
+      ! grep -q "console\." src/frontend/src/lib/components/EstimationGrid.svelte
+      ! grep -q "console\." src/frontend/src/lib/methods/bucketSampled/EditorModule.svelte
+  - |
+    The doubled unit is gone from both catalogs, which stay key-for-key equal:
+      grep -q '"colOfferPT": "Angebots-PT"' src/frontend/src/lib/i18n/de.json
+      grep -q '"colOfferPT": "Offer PT"' src/frontend/src/lib/i18n/en.json
+      ! grep -q '"colOfferPT": "Angebots-PT (PT)"' src/frontend/src/lib/i18n/de.json
+      cd src/frontend && node -e "const d=require('./src/lib/i18n/de.json'),e=require('./src/lib/i18n/en.json');const f=(o,p='')=>Object.entries(o).flatMap(([k,v])=>typeof v==='object'&&v?f(v,p+k+'.'):[p+k]);const a=f(d).sort(),b=f(e).sort();if(JSON.stringify(a)!==JSON.stringify(b))throw new Error('key sets differ');console.log('ok',a.length)"
+  - |
+    The measured regression guard exists and covers both locales:
+      E=src/frontend/e2e/treetable-header-fit.test.ts
+      test -f "$E"
+      grep -q "header fits its column" "$E"
+      grep -q "header fits its column in English" "$E"
+      grep -q "scrollWidth" "$E"
+      grep -q "clientWidth" "$E"
+      grep -q "pageerror" "$E"
+  - |
+    CLAUDE.md records the new invariant (assert phrases this task INTRODUCES):
+      grep -q "treetable-header-fit" CLAUDE.md
+      grep -q "scrollWidth" CLAUDE.md
+  - |
+    Type-check, strict lint and the full e2e suite are green:
+      ./gradlew :frontend:check
+      cd src/frontend && npm run lint
+      cd src/frontend && npm run test:e2e
+
+outputs:
+  - modified: src/frontend/src/lib/components/treetable/TreeTable.svelte
+  - modified: src/frontend/src/lib/components/EstimationGrid.svelte
+  - modified: src/frontend/src/lib/methods/bucketSampled/EditorModule.svelte
+  - modified: src/frontend/src/lib/i18n/de.json
+  - modified: src/frontend/src/lib/i18n/en.json
+  - created: src/frontend/e2e/treetable-header-fit.test.ts
+  - modified: CLAUDE.md

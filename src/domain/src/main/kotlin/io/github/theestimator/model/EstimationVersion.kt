@@ -70,6 +70,19 @@ data class EstimationVersion(
         return copy(roots = newRoots, totalEffort = newTotalEffort)
     }
 
+    /**
+     * The summed figures of this whole estimation.
+     *
+     * **Call this on the result of [calculate]** — a leaf's `cost`/`offerPrice`
+     * derive from the [CalculationParameters] that [calculate] stamps onto it,
+     * so on an uncalculated version the money fields are 0.
+     *
+     * Deliberately a MEMBER, not an extension function: `@JsExport` does not
+     * export extension functions, so an extension would compile and then be
+     * missing from the frontend's `domain.d.mts`.
+     */
+    fun totals(): EstimationTotals = computeTotals(this)
+
     // Rebuild the tree with each leaf replaced by its calculated version (indexed
     // by logicalId), preserving the group structure.
     private fun substituteCalculated(

@@ -98,6 +98,7 @@ fun createVersion(
     salesSurcharge: Double = EstimationDefaults.SALES_SURCHARGE,
     effortDrivers: Array<EffortDriver> = emptyArray(),
     phases: Array<ProjectPhase> = emptyArray(),
+    additionalCosts: Array<AdditionalCost> = emptyArray(),
     roots: Array<EstimationNode> = emptyArray()
 ): EstimationVersion = EstimationVersion(
     versionNumber = versionNumber,
@@ -108,5 +109,6 @@ fun createVersion(
     salesSurcharge = salesSurcharge,
     effortDrivers = effortDrivers.toList(),
     phases = phases.toList(),
+    additionalCosts = additionalCosts.toList(),
     roots = roots.toList()
 )

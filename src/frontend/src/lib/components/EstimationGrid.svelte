@@ -13,17 +13,20 @@
 		type NodePath,
 		type CalcEntry
 	} from '$lib/estimationNodes';
+	import { ZERO_TOTALS, type EstimationTotalsView } from '$lib/adapter';
 
 	let {
 		roots = $bindable<Node[]>([]),
 		editable,
 		calcMap = new Map<string, CalcEntry>(),
-		phases = []
+		phases = [],
+		totals = ZERO_TOTALS
 	}: {
 		roots?: Node[];
 		editable: boolean;
 		calcMap?: Map<string, CalcEntry>;
 		phases?: any[];
+		totals?: EstimationTotalsView;
 	} = $props();
 
 	function pert(o: number | null, m: number | null, p: number | null): number {
@@ -132,10 +135,16 @@
 	const totalExp = $derived(
 		leaves.reduce((s, i) => s + pert(i.minEffort, i.expectedEffort, i.maxEffort), 0)
 	);
-	const calcEntries = $derived(Array.from(calcMap.values()));
-	const totalOfferPT = $derived(calcEntries.reduce((s, v) => s + v.offerPT, 0));
-	const totalCost = $derived(calcEntries.reduce((s, v) => s + v.cost, 0));
-	const totalOfferPrice = $derived(calcEntries.reduce((s, v) => s + v.offerPrice, 0));
+	// The money totals come from the domain reducer, NOT from reducing
+	// calcMap.values(): that map holds an entry for every node INCLUDING groups,
+	// and a group accumulates its whole subtree — so reducing it double-counted
+	// every grouped estimation. The triple sums above are leaf-based and correct.
+	const totalOfferPT = $derived(totals.offerPT);
+	const totalCost = $derived(totals.developmentCost);
+	// developmentOfferPrice, not totalOfferPrice: this column shows each leaf's
+	// own offer price, so its total must exclude additional costs or the column
+	// would not add up.
+	const totalOfferPrice = $derived(totals.developmentOfferPrice);
 
 	const editCols = [0, 1, 2, 3, 5];
 
@@ -490,9 +499,15 @@
 		<div class="py-2 px-2 text-right tabular-nums">{num(totalPes, 2)}</div>
 		<div class="py-2 px-2 text-right text-brand-green tabular-nums">{num(totalExp, 2)}</div>
 		<div class="py-2 px-3"></div>
-		<div class="py-2 px-2 text-right text-gray-600 tabular-nums">{num(totalOfferPT, 2)}</div>
-		<div class="py-2 px-2 text-right text-gray-600 tabular-nums">{num(totalCost, 0)}</div>
-		<div class="py-2 px-2 text-right text-gray-600 tabular-nums">{num(totalOfferPrice, 0)}</div>
+		<div class="py-2 px-2 text-right text-gray-600 tabular-nums" data-testid="grid-total.offerPT">
+			{num(totalOfferPT, 2)}
+		</div>
+		<div class="py-2 px-2 text-right text-gray-600 tabular-nums" data-testid="grid-total.cost">
+			{num(totalCost, 0)}
+		</div>
+		<div class="py-2 px-2 text-right text-gray-600 tabular-nums" data-testid="grid-total.offerPrice">
+			{num(totalOfferPrice, 0)}
+		</div>
 	</div>
 {/snippet}
 

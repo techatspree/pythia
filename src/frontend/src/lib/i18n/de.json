@@ -99,6 +99,20 @@
 			"colTotal": "Gesamt (€)"
 		}
 	},
+	"summary": {
+		"title": "Gesamtübersicht",
+		"leafCount": "{count, plural, one {# Position} other {# Positionen}}",
+		"meanPT": "Erwartungswert (PT)",
+		"riskSurchargePT": "Risikozuschlag (PT)",
+		"driverSurchargePT": "Aufwandstreiber (PT)",
+		"offerPT": "Angebots-PT (PT)",
+		"developmentCost": "Entwicklungskosten (EUR)",
+		"additionalOneTime": "Zusatzkosten einmalig (EUR)",
+		"additionalRecurring": "Zusatzkosten laufend (EUR)",
+		"salesSurcharge": "Vertriebszuschlag (EUR)",
+		"totalOfferPrice": "Angebotspreis gesamt (EUR)",
+		"recurringWithoutPhase": "{count, plural, one {# laufende Zusatzkosten-Position hat} other {# laufende Zusatzkosten-Positionen haben}} kein Paket und {count, plural, one {geht} other {gehen}} deshalb mit 0 EUR in die Summe ein."
+	},
 	"grid": {
 		"colDescription": "Beschreibung",
 		"colType": "Typ",

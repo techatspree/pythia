@@ -427,7 +427,11 @@ validation:
       test -f "$E"
       grep -q "summary panel" "$E"
       grep -q "bucket estimation total" "$E"
-      grep -q "loginAsDev" "$E"
+      # UI auth comes from playwright.config.ts's storageState
+      # (devAuthSubject=dev-admin), like bucket-views/smoke/undo; only specs that
+      # SWITCH users import loginAsDev. The spec seeds over the API with the
+      # matching dev header.
+      grep -q "Dev dev-admin" "$E"
       test "$(grep -c "pageerror" "$E")" -ge 2
   - |
     CLAUDE.md records the new seam (assert phrases this task INTRODUCES):

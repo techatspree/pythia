@@ -6,6 +6,8 @@ import {
 	createBucketedItem,
 	ProjectPhase,
 	EffortDriver,
+	AdditionalCost,
+	AdditionalCostType,
 	type EstimationNode,
 	EstimationGroup
 } from './domain/domain.mjs';
@@ -18,6 +20,41 @@ export interface CalcEntry {
 	cost: number;
 	offerPrice: number;
 }
+
+/**
+ * The whole-estimation totals, as plain numbers. Mirrors the domain's
+ * `EstimationTotals` so consumers never handle a Kotlin/JS object.
+ */
+export interface EstimationTotalsView {
+	leafCount: number;
+	meanPT: number;
+	riskSurchargePT: number;
+	driverSurchargePT: number;
+	offerPT: number;
+	developmentCost: number;
+	/** The tree's own offer price, excluding additional costs. */
+	developmentOfferPrice: number;
+	additionalOneTime: number;
+	additionalRecurring: number;
+	salesSurchargeAmount: number;
+	totalOfferPrice: number;
+	recurringWithoutPhase: number;
+}
+
+export const ZERO_TOTALS: EstimationTotalsView = {
+	leafCount: 0,
+	meanPT: 0,
+	riskSurchargePT: 0,
+	driverSurchargePT: 0,
+	offerPT: 0,
+	developmentCost: 0,
+	developmentOfferPrice: 0,
+	additionalOneTime: 0,
+	additionalRecurring: 0,
+	salesSurchargeAmount: 0,
+	totalOfferPrice: 0,
+	recurringWithoutPhase: 0
+};
 
 export interface EditingPhase {
 	name: string;
@@ -56,12 +93,31 @@ interface EditingDriver {
 	comment: string | null;
 }
 
-export function computeCalcMap(
+interface EditingAdditionalCost {
+	description: string;
+	amount: number;
+	type: 'ONE_TIME' | 'RECURRING';
+	amountPerWeek: number | null;
+	phaseAbbreviation: string | null;
+}
+
+export interface EstimationComputation {
+	calcMap: Map<string, CalcEntry>;
+	totals: EstimationTotalsView;
+}
+
+/**
+ * Builds the domain version once, calculates it once, and reads BOTH the
+ * per-node calc map and the whole-estimation totals off that single result —
+ * the totals come from the domain reducer, never from summing in the UI.
+ */
+export function computeEstimation(
 	roots: EditingNode[],
 	params: { dailyRate: number; stdDevFactor: number; salesSurcharge: number },
 	drivers: EditingDriver[],
-	phases: EditingPhase[]
-): Map<string, CalcEntry> {
+	phases: EditingPhase[],
+	additionalCosts: EditingAdditionalCost[] = []
+): EstimationComputation {
 	const phaseByAbbr = new Map(
 		phases.map((p) => [
 			p.abbreviation,
@@ -70,6 +126,17 @@ export function computeCalcMap(
 	);
 
 	const effortDrivers = drivers.map((d) => new EffortDriver(d.description, d.factor, d.comment ?? ''));
+
+	const costs = additionalCosts.map(
+		(c) =>
+			new AdditionalCost(
+				c.description,
+				c.amount ?? 0,
+				AdditionalCostType.values().find((v) => v.name === c.type) ?? AdditionalCostType.ONE_TIME,
+				c.amountPerWeek ?? 0,
+				phaseByAbbr.get(c.phaseAbbreviation ?? '') ?? null
+			)
+	);
 
 	function buildNode(node: EditingNode): EstimationNode {
 		if (node.type === 'GROUP') {
@@ -123,7 +190,8 @@ export function computeCalcMap(
 		params.stdDevFactor,
 		params.salesSurcharge,
 		effortDrivers,
-		[],
+		Array.from(phaseByAbbr.values()),
+		costs,
 		domainRoots
 	);
 	const calculated = version.calculate();
@@ -143,5 +211,23 @@ export function computeCalcMap(
 	}
 	const calcRoots = calculated.roots.asJsReadonlyArrayView();
 	for (const root of calcRoots) walk(root);
-	return m;
+
+	const t = calculated.totals();
+	return {
+		calcMap: m,
+		totals: {
+			leafCount: t.leafCount,
+			meanPT: t.meanPT,
+			riskSurchargePT: t.riskSurchargePT,
+			driverSurchargePT: t.driverSurchargePT,
+			offerPT: t.offerPT,
+			developmentCost: t.developmentCost,
+			developmentOfferPrice: t.developmentOfferPrice,
+			additionalOneTime: t.additionalOneTime,
+			additionalRecurring: t.additionalRecurring,
+			salesSurchargeAmount: t.salesSurchargeAmount,
+			totalOfferPrice: t.totalOfferPrice,
+			recurringWithoutPhase: t.recurringWithoutPhase
+		}
+	};
 }
