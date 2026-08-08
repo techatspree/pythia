@@ -1,8 +1,7 @@
 {
 	"brand": {
 		"name": "The Estimator",
-		"logoAlt": "The Estimator",
-		"sessionTitle": "The Estimator · Session"
+		"logoAlt": "The Estimator"
 	},
 	"common": {
 		"delete": "Löschen",
@@ -320,6 +319,8 @@
 		"switchFailed": "Sprache konnte nicht geändert werden"
 	},
 	"nav": {
+		"mainLabel": "Hauptnavigation",
+		"projects": "Projekte",
 		"sessions": "Sitzungen"
 	},
 	"session": {
@@ -345,11 +346,11 @@
 			"loadFailed": "Sitzungsdaten konnten nicht geladen werden"
 		},
 		"layout": {
-			"leave": "Verlassen",
 			"connected": "Verbunden",
 			"connecting": "Verbindung wird aufgebaut…"
 		},
 		"room": {
+			"backToEstimation": "← Zur Schätzung",
 			"loading": "Sitzung wird geladen…",
 			"participants": "Teilnehmer",
 			"agreed": "einverstanden",

@@ -1,98 +1,192 @@
 id: task-106
 phase: phase-15
 title: Bucket + sampled session-support module
-depends_on: [task-105, task-104]
+depends_on: [task-142, task-104, task-103]
 description: |
   Add the bucket+sampled session-support module: multi-estimator
   bucket assignments (LWW with provenance) plus multi-estimator
   sample PERT (element-wise averaged into the per-bucket mean).
 
-  ## Frozen decisions (from task-096)
+  ## Prerequisite — the SPI generalisation is task-142, not this task
+
+  task-105 shipped the session SPI with a PERT-shaped signature
+  (`reduce(List<EstimatorVote>): VoteAggregate`). A bucket vote is not a
+  three-point triple, so that signature cannot express this method.
+  **task-142** widens it to
+  `reduce(List<SessionVoteInput>): SessionReduction` over two domain-internal
+  sealed marker interfaces, with each method contributing its own subtypes
+  from its own package. This task consumes that shape and must not re-litigate
+  it. Do not start before task-142 is done.
+
+  ## Current state this task must extend
+
+  - **Domain.** `io.github.theestimator.method.bucketsampled` holds
+    `BucketMethodModule`, `BucketedEstimationItem`, `computeBucketAverages.kt`
+    (task-102). The per-bucket mean reducer already exists — this task feeds
+    averaged samples into it, it does not reimplement it.
+  - **Backend vote storage is PERT-only and must be extended here.**
+    `SessionVote` (`…domain/session/SessionVote.kt`) carries exactly
+    `participantSubjectId`, `phase`, and the `minEffort`/`expectedEffort`/
+    `maxEffort` triple. There is no column for a bucket assignment. CLAUDE.md
+    states this explicitly: *"The vote/finalize columns are the
+    THREE_POINT_PERT shape; the bucket+sampled method votes on bucket
+    assignments and extends storage separately (task-106)."* So this task owns
+    a Flyway migration plus the entity change.
+  - **The vote endpoint is PERT-shaped.** `POST /api/sessions/{id}/votes`
+    takes a `TripleDto`. A bucket vote needs its own payload — see the wire
+    decision below.
+  - **`SessionItemDto` has no conflict field.** The frontend can only see
+    conflicts if they are put on the wire; the SPI and its result types are
+    domain-internal (not `@JsExport`ed), so the frontend reaches them through
+    the REST DTO, never by calling the domain directly.
+
+  ## Frozen decisions (from task-096, reconciled with the shipped code)
 
   - **Package.** `io.github.theestimator.method.bucketsampled`.
   - **Bucket assignment reduction.** Last-write-wins per
     (item, estimator) — keep the most recent write per estimator
     for each item; then across estimators, pick the most recent
-    write. Record provenance
-    (estimator id + timestamp) alongside so the session UI can
-    surface conflicts. Concretely:
-      * `EstimatorBucketAssignment(itemId, estimatorId, bucketId,
-         at: Instant)`.
+    write. Record provenance (estimator id + timestamp) alongside
+    so the session UI can surface conflicts. Concretely:
+      * `EstimatorBucketAssignment(itemId, estimatorId, bucketId, at: Instant)`
       * Reducer output per item:
         `AssignmentResult(bucketId, source: EstimatorId,
         conflictingAssignments: List<EstimatorBucketAssignment>)`.
         The `conflictingAssignments` list contains any writes
         that lost the LWW race — surfaced in the session UI.
-  - **Sample PERT reduction.** For each (item marked as sample),
+  - **`Instant` MUST be `kotlinx.datetime.Instant`.** `kotlinx-datetime:0.6.2`
+    is already a `commonMain` dependency. `java.time.Instant` is JVM-only: it
+    would compile and pass `jvmTest`, then fail the Kotlin/JS compilation —
+    the domain currently uses `Instant` nowhere, so there is no local
+    precedent to copy from. The backend maps its `java.time.Instant` to the
+    kotlinx type at the service boundary.
+  - **LWW tie-break must be deterministic.** Two assignments can carry the
+    same `at` (same clock tick, or a test fixture). Break ties on a stable
+    secondary key (e.g. `estimatorId`) so the reducer is a pure function with
+    a reproducible result; a bare `maxByOrNull { it.at }` is order-dependent
+    and will produce flaky tests.
+  - **Sample PERT reduction.** For each item marked as a sample,
     average across estimators element-wise on optimistic /
     likely / pessimistic before feeding the sample into the
-    per-bucket mean reducer (task-102).
+    per-bucket mean reducer (task-102's `computeBucketAverages`).
   - **Where the reducer lives.** A pure function
     `reduceBucketSampledSession(inputs): BucketSampledSessionResult`
     in the bucketsampled package, called by
     `BucketSampledSessionSupport.reduce`.
+  - **SPI subtypes.** Following task-142, this method contributes its own
+    `SessionVoteInput` / `SessionReduction` subtypes in its own package
+    (e.g. `BucketVoteInput`, `BucketSampledReduction`). A foreign input type
+    must `error(...)`, matching `ThreePointSessionSupport`.
   - **Registration.** Wire into
     `EstimationMethodRegistry.installStandardMethods()` alongside
-    `BucketMethodModule` (from task-102).
-  - **Backend + frontend routing.** The session code already
-    delegates to the registry after task-105. This task just adds
-    the concrete module + backend integration tests.
+    `BucketMethodModule`. NOTE the registry-test race: `clear()` empties the
+    session-support map too, and `EstimationMethodRegistryTest` /
+    `ThreePointMethodModuleTest` both call it. New tests must either follow
+    the `@AfterEach { clear(); installStandardMethods() }` pattern or avoid
+    `clear()` entirely (see `BucketMethodModuleTest`).
+  - **Wire shape.** Add a bucket-vote payload rather than overloading
+    `TripleDto`: a `BucketVoteDto(bucketId)` on a dedicated
+    `POST /api/sessions/{id}/votes/bucket`, and a
+    `conflictingAssignments: List<AssignmentConflictDto>?` field on
+    `SessionItemDto` (null for PERT sessions). Both are REST contract
+    changes, so `src/frontend/src/lib/api/openapi.json` and
+    `schema.d.ts` regenerate on build and MUST be committed with the change.
   - **Frontend session UI.** Add the conflict-surfacing UI on
     the session page — a small badge on any item whose
-    `conflictingAssignments.isNotEmpty()`, with a click-through
+    `conflictingAssignments` is non-empty, with a click-through
     showing which estimator picked which bucket. Follow the
-    existing session-page patterns.
+    existing `$lib/session/` patterns (Svelte 5 `$state` / `$derived` /
+    `$effect`).
   - **Logging.** `logger.debug { "…" }` in the reducer for
     per-bucket and per-item averaging (lambda form so it's
-    allocation-free when off). Backend `Log.info` on
-    reduction outcome; frontend `log.debug` on the UI hook.
-  - **CLAUDE.md.** No new section, but if the session subsection
-    exists from task-105 add a one-line mention of LWW +
-    provenance for bucket assignments.
+    allocation-free when off). Backend `Log.info` on reduction outcome and
+    `Log.warn`/`Log.error` on a rejected or malformed bucket vote. Frontend
+    `log.debug` on the UI hook, and any `try`/`catch` must ALSO surface via
+    `ErrorBanner` — `log` alone does not satisfy the CLAUDE.md
+    error-surfacing rule.
+  - **CLAUDE.md.** Update the session-SPI paragraph with LWW + provenance for
+    bucket assignments, the sessions REST paragraph with the new endpoint and
+    DTO field, and the persistence section with the new vote column.
 
   ## What does NOT belong in this task
 
+  - Generalising the session SPI — task-142.
   - Bucket-editor UI on the version editor — task-104.
   - Export writer — task-107.
 
 steps:
   - |
-    Read task-102's bucketsampled package files (there are only
-    a handful) and task-105's session SPI to understand the
-    exact interface.
+    Read task-102's bucketsampled package files (there are only a handful),
+    task-142's generalised SPI, and `SessionVote` / `SessionDtos.kt` /
+    `EstimationSessionService` to see the PERT-shaped vote path this task
+    extends.
   - |
     Add
-    `src/domain/src/main/kotlin/io/github/theestimator/method/bucketsampled/BucketSampledSessionSupport.kt`
-    implementing `EstimationMethodSessionSupport`.
+    `src/domain/src/main/kotlin/io/github/theestimator/method/bucketsampled/BucketSampledSessionTypes.kt`
+    with `EstimatorBucketAssignment`, `AssignmentResult`,
+    `BucketSampledSessionResult`, and the SPI subtypes (`BucketVoteInput :
+    SessionVoteInput`, `BucketSampledReduction : SessionReduction`). Use
+    `kotlinx.datetime.Instant`.
   - |
     Add
     `src/domain/src/main/kotlin/io/github/theestimator/method/bucketsampled/reduceBucketSampledSession.kt`
     with `reduceBucketSampledSession(inputs)`. Split into two
     private helpers: `resolveAssignmentLWW(inputs)` and
-    `averageSamplePert(inputs)`.
+    `averageSamplePert(inputs)`. Feed the averaged samples into task-102's
+    `computeBucketAverages` — do NOT reimplement per-bucket means. Tie-break
+    equal timestamps on `estimatorId`. Add the `logger.debug { … }` lines.
+  - |
+    Add
+    `src/domain/src/main/kotlin/io/github/theestimator/method/bucketsampled/BucketSampledSessionSupport.kt`
+    implementing `EstimationMethodSessionSupport`, delegating to the reducer
+    and `error(...)`-ing on a foreign input type.
   - |
     Register the new session support in
     `EstimationMethodRegistry.installStandardMethods()`.
   - |
-    Unit tests:
-      src/domain/src/commonTest/kotlin/io/github/theestimator/method/bucketsampled/BucketSampledSessionSupportTest.kt
-      src/domain/src/commonTest/kotlin/io/github/theestimator/method/bucketsampled/ReduceBucketSampledSessionTest.kt
-    Cover: LWW selects most recent estimator, conflict list
-    populated when others also wrote; sample PT element-wise
-    average with 3+ estimators; two-bucket case.
+    Domain unit tests in the JVM `src/test` source set (JUnit 5,
+    `org.junit.jupiter.api` — the `:domain` module has NO `commonTest`):
+      src/domain/src/test/kotlin/io/github/theestimator/method/bucketsampled/BucketSampledSessionSupportTest.kt
+      src/domain/src/test/kotlin/io/github/theestimator/method/bucketsampled/ReduceBucketSampledSessionTest.kt
+    Cover: LWW selects most recent estimator; conflict list populated when
+    others also wrote; equal-timestamp tie-break is deterministic; sample PT
+    element-wise average with 3+ estimators; two-bucket case; foreign input
+    throws. Honour the registry-test race note above.
   - |
-    Backend `@QuarkusTest`: full bucket+sampled session
-    round-trip with 3 estimators, 2 buckets, mixed sample and
-    non-sample items — the session summary shows bucket-derived
-    effort on non-sample items and lists conflicts on the item
-    where two estimators disagreed on the bucket.
+    Backend persistence: add `V17__session_bucket_votes.sql` adding the
+    nullable bucket-assignment column to `session_votes` (FK to
+    `estimation_buckets`, `ON DELETE RESTRICT`), and mirror it on the
+    `SessionVote` entity. Per the V15 lesson, any constraint added in the
+    migration MUST also be declared on the entity — `%test`/`%dev` build the
+    schema from Hibernate, so an entity-only-missing constraint simply will
+    not exist where you test.
   - |
-    Frontend session-page UI: add the conflict badge + drawer
-    described above. Follow the existing session page's Svelte
-    5 idioms (`$state`, `$derived`, `$effect`). Use
-    `$lib/log.ts` for logging; NEVER bare console.
+    Backend wiring: `BucketVoteDto` + `POST /api/sessions/{id}/votes/bucket`
+    on `SessionResource` (ESTIMATOR, participant-guarded, `409` on the same
+    phase/state conditions as the PERT vote), the service path that persists
+    it, and `conflictingAssignments` on `SessionItemDto` populated from the
+    reduction. Add `Log.info` on reduction outcome and `Log.warn` on a
+    rejected bucket vote.
   - |
-    Build:
+    Backend `@QuarkusTest` at
+    `src/backend/implementation/src/test/kotlin/io/github/theestimator/rest/BucketSessionResourceIT.kt`:
+    full bucket+sampled session round-trip with 3 estimators, 2 buckets,
+    mixed sample and non-sample items — the summary shows bucket-derived
+    effort on non-sample items and lists conflicts on the item where two
+    estimators disagreed on the bucket.
+  - |
+    Frontend session-page UI: a reusable `ConflictBadge.svelte` in
+    `$lib/session/` (badge + click-through drawer), mounted from BOTH
+    `PhaseTwoPanel.svelte` (live, during the session) and
+    `SessionSummary.svelte` (after finalize), wired off
+    `SessionItemDto.conflictingAssignments`. Follow the existing
+    Svelte 5 idioms (`$state`, `$derived`, `$effect`). Strings go through the
+    `session.*` i18n catalogs in BOTH `de.json` and `en.json` — never inline
+    literals. Numbers/dates through `$lib/format.ts`. Use `$lib/log.ts`;
+    NEVER bare console; surface failures via `ErrorBanner`.
+  - |
+    Build (the OpenAPI schema + generated client regenerate here — commit
+    both):
       ./gradlew :domain:build
       ./gradlew :backend:implementation:test
       ./gradlew :frontend:check
@@ -100,31 +194,76 @@ steps:
 
 validation:
   - |
-    Session-support module + reducer + tests exist:
+    Domain module + reducer + SPI subtypes + tests exist, in the JVM test
+    source set (there is no commonTest):
       test -f src/domain/src/main/kotlin/io/github/theestimator/method/bucketsampled/BucketSampledSessionSupport.kt
       test -f src/domain/src/main/kotlin/io/github/theestimator/method/bucketsampled/reduceBucketSampledSession.kt
-      test -f src/domain/src/commonTest/kotlin/io/github/theestimator/method/bucketsampled/ReduceBucketSampledSessionTest.kt
+      test -f src/domain/src/main/kotlin/io/github/theestimator/method/bucketsampled/BucketSampledSessionTypes.kt
+      test -f src/domain/src/test/kotlin/io/github/theestimator/method/bucketsampled/ReduceBucketSampledSessionTest.kt
+      test -f src/domain/src/test/kotlin/io/github/theestimator/method/bucketsampled/BucketSampledSessionSupportTest.kt
+      ! test -d src/domain/src/commonTest
+  - |
+    KMP-safe Instant (java.time would pass jvmTest then fail the JS compile):
+      grep -q "kotlinx.datetime.Instant" src/domain/src/main/kotlin/io/github/theestimator/method/bucketsampled/BucketSampledSessionTypes.kt
+      ! grep -rq "java.time" src/domain/src/main/kotlin/io/github/theestimator/method/bucketsampled/
+  - |
+    Reuses task-102's per-bucket reducer rather than reimplementing it:
+      grep -q "computeBucketAverages" src/domain/src/main/kotlin/io/github/theestimator/method/bucketsampled/reduceBucketSampledSession.kt
   - |
     Registration wired into installStandardMethods:
       grep -q "BucketSampledSessionSupport" src/domain/src/main/kotlin/io/github/theestimator/method/EstimationMethodRegistry.kt
   - |
-    Domain logging idiom used:
-      grep -q "logger.debug" src/domain/src/main/kotlin/io/github/theestimator/method/bucketsampled/reduceBucketSampledSession.kt
+    Domain logging idiom used (lambda form):
+      grep -q "logger.debug {" src/domain/src/main/kotlin/io/github/theestimator/method/bucketsampled/reduceBucketSampledSession.kt
   - |
-    Frontend session-page UI wires the conflict badge (grep for
-    the new component/hook name — replace `ConflictBadge` with
-    whatever the implementation actually names):
-      grep -rq "conflictingAssignments" src/frontend/src/
+    Migration exists and the entity mirrors it (V15 lesson — %test/%dev build
+    the schema from Hibernate, so an entity-less constraint is untested):
+      test -f src/backend/implementation/src/main/resources/db/migration/V17__session_bucket_votes.sql
+      grep -qi "bucket" src/backend/implementation/src/main/kotlin/io/github/theestimator/domain/session/SessionVote.kt
   - |
-    Frontend no-bare-console rule holds for the new files:
-      ! grep -rnE "^\\s*console\\." src/frontend/src/ | grep -E "session|bucket" || true
+    Backend exposes the bucket vote and surfaces conflicts on the wire:
+      grep -q "conflictingAssignments" src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/dto/SessionDtos.kt
+      grep -q "votes/bucket" src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/SessionResource.kt
+      grep -qE "Log\.(info|warn)" src/backend/implementation/src/main/kotlin/io/github/theestimator/service/EstimationSessionService.kt
+  - |
+    Backend round-trip IT exists and passes:
+      test -f src/backend/implementation/src/test/kotlin/io/github/theestimator/rest/BucketSessionResourceIT.kt
+      ./gradlew :backend:implementation:test --tests "io.github.theestimator.rest.BucketSessionResourceIT"
+  - |
+    PERT parity is preserved — the existing session round-trip still passes
+    with its write-back assertion intact:
+      grep -q "roots\[0\].minEffort" src/backend/implementation/src/test/kotlin/io/github/theestimator/rest/SessionResourceIT.kt
+      ./gradlew :backend:implementation:test --tests "io.github.theestimator.rest.SessionResourceIT"
+  - |
+    Frontend consumes the conflict field and obeys the house rules:
+      grep -rq "conflictingAssignments" src/frontend/src/lib/session/
+      ! grep -rnE "console\." src/frontend/src/lib/session/
+      grep -q "session\." src/frontend/src/lib/i18n/en.json
+  - |
+    Regenerated API contract is committed (task-114 wiring writes both):
+      git diff --exit-code --stat HEAD -- src/frontend/src/lib/api/openapi.json src/frontend/src/lib/api/schema.d.ts
   - |
     Full-stack build is green:
       ./gradlew build
 
 outputs:
   - created: src/domain/src/main/kotlin/io/github/theestimator/method/bucketsampled/BucketSampledSessionSupport.kt
+  - created: src/domain/src/main/kotlin/io/github/theestimator/method/bucketsampled/BucketSampledSessionTypes.kt
   - created: src/domain/src/main/kotlin/io/github/theestimator/method/bucketsampled/reduceBucketSampledSession.kt
-  - created: src/domain/src/commonTest/kotlin/io/github/theestimator/method/bucketsampled/BucketSampledSessionSupportTest.kt
-  - created: src/domain/src/commonTest/kotlin/io/github/theestimator/method/bucketsampled/ReduceBucketSampledSessionTest.kt
+  - created: src/domain/src/test/kotlin/io/github/theestimator/method/bucketsampled/BucketSampledSessionSupportTest.kt
+  - created: src/domain/src/test/kotlin/io/github/theestimator/method/bucketsampled/ReduceBucketSampledSessionTest.kt
+  - created: src/backend/implementation/src/main/resources/db/migration/V17__session_bucket_votes.sql
+  - created: src/backend/implementation/src/test/kotlin/io/github/theestimator/rest/BucketSessionResourceIT.kt
   - modified: src/domain/src/main/kotlin/io/github/theestimator/method/EstimationMethodRegistry.kt
+  - modified: src/backend/implementation/src/main/kotlin/io/github/theestimator/domain/session/SessionVote.kt
+  - modified: src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/dto/SessionDtos.kt
+  - modified: src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/SessionResource.kt
+  - modified: src/backend/implementation/src/main/kotlin/io/github/theestimator/service/EstimationSessionService.kt
+  - created: src/frontend/src/lib/session/ConflictBadge.svelte
+  - modified: src/frontend/src/lib/session/PhaseTwoPanel.svelte
+  - modified: src/frontend/src/lib/session/SessionSummary.svelte
+  - modified: src/frontend/src/lib/i18n/de.json
+  - modified: src/frontend/src/lib/i18n/en.json
+  - modified: src/frontend/src/lib/api/openapi.json
+  - modified: src/frontend/src/lib/api/schema.d.ts
+  - modified: CLAUDE.md

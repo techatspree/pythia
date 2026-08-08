@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { onMount, onDestroy } from 'svelte';
 	import { page } from '$app/state';
+	import { resolve } from '$app/paths';
 	import { _ } from 'svelte-i18n';
 	import { getSession, join, start, cancel } from '$lib/session/api';
 	import { connectSessionSocket, type SessionSocketHandle } from '$lib/session/socket';
@@ -76,6 +77,11 @@
 
 	{#if store.session}
 		{@const s = store.session}
+		<a
+			href={resolve('/estimations/[id]', { id: s.estimationId })}
+			class="text-sm text-brand-green hover:underline mb-4 inline-block"
+			>{$_('session.room.backToEstimation')}</a
+		>
 		<div class="flex items-center gap-3 mb-4">
 			<h1 class="text-2xl font-bold">{s.title}</h1>
 			<span class="px-2 py-0.5 text-xs rounded-full bg-brand-green/20 text-brand-green"

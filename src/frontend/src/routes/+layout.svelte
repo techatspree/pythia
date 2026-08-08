@@ -3,7 +3,7 @@
 	import { onMount } from 'svelte';
 	import logo from '$lib/assets/logo.svg';
 	import RequireAuth from '$lib/auth/RequireAuth.svelte';
-	import UserMenu from '$lib/components/UserMenu.svelte';
+	import AppHeader from '$lib/components/AppHeader.svelte';
 	import ErrorBanner from '$lib/components/ErrorBanner.svelte';
 	import ConnectionLostDialog from '$lib/components/ConnectionLostDialog.svelte';
 	import { connection } from '$lib/stores/connection.svelte';
@@ -12,16 +12,8 @@
 	import { setUserLanguage } from '$lib/i18n';
 	import { SupportedLanguage } from '$lib/domain/domain.mjs';
 	import { log } from '$lib/log';
-	import { resolve } from '$app/paths';
-	import { page } from '$app/state';
-	import { _ } from 'svelte-i18n';
 
 	let { children } = $props();
-
-	// The collaborative-session route group (task-066) has its own full-screen
-	// "room" chrome, so the standard header is hidden there (auth + i18n gate
-	// below still apply — the session layout is nested inside this one).
-	const isSessionRoute = $derived(page.url.pathname.startsWith('/sessions'));
 
 	const provider = getAuthProvider();
 	let account = $state<AuthAccount | null>(null);
@@ -69,39 +61,13 @@
 	<link rel="manifest" href="/site.webmanifest" />
 </svelte:head>
 
-{#if !isSessionRoute}
-	<header class="bg-white">
-		<div class="px-6 py-3 flex items-center gap-3">
-			<a href={resolve('/projects')} class="flex items-center gap-2">
-				<!-- Decorative: the wordmark beside it already announces the product
-				     name, so a non-empty alt would be read out twice. -->
-				<img
-					src={logo}
-					alt=""
-					aria-hidden="true"
-					width="36"
-					height="36"
-					loading="eager"
-					class="w-9 h-9"
-					data-testid="brand-logo"
-				/>
-				<span class="font-heading text-lg tracking-tight text-gray-900">{$_('brand.name')}</span>
-			</a>
-			{#if account}
-				<a
-					href={resolve('/sessions')}
-					class="text-sm text-brand-green hover:text-[#007a45] underline-offset-2 hover:underline"
-					>{$_('nav.sessions')}</a
-				>
-				<div class="ml-auto flex items-center gap-3">
-					<UserMenu {account} onlogout={refresh} />
-				</div>
-			{/if}
-		</div>
-		<div class="h-0.75" style="background: var(--gradient-brand)"></div>
-	</header>
-{/if}
+<AppHeader {account} onlogout={refresh} />
 
+<!-- `main` is deliberately a plain block: making it a flex container turns every
+     page's root element into a flex item, whose automatic minimum size stops the
+     TreeTable's horizontal scroll wrapper from overflowing (caught by
+     `e2e/treetable-responsive.test.ts`). A route that paints its own background
+     therefore ends it with its content rather than at the fold. -->
 <main>
 	{#if initError}
 		<div class="p-6">

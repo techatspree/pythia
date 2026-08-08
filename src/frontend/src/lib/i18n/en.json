@@ -1,8 +1,7 @@
 {
 	"brand": {
 		"name": "The Estimator",
-		"logoAlt": "The Estimator",
-		"sessionTitle": "The Estimator · Session"
+		"logoAlt": "The Estimator"
 	},
 	"common": {
 		"delete": "Delete",
@@ -320,6 +319,8 @@
 		"switchFailed": "Failed to change language"
 	},
 	"nav": {
+		"mainLabel": "Main navigation",
+		"projects": "Projects",
 		"sessions": "Sessions"
 	},
 	"session": {
@@ -345,11 +346,11 @@
 			"loadFailed": "Failed to load session data"
 		},
 		"layout": {
-			"leave": "Leave",
 			"connected": "Connected",
 			"connecting": "Connecting…"
 		},
 		"room": {
+			"backToEstimation": "← Back to estimation",
 			"loading": "Loading session…",
 			"participants": "Participants",
 			"agreed": "agreed",

@@ -1,0 +1,335 @@
+id: task-141
+phase: phase-17
+title: One consistent top navigation menu on every route
+depends_on: [task-130, task-128]
+description: |
+  The application has **two different top bars**, and one route group is a
+  navigational dead end.
+
+  Current state:
+
+  - `src/frontend/src/routes/+layout.svelte` renders the app header inline:
+    the brand lockup (mark + wordmark) linking to `/projects`, a single
+    `nav.sessions` text link, `UserMenu` pushed right with `ml-auto`, and the
+    brand gradient hairline. It is deliberately HIDDEN for the session route
+    group — `const isSessionRoute = $derived(page.url.pathname.startsWith
+    ('/sessions'))` gates the whole `<header>`.
+  - `src/frontend/src/routes/sessions/+layout.svelte` replaces it with its own
+    "room chrome": a 24 px mark, an uppercase `brand.sessionTitle`
+    ("The Estimator · Session") label, and a right-aligned `session.layout.leave`
+    ("Verlassen"/"Leave") link to `/projects`. There is **no** `UserMenu`, no
+    menu, and no link back to the estimation the session belongs to.
+
+  So a user in a session room sees a bar that looks nothing like the rest of the
+  app; the only way out is one small right-aligned word. (The link does exist —
+  the complaint is that it is not recognisable as navigation and the bar is
+  inconsistent with the main GUI.) Elsewhere, "back" is left entirely to
+  per-page contextual links (e.g. `estimation.pageBack` at
+  `src/frontend/src/routes/estimations/[id]/+page.svelte:236`), and the main
+  header offers exactly one destination.
+
+  Target state: **one** header component, rendered by the root layout on
+  **every** route including `/sessions/**`, carrying a classical horizontal top
+  menu. The menu names the app's top-level destinations — Projects and Sessions
+  — marks the active one, and always shows the brand lockup (home) plus the
+  `UserMenu`. The session route group keeps only its page background; its
+  divergent chrome is deleted. The session room additionally gets a contextual
+  link back to the estimation it belongs to, so "back" exists at both levels:
+  global (menu) and contextual (breadcrumb-style link).
+
+  Design decisions — do not deviate:
+
+  - **"Classical menu" = a horizontal top navigation bar** with visible,
+    labelled items in a `<nav>` landmark. Do NOT build a File/Edit-style
+    dropdown menubar and do NOT add a hamburger/drawer; the app has two
+    top-level destinations and a plain link row is the honest shape.
+  - The header is **one shared component**, `src/frontend/src/lib/components/
+    AppHeader.svelte`, used only by the root layout. Never duplicate header
+    markup into a route layout again — that duplication is exactly this defect.
+  - The header renders for **authenticated users**; when `account` is `null`
+    (the auth gate is showing the login dialog) render the brand lockup and the
+    gradient hairline but neither the menu nor the `UserMenu`, matching today's
+    `{#if account}` behaviour in the root layout.
+  - Menu items are declared as **one array in the component** so adding a
+    destination is a one-line change. Each item: an i18n key, a route id
+    resolved through `resolve()` from `$app/paths`, and a `testid`. A raw string
+    href is not merely inconsistent, it fails the build: the ESLint rule
+    `svelte/no-navigation-without-resolve` (from the `eslint-plugin-svelte`
+    recommended set) is active, and every in-app href in `src/` already goes
+    through `resolve()`.
+  - The per-page contextual back links stay exactly as they are — there are five
+    (`project.pageBack`, `estimation.pageBack`, `compare.back`, `editor.back`,
+    `session.summary.backToDraft`) and they are not in scope. The global menu is
+    an addition to them, not a replacement: do NOT introduce a breadcrumb
+    component or refactor those links.
+  - **Active-item rule**: an item is active when `page.url.pathname` equals its
+    href or starts with `href + '/'`. The active item gets `aria-current="page"`
+    plus a visual marker (brand-green text + a 2 px brand-green bottom border);
+    inactive items are grey with a hover state. `/projects` must therefore stay
+    marked while the user is on `/projects/{id}`, and `/sessions` while in a
+    room. Note `/estimations/**` and `/estimations/**/versions/**` sit under
+    NEITHER item — no item is marked active there, which is correct; do not
+    force a match.
+  - Keep `data-testid="brand-logo"` on the mark and keep the wordmark text
+    inside `<header>`: `e2e/branding.test.ts` and `e2e/connection-lost.test.ts`
+    assert on both, and they must keep passing untouched.
+  - The mark stays decorative next to the wordmark (`alt=""`,
+    `aria-hidden="true"`) per the branding convention in CLAUDE.md.
+  - Everything visible is an i18n key (`nav.*`); no inline string literals.
+    `en.json` mirrors `de.json` key-for-key.
+  - This is a presentational change only: no REST endpoint, no domain code, no
+    backend code. There is no `try`/`catch` to add, so no `ErrorBanner` path is
+    introduced; `UserMenu` keeps its own existing error handling. Bare
+    `console.*` remains banned — use `log` from `$lib/log.ts` if any diagnostic
+    is genuinely needed.
+
+steps:
+  - |
+    Create `src/frontend/src/lib/components/AppHeader.svelte`, the single app
+    header. Props (Svelte 5 runes):
+
+      let { account, onlogout }: {
+        account: AuthAccount | null;
+        onlogout: () => void;
+      } = $props();
+
+    Imports: `logo` from `$lib/assets/logo.svg`, `UserMenu` from
+    `$lib/components/UserMenu.svelte`, `resolve` from `$app/paths`, `page` from
+    `$app/state`, `_` from `svelte-i18n`, `AuthAccount` type from
+    `$lib/auth/AuthProvider`.
+
+    Declare the menu once:
+
+      const items = [
+        { key: 'nav.projects', href: resolve('/projects'), testid: 'nav-projects' },
+        { key: 'nav.sessions', href: resolve('/sessions'), testid: 'nav-sessions' }
+      ];
+
+    and a helper `function isActive(href: string): boolean` implementing the
+    active-item rule from the description (`page.url.pathname === href ||
+    page.url.pathname.startsWith(href + '/')`).
+
+    Markup: a `<header class="bg-white">` containing a flex row
+    (`px-6 py-3 flex items-center gap-6`) with
+      1. the brand lockup — `<a href={resolve('/projects')}>` wrapping the mark
+         (`data-testid="brand-logo"`, `alt=""`, `aria-hidden="true"`, 36×36,
+         `loading="eager"`) and `<span class="font-heading …">{$_('brand.name')}</span>`;
+      2. `{#if account}` a `<nav aria-label={$_('nav.mainLabel')}
+         data-testid="main-nav">` holding the items as a `flex items-center gap-1`
+         row of `<a>`s, each with `data-testid={item.testid}`,
+         `aria-current={isActive(item.href) ? 'page' : undefined}`, and the
+         active/inactive classes from the description;
+      3. `<div class="ml-auto flex items-center gap-3"><UserMenu {account} {onlogout} /></div>`
+         inside the same `{#if account}` block.
+    Close with the existing gradient hairline
+    `<div class="h-0.75" style="background: var(--gradient-brand)"></div>`.
+
+    Keep the row from wrapping badly on a narrow viewport (the session room is
+    often projected): allow the nav to shrink with `min-w-0` and let the item
+    row wrap rather than overflow the header.
+  - |
+    Rewrite the header section of `src/frontend/src/routes/+layout.svelte` to
+    use it. Delete the `isSessionRoute` `$derived` and the entire inline
+    `{#if !isSessionRoute}<header>…</header>{/if}` block, plus the now-unused
+    `logo`, `UserMenu` and `resolve` imports (keep the `logo` import if it is
+    still needed by the `<svelte:head>` favicon link — it is). Render
+    unconditionally, above `<main>`:
+
+      <AppHeader {account} onlogout={refresh} />
+
+    Everything else in the file — the auth/i18n gate, `RequireAuth`, the
+    `ConnectionLostDialog` watchdog — stays exactly as it is. Check whether
+    `page` from `$app/state` is still used after removing `isSessionRoute`; drop
+    the import if not.
+  - |
+    Strip the divergent chrome from `src/frontend/src/routes/sessions/+layout.svelte`.
+    Delete the whole `<div class="flex items-center gap-3 px-6 py-3 bg-white
+    border-b">…</div>` bar (mark, `brand.sessionTitle`, `session.layout.leave`
+    link) and the now-unused `logo`, `resolve` and `_` imports. What remains is
+    the page-background wrapper only:
+
+      <div class="bg-gray-50">
+        {@render children()}
+      </div>
+
+    **Drop the `min-h-screen`** the current wrapper carries. It was correct when
+    this layout WAS the whole screen; with the global `AppHeader` stacked above
+    it, `min-h-screen` forces the document to header-height + viewport-height and
+    every session page gains a permanent scrollbar with a strip of dead space.
+    If the grey background must still reach the fold on a short page, give the
+    root layout's `<main>` the remaining height instead (e.g. `min-h-[calc(100vh-3.5rem)]`
+    on this wrapper, matching the real header height) — but verify against the
+    rendered header, do not guess the offset. Removing it outright is acceptable
+    and is the preferred default.
+
+    Update the file's leading comment: the room no longer has its own chrome —
+    the global `AppHeader` navigates, and this layout only supplies the room
+    background.
+  - |
+    Give the session room a contextual link back to its estimation, so "back"
+    exists at the page level too. Today the room links back to the estimation
+    ONLY in the FINALIZED state, from `src/frontend/src/lib/session/SessionSummary.svelte:49-56`
+    (`session.summary.backToDraft`) — a running session offers nothing.
+
+    In `src/frontend/src/routes/sessions/[id]/+page.svelte`, in the block that
+    renders the session title (`<h1>{s.title}</h1>`, around line 80), add —
+    before or beneath the title, so it shows in EVERY session state — a link
+    `<a href={resolve('/estimations/[id]', { id: s.estimationId })} …>{$_('session.room.backToEstimation')}</a>`,
+    styled like the existing back links (`text-sm text-brand-green hover:underline`).
+    Import `resolve` from `$app/paths`. `SessionDto.estimationId` is already on
+    the pushed store payload — `SessionSummary.svelte:51` resolves the very same
+    route, so follow that call shape. Leave `SessionSummary`'s own link alone.
+  - |
+    Update both i18n catalogs, keeping them key-for-key identical.
+    In `src/frontend/src/lib/i18n/de.json` and `src/frontend/src/lib/i18n/en.json`:
+      - ADD `nav.mainLabel` — de "Hauptnavigation", en "Main navigation".
+      - ADD `nav.projects` — de "Projekte", en "Projects".
+      - ADD `session.room.backToEstimation` — de "← Zur Schätzung",
+        en "← Back to estimation".
+      - KEEP `nav.sessions` (de "Sitzungen", en "Sessions").
+      - DELETE `brand.sessionTitle` and `session.layout.leave` — both become
+        unreferenced with this change (verified: their only call sites are the
+        two lines removed from `sessions/+layout.svelte`).
+      - KEEP `session.layout.connected` / `session.layout.connecting`; they are
+        still used by the room page's connection indicator.
+  - |
+    Write the e2e spec `src/frontend/e2e/navigation.test.ts` (Playwright). Seed a
+    session through the REST API the way `e2e/session.test.ts` already does
+    (reuse its helpers/`e2e/helpers.ts` where possible rather than re-inventing
+    the seeding). Cover:
+      - `main-nav` and `brand-logo` are visible on `/projects`, on `/sessions`,
+        AND inside a seeded session room `/sessions/{id}` — the regression this
+        task fixes;
+      - from inside the room, clicking `nav-projects` navigates to `/projects`;
+      - the active item is marked: on `/projects/{id}` the `nav-projects` link
+        has `aria-current="page"` while `nav-sessions` does not, and the reverse
+        inside a session room;
+      - the old chrome is gone: `page.getByText('The Estimator · Session')` has
+        count 0 in the room;
+      - the room shows the contextual back link and it lands on the estimation
+        page.
+    Assert no `pageerror` fired during the room test, following the pattern
+    already used in `e2e/bucket-views.test.ts`.
+
+    No EXISTING spec needs changing: nothing today asserts the session chrome,
+    the leave link, the `nav.sessions` header link, or that the root header is
+    hidden on `/sessions`. `e2e/session.test.ts:88` navigates to `/sessions/{id}`
+    but makes no claim about the chrome. The specs that do touch the header —
+    `branding.test.ts` (`brand-logo`, `<header>` contains "The Estimator"),
+    `user-menu.test.ts` (`<header>` contains the user + role badges,
+    `logout-button`), `connection-lost.test.ts` (`brand-logo` as the app-loaded
+    gate) and `language.test.ts` (`language-select`) — must all keep passing
+    UNMODIFIED. If one of them breaks, the new header dropped something it was
+    required to keep; fix `AppHeader.svelte`, not the test.
+  - |
+    Run the frontend gate: `./gradlew :frontend:check` (svelte-check + ESLint)
+    must be clean, and `cd src/frontend && npx vite build` must emit **no**
+    `[vite-plugin-svelte]` warnings.
+  - |
+    Run the full e2e suite against a running dev stack (`./scripts/dev.sh`):
+    `cd src/frontend && npm run test:e2e`. `e2e/branding.test.ts`,
+    `e2e/connection-lost.test.ts`, `e2e/user-menu.test.ts`, `e2e/session.test.ts`
+    and the new `e2e/navigation.test.ts` must all pass. Stop the dev stack with
+    SIGTERM to `dev.sh` (Ctrl-C), never by killing the child JVMs, or the Dev
+    Services PostgreSQL container orphans and holds its port.
+  - |
+    Update `CLAUDE.md`: the frontend bullet under "Architecture" and the
+    "Frontend session UI" paragraph both state that the standard header is
+    hidden for `/sessions` and that the session group has its own room chrome.
+    Replace that with the new rule — a single `AppHeader` component rendered by
+    the root layout on every route, carrying the top menu, with the session
+    layout reduced to a background wrapper.
+
+validation:
+  - |
+    test -f src/frontend/src/lib/components/AppHeader.svelte
+  - |
+    grep -q 'data-testid="main-nav"' src/frontend/src/lib/components/AppHeader.svelte
+  - |
+    grep -q 'data-testid="brand-logo"' src/frontend/src/lib/components/AppHeader.svelte
+  - |
+    grep -q 'aria-current' src/frontend/src/lib/components/AppHeader.svelte
+  - |
+    grep -q 'AppHeader' src/frontend/src/routes/+layout.svelte
+  - |
+    # the session-route special case is gone from the root layout
+    ! grep -q 'isSessionRoute' src/frontend/src/routes/+layout.svelte
+  - |
+    # the session layout no longer carries its own chrome
+    ! grep -q 'session.layout.leave' src/frontend/src/routes/sessions/+layout.svelte
+    ! grep -q 'brand.sessionTitle' src/frontend/src/routes/sessions/+layout.svelte
+  - |
+    # no header markup was duplicated back into a route layout
+    ! grep -q '<header' src/frontend/src/routes/sessions/+layout.svelte
+  - |
+    # internal hrefs stay resolved, never raw strings
+    grep -q "from '\$app/paths'" src/frontend/src/lib/components/AppHeader.svelte
+  - |
+    # frontend logging convention: no bare console.* in the new component
+    ! grep -q 'console\.' src/frontend/src/lib/components/AppHeader.svelte
+  - |
+    No component references the two retired keys any more. NOTE this only
+    proves the CALL SITES are gone — a nested JSON key is stored as
+    `"sessionTitle"` under `"brand"`, so no grep for the dotted name can see
+    the catalog entry. Catalog contents are asserted by the next item.
+      ! grep -rq 'brand\.sessionTitle' src/frontend/src
+      ! grep -rq 'session\.layout\.leave' src/frontend/src
+  - |
+    Both catalogs carry exactly the intended keys, the retired ones are really
+    deleted, and de/en stay key-for-key identical. Checked against the parsed
+    JSON (not by grep, which cannot see nesting):
+      python3 - <<'PY'
+      import json, sys
+      cat = {l: json.load(open(f'src/frontend/src/lib/i18n/{l}.json')) for l in ('de', 'en')}
+
+      def flat(o, p=''):
+          s = set()
+          for k, v in o.items():
+              n = f'{p}.{k}' if p else k
+              s |= flat(v, n) if isinstance(v, dict) else {n}
+          return s
+
+      keys = {l: flat(d) for l, d in cat.items()}
+      problems = []
+      if keys['de'] != keys['en']:
+          problems.append(f"de/en key drift: {sorted(keys['de'] ^ keys['en'])}")
+      for l, k in keys.items():
+          for required in ('nav.mainLabel', 'nav.projects', 'nav.sessions',
+                           'session.room.backToEstimation',
+                           'session.layout.connected', 'session.layout.connecting'):
+              if required not in k:
+                  problems.append(f'{l}.json is missing {required}')
+          for retired in ('brand.sessionTitle', 'session.layout.leave'):
+              if retired in k:
+                  problems.append(f'{l}.json still defines {retired}')
+      print('\n'.join(problems) or 'i18n catalogs OK')
+      sys.exit(1 if problems else 0)
+      PY
+  - |
+    test -f src/frontend/e2e/navigation.test.ts
+    grep -q 'main-nav' src/frontend/e2e/navigation.test.ts
+    grep -q 'sessions/' src/frontend/e2e/navigation.test.ts
+  - |
+    ./gradlew :frontend:check
+  - |
+    No Svelte compiler warning may be introduced (the `cd` is wrapped in a
+    subshell so it cannot leak into the following checks):
+      ( cd src/frontend && npx vite build 2>&1 | grep 'vite-plugin-svelte' && exit 1 || exit 0 )
+  - |
+    Requires a running dev stack (`./scripts/dev.sh`; backend :8090, Vite :5173).
+    The four pre-existing specs must pass UNMODIFIED alongside the new one:
+      ( cd src/frontend && npx playwright test e2e/navigation.test.ts e2e/branding.test.ts e2e/connection-lost.test.ts e2e/user-menu.test.ts e2e/session.test.ts )
+  - |
+    Full regression, same running dev stack. Stop the stack afterwards with
+    SIGTERM to `dev.sh`, never `pkill` on the child JVMs:
+      ( cd src/frontend && npm run test:e2e )
+
+outputs:
+  - created: src/frontend/src/lib/components/AppHeader.svelte
+  - created: src/frontend/e2e/navigation.test.ts
+  - modified: src/frontend/src/routes/+layout.svelte
+  - modified: src/frontend/src/routes/sessions/+layout.svelte
+  - modified: src/frontend/src/routes/sessions/[id]/+page.svelte
+  - modified: src/frontend/src/lib/i18n/de.json
+  - modified: src/frontend/src/lib/i18n/en.json
+  - modified: CLAUDE.md
