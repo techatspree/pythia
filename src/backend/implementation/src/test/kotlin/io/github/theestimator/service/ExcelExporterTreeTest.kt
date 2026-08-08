@@ -6,14 +6,22 @@ import io.github.theestimator.domain.submitted.SubmittedGroupNode
 import io.github.theestimator.domain.submitted.SubmittedTimeRelativeItemNode
 import org.apache.poi.xssf.usermodel.XSSFRow
 import org.apache.poi.xssf.usermodel.XSSFWorkbook
+import io.github.theestimator.StandardMethods
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
+import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
 import java.util.UUID
 
 class ExcelExporterTreeTest {
+
+    // The exporters resolve the method module from EstimationMethodRegistry,
+    // which no longer self-populates (task-143). These are plain JUnit tests, so
+    // the backend's StartupEvent bootstrap never fires — install explicitly.
+    @BeforeEach
+    fun installMethods() = StandardMethods.installAll()
 
     private val exporter = ExcelExporter()
 

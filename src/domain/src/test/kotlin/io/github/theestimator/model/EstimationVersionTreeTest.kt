@@ -1,12 +1,20 @@
 package io.github.theestimator.model
 
+import io.github.theestimator.StandardMethods
 import io.github.theestimator.method.threepoint.FixedEstimationItem
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 
 class EstimationVersionTreeTest {
 
     private val delta = 0.001
+
+    // calculate() resolves the method module from the registry, which no longer
+    // self-populates (task-143). Without this the suite only passed when another
+    // class happened to install first.
+    @BeforeEach
+    fun installMethods() = StandardMethods.installAll()
 
     private fun item(desc: String, min: Double, exp: Double, max: Double) = FixedEstimationItem(
         _description = desc,

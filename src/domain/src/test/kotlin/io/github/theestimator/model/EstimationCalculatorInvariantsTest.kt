@@ -1,13 +1,20 @@
 package io.github.theestimator.model
 
+import io.github.theestimator.StandardMethods
 import io.github.theestimator.method.threepoint.FixedEstimationItem
 import io.github.theestimator.service.EstimationCalculator
 import org.junit.jupiter.api.Assertions.assertTrue
+import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 
 class EstimationCalculatorInvariantsTest {
 
     private val calculator = EstimationCalculator()
+
+    // calculate() resolves the method module from the registry, which no longer
+    // self-populates (task-143).
+    @BeforeEach
+    fun installMethods() = StandardMethods.installAll()
 
     private fun item(desc: String, min: Double, exp: Double, max: Double) = FixedEstimationItem(
         _description = desc,

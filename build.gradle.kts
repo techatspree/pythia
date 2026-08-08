@@ -31,7 +31,13 @@ tasks.register("staticAnalysis") {
     description = "Runs all static analysis: detekt over the Kotlin modules " +
         "plus svelte-check and ESLint over the frontend. No tests, no Docker."
     dependsOn(
+        // Every domain module, not just the aggregator: since task-143 most of
+        // the Kotlin lives in :domain:core and the two method modules, so
+        // listing only :domain would silently stop analysing almost all of it.
         ":domain:detekt",
+        ":domain:core:detekt",
+        ":domain:method-threepoint:detekt",
+        ":domain:method-bucketsampled:detekt",
         ":backend:implementation:detekt",
         ":frontend:npmCheck",
         ":frontend:npmLintReport",

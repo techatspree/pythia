@@ -38,6 +38,14 @@ kotlin {
         getByName("commonMain") {
             kotlin.srcDir("src/main/kotlin")
             dependencies {
+                // MUST be `api`, never `implementation` (task-143).
+                // :backend:implementation depends on this aggregator and imports
+                // io.github.theestimator.model.* in ~13 files; `implementation`
+                // dependencies do not reach a consumer's compile classpath, so
+                // downgrading these would break the backend build wholesale.
+                api(project(":domain:core"))
+                api(project(":domain:method-threepoint"))
+                api(project(":domain:method-bucketsampled"))
                 implementation("org.jetbrains.kotlinx:kotlinx-datetime:0.6.2")
                 implementation("io.github.oshai:kotlin-logging:7.0.7")
             }

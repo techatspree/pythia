@@ -855,9 +855,9 @@
       "notes": "Generalise the session SPI to a sealed vote-input/reduction hierarchy so a second estimation method can implement it"
     },
     "task-143": {
-      "status": "pending",
-      "started_at": null,
-      "completed_at": null,
+      "status": "done",
+      "started_at": "2026-08-08T13:27:14+00:00",
+      "completed_at": "2026-08-08T14:43:28+00:00",
       "notes": "Split each estimation method into its own Gradle module so cross-method and core-to-method dependencies are compiler-enforced instead of convention-enforced"
     },
     "task-144": {

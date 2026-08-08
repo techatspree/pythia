@@ -1,6 +1,6 @@
 package io.github.theestimator.model
 
-import io.github.theestimator.method.EstimationMethodRegistry
+import io.github.theestimator.StandardMethods
 import io.github.theestimator.method.bucketsampled.BucketedEstimationItem
 import io.github.theestimator.method.threepoint.FixedEstimationItem
 import org.junit.jupiter.api.Assertions.assertEquals
@@ -14,7 +14,9 @@ class EstimationTotalsTest {
 
     @BeforeEach
     fun ensureRegistryPopulated() {
-        EstimationMethodRegistry.installStandardMethods()
+        // The aggregator's suite can see every method, so it installs the real
+        // standard set (the registry no longer self-populates — task-143).
+        StandardMethods.installAll()
     }
 
     private fun item(desc: String, min: Double, exp: Double, max: Double) = FixedEstimationItem(

@@ -1,22 +1,42 @@
 id: task-106
 phase: phase-15
 title: Bucket + sampled session-support module
-depends_on: [task-142, task-104, task-103]
+depends_on: [task-142, task-143, task-104, task-103]
 description: |
   Add the bucket+sampled session-support module: multi-estimator
   bucket assignments (LWW with provenance) plus multi-estimator
   sample PERT (element-wise averaged into the per-bucket mean).
 
-  ## Prerequisite — the SPI generalisation is task-142, not this task
+  ## Prerequisites — two structural tasks land first
 
-  task-105 shipped the session SPI with a PERT-shaped signature
+  **task-142 — the SPI generalisation (done).** task-105 shipped the session
+  SPI with a PERT-shaped signature
   (`reduce(List<EstimatorVote>): VoteAggregate`). A bucket vote is not a
-  three-point triple, so that signature cannot express this method.
-  **task-142** widens it to
-  `reduce(List<SessionVoteInput>): SessionReduction` over two domain-internal
-  sealed marker interfaces, with each method contributing its own subtypes
-  from its own package. This task consumes that shape and must not re-litigate
-  it. Do not start before task-142 is done.
+  three-point triple, so that signature cannot express this method. task-142
+  widened it to `reduce(List<SessionVoteInput>): SessionReduction` over two
+  domain-internal marker interfaces, with each method contributing its own
+  subtypes. Note those markers are **not `sealed`** — Kotlin requires a sealed
+  type's subtypes to share its package, which collides with one-package-per-
+  method, so exhaustiveness is replaced by the contract that `reduce` must
+  `error(…)` on an input subtype it does not handle. This task consumes that
+  shape and must not re-litigate it.
+
+  **task-143 — one Gradle module per method.** It moves each method into its
+  own Gradle module so the boundary is compiler-enforced, and inverts the
+  core→method references (leaf-owned `method` / `nodeTypeLabel`, `DomainFactory`
+  and `installStandardMethods()` relocated to the aggregator `:domain`). That
+  changes where this task's new files live and how it registers: the bucket
+  files land under
+  `src/domain/method-bucketsampled/src/main/kotlin/io/github/theestimator/method/bucketsampled/`
+  (package name unchanged), and `BucketSampledSessionSupport` is registered
+  from the aggregator's `StandardMethods.installAll()`, NOT from
+  `EstimationMethodRegistry` — the registry no longer self-populates. The paths
+  in the steps/outputs below are written for the PRE-143 layout; after task-143
+  they shift to the method module, and the registry-registration step becomes
+  an edit to `StandardMethods`. Re-run `/improve-task task-106` after task-143
+  lands to refresh them.
+
+  Do not start before both are done.
 
   ## Current state this task must extend
 
@@ -210,8 +230,12 @@ validation:
     Reuses task-102's per-bucket reducer rather than reimplementing it:
       grep -q "computeBucketAverages" src/domain/src/main/kotlin/io/github/theestimator/method/bucketsampled/reduceBucketSampledSession.kt
   - |
-    Registration wired into installStandardMethods:
-      grep -q "BucketSampledSessionSupport" src/domain/src/main/kotlin/io/github/theestimator/method/EstimationMethodRegistry.kt
+    Registration is wired into standard-method installation. Deliberately
+    layout-agnostic: pre-143 that call sits in `EstimationMethodRegistry
+    .installStandardMethods()`, post-143 in the aggregator's
+    `StandardMethods.installAll()` — this passes either way and does not go
+    stale when task-143 moves it:
+      grep -rq "registerSessionSupport(BucketSampledSessionSupport()" src/domain/
   - |
     Domain logging idiom used (lambda form):
       grep -q "logger.debug {" src/domain/src/main/kotlin/io/github/theestimator/method/bucketsampled/reduceBucketSampledSession.kt

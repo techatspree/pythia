@@ -61,6 +61,15 @@ description: |
     name (`domain`), its `packageTypescript` zip and its `typescriptDist`
     configuration stay exactly as they are.
 
+  **The aggregator MUST depend on all three children with `api(...)`, never
+  `implementation(...)`.** `:backend:implementation` declares
+  `implementation(project(":domain"))` and imports `io.github.theestimator.model.*`
+  in ~13 files; `implementation` dependencies do not reach the consumer's
+  compile classpath, so an `implementation(project(":domain:core"))` in the
+  aggregator would break the backend build with a wall of unresolved-reference
+  errors. Same rule for method modules depending on core. With `api`
+  throughout, `:backend:implementation` needs **no** build-file change at all.
+
   Package names do **not** change — only which Gradle project compiles them.
   `io.github.theestimator.method.threepoint` simply now lives in
   `src/domain/method-threepoint/src/main/kotlin/…`.
@@ -78,12 +87,19 @@ description: |
     a leaf-level hook so `DiffSummary` stops branching on concrete types.
     Keep the emitted diff strings byte-identical — `UndoServiceIT` and the
     frontend history panel read them.
-  - **Factories (2).** Move `DomainFactory.kt` from `:domain:core` into the
-    aggregator `:domain`, which can see every method module. The frontend only
-    ever calls these functions and never names a leaf class (verified: its
-    only domain imports are `EstimationDefaults`, `SupportedLanguage`,
+  - **Factories (2).** Keep `DomainFactory.kt` with the aggregator `:domain`
+    (it stays at its current path — core's sources move out from under it), and
+    **change its package from `io.github.theestimator.model` to
+    `io.github.theestimator`**. Otherwise that package is split across two Gradle
+    modules, and any `internal` core declaration it touches becomes invisible
+    across the module boundary. The rename is free for consumers: the generated
+    `domain.d.mts` exports everything **flat at top level**, not nested by
+    Kotlin package (verified — `export declare class BucketedEstimationItem`
+    sits at the top level today), so no frontend import changes. The frontend
+    only calls these functions and never names a leaf class (verified: its only
+    domain imports are `EstimationDefaults`, `SupportedLanguage`,
     `EstimatorVote`, `aggregateVotes`, plus the `create*` factories in
-    `adapter.ts`), so the exported JS surface is unchanged.
+    `adapter.ts`, which annotates `buildNode(node): EstimationNode`).
   - **Registration (1, 5).** `EstimationMethodRegistry` stays in core, but
     `installStandardMethods()` moves to the aggregator (e.g.
     `io.github.theestimator.StandardMethods.installAll()`) because only the
@@ -106,14 +122,28 @@ description: |
 
   ## Kotlin/JS constraints specific to this change
 
-  - **Multi-module Kotlin/JS emits one `.mjs` per module.** `:domain`'s
-    `domain.mjs` will `import` sibling files for the method modules. The
-    existing `prepareTypescriptArtifacts` already globs `*.mjs` (plural) into
-    the zip, so they travel together into `$lib/domain/` and relative imports
-    resolve — but this must be **verified**, not assumed. If the aggregator
-    cannot produce a working single entry point, the fallback is to keep every
-    `@JsExport` declaration in the aggregator (which is already true after the
-    `DomainFactory` move) so the method modules export nothing to JS at all.
+  - **Multi-module Kotlin/JS emits one `.mjs` per module — this is the
+    task's main technical risk.** Two facts are already verified in the current
+    build: `domain.mjs` imports a sibling today (`import … from
+    './kotlin-logging.mjs'`), and a dependency's `.d.mts` already travels into
+    `$lib/domain/` (`Kotlin-DateTime-library-kotlinx-datetime.d.mts`), because
+    `prepareTypescriptArtifacts` globs `*.mjs`/`*.d.mts` (plural). So multi-file
+    output survives packaging and resolution. What is **not** evidenced is the
+    cross-module *type* reference: today's `domain.d.mts` contains **zero
+    import statements** and declares `BucketedEstimationItem` /
+    `FixedEstimationItem` / `EstimationItem` inline. After the split those
+    classes belong to another module, and how Kotlin/JS renders that in the
+    aggregator's `.d.mts` is unknown. Treat step 10 as the go/no-go check.
+  - **If the cross-module type reference does not resolve, the fallback is to
+    WIDEN the exported factory return types** to the core base type
+    (`createFixedItem`/`createBucketedItem`/`createTimeRelativeItem` →
+    `EstimationItem`, or `EstimationNode`), so no method-owned class appears in
+    the aggregator's exported surface at all. This is safe: `adapter.ts`
+    already declares `buildNode(node: EditingNode): EstimationNode` and
+    immediately widens every factory result, and names no concrete leaf class
+    anywhere. Do NOT instead try to "keep the leaf `@JsExport`s in the
+    aggregator" — a class can only be exported from the module that declares
+    it, and the leaves must live in their method module.
   - Only `:domain` sets `outputModuleName.set("domain")`. Do NOT set it on the
     method modules — two modules claiming the name `domain` would collide.
   - **Sealed types cannot span modules** (or packages): `EstimationNode` stays
@@ -164,9 +194,18 @@ steps:
     `src/domain/build.gradle.kts`: same KMP jvm+js targets, same
     `commonMain` `kotlin.srcDir("src/main/kotlin")` / `jvmTest`
     `kotlin.srcDir("src/test/kotlin")` mapping, same kotlinx-datetime +
-    kotlin-logging deps, same detekt block. Method modules take
-    `api(project(":domain:core"))`. Only `:domain` keeps
-    `outputModuleName.set("domain")`, `packageTypescript` and `typescriptDist`.
+    kotlin-logging deps, same detekt block, and — on every module, not just
+    core — the `kotlin("plugin.allopen")` plugin with
+    `allOpen { annotation("io.github.theestimator.model.DomainEntity") }`. All
+    three concrete leaves (`FixedEstimationItem`, `TimeRelativeEstimationItem`,
+    `BucketedEstimationItem`) carry `@DomainEntity`, so omitting allOpen in a
+    method module silently makes them final.
+    Dependency wiring, and getting this wrong breaks the backend (see
+    description): method modules take `api(project(":domain:core"))`, and the
+    aggregator `:domain` takes `api(...)` on ALL THREE children. Never
+    `implementation` for either. Only `:domain` keeps
+    `outputModuleName.set("domain")`, `packageTypescript` and `typescriptDist`;
+    `:backend:implementation`'s build file should need no change.
   - |
     Move the sources, preserving package names — use `git mv` so history
     follows:
@@ -198,9 +237,14 @@ steps:
     `BucketMethodModuleTest`) at `StandardMethods.installAll()`. Preserve the
     existing `@AfterEach { clear(); installAll() }` discipline.
   - |
-    Wire static analysis and the aggregate build: each new module needs the
-    same detekt block (reports under its own `build/reports/detekt/`), and
-    `./gradlew staticAnalysis` must still pick them all up.
+    Wire static analysis: each new module needs the same detekt block
+    (reports under its own `build/reports/detekt/`), AND the root
+    `build.gradle.kts` `staticAnalysis` task must gain them — it currently
+    hardcodes `dependsOn(":domain:detekt", ":backend:implementation:detekt",
+    ":frontend:npmCheck", ":frontend:npmLintReport",
+    ":frontend:sarifHtmlReport")`, so add `:domain:core:detekt`,
+    `:domain:method-threepoint:detekt` and
+    `:domain:method-bucketsampled:detekt`.
   - |
     Verify the JS bundle survived the split — this is the riskiest part:
       ./gradlew :domain:clean :frontend:clean :domain:build
@@ -215,7 +259,15 @@ steps:
     changes "One Kotlin package per method" to "one Gradle MODULE per method,
     compiler-enforced", and records that `installStandardMethods` moved to the
     aggregator (so the registry no longer self-populates) plus the backend
-    `StartupEvent` bootstrap.
+    `StartupEvent` bootstrap. Also note the `api(...)` requirement, since a
+    future module added with `implementation` would break the backend.
+  - |
+    Refresh the two auto-memory entries this invalidates — both currently
+    describe a SINGLE `:domain` module and are loaded into every session:
+      ~/.claude/projects/<this-project>/memory/project_kmp_domain.md
+      ~/.claude/projects/<this-project>/memory/project_gradle_build.md
+    Update them to the core + per-method + aggregator layout (and the `api`
+    rule), keeping the one-fact-per-file format and the MEMORY.md index line.
   - |
     Build:
       ./gradlew :domain:build
@@ -254,10 +306,14 @@ validation:
   - |
     A cross-method import is now a COMPILE ERROR, not just a convention
     violation. Prove it rather than trusting the graph — inject one, confirm
-    the build fails, then remove it:
-      printf 'package io.github.theestimator.method.bucketsampled\nimport io.github.theestimator.method.threepoint.ThreePointMethodModule\nprivate val guard = ThreePointMethodModule()\n' > src/domain/method-bucketsampled/src/main/kotlin/CycleGuardProbe.kt
-      ! ./gradlew :domain:method-bucketsampled:compileKotlinJvm -q
-      rm src/domain/method-bucketsampled/src/main/kotlin/CycleGuardProbe.kt
+    the build fails, then remove it. The probe file MUST be deleted even if it
+    unexpectedly compiles, or it gets committed:
+      P=src/domain/method-bucketsampled/src/main/kotlin/CycleGuardProbe.kt
+      printf 'package io.github.theestimator.method.bucketsampled\nimport io.github.theestimator.method.threepoint.ThreePointMethodModule\nprivate val guard = ThreePointMethodModule()\n' > "$P"
+      ./gradlew :domain:method-bucketsampled:compileKotlinJvm -q; RC=$?
+      rm -f "$P"
+      test "$RC" -ne 0
+      test ! -f "$P"
   - |
     Detection and diff labels were inverted onto the leaf, so core is clean:
       grep -q "abstract val method" src/domain/core/src/main/kotlin/io/github/theestimator/model/EstimationItem.kt
@@ -274,11 +330,19 @@ validation:
       grep -q "Log.info" src/backend/implementation/src/main/kotlin/io/github/theestimator/method/MethodRegistryBootstrap.kt
   - |
     The frontend-facing JS bundle is unchanged in name and surface, and the
-    frontend itself was not edited:
+    frontend itself was not edited. Grepping the factory NAMES alone is not
+    enough — they live in the aggregator and would still be present even if
+    every leaf-class declaration fell out of the bundle — so also assert the
+    return types still resolve to a declared type, and let `:frontend:check`
+    (svelte-check) be the real gate:
       ./gradlew :domain:clean :domain:build
       test -f src/domain/build/typescript/domain-*-typescript.zip
-      unzip -p src/domain/build/typescript/domain-*-typescript.zip domain.d.mts | grep -q "createBucketedItem"
-      unzip -p src/domain/build/typescript/domain-*-typescript.zip domain.d.mts | grep -q "aggregateVotes"
+      unzip -p src/domain/build/typescript/domain-*-typescript.zip domain.d.mts > /tmp/t143.d.mts
+      grep -q "aggregateVotes" /tmp/t143.d.mts
+      grep -qE "export declare function createBucketedItem\(.*\): (BucketedEstimationItem|EstimationItem|EstimationNode);" /tmp/t143.d.mts
+      grep -qE "export declare function createFixedItem\(.*\): (FixedEstimationItem|EstimationItem|EstimationNode);" /tmp/t143.d.mts
+      grep -qE "declare (abstract )?class (EstimationNode|EstimationItem)" /tmp/t143.d.mts
+      ./gradlew :frontend:check
       git diff --quiet HEAD -- src/frontend/src/
   - |
     Detekt still covers every domain module:
@@ -292,15 +356,41 @@ validation:
       ./gradlew build
 
 outputs:
+  # NOTE: the bulk of the diff is a `git mv` of ~43 Kotlin files out of
+  # src/domain/src/main/kotlin (30 under model/i18n/service, 13 under method/)
+  # plus their tests, into the three new module directories below. Package
+  # names are unchanged, so those moves are not enumerated individually; the
+  # representative touched files are listed instead.
+  - moved: src/domain/src/main/kotlin/io/github/theestimator/{model,i18n,service}/** -> src/domain/core/src/main/kotlin/io/github/theestimator/{model,i18n,service}/**
+  - moved: src/domain/src/main/kotlin/io/github/theestimator/method/*.kt (SPI + registry) -> src/domain/core/src/main/kotlin/io/github/theestimator/method/
+  - moved: src/domain/src/main/kotlin/io/github/theestimator/method/threepoint/** -> src/domain/method-threepoint/src/main/kotlin/io/github/theestimator/method/threepoint/
+  - moved: src/domain/src/main/kotlin/io/github/theestimator/method/bucketsampled/** -> src/domain/method-bucketsampled/src/main/kotlin/io/github/theestimator/method/bucketsampled/
+  - moved: src/domain/src/test/kotlin/** -> the matching module's src/test/kotlin/**
   - created: src/domain/core/build.gradle.kts
   - created: src/domain/method-threepoint/build.gradle.kts
   - created: src/domain/method-bucketsampled/build.gradle.kts
   - created: src/domain/src/main/kotlin/io/github/theestimator/StandardMethods.kt
   - created: src/backend/implementation/src/main/kotlin/io/github/theestimator/method/MethodRegistryBootstrap.kt
+  - created: src/domain/core/src/main/kotlin/io/github/theestimator/model/LeafDiffField.kt
   - modified: settings.gradle.kts
+  - modified: build.gradle.kts
+  # Kotlin/JS granularity=whole-program — without it the split emits one .mjs
+  # per Gradle module and the frontend bundle breaks (see the KMP notes above).
+  - modified: gradle.properties
   - modified: src/domain/build.gradle.kts
-  - modified: src/backend/implementation/build.gradle.kts
-  - modified: src/domain/src/main/kotlin/io/github/theestimator/model/DomainFactory.kt
+  - modified: src/domain/src/main/kotlin/io/github/theestimator/DomainFactory.kt
+  # newId() and EstimationMethodRegistry.clear() had to go from `internal` to
+  # public: `internal` is module-scoped, and their users now sit in siblings.
+  - modified: src/domain/core/src/main/kotlin/io/github/theestimator/model/DomainId.kt
+  # Plain JUnit tests, so the StartupEvent bootstrap never fires — they install
+  # the standard methods explicitly.
+  - modified: src/backend/implementation/src/test/kotlin/io/github/theestimator/service/CsvExporterTreeTest.kt
+  - modified: src/backend/implementation/src/test/kotlin/io/github/theestimator/service/ExcelExporterTreeTest.kt
+  - modified: src/backend/implementation/src/test/kotlin/io/github/theestimator/service/ExcelImporterTreeTest.kt
+  # Aggregator-suite tests that call calculate() and relied on self-population.
+  - modified: src/domain/src/test/kotlin/io/github/theestimator/model/EstimationCalculatorInvariantsTest.kt
+  - modified: src/domain/src/test/kotlin/io/github/theestimator/model/EstimationVersionTreeTest.kt
+  - modified: src/domain/src/test/kotlin/io/github/theestimator/model/EstimationTotalsTest.kt
   - modified: src/domain/core/src/main/kotlin/io/github/theestimator/model/EstimationItem.kt
   - modified: src/domain/core/src/main/kotlin/io/github/theestimator/model/EstimationVersion.kt
   - modified: src/domain/core/src/main/kotlin/io/github/theestimator/model/mutation/DiffSummary.kt
