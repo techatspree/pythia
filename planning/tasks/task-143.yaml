@@ -1,0 +1,315 @@
+id: task-143
+phase: phase-15
+title: One Gradle module per estimation method
+depends_on: [task-142]
+description: |
+  Make the estimation-method boundary **compiler-enforced** by giving each
+  method its own Gradle module, instead of relying on the convention that
+  CLAUDE.md states today ("One Kotlin package per method — cross-package
+  references between methods are forbidden"). Nothing enforces that rule now;
+  a stray `import io.github.theestimator.method.threepoint.…` from the bucket
+  package compiles fine. After this task it does not.
+
+  This is an intermediate step **before task-106**: that task adds a second
+  session-support module and its own vote storage, so it is the moment the
+  method boundary starts carrying real weight. Land the structure first, while
+  only two small methods exist, rather than while adding a third moving part.
+  task-106's `depends_on` must be updated to include this task.
+
+  ## Current state
+
+  Everything lives in the single KMP module `:domain`
+  (`src/domain`, `commonMain` mapped to `src/main/kotlin`), which emits one
+  JVM jar for the backend and one `domain.mjs` / `domain.d.mts` bundle for the
+  frontend via `packageTypescript` → the `typescriptDist` configuration.
+
+  The convention already holds in one direction: neither
+  `…method.threepoint` nor `…method.bucketsampled` imports the other (verify
+  with the greps in step 1 — this is what makes the split tractable). What
+  blocks a naive split is the **other** direction: five places in core reach
+  down into the method packages, and each becomes a dependency cycle the
+  moment methods become modules that depend on core.
+
+    1. `method/EstimationMethodRegistry.kt` — `installStandardMethods()`
+       constructs `ThreePointMethodModule`, `BucketMethodModule`,
+       `ThreePointSessionSupport`, and runs from the object's `init {}` so the
+       registry self-populates on first touch.
+    2. `model/DomainFactory.kt` — the `@JsExport` factories
+       `createFixedItem` / `createTimeRelativeItem` / `createBucketedItem`
+       construct concrete leaf types from both method packages.
+    3. `model/EstimationVersion.kt` (~line 56) — `calculate()` detects the
+       method by leaf type: `if (leaves.any { it is BucketedEstimationItem })`.
+    4. `model/mutation/DiffSummary.kt` (~lines 153, 165, 186-187) — branches on
+       `is BucketedEstimationItem` / `is TimeRelativeEstimationItem` for field
+       diffs and for the `"BUCKETED"` / `"TIME_RELATIVE"` node-type label.
+    5. `EstimationMethodRegistry.clear()` + the `init {}` bootstrap are what
+       make `require(...)` work with zero configuration everywhere.
+
+  ## Target state
+
+  Four Gradle projects under `src/domain/`:
+
+  - **`:domain:core`** — `model`, `i18n`, `service`, and the SPI itself
+    (`EstimationMethod`, `EstimationMethodModule`,
+    `EstimationMethodSessionSupport`, `SessionVoteInput`, `SessionReduction`,
+    `EstimationMethodRegistry`). Depends on no method module.
+  - **`:domain:method-threepoint`** — depends on `:domain:core` only.
+  - **`:domain:method-bucketsampled`** — depends on `:domain:core` only.
+  - **`:domain`** — the **aggregator** that depends on all three. It owns
+    `DomainFactory` and the standard-method installation, and it is the module
+    the backend and frontend keep consuming. Its coordinates, its JS output
+    name (`domain`), its `packageTypescript` zip and its `typescriptDist`
+    configuration stay exactly as they are.
+
+  Package names do **not** change — only which Gradle project compiles them.
+  `io.github.theestimator.method.threepoint` simply now lives in
+  `src/domain/method-threepoint/src/main/kotlin/…`.
+
+  ## The four inversions (this is the actual work)
+
+  - **Method detection (3).** Give `EstimationItem` an abstract
+    `val method: EstimationMethod`, implemented by each concrete leaf. Then
+    `EstimationVersion.calculate()` reads `leaves.firstOrNull()?.method
+    ?: EstimationMethod.THREE_POINT_PERT` and imports no method package. This
+    matches "each method owns its leaf" and removes the type sniff.
+  - **Diff labels (4).** Give `EstimationItem` an abstract
+    `val nodeTypeLabel: String` returning `"FIXED"` / `"TIME_RELATIVE"` /
+    `"BUCKETED"`, and move the two method-specific field-diff branches behind
+    a leaf-level hook so `DiffSummary` stops branching on concrete types.
+    Keep the emitted diff strings byte-identical — `UndoServiceIT` and the
+    frontend history panel read them.
+  - **Factories (2).** Move `DomainFactory.kt` from `:domain:core` into the
+    aggregator `:domain`, which can see every method module. The frontend only
+    ever calls these functions and never names a leaf class (verified: its
+    only domain imports are `EstimationDefaults`, `SupportedLanguage`,
+    `EstimatorVote`, `aggregateVotes`, plus the `create*` factories in
+    `adapter.ts`), so the exported JS surface is unchanged.
+  - **Registration (1, 5).** `EstimationMethodRegistry` stays in core, but
+    `installStandardMethods()` moves to the aggregator (e.g.
+    `io.github.theestimator.StandardMethods.installAll()`) because only the
+    aggregator can see the concrete modules. **This removes the registry's
+    self-population `init {}`, which is a behavioural change and the main risk
+    in this task** — today `require(...)` works anywhere with zero setup.
+    Replace it with two explicit bootstraps:
+      * **Backend** — a Quarkus `@Observes StartupEvent` bean that calls
+        `installAll()`, mirroring `AuthProviderGuard`. Log INFO with the
+        installed methods.
+      * **Domain/JS** — the aggregator's `@JsExport` factory entry points call
+        an idempotent `installAll()` before first use, so the frontend needs no
+        new call and `adapter.ts` is untouched.
+      * **Tests** — `EstimationMethodRegistryTest`, `ThreePointMethodModuleTest`
+        and `ThreePointSessionSupportTest` currently rely on
+        `installStandardMethods()`; they move to the aggregator's test source
+        set or call `StandardMethods.installAll()`. Keep the existing
+        `@AfterEach { clear(); installAll() }` discipline — the registry is a
+        process-wide singleton and test class order is non-deterministic.
+
+  ## Kotlin/JS constraints specific to this change
+
+  - **Multi-module Kotlin/JS emits one `.mjs` per module.** `:domain`'s
+    `domain.mjs` will `import` sibling files for the method modules. The
+    existing `prepareTypescriptArtifacts` already globs `*.mjs` (plural) into
+    the zip, so they travel together into `$lib/domain/` and relative imports
+    resolve — but this must be **verified**, not assumed. If the aggregator
+    cannot produce a working single entry point, the fallback is to keep every
+    `@JsExport` declaration in the aggregator (which is already true after the
+    `DomainFactory` move) so the method modules export nothing to JS at all.
+  - Only `:domain` sets `outputModuleName.set("domain")`. Do NOT set it on the
+    method modules — two modules claiming the name `domain` would collide.
+  - **Sealed types cannot span modules** (or packages): `EstimationNode` stays
+    sealed in core with `EstimationGroup` + `EstimationItem` beside it, which
+    is unaffected because `EstimationItem` is `abstract` (task-113). Do not
+    try to seal anything across the new module boundary — for the same reason
+    `SessionVoteInput` / `SessionReduction` are not sealed (task-142).
+  - The super-property pitfall still applies: `super.<computed prop>`
+    infinite-loops on Kotlin/JS. Moving files must not turn an inlined formula
+    back into a `super.` call.
+
+  ## Behaviour must not change
+
+  This is a build-structure and dependency-direction refactor. No estimate,
+  export, diff string, or REST payload changes. `./gradlew build` and the
+  Playwright suite are the parity gates.
+
+  ## What does NOT belong in this task
+
+  - The bucket+sampled session module and its vote storage — task-106.
+  - Export dispatch by method — task-107.
+  - Renaming any package or any `@JsExport`ed symbol.
+
+steps:
+  - |
+    Confirm the starting assumption — no method package imports the other, so
+    only the core→method direction needs inverting:
+      grep -rn "method.bucketsampled" src/domain/src/main/kotlin/io/github/theestimator/method/threepoint/
+      grep -rn "method.threepoint" src/domain/src/main/kotlin/io/github/theestimator/method/bucketsampled/
+    Both must return nothing. If either hits, fix that cross-reference first.
+  - |
+    Invert method detection: add `abstract val method: EstimationMethod` to
+    `model/EstimationItem.kt`, implement it on `FixedEstimationItem`,
+    `TimeRelativeEstimationItem` and `BucketedEstimationItem`, and rewrite the
+    leaf-type sniff in `model/EstimationVersion.kt` (~line 56) to read it.
+    `EstimationVersion.kt` must no longer import any `…method.<method>` package.
+  - |
+    Invert the diff branches: add `abstract val nodeTypeLabel: String` to
+    `EstimationItem` (`"FIXED"` / `"TIME_RELATIVE"` / `"BUCKETED"`) and a
+    leaf-level hook for the two method-specific field diffs, then rewrite
+    `model/mutation/DiffSummary.kt` to use them. The emitted diff strings must
+    stay byte-identical.
+  - |
+    Create the Gradle projects. Register in `settings.gradle.kts`:
+      include(":domain:core", ":domain:method-threepoint", ":domain:method-bucketsampled")
+    with `projectDir` remapped under `src/domain/…` to match the existing
+    layout convention. Give each a `build.gradle.kts` modelled on the current
+    `src/domain/build.gradle.kts`: same KMP jvm+js targets, same
+    `commonMain` `kotlin.srcDir("src/main/kotlin")` / `jvmTest`
+    `kotlin.srcDir("src/test/kotlin")` mapping, same kotlinx-datetime +
+    kotlin-logging deps, same detekt block. Method modules take
+    `api(project(":domain:core"))`. Only `:domain` keeps
+    `outputModuleName.set("domain")`, `packageTypescript` and `typescriptDist`.
+  - |
+    Move the sources, preserving package names — use `git mv` so history
+    follows:
+      * `model/`, `i18n/`, `service/`, and `method/` SPI+registry files
+        (`EstimationMethod.kt`, `EstimationMethodModule.kt`,
+        `EstimationMethodSessionSupport.kt`, `SessionVoteInput.kt`,
+        `EstimationMethodRegistry.kt`) → `src/domain/core/src/main/kotlin/…`
+      * `method/threepoint/**` → `src/domain/method-threepoint/src/main/kotlin/…`
+      * `method/bucketsampled/**` → `src/domain/method-bucketsampled/src/main/kotlin/…`
+      * matching test files under each module's `src/test/kotlin/…`
+    `DomainFactory.kt` stays with the aggregator `:domain` (next step).
+  - |
+    Move `installStandardMethods()` out of `EstimationMethodRegistry` into a
+    new `StandardMethods` object in the aggregator, delete the registry's
+    self-populating `init {}`, and keep `clear()` clearing both maps. Keep
+    `DomainFactory.kt` in the aggregator and have its factory entry points
+    ensure `StandardMethods.installAll()` has run (idempotent).
+  - |
+    Add the backend bootstrap: a Quarkus `@Observes StartupEvent` bean at
+    `src/backend/implementation/src/main/kotlin/io/github/theestimator/method/MethodRegistryBootstrap.kt`
+    calling `StandardMethods.installAll()`, with `Log.info` naming the
+    installed methods (mirrors `AuthProviderGuard`). Point
+    `:backend:implementation` at the aggregator `:domain` as today — it should
+    need no other change.
+  - |
+    Fix up the domain tests: move each test beside its module, and repoint the
+    registry-dependent ones (`EstimationMethodRegistryTest`,
+    `ThreePointMethodModuleTest`, `ThreePointSessionSupportTest`,
+    `BucketMethodModuleTest`) at `StandardMethods.installAll()`. Preserve the
+    existing `@AfterEach { clear(); installAll() }` discipline.
+  - |
+    Wire static analysis and the aggregate build: each new module needs the
+    same detekt block (reports under its own `build/reports/detekt/`), and
+    `./gradlew staticAnalysis` must still pick them all up.
+  - |
+    Verify the JS bundle survived the split — this is the riskiest part:
+      ./gradlew :domain:clean :frontend:clean :domain:build
+    then confirm `domain.mjs` still exports the symbols the frontend imports
+    (`createVersion`, `createGroup`, `createFixedItem`,
+    `createTimeRelativeItem`, `createBucketedItem`, `createEstimationTotals`
+    as applicable, `EstimationDefaults`, `SupportedLanguage`, `EstimatorVote`,
+    `aggregateVotes`), and that any sibling `.mjs` files landed in the zip.
+  - |
+    Update CLAUDE.md: the "Architecture" project list gains the three new
+    Gradle projects; the "Pluggable estimation methods (SPI)" subsection
+    changes "One Kotlin package per method" to "one Gradle MODULE per method,
+    compiler-enforced", and records that `installStandardMethods` moved to the
+    aggregator (so the registry no longer self-populates) plus the backend
+    `StartupEvent` bootstrap.
+  - |
+    Build:
+      ./gradlew :domain:build
+      ./gradlew :backend:implementation:test
+      ./gradlew :frontend:check
+      ./gradlew build
+
+validation:
+  - |
+    The three new Gradle projects exist and are registered:
+      grep -q ":domain:core" settings.gradle.kts
+      grep -q ":domain:method-threepoint" settings.gradle.kts
+      grep -q ":domain:method-bucketsampled" settings.gradle.kts
+      test -f src/domain/core/build.gradle.kts
+      test -f src/domain/method-threepoint/build.gradle.kts
+      test -f src/domain/method-bucketsampled/build.gradle.kts
+      ./gradlew projects | grep -q "method-bucketsampled"
+  - |
+    Sources moved with package names intact:
+      test -f src/domain/method-threepoint/src/main/kotlin/io/github/theestimator/method/threepoint/ThreePointMethodModule.kt
+      test -f src/domain/method-bucketsampled/src/main/kotlin/io/github/theestimator/method/bucketsampled/BucketMethodModule.kt
+      test -f src/domain/core/src/main/kotlin/io/github/theestimator/method/EstimationMethodRegistry.kt
+      ! test -d src/domain/src/main/kotlin/io/github/theestimator/method/threepoint
+  - |
+    THE POINT OF THE TASK — core no longer reaches into any method package,
+    and the methods do not reach into each other:
+      ! grep -rq "io.github.theestimator.method.threepoint" src/domain/core/src/main/kotlin/
+      ! grep -rq "io.github.theestimator.method.bucketsampled" src/domain/core/src/main/kotlin/
+      ! grep -rq "method.bucketsampled" src/domain/method-threepoint/src/main/kotlin/
+      ! grep -rq "method.threepoint" src/domain/method-bucketsampled/src/main/kotlin/
+  - |
+    The dependency direction is declared, and core depends on no method module:
+      grep -q "domain:core" src/domain/method-threepoint/build.gradle.kts
+      grep -q "domain:core" src/domain/method-bucketsampled/build.gradle.kts
+      ! grep -q "method-threepoint\|method-bucketsampled" src/domain/core/build.gradle.kts
+  - |
+    A cross-method import is now a COMPILE ERROR, not just a convention
+    violation. Prove it rather than trusting the graph — inject one, confirm
+    the build fails, then remove it:
+      printf 'package io.github.theestimator.method.bucketsampled\nimport io.github.theestimator.method.threepoint.ThreePointMethodModule\nprivate val guard = ThreePointMethodModule()\n' > src/domain/method-bucketsampled/src/main/kotlin/CycleGuardProbe.kt
+      ! ./gradlew :domain:method-bucketsampled:compileKotlinJvm -q
+      rm src/domain/method-bucketsampled/src/main/kotlin/CycleGuardProbe.kt
+  - |
+    Detection and diff labels were inverted onto the leaf, so core is clean:
+      grep -q "abstract val method" src/domain/core/src/main/kotlin/io/github/theestimator/model/EstimationItem.kt
+      grep -q "nodeTypeLabel" src/domain/core/src/main/kotlin/io/github/theestimator/model/EstimationItem.kt
+      ! grep -q "BucketedEstimationItem" src/domain/core/src/main/kotlin/io/github/theestimator/model/EstimationVersion.kt
+      ! grep -q "BucketedEstimationItem" src/domain/core/src/main/kotlin/io/github/theestimator/model/mutation/DiffSummary.kt
+  - |
+    Registration moved to the aggregator and the backend bootstraps it
+    (the registry no longer self-populates):
+      ! grep -q "installStandardMethods" src/domain/core/src/main/kotlin/io/github/theestimator/method/EstimationMethodRegistry.kt
+      grep -rq "installAll" src/domain/src/main/kotlin/
+      test -f src/backend/implementation/src/main/kotlin/io/github/theestimator/method/MethodRegistryBootstrap.kt
+      grep -q "StartupEvent" src/backend/implementation/src/main/kotlin/io/github/theestimator/method/MethodRegistryBootstrap.kt
+      grep -q "Log.info" src/backend/implementation/src/main/kotlin/io/github/theestimator/method/MethodRegistryBootstrap.kt
+  - |
+    The frontend-facing JS bundle is unchanged in name and surface, and the
+    frontend itself was not edited:
+      ./gradlew :domain:clean :domain:build
+      test -f src/domain/build/typescript/domain-*-typescript.zip
+      unzip -p src/domain/build/typescript/domain-*-typescript.zip domain.d.mts | grep -q "createBucketedItem"
+      unzip -p src/domain/build/typescript/domain-*-typescript.zip domain.d.mts | grep -q "aggregateVotes"
+      git diff --quiet HEAD -- src/frontend/src/
+  - |
+    Detekt still covers every domain module:
+      ./gradlew :domain:core:detekt :domain:method-threepoint:detekt :domain:method-bucketsampled:detekt
+      test -f src/domain/core/build/reports/detekt/detekt.xml
+  - |
+    Parity: the full stack builds and the domain + backend suites pass:
+      ./gradlew :domain:build
+      ./gradlew :backend:implementation:test
+      ./gradlew :frontend:check
+      ./gradlew build
+
+outputs:
+  - created: src/domain/core/build.gradle.kts
+  - created: src/domain/method-threepoint/build.gradle.kts
+  - created: src/domain/method-bucketsampled/build.gradle.kts
+  - created: src/domain/src/main/kotlin/io/github/theestimator/StandardMethods.kt
+  - created: src/backend/implementation/src/main/kotlin/io/github/theestimator/method/MethodRegistryBootstrap.kt
+  - modified: settings.gradle.kts
+  - modified: src/domain/build.gradle.kts
+  - modified: src/backend/implementation/build.gradle.kts
+  - modified: src/domain/src/main/kotlin/io/github/theestimator/model/DomainFactory.kt
+  - modified: src/domain/core/src/main/kotlin/io/github/theestimator/model/EstimationItem.kt
+  - modified: src/domain/core/src/main/kotlin/io/github/theestimator/model/EstimationVersion.kt
+  - modified: src/domain/core/src/main/kotlin/io/github/theestimator/model/mutation/DiffSummary.kt
+  - modified: src/domain/core/src/main/kotlin/io/github/theestimator/method/EstimationMethodRegistry.kt
+  - modified: src/domain/method-threepoint/src/main/kotlin/io/github/theestimator/method/threepoint/FixedEstimationItem.kt
+  - modified: src/domain/method-threepoint/src/main/kotlin/io/github/theestimator/method/threepoint/TimeRelativeEstimationItem.kt
+  - modified: src/domain/method-bucketsampled/src/main/kotlin/io/github/theestimator/method/bucketsampled/BucketedEstimationItem.kt
+  - modified: src/domain/method-threepoint/src/test/kotlin/io/github/theestimator/method/threepoint/ThreePointMethodModuleTest.kt
+  - modified: src/domain/method-threepoint/src/test/kotlin/io/github/theestimator/method/threepoint/ThreePointSessionSupportTest.kt
+  - modified: src/domain/method-bucketsampled/src/test/kotlin/io/github/theestimator/method/bucketsampled/BucketMethodModuleTest.kt
+  - modified: src/domain/core/src/test/kotlin/io/github/theestimator/method/EstimationMethodRegistryTest.kt
+  - modified: CLAUDE.md

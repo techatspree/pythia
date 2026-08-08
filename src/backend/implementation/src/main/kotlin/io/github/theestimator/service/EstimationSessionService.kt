@@ -13,7 +13,10 @@ import io.github.theestimator.domain.session.SessionStatus
 import io.github.theestimator.domain.session.SessionVote
 import io.github.theestimator.method.EstimationMethodRegistry
 import io.github.theestimator.method.EstimationMethodSessionSupport
+import io.github.theestimator.method.threepoint.PertReduction
+import io.github.theestimator.method.threepoint.PertVoteInput
 import io.github.theestimator.model.EstimatorVote
+import io.github.theestimator.model.VoteAggregate
 import io.github.theestimator.repository.DraftEstimationVersionRepository
 import io.github.theestimator.repository.EstimationRepository
 import io.github.theestimator.repository.EstimationSessionRepository
@@ -259,9 +262,7 @@ class EstimationSessionService(
 
         val votes = effectiveVotes(item)
         if (votes.isEmpty()) throw conflict("No votes to finalize item ${item.position} of session $id")
-        val aggregate = sessionSupport(session).reduce(
-            votes.map { EstimatorVote(it.minEffort, it.expectedEffort, it.maxEffort) }
-        )
+        val aggregate = reducePert(sessionSupport(session), votes)
 
         item.finalMinEffort = aggregate.meanMin
         item.finalExpectedEffort = aggregate.meanExpected
@@ -374,6 +375,24 @@ class EstimationSessionService(
     private fun sessionSupport(session: EstimationSession): EstimationMethodSessionSupport =
         EstimationMethodRegistry.requireSession(session.estimation?.method!!)
 
+    // The only place that assumes the stored votes are a THREE_POINT_PERT
+    // triple. session_votes has no bucket column until task-106 extends it, so
+    // every persisted vote is still a triple regardless of the estimation's
+    // method; this wraps them into the SPI's method-neutral input and unwraps
+    // the PERT reduction back out. When bucket voting lands, this is the seam
+    // that grows a second branch.
+    private fun reducePert(
+        support: EstimationMethodSessionSupport,
+        votes: List<SessionVote>
+    ): VoteAggregate {
+        val reduction = support.reduce(
+            votes.map { PertVoteInput(EstimatorVote(it.minEffort, it.expectedEffort, it.maxEffort)) }
+        )
+        val pert = reduction as? PertReduction
+            ?: error("Expected a PERT reduction from ${support.method}, got ${reduction::class.simpleName}")
+        return pert.aggregate
+    }
+
     private fun buildDto(session: EstimationSession): SessionDto {
         val descriptions = draftLeafDescriptions(session)
         val participantNames = session.participants.associate { it.subjectId to it.displayName }
@@ -416,9 +435,7 @@ class EstimationSessionService(
             null
         }
         val aggregate: AggregateDto? = if (revealed && votes.isNotEmpty()) {
-            support.reduce(
-                votes.map { EstimatorVote(it.minEffort, it.expectedEffort, it.maxEffort) }
-            ).toDto()
+            reducePert(support, votes).toDto()
         } else {
             null
         }

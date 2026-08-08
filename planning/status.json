@@ -849,10 +849,22 @@
       "notes": "Session room has no way back to the app and its top bar differs from the main GUI; introduce one consistent top navigation menu across all routes"
     },
     "task-142": {
+      "status": "done",
+      "started_at": "2026-08-08T12:51:29+00:00",
+      "completed_at": "2026-08-08T13:02:45+00:00",
+      "notes": "Generalise the session SPI to a sealed vote-input/reduction hierarchy so a second estimation method can implement it"
+    },
+    "task-143": {
       "status": "pending",
       "started_at": null,
       "completed_at": null,
-      "notes": "Generalise the session SPI to a sealed vote-input/reduction hierarchy so a second estimation method can implement it"
+      "notes": "Split each estimation method into its own Gradle module so cross-method and core-to-method dependencies are compiler-enforced instead of convention-enforced"
+    },
+    "task-144": {
+      "status": "pending",
+      "started_at": null,
+      "completed_at": null,
+      "notes": "Moderator cannot pause or end an estimation session early; add a suspended (resumable) state and an early-termination state, keeping every finalized item's write-back"
     }
   }
 }

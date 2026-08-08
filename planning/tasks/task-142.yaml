@@ -32,14 +32,14 @@ description: |
   parameter type nor the return type fits. This task changes the shape; it
   changes no behaviour.
 
-  ## Target state — sealed hierarchy, not generics
+  ## Target state — marker-interface hierarchy, not generics
 
-  Two domain-internal sealed interfaces in `io.github.theestimator.method`, and a
+  Two domain-internal marker interfaces in `io.github.theestimator.method`, and a
   non-generic SPI:
 
   ```kotlin
-  sealed interface SessionVoteInput
-  sealed interface SessionReduction
+  interface SessionVoteInput
+  interface SessionReduction
 
   interface EstimationMethodSessionSupport {
       val method: EstimationMethod
@@ -47,15 +47,26 @@ description: |
   }
   ```
 
-  **Why sealed rather than `EstimationMethodSessionSupport<I, R>`:** the
+  **Why marker types rather than `EstimationMethodSessionSupport<I, R>`:** the
   registry stores every support in one
   `Map<EstimationMethod, EstimationMethodSessionSupport>`. A generic interface
   erases to `*` in that map, so `requireSession(method)` would hand back a
   star-projected type and every call site would need an unchecked cast — the
-  compiler could no longer check the pairing at all. With sealed types the map
-  stays homogeneous and type-safe, and a `when` over a `SessionReduction`
-  subtype is exhaustive. The cost is one cast on the result at the call site,
-  which is checked and fails loudly.
+  compiler could no longer check the pairing at all. With marker types the map
+  stays homogeneous and type-safe. The cost is one cast on the result at the
+  call site, which is checked and fails loudly.
+
+  **Why NOT `sealed`** (verified against the compiler, not assumed): sealing
+  these would add exhaustiveness, but Kotlin requires a sealed type's direct
+  subtypes to live in the **same package**, while each method owns its own
+  package (`…method.threepoint`, `…method.bucketsampled`) per the "one Kotlin
+  package per method" rule. The two are mutually exclusive — declaring the
+  subtypes in a method package fails with *"A class can only extend a sealed
+  class or interface declared in the same package."* The package rule is the
+  load-bearing architectural constraint, so these stay plain interfaces, and
+  exhaustiveness is replaced by the contract that `reduce` must `error(…)` on
+  an input subtype it does not handle. Record this in the KDoc so nobody
+  "tightens" it back to `sealed`.
 
   PERT's concrete types live in its own package (`…method.threepoint`), per the
   "one Kotlin package per method" rule:
@@ -106,10 +117,12 @@ steps:
     Add
     `src/domain/src/main/kotlin/io/github/theestimator/method/SessionVoteInput.kt`
     declaring BOTH marker types:
-      sealed interface SessionVoteInput
-      sealed interface SessionReduction
-    Domain-internal — no `@JsExport`. KDoc why sealed beats generics here
-    (registry erasure), so a later reader does not "simplify" it back.
+      interface SessionVoteInput
+      interface SessionReduction
+    Domain-internal — no `@JsExport`. KDoc BOTH decisions so a later reader
+    does not undo either: why marker types beat generics (registry erasure),
+    and why they are deliberately not `sealed` (a sealed type's subtypes must
+    share its package, which collides with one-package-per-method).
   - |
     Widen the SPI in
     `src/domain/src/main/kotlin/io/github/theestimator/method/EstimationMethodSessionSupport.kt`
@@ -166,11 +179,14 @@ steps:
 
 validation:
   - |
-    Sealed marker types and PERT subtypes exist:
+    Marker types and PERT subtypes exist. They must NOT be `sealed` — a sealed
+    type's subtypes must share its package, which collides with
+    one-package-per-method (the compiler rejects it outright):
       test -f src/domain/src/main/kotlin/io/github/theestimator/method/SessionVoteInput.kt
       test -f src/domain/src/main/kotlin/io/github/theestimator/method/threepoint/PertSessionTypes.kt
-      grep -q "sealed interface SessionVoteInput" src/domain/src/main/kotlin/io/github/theestimator/method/SessionVoteInput.kt
-      grep -q "sealed interface SessionReduction" src/domain/src/main/kotlin/io/github/theestimator/method/SessionVoteInput.kt
+      grep -q "^interface SessionVoteInput" src/domain/src/main/kotlin/io/github/theestimator/method/SessionVoteInput.kt
+      grep -q "^interface SessionReduction" src/domain/src/main/kotlin/io/github/theestimator/method/SessionVoteInput.kt
+      ! grep -q "sealed interface Session" src/domain/src/main/kotlin/io/github/theestimator/method/SessionVoteInput.kt
   - |
     The SPI is widened to the sealed types and no longer names the PERT types
     in its signature:

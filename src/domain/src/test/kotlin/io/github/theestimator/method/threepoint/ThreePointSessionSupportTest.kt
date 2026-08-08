@@ -2,11 +2,13 @@ package io.github.theestimator.method.threepoint
 
 import io.github.theestimator.method.EstimationMethod
 import io.github.theestimator.method.EstimationMethodRegistry
+import io.github.theestimator.method.SessionVoteInput
 import io.github.theestimator.model.EstimatorVote
 import io.github.theestimator.model.VoteAggregation
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNotNull
 import org.junit.jupiter.api.Assertions.assertSame
+import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Test
 
 // NOTE: this class deliberately never calls EstimationMethodRegistry.clear().
@@ -19,11 +21,19 @@ class ThreePointSessionSupportTest {
     private val support = ThreePointSessionSupport()
     private val delta = 0.000001
 
-    private val votes = listOf(
+    private val triples = listOf(
         EstimatorVote(1.0, 3.0, 8.0),
         EstimatorVote(2.0, 5.0, 9.0),
         EstimatorVote(3.0, 4.0, 10.0)
     )
+
+    private val votes: List<SessionVoteInput> = triples.map { PertVoteInput(it) }
+
+    /** Stands in for another method's vote shape (bucket+sampled, task-106). */
+    private object ForeignVoteInput : SessionVoteInput
+
+    private fun reduced(inputs: List<SessionVoteInput>) =
+        (support.reduce(inputs) as PertReduction).aggregate
 
     @Test
     fun `reduce reports the PERT method`() {
@@ -32,8 +42,8 @@ class ThreePointSessionSupportTest {
 
     @Test
     fun `reduce is identical to the domain VoteAggregation for the same input`() {
-        val expected = VoteAggregation.aggregate(votes)
-        val actual = support.reduce(votes)
+        val expected = VoteAggregation.aggregate(triples)
+        val actual = reduced(votes)
 
         assertEquals(expected.meanMin, actual.meanMin, delta)
         assertEquals(expected.meanExpected, actual.meanExpected, delta)
@@ -49,7 +59,17 @@ class ThreePointSessionSupportTest {
 
     @Test
     fun `reduce handles the empty vote list like the domain reducer`() {
-        assertEquals(VoteAggregation.aggregate(emptyList()), support.reduce(emptyList()))
+        assertEquals(VoteAggregation.aggregate(emptyList()), reduced(emptyList()))
+    }
+
+    @Test
+    fun `reduce rejects a foreign vote input instead of filtering it away`() {
+        // Silently dropping it would average the remaining votes and return a
+        // plausible but wrong group estimate.
+        val mixed = listOf(PertVoteInput(triples[0]), ForeignVoteInput)
+
+        assertThrows(IllegalStateException::class.java) { support.reduce(mixed) }
+        assertThrows(IllegalStateException::class.java) { support.reduce(listOf(ForeignVoteInput)) }
     }
 
     @Test
