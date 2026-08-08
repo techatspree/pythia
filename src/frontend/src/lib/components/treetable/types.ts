@@ -50,5 +50,10 @@ export type TreeTableProps<T> = {
 	 *  are hidden. Default 900. */
 	collapseBreakpointPx?: number;
 	footer?: Snippet<[T[]]>;
-	initialCollapsed?: Set<string>;
+	/** Whether a row starts collapsed. A RULE, not a one-time seed: it is
+	 *  consulted for every row the user has not toggled, so a row that only
+	 *  appears later obeys it too. Expand/collapse itself stays private to the
+	 *  TreeTable — the caller states the default, the user overrides it.
+	 *  Default: everything expanded. */
+	defaultCollapsed?: (node: T) => boolean;
 };

@@ -11,8 +11,9 @@ import io.github.theestimator.domain.session.SessionParticipant
 import io.github.theestimator.domain.session.SessionPhase
 import io.github.theestimator.domain.session.SessionStatus
 import io.github.theestimator.domain.session.SessionVote
+import io.github.theestimator.method.EstimationMethodRegistry
+import io.github.theestimator.method.EstimationMethodSessionSupport
 import io.github.theestimator.model.EstimatorVote
-import io.github.theestimator.model.VoteAggregation
 import io.github.theestimator.repository.DraftEstimationVersionRepository
 import io.github.theestimator.repository.EstimationRepository
 import io.github.theestimator.repository.EstimationSessionRepository
@@ -35,8 +36,10 @@ import java.util.UUID
 
 // HTTP control plane for collaborative estimation sessions (task-064). Drives
 // the two-phase Delphi lifecycle on top of the task-063 persistence. Aggregation
-// is NEVER computed here — it is delegated to the domain VoteAggregation
-// (task-062). Every mutation fires SessionEventPublisher so task-065 can push.
+// is NEVER computed here — it is delegated to the estimation method's
+// EstimationMethodSessionSupport, resolved from the domain
+// EstimationMethodRegistry by the session's estimation method.
+// Every mutation fires SessionEventPublisher so task-065 can push.
 // Building the DTO happens inside the transaction (lazy graph is loaded here).
 // The lifecycle is one cohesive service (many small methods) with DI-injected
 // collaborators and guard-clause validation, so TooManyFunctions /
@@ -161,7 +164,10 @@ class EstimationSessionService(
         session.currentItemIndex = 0
         session.currentPhase = SessionPhase.PHASE1
         currentItem(session)?.let { it.status = SessionItemStatus.PHASE1 }
-        Log.info("Started session $id (estimation ${session.estimation?.id})")
+        Log.info(
+            "Started session $id (estimation ${session.estimation?.id}, " +
+                "method ${session.estimation?.method})"
+        )
         eventPublisher.published(id.toString())
         return buildDto(session)
     }
@@ -253,9 +259,7 @@ class EstimationSessionService(
 
         val votes = effectiveVotes(item)
         if (votes.isEmpty()) throw conflict("No votes to finalize item ${item.position} of session $id")
-        // THREE_POINT_PERT reduction — task-105 later reroutes this through the
-        // session SPI (EstimationMethodRegistry.requireSession(method).reduce).
-        val aggregate = VoteAggregation.aggregate(
+        val aggregate = sessionSupport(session).reduce(
             votes.map { EstimatorVote(it.minEffort, it.expectedEffort, it.maxEffort) }
         )
 
@@ -364,9 +368,17 @@ class EstimationSessionService(
         return session
     }
 
+    // The session's estimation method decides how votes reduce to a group
+    // estimate. A session without an estimation is a data bug, not a PERT
+    // session, so this fails loudly rather than defaulting.
+    private fun sessionSupport(session: EstimationSession): EstimationMethodSessionSupport =
+        EstimationMethodRegistry.requireSession(session.estimation?.method!!)
+
     private fun buildDto(session: EstimationSession): SessionDto {
         val descriptions = draftLeafDescriptions(session)
         val participantNames = session.participants.associate { it.subjectId to it.displayName }
+        // Resolved once per DTO build, not once per item.
+        val support = sessionSupport(session)
         return SessionDto(
             id = session.id!!,
             title = session.title ?: "",
@@ -376,7 +388,7 @@ class EstimationSessionService(
             currentItemIndex = session.currentItemIndex,
             currentPhase = session.currentPhase,
             moderatorEstimates = session.moderatorEstimates,
-            items = session.items.map { itemDto(it, descriptions, participantNames) },
+            items = session.items.map { itemDto(it, descriptions, participantNames, support) },
             participants = session.participants.map {
                 ParticipantDto(it.subjectId ?: "", it.displayName, it.participantRole, it.agreed)
             }
@@ -386,7 +398,8 @@ class EstimationSessionService(
     private fun itemDto(
         item: SessionItem,
         descriptions: Map<String, String?>,
-        participantNames: Map<String?, String?>
+        participantNames: Map<String?, String?>,
+        support: EstimationMethodSessionSupport
     ): SessionItemDto {
         val revealed = item.status == SessionItemStatus.PHASE2 || item.status == SessionItemStatus.FINALIZED
         val votes = effectiveVotes(item)
@@ -403,7 +416,7 @@ class EstimationSessionService(
             null
         }
         val aggregate: AggregateDto? = if (revealed && votes.isNotEmpty()) {
-            VoteAggregation.aggregate(
+            support.reduce(
                 votes.map { EstimatorVote(it.minEffort, it.expectedEffort, it.maxEffort) }
             ).toDto()
         } else {

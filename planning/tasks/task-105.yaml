@@ -1,7 +1,7 @@
 id: task-105
 phase: phase-15
 title: Session SPI + PERT session-support module
-depends_on: [task-062, task-064, task-101]
+depends_on: [task-062, task-064, task-097, task-098]
 description: |
   Refactor the phase-11 collaborative-estimation-session code so
   per-method behaviour lives behind a
@@ -9,23 +9,43 @@ description: |
   PERT session flow as the `THREE_POINT_PERT` implementation
   without changing session UX for existing PERT estimations.
 
-  ## Prerequisite — BLOCKED until phase-11 is implemented
+  ## Current state — the session feature EXISTS; this task refactors it
 
-  This task **refactors existing collaborative-session code; it does not
-  create the session feature.** That feature (phase-11, tasks 062–067) is
-  currently unimplemented — there is no `EstimationSession` / estimator-
-  vote / session-reducer code anywhere in `src/`. task-105 therefore
-  cannot start until at least:
-    * **task-062** — the domain estimator-vote aggregation math (the
-      pure-function core this task extracts into
-      `ThreePointSessionSupport.reduce`), and
-    * **task-064** — the backend session lifecycle service + REST API
-      (the reduction call site this task reroutes through the registry)
-  are done. Do NOT run `/implement-task task-105` before those exist; the
-  "grep for the phase-11 code / locate the reducer call site" steps below
-  return nothing today.
+  Phase-11 (tasks 062–067) is **done**. The code this task reroutes is
+  already in place, so the "locate the reducer" work is a read, not a
+  search. The three concrete call sites are:
 
-  ## Frozen decisions (from task-096)
+    * `src/backend/implementation/src/main/kotlin/io/github/theestimator/service/EstimationSessionService.kt`
+      **~line 258** (`finalizeCurrent`) — reduces the effective votes and
+      writes `meanMin/meanExpected/meanMax` back onto the `SessionItem`.
+    * the same file, **~line 406**, inside `private fun itemDto(item,
+      descriptions, participantNames)` (declared ~line 386) — reduces again
+      to populate `SessionItemDto.aggregate` once the item is revealed.
+    * `src/domain/src/main/kotlin/io/github/theestimator/model/DomainFactory.kt`
+      **~line 88** — `aggregateVotes(votes: Array<EstimatorVote>)`, the
+      `@JsExport`ed bridge the frontend `PhaseTwoPanel.svelte` calls.
+
+  Both backend sites call `VoteAggregation.aggregate(...)` directly. Only
+  the two BACKEND sites are rerouted here (see scope note below).
+
+  Two shapes of the existing code to plan around:
+
+    * **`itemDto` cannot see the estimation.** Its three parameters are
+      `item` / `descriptions` / `participantNames` — no session, no
+      estimation. Its only caller is `buildDto` (~line 379,
+      `session.items.map { itemDto(it, descriptions, participantNames) }`),
+      which DOES hold the session. So rerouting this site means threading
+      the resolved `EstimationMethodSessionSupport` (or the
+      `EstimationMethod`) in as a fourth parameter from `buildDto`. Resolve
+      it once per `buildDto` call, not once per item.
+    * **`EstimationSession.estimation` is nullable** (`var estimation:
+      Estimation? = null`, `EstimationSession.kt:27`). Follow the file's
+      existing convention — `buildDto` already does `session.estimation?.id!!`
+      — so `session.estimation?.method!!` is consistent. Do not silently
+      default to `THREE_POINT_PERT` on null; a session without an
+      estimation is a bug, not a PERT session.
+
+  ## Frozen decisions (from task-096, reconciled with the shipped code)
 
   - **Where the SPI lives.** In `:domain`, package
     `io.github.theestimator.method` (same package as
@@ -35,105 +55,147 @@ description: |
     editor/calculation have different implementation profiles
     (session support is inherently multi-estimator + stateful);
     keeping them as sibling SPIs avoids over-general interfaces.
-  - **Interface shape.**
+  - **Interface shape — REUSE the existing vote types, do not invent
+    parallel ones.** task-096 sketched new `EstimatorInput` /
+    `SessionResult` common types. Do **not** create them: task-062 already
+    shipped `io.github.theestimator.model.EstimatorVote` and `VoteAggregate`,
+    they are `@JsExport`ed, and they are load-bearing in four places —
+    `EstimationSessionService` (both call sites), `rest/dto/SessionDtos.kt`
+    (`VoteAggregate.toDto()`), `PhaseTwoPanel.svelte` (via
+    `aggregateVotes`), and `VoteAggregationTest`. Parallel types would
+    either duplicate the reduction (violating single-source-of-truth) or
+    force an unplanned rename cascade through the wire DTOs and the
+    frontend. The SPI is therefore:
       ```kotlin
       interface EstimationMethodSessionSupport {
         val method: EstimationMethod
-        fun reduce(
-          input: List<EstimatorInput>
-        ): SessionResult
+        fun reduce(votes: List<EstimatorVote>): VoteAggregate
       }
       ```
-    where `EstimatorInput` and `SessionResult` are new common
-    types in `io.github.theestimator.method`. PERT's `EstimatorInput`
-    carries a three-point per work item; PERT's `SessionResult`
-    is a per-work-item averaged three-point + a per-work-item
-    accepted flag. Concrete shapes are chosen during
-    implementation — keep them minimal.
-  - **Registry.** Extend `EstimationMethodRegistry` with a
-    `registerSessionSupport(module)` and a `requireSession(method)`
-    accessor. `installStandardMethods()` registers PERT's
-    session support alongside its module.
-  - **PERT parity.** The existing PERT session code (phase-11
-    tasks 062–067) already does exactly this reduction — extract
-    the pure-function core (given per-estimator three-point
-    inputs, compute the group's three-point) into
-    `ThreePointSessionSupport.reduce` in the PERT package
-    `io.github.theestimator.method.threepoint`. The rest of the
-    session flow (persistence, live-updates over websockets,
-    UI) stays where it is; only the reduction call site is
-    swapped to go through
-    `EstimationMethodRegistry.requireSession(method).reduce(...)`.
-  - **Backend routing.** Locate the current session reducer call
-    site (grep for the phase-11 code) and route through the
-    registry. Log INFO on session start with method + estimation
-    id.
-  - **Frontend routing.** Same as backend: session UI components
-    delegate to the method's registered support where behaviour
-    diverges. In this task, PERT's UI stays intact — the
-    dispatch is invisible to the user for PERT.
-  - **Kotlin/JS pitfall.** No `super.<computed prop>` usages
-    should appear in the session code.
-  - **CLAUDE.md.** Document the session SPI as a second SPI in the
-    existing **"Pluggable estimation methods (SPI)"** subsection (there is
-    no "Collaborative Estimation Sessions" subsection) — a one-line note
-    that `EstimationMethodSessionSupport` is a sibling SPI to
-    `EstimationMethodModule`, registered via
-    `EstimationMethodRegistry.registerSessionSupport` /
-    `requireSession`.
+    When task-106 introduces the bucket+sampled vote shape (a per-item
+    bucket assignment, which does not fit a three-point triple), the
+    signature generalises **then** — with a real second implementation to
+    generalise against. Do not speculatively erase it now.
+  - **Registry.** Extend `EstimationMethodRegistry` with
+    `registerSessionSupport(support)`, `getSession(method)` and
+    `requireSession(method)` (throws, mirroring the existing `require`).
+    `installStandardMethods()` registers PERT's session support alongside
+    its module; the existing test-only `clear()` must clear the new map too.
+  - **PERT parity.** `VoteAggregation.aggregate` in
+    `io.github.theestimator.model` IS the pure reduction already. Keep it
+    where it is (the frontend and `VoteAggregationTest` reference it) and
+    have `ThreePointSessionSupport.reduce` in
+    `io.github.theestimator.method.threepoint` **delegate** to it. This task
+    adds a dispatch seam; it does not move or rewrite the math. The rest of
+    the session flow (persistence, websocket push, UI) stays untouched.
+  - **Backend routing.** Both `EstimationSessionService` call sites go
+    through `EstimationMethodRegistry.requireSession(estimation.method).reduce(...)`.
+    The method comes off the session's `Estimation` row
+    (`session.estimation?.method!!`); for `itemDto` it arrives as a new
+    parameter from `buildDto` (see "Current state"). `start(...)` already
+    logs INFO at line 164 — `Log.info("Started session $id (estimation
+    ${session.estimation?.id})")` — so EXTEND that existing line with the
+    method rather than adding a second statement.
+  - **Kotlin/JS pitfall.** No `super.<computed prop>` usages in the new
+    session code. The SPI and registry stay domain-internal — only the
+    `EstimationMethod` enum is `@JsExport`ed (see CLAUDE.md).
 
   ## What does NOT belong in this task
 
+  - **Frontend dispatch.** `PhaseTwoPanel.svelte` keeps calling
+    `aggregateVotes(...)` unchanged. Routing the JS side through the
+    registry would need a new `@JsExport` bridge in `DomainFactory.kt`
+    (the SPI itself is domain-internal, and an exported bridge must take
+    `Array<…>`, not `List<…>` — the known Kotlin/JS list-param pitfall).
+    There is no user-visible divergence for PERT, so that bridge lands in
+    **task-106**, where a second method actually diverges. No file under
+    `src/frontend/` changes in this task.
   - Bucket+sampled session behaviour — task-106.
 
 steps:
   - |
-    Locate phase-11 session code:
-      grep -r "EstimationSession\|EstimatorInput\|EstimatorVote" src/ --include='*.kt' | head
-    Read the current reduction call site.
+    Read the three call sites named in "Current state" above:
+      src/backend/implementation/src/main/kotlin/io/github/theestimator/service/EstimationSessionService.kt
+      src/domain/src/main/kotlin/io/github/theestimator/model/VoteAggregation.kt
+    Confirm the reduction is `VoteAggregation.aggregate(List<EstimatorVote>) -> VoteAggregate`.
   - |
     Add
     `src/domain/src/main/kotlin/io/github/theestimator/method/EstimationMethodSessionSupport.kt`
-    with the interface plus supporting common types
-    (`EstimatorInput`, `SessionResult`). Keep them minimal —
-    extend only as concrete methods need.
+    with the interface exactly as frozen above. It imports
+    `EstimatorVote` / `VoteAggregate` from `io.github.theestimator.model` —
+    do NOT declare new `EstimatorInput` / `SessionResult` types. Keep the
+    interface domain-internal (no `@JsExport`).
   - |
-    Extend `EstimationMethodRegistry`:
-      * `registerSessionSupport(module: EstimationMethodSessionSupport)`
+    Extend `EstimationMethodRegistry` with a second map:
+      * `registerSessionSupport(support: EstimationMethodSessionSupport)`
       * `getSession(method): EstimationMethodSessionSupport?`
-      * `requireSession(method): EstimationMethodSessionSupport`
-        (throws)
-      * `installStandardMethods()` also registers PERT session
-        support.
+      * `requireSession(method): EstimationMethodSessionSupport` (throws,
+        mirroring the existing `require`)
+      * `installStandardMethods()` also registers `ThreePointSessionSupport()`
+      * the existing internal `clear()` clears the session map too
   - |
     Add
     `src/domain/src/main/kotlin/io/github/theestimator/method/threepoint/ThreePointSessionSupport.kt`
-    implementing the SPI: `reduce(inputs) → SessionResult` with
-    the PERT reduction from the current phase-11 code.
+    implementing the SPI. `reduce` delegates to
+    `VoteAggregation.aggregate(votes)`. Add a `KotlinLogging.logger {}`
+    lambda-form debug line naming the method and vote count (the math's own
+    debug line already lives in `VoteAggregation`, so keep this one thin).
   - |
-    Refactor the backend session code to call
-    `EstimationMethodRegistry.requireSession(estimation.method).reduce(...)`
-    instead of the current in-place PERT reduction. Log INFO on
-    session start with method + estimation id.
+    Reroute BOTH `EstimationSessionService` call sites through
+    `EstimationMethodRegistry.requireSession(session.estimation?.method!!).reduce(...)`,
+    replacing the direct `VoteAggregation.aggregate(...)` calls:
+      * `finalizeCurrent` — has the session in scope; resolve inline.
+      * `itemDto` — has NO access to the session or estimation. Add a
+        parameter (the resolved `EstimationMethodSessionSupport`) and pass
+        it from its only caller `buildDto`, resolving once per `buildDto`
+        rather than once per item.
+    Drop the now-unused `VoteAggregation` / `EstimatorVote` imports if the
+    reroute leaves them dangling. Delete the obsolete "task-105 later
+    reroutes this" comments (file header ~line 38 and above the finalize
+    call site ~line 256). Extend the EXISTING `Log.info` in `start(...)`
+    (line 164) with the estimation method — do not add a second statement.
   - |
     Add domain unit tests in the JVM `src/test` source set (JUnit 5,
     `org.junit.jupiter.api` — the `:domain` module has NO `commonTest`),
     at
     `src/domain/src/test/kotlin/io/github/theestimator/method/threepoint/ThreePointSessionSupportTest.kt`,
-    mirroring `ThreePointMethodModuleTest`.
+    mirroring `ThreePointMethodModuleTest`. Assert `reduce` is byte-identical
+    to `VoteAggregation.aggregate` for the same input, and that
+    `EstimationMethodRegistry.requireSession(THREE_POINT_PERT)` resolves.
+    REGISTRY-TEST RACE: the registry is a process-wide singleton and other
+    test classes call `clear()` (`ThreePointMethodModuleTest:19`,
+    `EstimationMethodRegistryTest`), while `BucketMethodModuleTest:23`
+    documents avoiding `clear()` precisely because it "would empty it
+    mid-read and race". Class order is non-deterministic, so this test must
+    follow `ThreePointMethodModuleTest`'s pattern — `@AfterEach { clear();
+    installStandardMethods() }` — or not call `clear()` at all.
   - |
-    Add a backend `@QuarkusTest` that runs a full PERT session
-    round-trip (via the existing session integration harness) —
-    parity check to prove behaviour is unchanged.
+    Parity check — do NOT write a new round-trip IT. The existing
+    `src/backend/implementation/src/test/kotlin/io/github/theestimator/rest/SessionResourceIT.kt`
+    already covers it: `full happy path — create, vote, reveal, revise,
+    finalize writes back and advances` asserts the finalized mean triple
+    (2/4/6) reaches the draft leaf. Confirm it passes **unchanged** and do
+    not weaken its assertions — that is the proof PERT behaviour is
+    identical after the reroute.
   - |
-    In `CLAUDE.md`'s "Pluggable estimation methods (SPI)" subsection, add
-    a one-line note that `EstimationMethodSessionSupport` is a sibling SPI
-    (registered via `registerSessionSupport` / `requireSession`).
+    Docs — two CLAUDE.md edits:
+      * in "Pluggable estimation methods (SPI)", add a one-line note that
+        `EstimationMethodSessionSupport` is a sibling SPI to
+        `EstimationMethodModule` (domain-internal, not `@JsExport`ed),
+        registered via `registerSessionSupport` / `requireSession`.
+      * in the "Collaborative estimation sessions" REST paragraph, rewrite
+        the trailing forward reference "(task-062; task-105 will reroute
+        this call site through the session SPI)" to state that the
+        reduction now dispatches through
+        `EstimationMethodRegistry.requireSession(method).reduce(...)`,
+        and that the frontend still calls `aggregateVotes` directly.
   - |
     Build:
       ./gradlew :domain:build
       ./gradlew :backend:implementation:test
       ./gradlew build
+    If a stale `domain.d.mts` surfaces, force a full rebuild:
+      ./gradlew :domain:clean :frontend:clean :frontend:check
 
 validation:
   - |
@@ -141,18 +203,49 @@ validation:
       test -f src/domain/src/main/kotlin/io/github/theestimator/method/EstimationMethodSessionSupport.kt
       test -f src/domain/src/main/kotlin/io/github/theestimator/method/threepoint/ThreePointSessionSupport.kt
   - |
-    Registry exposes the new session accessors:
-      grep -q "registerSessionSupport\|requireSession" src/domain/src/main/kotlin/io/github/theestimator/method/EstimationMethodRegistry.kt
+    The SPI reuses the shipped vote types instead of inventing new ones:
+      grep -q "EstimatorVote" src/domain/src/main/kotlin/io/github/theestimator/method/EstimationMethodSessionSupport.kt
+      grep -q "VoteAggregate" src/domain/src/main/kotlin/io/github/theestimator/method/EstimationMethodSessionSupport.kt
+      ! grep -rq "EstimatorInput\|SessionResult" src/domain/src/main/kotlin/io/github/theestimator/method/
   - |
-    Backend session code routes through the registry and logs
-    at INFO:
-      grep -rq "requireSession" src/backend/implementation/src/main/kotlin
-      grep -rq "Log.info" src/backend/implementation/src/main/kotlin/io/github/theestimator/service/
+    Registry exposes all three new session accessors:
+      grep -q "registerSessionSupport" src/domain/src/main/kotlin/io/github/theestimator/method/EstimationMethodRegistry.kt
+      grep -q "getSession" src/domain/src/main/kotlin/io/github/theestimator/method/EstimationMethodRegistry.kt
+      grep -q "requireSession" src/domain/src/main/kotlin/io/github/theestimator/method/EstimationMethodRegistry.kt
   - |
-    Kotlin/JS pitfall: no super-property usages in the session
-    code:
-      ! grep -rE "super\\.mean|super\\.variance|super\\.offerPT" \
-          src/domain/src/main/kotlin/io/github/theestimator/method/
+    The backend reduction routes through the registry and the direct domain
+    call is gone from the service. (-ge 1, not 2: factoring both sites onto
+    one private helper is a legitimate implementation; the second assertion
+    is what proves BOTH sites moved off the direct call.)
+      test "$(grep -c 'requireSession' src/backend/implementation/src/main/kotlin/io/github/theestimator/service/EstimationSessionService.kt)" -ge 1
+      ! grep -q "VoteAggregation.aggregate" src/backend/implementation/src/main/kotlin/io/github/theestimator/service/EstimationSessionService.kt
+  - |
+    Session start logs the method at INFO. Window match, because this file
+    writes multi-line Log.info calls (see lines 66-69) and a single-line
+    regex would fail on correct code:
+      grep -A3 'Started session' src/backend/implementation/src/main/kotlin/io/github/theestimator/service/EstimationSessionService.kt | grep -qi method
+  - |
+    Stale forward references to this task are cleared:
+      ! grep -q "task-105" src/backend/implementation/src/main/kotlin/io/github/theestimator/service/EstimationSessionService.kt
+      ! grep -q "task-105 will reroute" CLAUDE.md
+  - |
+    Frontend dispatch is deferred to task-106 — PhaseTwoPanel still calls
+    the existing bridge and knows nothing about the registry:
+      grep -q "aggregateVotes" src/frontend/src/lib/session/PhaseTwoPanel.svelte
+      ! grep -rq "requireSession" src/frontend/src/
+  - |
+    Kotlin/JS pitfall: no super-property usages in the NEW session files.
+    (Scope this to the two new files — a repo-wide grep over
+    io/github/theestimator/method/ false-positives on the warning COMMENT in
+    threepoint/TimeRelativeEstimationItem.kt that names `super.mean`.)
+      ! grep -E "super\\.mean|super\\.variance|super\\.offerPT" \
+          src/domain/src/main/kotlin/io/github/theestimator/method/EstimationMethodSessionSupport.kt \
+          src/domain/src/main/kotlin/io/github/theestimator/method/threepoint/ThreePointSessionSupport.kt
+  - |
+    The existing PERT session round-trip still passes, with its write-back
+    assertion intact (2/4/6 reaching the draft leaf):
+      grep -q "roots\[0\].minEffort" src/backend/implementation/src/test/kotlin/io/github/theestimator/rest/SessionResourceIT.kt
+      ./gradlew :backend:implementation:test --tests "io.github.theestimator.rest.SessionResourceIT"
   - |
     Full-stack build is green:
       ./gradlew build
@@ -162,4 +255,5 @@ outputs:
   - created: src/domain/src/main/kotlin/io/github/theestimator/method/threepoint/ThreePointSessionSupport.kt
   - created: src/domain/src/test/kotlin/io/github/theestimator/method/threepoint/ThreePointSessionSupportTest.kt
   - modified: src/domain/src/main/kotlin/io/github/theestimator/method/EstimationMethodRegistry.kt
+  - modified: src/backend/implementation/src/main/kotlin/io/github/theestimator/service/EstimationSessionService.kt
   - modified: CLAUDE.md

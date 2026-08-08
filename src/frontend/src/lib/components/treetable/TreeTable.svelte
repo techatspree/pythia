@@ -22,10 +22,15 @@
 		childrenZoneAttrs,
 		collapseBreakpointPx = 900,
 		footer,
-		initialCollapsed = new Set<string>()
+		defaultCollapsed = () => false
 	}: TreeTableProps<T> & { roots?: T[] } = $props();
 
-	let collapsed = $state(new Set(initialCollapsed));
+	// Only the rows the user has EXPLICITLY toggled, id → expanded?. Everything
+	// else falls through to the caller's `defaultCollapsed` rule, so the prop
+	// stays live (no snapshot of it is taken) while the user's own choices still
+	// win. A row that only shows up later — a bucket added after mount — obeys
+	// the rule without any re-seeding.
+	const expandedOverrides = new SvelteMap<string, boolean>();
 	let preDragSnapshot: T[] | null = null;
 	let cycleCheckPending = false;
 
@@ -217,15 +222,12 @@
 		}
 	}
 
+	function isExpanded(node: T): boolean {
+		return expandedOverrides.get(getId(node)) ?? !defaultCollapsed(node);
+	}
+
 	function toggle(node: T) {
-		const id = getId(node);
-		// Throwaway copy; reactivity comes from reassigning the `collapsed`
-		// $state below, not from mutating this Set.
-		// eslint-disable-next-line svelte/prefer-svelte-reactivity
-		const next = new Set(collapsed);
-		if (next.has(id)) next.delete(id);
-		else next.add(id);
-		collapsed = next;
+		expandedOverrides.set(getId(node), !isExpanded(node));
 	}
 
 	function makeCtx(node: T, depth: number, path: number[], isGroup: boolean): TreeNodeContext<T> {
@@ -233,7 +235,7 @@
 			depth,
 			path,
 			isGroup,
-			expanded: !collapsed.has(getId(node)),
+			expanded: isExpanded(node),
 			toggle: () => toggle(node)
 		};
 	}

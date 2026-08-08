@@ -627,9 +627,9 @@
       "notes": "Frontend: bucket+sampled editor module (bucket panel + sample toggle + inline 3-point)"
     },
     "task-105": {
-      "status": "pending",
-      "started_at": null,
-      "completed_at": null,
+      "status": "done",
+      "started_at": "2026-08-08T10:24:31+00:00",
+      "completed_at": "2026-08-08T10:36:13+00:00",
       "notes": "Session SPI + PERT session-support module; refactor phase-11 session code behind SPI"
     },
     "task-106": {
@@ -841,6 +841,12 @@
       "started_at": "2026-08-07T13:34:19+00:00",
       "completed_at": "2026-08-07T13:42:43+00:00",
       "notes": "Column header labels in the estimation editor overlap and are barely readable"
+    },
+    "task-141": {
+      "status": "pending",
+      "started_at": null,
+      "completed_at": null,
+      "notes": "Session room has no way back to the app and its top bar differs from the main GUI; introduce one consistent top navigation menu across all routes"
     }
   }
 }
