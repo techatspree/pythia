@@ -114,6 +114,9 @@ steps:
       - On the header row container (~line 398, the `grid ... bg-brand-green/10`
         div): drop `uppercase` and `tracking-wide`, and change `items-center` to
         `items-end` so wrapped two-line labels align with single-line ones.
+      - On that same header row container add `data-testid="tt-header"` — the
+        e2e below measures its child cells, and the row's only other hook
+        (`bg-brand-green/10`) is shared with nine unrelated components.
       - On the per-column header cell (~line 406): add `min-w-0 overflow-hidden
         whitespace-normal break-words leading-tight` alongside the existing
         `py-2 px-2 {alignClass(col.align)}`. Keep `title={col.header}` and keep
@@ -157,33 +160,36 @@ steps:
         THREE_POINT_PERT estimation with a draft, and one BUCKET_SAMPLED_PERT
         estimation with buckets plus bucketed leaves.
       - A shared helper `assertHeadersFit(page)` that evaluates in the browser
-        over every header cell and returns the offenders, e.g.
+        over every header cell and returns the offenders:
 
             const bad = await page.$$eval(
-              '[data-testid="header-fit-probe"] > div',
+              '[data-testid="tt-header"] > div',
               (cells) => cells
                 .filter((c) => c.scrollWidth > c.clientWidth + 1)
                 .map((c) => `${c.textContent?.trim()}: ${c.scrollWidth}>${c.clientWidth}`)
             );
             expect(bad, 'header labels overflowing their column').toEqual([]);
 
-        Rather than inventing a new testid, select the header row by its
-        existing structure — it is the first child `div` of the
-        `min-width: max-content` wrapper and carries `bg-brand-green/10`. Use a
-        stable locator such as `.bg-brand-green\\/10 > div` scoped to the table
-        container, or add `data-testid="tt-header"` to the header row in
-        `TreeTable.svelte` if a stable hook is needed; if you add it, list it in
-        `outputs` and mention it in the CLAUDE.md note.
+        `data-testid="tt-header"` is REQUIRED on the header row — add it in the
+        first step alongside the class changes. Do NOT select the row by its
+        `bg-brand-green/10` class: that class is shared with nine other
+        components (the four editor panels, `ProjectList`/`ProjectDetail`
+        `<thead>`, `UserMenu` role badges, `EstimationSummaryPanel`), so a
+        class-based locator is neither unique nor stable.
       - **header fits its column**: open the PERT draft editor and the bucket
         editor (both the `bucket` and the `hierarchy` view via
         `bucket-view-toggle-*`), running `assertHeadersFit` on each.
-      - **header fits its column in English**: switch the user to English first
-        — `PUT /api/auth/me/language` with `{ language: 'en' }` using the dev
-        auth header, exactly as `e2e/language.test.ts` does — then reload and
-        repeat the same three assertions. Restore `de` at the end of the test so
-        the shared dev-admin user does not leak an English preference into
-        other specs (`language.test.ts` runs under its own user, but the
-        default-locale specs do not).
+      - **header fits its column in English**: run under a DEDICATED dev user,
+        not the globally pre-seeded `dev-admin`. Follow `e2e/language.test.ts`
+        exactly: `test.use({ storageState: { cookies: [], origins: [] } })`,
+        `loginAsDev(page, 'dev-estimator')` from `./helpers`, then
+        `PUT /api/auth/me/language` with `{ language: 'en' }` and the
+        `Authorization: Dev dev-estimator` header. Do NOT switch `dev-admin` to
+        English and restore it afterwards — the restore does not run when an
+        assertion fails mid-test, and the suite runs specs in parallel against
+        one shared backend, so a leaked preference would break the German
+        assertions in other files. Then reload and repeat the same three
+        assertions.
       - Register a `page.on('pageerror', …)` collector and assert it stayed
         empty.
     Use a wide viewport (`test.use({ viewport: { width: 1400, height: 1000 } })`)
@@ -218,11 +224,17 @@ validation:
       grep -q "min-w-0 overflow-hidden" "$T"
       grep -q "break-words" "$T"
       grep -q "title={col.header}" "$T"
+      grep -q 'data-testid="tt-header"' "$T"
   - |
     The data rows were NOT given overflow clipping (it would clip focus rings),
-    and the collapse behaviour is untouched:
+    and the collapse behaviour is untouched. Asserted on the data-cell class
+    strings directly rather than by counting `overflow-hidden` occurrences in
+    the file — a count also matches the word inside an explanatory comment,
+    which makes it brittle without testing anything stronger. Both data cells
+    (plain and `treeColumn`) start with `py-1 px-2`, so one pattern covers them:
       T=src/frontend/src/lib/components/treetable/TreeTable.svelte
-      test "$(grep -c "overflow-hidden" "$T")" -le 3
+      ! grep -q 'py-1 px-2[^"]*overflow-hidden' "$T"
+      grep -q 'class:overflow-hidden={hidden}' "$T"
       grep -q "isCollapsed(col.key) ? '' : col.header" "$T"
       grep -q "collapseBreakpointPx" "$T"
   - |
@@ -230,7 +242,9 @@ validation:
       G=src/frontend/src/lib/components/EstimationGrid.svelte
       B=src/frontend/src/lib/methods/bucketSampled/EditorModule.svelte
       test "$(grep -c "width: '8rem'" "$G")" -eq 2
-      test "$(grep -c "width: '8rem'" "$B")" -eq 2
+      # 3, not 2: the bucket editor ALREADY had an 8rem track (its `bucket`
+      # column) before this task touched cost/offerPrice.
+      test "$(grep -c "width: '8rem'" "$B")" -eq 3
       ! grep -q "width: '7rem'" "$G"
       ! grep -q "width: '7rem'" "$B"
   - |

@@ -309,14 +309,14 @@
 		{
 			key: 'cost',
 			header: $_('bucket.colCost'),
-			width: '7rem',
+			width: '8rem',
 			align: 'right' as const,
 			collapsible: true
 		},
 		{
 			key: 'offerPrice',
 			header: $_('bucket.colOfferPrice'),
-			width: '7rem',
+			width: '8rem',
 			align: 'right' as const,
 			collapsible: true
 		}

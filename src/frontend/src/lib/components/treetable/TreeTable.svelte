@@ -395,15 +395,28 @@
 <div class="border rounded-lg overflow-hidden">
 	<div class="overflow-x-auto" bind:this={scrollHost}>
 		<div style="min-width: max-content">
+			<!-- Normal-case on purpose: `uppercase tracking-wide` cost ~20-25% extra
+			     width for no legibility gain, which is what pushed labels out of
+			     their tracks. `items-end` keeps a wrapped two-line label on the same
+			     baseline as its single-line neighbours. -->
 			<div
-				class="grid items-center bg-brand-green/10 border-b text-xs font-semibold uppercase tracking-wide text-brand-green"
+				data-testid="tt-header"
+				class="grid items-end bg-brand-green/10 border-b text-xs font-semibold text-brand-green"
 				style="grid-template-columns: {gridTemplateColumns}"
 			>
 				{#if editable}
 					<div class="py-2 px-1"></div>
 				{/if}
 				{#each columns as col (col.key)}
-					<div class="py-2 px-2 {alignClass(col.align)}" title={col.header}>
+					<!-- A single long word cannot wrap, so without `min-w-0` +
+					     `overflow-hidden` it overflows this grid item and paints over
+					     the neighbouring header — the overlap this guards against. -->
+					<div
+						class="py-2 px-2 min-w-0 overflow-hidden whitespace-normal break-words leading-tight {alignClass(
+							col.align
+						)}"
+						title={col.header}
+					>
 						{isCollapsed(col.key) ? '' : col.header}
 					</div>
 				{/each}

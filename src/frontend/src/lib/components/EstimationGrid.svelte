@@ -223,7 +223,7 @@
 		{
 			key: 'cost',
 			header: $_('grid.colCost'),
-			width: '7rem',
+			width: '8rem',
 			align: 'right',
 			cell: costCell,
 			collapsible: true
@@ -231,7 +231,7 @@
 		{
 			key: 'offerPrice',
 			header: $_('grid.colOfferPrice'),
-			width: '7rem',
+			width: '8rem',
 			align: 'right',
 			cell: offerPriceCell,
 			collapsible: true
