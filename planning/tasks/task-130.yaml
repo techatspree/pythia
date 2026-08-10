@@ -4,20 +4,20 @@ title: Brand — "The Estimator" logo, favicon, app icons
 depends_on: [task-129]
 description: |
   The application has no logo of its own. What the UI shows today is the
-  **The Estimator corporate mark** (`src/frontend/static/estimator_logo.png`
-  / `.webp` / `_w120.png`, introduced by task-037) rendered in the root
-  header next to a plain uppercase text badge `Estimator`, plus a
+  **legacy third-party corporate mark** (`src/frontend/static/legacy_logo.png`
+  / `.webp` / `_w120.png`, introduced by an earlier branding task) rendered
+  in the root header next to a plain uppercase text badge `Estimator`, plus a
   placeholder favicon (`src/frontend/src/lib/assets/favicon.svg` — a bare
-  `@` glyph in the brand gradient, also from task-037). The session route
+  `@` glyph in the brand gradient, from the same task). The session route
   group (`src/frontend/src/routes/sessions/+layout.svelte`) shows an inline
   literal `Estimator · Session` with no mark at all, and `app.html` carries
-  `<title>The Estimator Estimator</title>`.
+  `<title>The Estimator</title>`.
 
   Target state: a purpose-designed **"The Estimator"** product logo that
   matches the app's existing visual language and its domain, used
   consistently everywhere a brand mark belongs. Per the user's explicit
-  decision, the new logo **fully replaces** the The Estimator corporate mark —
-  the `estimator_logo.*` files are deleted from `static/` and no longer
+  decision, the new logo **fully replaces** the legacy third-party corporate mark —
+  the `legacy_logo.*` files are deleted from `static/` and no longer
   referenced anywhere.
 
   Design constraints (the visual language is already fixed by
@@ -34,7 +34,7 @@ description: |
   pessimistic — and the skewed bell is the PERT/beta distribution the whole
   tool is built on. It reads as a product mark, ties directly to the
   domain, and reuses the corporate gradient so it still sits in the
-  The Estimator family.
+  brand family.
 
   Key implementation decisions (no ambiguity for the implementer):
     - **The logo is a mark only — the wordmark is NOT baked into the SVG.**
@@ -96,9 +96,9 @@ steps:
   - |
     Delete the placeholder favicon `src/frontend/src/lib/assets/favicon.svg`
     and the corporate marks
-    `src/frontend/static/estimator_logo.png`,
-    `src/frontend/static/estimator_logo.webp`,
-    `src/frontend/static/estimator_logo_w120.png`.
+    `src/frontend/static/legacy_logo.png`,
+    `src/frontend/static/legacy_logo.webp`,
+    `src/frontend/static/legacy_logo_w120.png`.
 
   - |
     Add the icon generator `src/frontend/scripts/generate-icons.mjs`:
@@ -153,7 +153,7 @@ steps:
         `<link rel="alternate icon" href="/favicon-32.png" />`,
         `<link rel="apple-touch-icon" href="/apple-touch-icon.png" />`,
         `<link rel="manifest" href="/site.webmanifest" />`.
-      - replace the whole `<picture>`/`<source>`/`<img src="/estimator_logo_w120.png">`
+      - replace the whole `<picture>`/`<source>`/`<img src="/legacy_logo_w120.png">`
         block AND the plain `<span>Estimator</span>` badge with the new
         lockup inside the existing `<a href={resolve('/projects')}>`:
         an `<img src={logo} alt="" aria-hidden="true" width="36"
@@ -212,7 +212,7 @@ steps:
         production build (default `assetsInlineLimit` is 4096 bytes and the
         mark is smaller), so the assertion must accept both forms,
       - the header contains the text `The Estimator`,
-      - `page.locator('img[src*="estimator"]')` has count `0`,
+      - `page.locator('img[src*="legacy_logo"]')` has count `0`,
       - `page.title()` is `The Estimator` (no route sets its own
         `<svelte:head><title>`, so `app.html`'s title is authoritative).
 
@@ -223,7 +223,7 @@ steps:
     curve + three points), that `static/` PNG icons + `site.webmanifest`
     are generated from it via `npm run gen:icons` (Playwright Chromium, no
     new image dependency), that brand strings live under the `brand.*`
-    i18n keys, and that the The Estimator corporate mark was removed in
+    i18n keys, and that the legacy third-party corporate mark was removed in
     task-130. Extend the existing prose; do not duplicate sections.
 
   - |
@@ -253,9 +253,9 @@ validation:
       grep -q "bade4e" src/frontend/src/lib/assets/logo.svg
       test "$(grep -c '<circle' src/frontend/src/lib/assets/logo.svg)" -ge 3
       ! test -f src/frontend/src/lib/assets/favicon.svg
-      ! test -f src/frontend/static/estimator_logo.png
-      ! test -f src/frontend/static/estimator_logo.webp
-      ! test -f src/frontend/static/estimator_logo_w120.png
+      ! test -f src/frontend/static/legacy_logo.png
+      ! test -f src/frontend/static/legacy_logo.webp
+      ! test -f src/frontend/static/legacy_logo_w120.png
   - |
     Generator script is committed, wired into package.json, and its output
     (icons + manifest) is present:
@@ -286,7 +286,7 @@ validation:
       grep -q "assets/logo.svg" src/frontend/src/routes/+layout.svelte
       grep -q "assets/logo.svg" src/frontend/src/routes/sessions/+layout.svelte
       grep -q "assets/logo.svg" src/frontend/src/lib/components/DevLoginDialog.svelte
-      ! grep -rq "estimator" src/frontend/src src/frontend/static src/frontend/e2e
+      ! grep -rq "legacy_logo" src/frontend/src src/frontend/static src/frontend/e2e
   - |
     Brand strings are internationalised (no inline literals left in the two
     layouts) and the de/en catalogs keep equal key sets:
@@ -310,7 +310,7 @@ validation:
     Branding e2e exists and asserts the swap:
       test -f src/frontend/e2e/branding.test.ts
       grep -q "brand-logo" src/frontend/e2e/branding.test.ts
-      grep -q "estimator" src/frontend/e2e/branding.test.ts
+      grep -q "legacy_logo" src/frontend/e2e/branding.test.ts
   - |
     Frontend type-check and the e2e suite pass:
       ./gradlew :frontend:check
@@ -319,9 +319,9 @@ validation:
 outputs:
   - created: src/frontend/src/lib/assets/logo.svg
   - deleted: src/frontend/src/lib/assets/favicon.svg
-  - deleted: src/frontend/static/estimator_logo.png
-  - deleted: src/frontend/static/estimator_logo.webp
-  - deleted: src/frontend/static/estimator_logo_w120.png
+  - deleted: src/frontend/static/legacy_logo.png
+  - deleted: src/frontend/static/legacy_logo.webp
+  - deleted: src/frontend/static/legacy_logo_w120.png
   - created: src/frontend/scripts/generate-icons.mjs
   - created: src/frontend/static/icon-16.png
   - created: src/frontend/static/icon-32.png

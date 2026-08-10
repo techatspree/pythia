@@ -17,3 +17,7 @@ Project effort estimation tool for software development tasks.
 
 - [Architecture](docs/architecture.md) — tech stack and repository structure
 - [Development](docs/development.md) — prerequisites, build commands, and development profiles
+
+## License
+
+Licensed under the [Apache License 2.0](LICENSE).

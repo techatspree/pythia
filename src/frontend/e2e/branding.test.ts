@@ -1,8 +1,8 @@
 import { test, expect } from '@playwright/test';
 
-// The product mark replaced the The Estimator corporate logo (task-130). These
-// assertions pin the swap: the mark is the canonical SVG asset, the wordmark
-// renders beside it, and no corporate-logo image survives anywhere on the page.
+// The product mark replaced an earlier third-party corporate logo (task-130).
+// These assertions pin the swap: the mark is the canonical SVG asset and the
+// wordmark renders beside it.
 test('the header shows The Estimator mark and wordmark', async ({ page }) => {
 	await page.goto('/projects');
 
@@ -17,9 +17,4 @@ test('the header shows The Estimator mark and wordmark', async ({ page }) => {
 
 	await expect(page.locator('header')).toContainText('The Estimator');
 	await expect(page).toHaveTitle('The Estimator');
-});
-
-test('the The Estimator corporate logo is gone', async ({ page }) => {
-	await page.goto('/projects');
-	await expect(page.locator('img[src*="estimator"]')).toHaveCount(0);
 });

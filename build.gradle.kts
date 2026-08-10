@@ -20,6 +20,19 @@ plugins {
 allprojects {
     group = "io.github.theestimator"
     version = "1.0.0-SNAPSHOT"
+
+    // Stamp the licence onto every produced jar manifest. These are constants —
+    // nothing time- or environment-derived — so the reproducible Jib image
+    // (src/backend/implementation/gradle.properties) stays byte-deterministic.
+    tasks.withType<Jar>().configureEach {
+        manifest {
+            attributes(
+                "Implementation-Title" to project.name,
+                "Implementation-Version" to project.version,
+                "SPDX-License-Identifier" to "Apache-2.0",
+            )
+        }
+    }
 }
 
 // Single entry point for every static-analysis tool across all modules: detekt

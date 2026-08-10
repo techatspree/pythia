@@ -83,7 +83,7 @@ phases:
   - id: phase-10
     name: Code Quality and Static Analysis
     duration_weeks: 1
-    tasks: [task-056, task-071, task-078, task-084, task-085, task-086]
+    tasks: [task-056, task-071, task-084, task-085, task-086]
   - id: phase-11
     name: Collaborative Estimation Sessions
     duration_weeks: 2
@@ -95,7 +95,7 @@ phases:
   - id: phase-13
     name: Excel-aligned Domain, KMP & Build Reactor
     duration_weeks: 3
-    tasks: [task-033, task-034, task-035, task-036, task-037, task-038, task-039, task-040, task-041, task-042, task-043, task-044, task-045, task-046, task-047, task-048]
+    tasks: [task-033, task-034, task-035, task-036, task-038, task-039, task-040, task-041, task-042, task-043, task-044, task-045, task-046, task-047, task-048]
   - id: phase-14
     name: Post-MVP Hardening & Build Modernization
     duration_weeks: 3
@@ -112,6 +112,10 @@ phases:
     name: Branding & Visual Identity
     duration_weeks: 1
     tasks: [task-130]
+  - id: phase-18
+    name: Open Source Release
+    duration_weeks: 1
+    tasks: [task-145]
 
 execution:
   task_format: tasks/<task-id>.yaml

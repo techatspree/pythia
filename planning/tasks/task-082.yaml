@@ -137,9 +137,8 @@ description: |
       change that contract).
     - This task assumes the CURRENT coordinates (`io.github.theestimator`,
       artifact `the-estimator`/`domain`/`implementation`, image
-      `estimation-backend`). If task-078 (BSCHAE rename) lands first,
-      carry its new group/artifact/image names into the Gradle scripts
-      instead.
+      `estimation-backend`). If a product rename lands first, carry its
+      new group/artifact/image names into the Gradle scripts instead.
     - Memory/docs: the auto-memory note "Maven build pipeline"
       (`project_maven_build.md`) and the `docs/architecture.md`
       "Why `src/domain` ships BOTH a pom.xml AND a build.gradle.kts" /

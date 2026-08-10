@@ -236,12 +236,6 @@
       "completed_at": "2026-05-08T14:31:53+00:00",
       "notes": ""
     },
-    "task-037": {
-      "status": "done",
-      "started_at": "2026-05-08T14:31:35+00:00",
-      "completed_at": "2026-05-08T14:31:35+00:00",
-      "notes": ""
-    },
     "task-041": {
       "status": "done",
       "started_at": "2026-05-11T12:21:16+00:00",
@@ -462,12 +456,6 @@
       "status": "done",
       "started_at": "2026-07-07T20:18:03+00:00",
       "completed_at": "2026-07-07T20:26:18+00:00",
-      "notes": ""
-    },
-    "task-078": {
-      "status": "pending",
-      "started_at": null,
-      "completed_at": null,
       "notes": ""
     },
     "task-079": {
@@ -867,8 +855,8 @@
       "notes": "Moderator cannot pause or end an estimation session early; add a suspended (resumable) state and an early-termination state, keeping every finalized item's write-back"
     },
     "task-145": {
-      "status": "pending",
-      "started_at": null,
+      "status": "in_progress",
+      "started_at": "2026-08-10T12:50:30+00:00",
       "completed_at": null,
       "notes": "Publish under a permissive Open Source licence and purge all corporate/confidential data from the application, the planning tasks and the git history"
     }

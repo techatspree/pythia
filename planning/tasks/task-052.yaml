@@ -26,7 +26,7 @@ description: |
       with before.path and after.path differing.
 
   DTO updates (src/backend/implementation/src/main/kotlin/io/github/
-  estimation/rest/dto/VersionComparisonDtos.kt):
+  theestimator/rest/dto/VersionComparisonDtos.kt):
     - Replace ComparisonItemDto and ComparisonGroupDto with a single
       ComparisonNodeDto that carries:
         logicalId, type ("GROUP" | "FIXED" | "TIME_RELATIVE"),

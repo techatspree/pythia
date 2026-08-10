@@ -4,7 +4,7 @@ title: Adapt domain model to Excel-based estimation model
 depends_on: [task-009]
 description: |
   Refactor the Estimation/EstimationItem JPA entities to match the structure
-  defined in the reference Excel spreadsheet (planning/inputdata/reference-spreadsheet.xlsx).
+  defined in the reference estimation spreadsheet the domain model was derived from.
   The spreadsheet uses three-point estimation (Min/Erwartet/Max) with PERT-like
   statistical calculations (mean, variance, standard deviation, risk surcharge)
   and effort drivers (Aufwandstreiber) as percentage-based add-ons.
@@ -64,7 +64,7 @@ steps:
       - cost in PSP == cost in package overview
       - sum of variances == sum of group variances
   - create Excel importer (Apache POI):
-      - reads reference-spreadsheet.xlsx format
+      - reads the reference estimation spreadsheet format
       - produces an EstimationVersion with all items, groups, phases, parameters, drivers, costs
   - create Excel exporter (Apache POI):
       - writes an EstimationVersion back to the spreadsheet format

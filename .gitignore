@@ -53,5 +53,8 @@ src/frontend/reports/
 
 # clean-up-project resumable state
 planning/cleanup-state.json
+
+# Local, machine-specific Claude Code settings — never published
+.claude/settings.local.json
 /.kotlin/metadata/kotlinTransformedMetadataLibraries/
 /.kotlin/sessions/

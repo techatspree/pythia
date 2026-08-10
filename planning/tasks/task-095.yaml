@@ -32,7 +32,7 @@ description: |
   `status.json` MUST appear under exactly one phase. The 33 currently
   missing from the phase index are:
 
-    task-033 task-034 task-035 task-036 task-037 task-038 task-039 task-040
+    task-033 task-034 task-035 task-036 task-038 task-039 task-040
     task-041 task-042 task-043 task-044 task-045 task-046 task-047 task-048
     task-079 task-080 task-081 task-082 task-083 task-084 task-085 task-086
     task-087 task-088 task-089 task-090 task-091 task-092 task-093 task-094
@@ -56,7 +56,7 @@ description: |
       to the existing phase whose name matches its workstream when one
       clearly fits — e.g. static-analysis/build tasks (task-084, task-085,
       task-086) belong with phase-10 "Code Quality and Static Analysis"
-      (which already holds task-056, task-071, task-078).
+      (which already holds task-056, task-071).
     - The two orphan clusters that fit NO existing phase get new phases,
       appended after phase-12 (keep phase ids sequential — `phase-13`,
       `phase-14`):
