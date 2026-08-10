@@ -2,6 +2,10 @@
 
 Loaded when working under `src/domain/`. The module split and the `api(...)` dependency rule are in the root `CLAUDE.md`; this file is the model and SPI detail.
 
+## Logging
+
+Use the `io.github.oshai:kotlin-logging` facade — `private val logger = KotlinLogging.logger {}` and the lambda form `logger.debug { "…" }` (allocation-free when the level is off). On the JVM target it delegates to slf4j (the backend supplies a provider via Quarkus' JBoss LogManager bridge; the domain's own JVM tests pull `slf4j-simple` as `runtimeOnly`); on the JS target it writes to the browser console, so the frontend sees domain logs in dev. Logging is observation only — never control flow; the business math stays the single source of truth.
+
 **Holds all business logic** — PERT calculation, accumulation, the tree-shape domain model. The backend and frontend MUST NOT reimplement domain rules; they call into it.
 
 ## Domain model: trees, not flat groups

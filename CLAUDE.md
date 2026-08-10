@@ -84,11 +84,11 @@ Detail and rationale: `src/frontend/CLAUDE.md`. The bans themselves:
 
 ### Logging
 
-One logging approach per module — use it; do not invent a second mechanism.
+One logging approach per module — use it; do not invent a second mechanism. Logging is observation only, never control flow; the business math stays the single source of truth. Each module's mechanics live in its own `CLAUDE.md`, which loads when you work there:
 
-- **Backend** (Quarkus): log via the static `io.quarkus.logging.Log` API (`Log.info/debug/warn/error`) — no per-class logger field. Levels are configured per profile in `application.properties`: app code (`io.github.theestimator`) at DEBUG in `%dev`/`%test`, INFO in `%prod`; the root level stays at the Quarkus default. The PROD profile emits structured JSON (`%prod.quarkus.log.console.json.enabled=true`, backed by `quarkus-logging-json`) for Kubernetes; the human-readable console stays the default in dev. `EstimationVersionService` is the reference site (INFO on create/submit/delete with the estimation id, DEBUG for finer detail, ERROR on failure paths). Every request carries a **correlation id** (task-026): `CorrelationIdFilter` (`io.github.theestimator.observability`, a JAX-RS request+response `@Provider`) reads the `X-Correlation-ID` header (or generates a UUID), puts it in the logging MDC under `correlationId` — so the JSON logs carry it per request — and echoes it back on the response header. Prometheus metrics are served at `/q/metrics` (Micrometer, `http_server_requests_*` timers) via `quarkus-micrometer-registry-prometheus`.
-- **Domain** (Kotlin Multiplatform): use the `io.github.oshai:kotlin-logging` facade — `private val logger = KotlinLogging.logger {}` and the lambda form `logger.debug { "…" }` (allocation-free when the level is off). On the JVM target it delegates to slf4j (the backend supplies a provider via Quarkus' JBoss LogManager bridge; the domain's own JVM tests pull `slf4j-simple` as `runtimeOnly`); on the JS target it writes to the browser console, so the frontend sees domain logs in dev. Logging is observation only — never control flow; the business math stays the single source of truth.
-- **Frontend** (SvelteKit): import `log` from `$lib/log.ts` (a configured `loglevel` instance — `debug` under `import.meta.env.DEV`, else `warn`).
+- **Backend** (Quarkus): the static `io.quarkus.logging.Log` API — no per-class logger field. See `src/backend/CLAUDE.md`.
+- **Domain** (KMP): the `io.github.oshai:kotlin-logging` facade, lambda form. See `src/domain/CLAUDE.md`.
+- **Frontend** (SvelteKit): `log` from `$lib/log.ts`, never bare `console.*` (see "Frontend hard rules" above). Detail in `src/frontend/CLAUDE.md`.
 
 ## Planning system
 

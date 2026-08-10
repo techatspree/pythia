@@ -4,6 +4,10 @@ Loaded when working under `src/frontend/`. The always-loaded hard rules live in 
 
 SvelteKit 5 (runes) + TypeScript + Tailwind 4, Vite, adapter-static (SPA).
 
+## Logging
+
+Import `log` from `$lib/log.ts` (a configured `loglevel` instance — `debug` under `import.meta.env.DEV`, else `warn`). **Never write bare `console.*`.** The error-surfacing rule below still holds: a `catch` must surface failure via `ErrorBanner` — `log.error(...)` is *in addition to*, not instead of, user-facing surfacing.
+
 ## HTTP: `apiFetch` only
 
 Talks to the backend via `apiFetch` (`$lib/api/fetch.ts`), a thin `fetch` wrapper that attaches the active auth provider's `Authorization` header; request/response types are generated from the backend OpenAPI via openapi-typescript into `$lib/api/schema.d.ts`. Raw `fetch(...)` is banned by ESLint (`no-restricted-syntax`) in favour of `apiFetch` (task-090).

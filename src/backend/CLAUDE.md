@@ -1,6 +1,12 @@
 # Backend (`src/backend`) — Quarkus 3
 
-Loaded when working under `src/backend/`. Quarkus 3 (Java 21, Kotlin) via the `io.quarkus` Gradle plugin, Hibernate ORM Panache, Flyway, Jib for container images. REST endpoints under `/api/`. Logging conventions and the single-source-of-truth rule are in the root `CLAUDE.md`.
+Loaded when working under `src/backend/`. Quarkus 3 (Java 21, Kotlin) via the `io.quarkus` Gradle plugin, Hibernate ORM Panache, Flyway, Jib for container images. REST endpoints under `/api/`. The one-approach-per-module logging rule and the single-source-of-truth rule are in the root `CLAUDE.md`.
+
+## Logging
+
+Log via the static `io.quarkus.logging.Log` API (`Log.info/debug/warn/error`) — **no per-class logger field**. Levels are configured per profile in `application.properties`: app code (`io.github.theestimator`) at DEBUG in `%dev`/`%test`, INFO in `%prod`; the root level stays at the Quarkus default. The PROD profile emits structured JSON (`%prod.quarkus.log.console.json.enabled=true`, backed by `quarkus-logging-json`) for Kubernetes; the human-readable console stays the default in dev. `EstimationVersionService` is the reference site (INFO on create/submit/delete with the estimation id, DEBUG for finer detail, ERROR on failure paths).
+
+Every request carries a **correlation id** (task-026): `CorrelationIdFilter` (`io.github.theestimator.observability`, a JAX-RS request+response `@Provider`) reads the `X-Correlation-ID` header (or generates a UUID), puts it in the logging MDC under `correlationId` — so the JSON logs carry it per request — and echoes it back on the response header. Prometheus metrics are served at `/q/metrics` (Micrometer, `http_server_requests_*` timers) via `quarkus-micrometer-registry-prometheus`.
 
 ## Run-of-the-mill patterns
 
