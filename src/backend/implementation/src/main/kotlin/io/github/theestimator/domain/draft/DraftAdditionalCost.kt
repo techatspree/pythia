@@ -1,5 +1,6 @@
 package io.github.theestimator.domain.draft
 
+import io.github.theestimator.domain.AdditionalCostType
 import jakarta.persistence.Column
 import jakarta.persistence.Entity
 import jakarta.persistence.EnumType
@@ -29,7 +30,7 @@ class DraftAdditionalCost {
 
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)
-    var type: io.github.theestimator.domain.AdditionalCostType = io.github.theestimator.domain.AdditionalCostType.ONE_TIME
+    var type: AdditionalCostType = AdditionalCostType.ONE_TIME
 
     @Column(name = "amount_per_week")
     var amountPerWeek: Double? = null
