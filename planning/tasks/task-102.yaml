@@ -251,7 +251,7 @@ validation:
   - |
     No cross-references from the bucket package into the
     threepoint package (the two methods must not know each other):
-      ! grep -rE "de\\.spree\\.estimation\\.method\\.threepoint" \
+      ! grep -rE "io\\.github\\.theestimator\\.method\\.threepoint" \
           src/domain/src/main/kotlin/io/github/theestimator/method/bucketsampled/
   - |
     Kotlin/JS super-property pitfall: no `super.<computed prop>`

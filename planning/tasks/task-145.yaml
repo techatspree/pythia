@@ -1,0 +1,374 @@
+id: task-145
+phase: phase-18
+title: Open-source release — Apache-2.0 + corporate data purge
+depends_on: [task-143, task-130]
+description: |
+  TheEstimator is published as open source under a permissive licence.
+  Before this task the repository carried no licence at all, and it still
+  carried the originating company's identity in four separate layers: the
+  Java/Kotlin package namespace, three proprietary input documents under
+  planning/inputdata, two planning tasks whose entire subject was non-open
+  material, and the author/committer identity on every commit.
+
+  This file deliberately contains **no literal legacy identifier** — not the
+  old reverse-DNS package prefix, not the old corporate brand token, not the
+  proprietary document filenames, not the old author address. Reproducing
+  them here would put the very strings the task removed back into the
+  published repository, and the history rewrite would then have to purge its
+  own record. The end state is therefore described positively: what the
+  repository looks like now, not what it used to say.
+
+  ## Decisions taken
+
+  **Licence: Apache-2.0**, copyright line `Copyright 2026 The Estimator
+  Contributors`. Apache-2.0 was chosen over MIT for its explicit patent
+  grant and because it is the norm in the JVM/Gradle ecosystem this project
+  lives in; all dependencies (Quarkus, Kotlin, SvelteKit, Tailwind,
+  Playwright, POI, sqlite-jdbc) are Apache-2.0/MIT/BSD and impose no
+  copyleft. A neutral "Contributors" copyright holder is used deliberately
+  so the purge does not reintroduce a company name into the tree. **No
+  per-file SPDX headers** — Apache-2.0 does not require them and adding them
+  to ~200 Kotlin files would be pure churn. `LICENSE` + `NOTICE` + build
+  metadata only. The canonical 201-line licence text was taken verbatim from
+  a pristine copy already vendored in `node_modules`, not retyped.
+
+  **Namespace: `io.github.theestimator`.** The former package prefix was the
+  originating company's reverse-DNS and therefore counted as corporate
+  identity. The replacement is a flat three-segment prefix, so
+  `…/model/EstimationNode.kt` kept its position below the prefix and no
+  package *structure* changed. Ten source directories moved
+  (`src/{main,test}/kotlin` in each of `:domain`, `:domain:core`, the two
+  method modules and `:backend:implementation` — these projects declare
+  custom `kotlin.srcDir`s rather than the KMP default `commonMain`/`jvmMain`
+  layout). The Gradle `group`, the Quarkus log categories, the
+  container-image group (`theestimator`), the k8s image names,
+  `scripts/minikube-deploy.sh` and the docs all moved with it.
+
+  **Files purged from the tree AND from history:** the corporate design
+  manual (PDF) and the two proprietary estimation spreadsheets under
+  `planning/inputdata`, plus four brand assets that existed **only in
+  history** because task-130 had already deleted them from the tree.
+  Deleting a file in a later commit does not remove its blob — all of them
+  were still reachable and would have shipped.
+
+  **Author identity rewritten.** Every commit was authored and committed
+  under a company email address. A `--mailmap` pass rewrote all of them to
+  `tfink <tfink@users.noreply.github.com>`: the human name is preserved so
+  authorship attribution survives, and the GitHub noreply form exposes
+  neither a corporate nor a personal address. `git config user.email` is
+  pinned locally to the same value so the next commit cannot undo it.
+
+  **Files deliberately KEPT:** `planning/inputdata/MerlinDemoProject.mproject`
+  (a generic demo project, verified to contain no company or customer
+  strings, and the documented fixture for the Merlin import/export in
+  task-131/133) and `planning/inputdata/LogoSuggestion.png` (a generic
+  crystal-ball concept sketch for the product's own retained mark).
+
+  **Planning tasks REMOVED** (YAML, status.json entry, plan.yaml phase list,
+  and their blobs in history): the corporate-design task from phase-13,
+  whose entire subject was the design manual and the corporate logo and
+  whose result was superseded by task-130; and a pending, obsolete
+  corporate product-renaming task from phase-10. No surviving task listed
+  either in its `depends_on`, so no dependency chain needed repair — but
+  three tasks (task-082, task-095, task-130) carried prose references to
+  them and were updated.
+
+  **Planning tasks REDACTED, not removed:** task-033, task-047 and task-130
+  merely cited the non-open material; their substance is the product itself
+  and four tasks depend on task-033. The citations became neutral
+  descriptions ("the reference estimation spreadsheet the domain model was
+  derived from", "the legacy third-party corporate mark").
+
+  ## Target state
+
+  A repository that can be pushed to a public host: `LICENSE` + `NOTICE` at
+  the root, `Apache-2.0` declared in the build files, no company name
+  anywhere in the tree, in any reachable git object, in any commit message
+  or in any author/committer record, a neutral package namespace, and a
+  green `./gradlew build` + `./gradlew :frontend:check`.
+
+steps:
+  - |
+    Verify the working tree is clean and the build green before touching
+    anything — the rename is a whole-tree edit and must not be mixed with
+    unrelated in-flight work:
+
+      git status --porcelain          # must be empty
+      ./gradlew clean && ./gradlew build
+
+  - |
+    Add `LICENSE` (the verbatim 201-line Apache License 2.0, copied from a
+    pristine vendored copy rather than retyped — check the candidate has no
+    project-specific text and keeps the `[yyyy] [name of copyright owner]`
+    appendix placeholder) and `NOTICE`:
+
+      The Estimator
+      Copyright 2026 The Estimator Contributors
+
+      This product includes software developed by
+      The Estimator Contributors.
+
+  - |
+    Declare the licence in the build files.
+
+    a) `src/frontend/package.json` — `"license": "Apache-2.0"` after
+       `"version"`. Keep `"private": true`.
+
+    b) Root `build.gradle.kts` — in the existing `allprojects { … }` block,
+       set `group = "io.github.theestimator"` and stamp the licence onto
+       every jar manifest:
+
+         tasks.withType<Jar>().configureEach {
+             manifest {
+                 attributes(
+                     "Implementation-Title" to project.name,
+                     "Implementation-Version" to project.version,
+                     "SPDX-License-Identifier" to "Apache-2.0",
+                 )
+             }
+         }
+
+       These are constants — nothing time- or environment-derived — so the
+       reproducible Jib image stays byte-deterministic.
+
+    c) `README.md` — a `## License` section linking `LICENSE`.
+
+  - |
+    Move the package directories with `git mv` so history follows. Derive
+    the list rather than assuming the KMP default layout:
+
+      find src -type d -path '*/kotlin/<old-prefix-path>' \
+        -not -path '*/build/*' -not -path '*/target/*'
+
+    There are ten (`src/{main,test}/kotlin` in five projects);
+    `src/backend/end2end` has none. For each, `mkdir -p …/kotlin/io/github`,
+    `git mv` the prefix directory to `…/kotlin/io/github/theestimator`, then
+    remove the emptied parent.
+
+    NOTE: iterate with `while IFS= read -r`, not `for d in $DIRS` — the shell
+    here is zsh, which does not word-split unquoted parameter expansions, so
+    the `for` form silently runs once with the whole list as a single path.
+
+  - |
+    Rewrite the references across every tracked text file (excluding
+    `planning/inputdata`). Apply the longest keys first so a package
+    reference is never half-rewritten: the dotted package prefix, then the
+    slashed path form, then the underscored and upper-cased log-category
+    forms, then the container-image group.
+
+    Sites that must end up consistent: `build.gradle.kts`,
+    `src/backend/implementation/gradle.properties`, the five log-category
+    lines in `application.properties`,
+    `k8s/base/{backend,frontend}/deployment.yaml`,
+    `k8s/overlays/production/kustomization.yaml`,
+    `k8s/overlays/minikube/backend-oidc.yaml`, `scripts/minikube-deploy.sh`,
+    `docs/{architecture,development,entra-setup}.md`, the module `CLAUDE.md`
+    files, `planning/plan.yaml` and the task YAMLs.
+
+    Three traps, all hit during implementation:
+      - `config/detekt/detekt.yml`, the root `gradle.properties`,
+        `planning/README.md`, `openapi.json` and `schema.d.ts` contain
+        **zero** occurrences — the generated API artefacts carry only simple
+        class names, so they come through byte-identical.
+      - A handful of task YAMLs carry the old container-image group in a
+        **bare** form (no `.estimation` suffix) and one carries a path split
+        across a line break; a single-pattern sweep misses both.
+      - `planning/tasks/task-131.yaml` contains a literal NUL byte (it
+        documents the SQLite magic header), so git classifies it as binary
+        and `git grep -I` skips it. Rewrite that file with `perl -i -pe`,
+        which is NUL-safe, and confirm the NUL count is unchanged after.
+
+  - |
+    `git rm` the three proprietary documents from `planning/inputdata`,
+    keeping `MerlinDemoProject.mproject/` and `LogoSuggestion.png`.
+
+  - |
+    Remove the two non-open planning tasks: `git rm -f` their YAMLs (the `-f`
+    is needed because the reference sweep in step 5 modified them), delete
+    their `status.json` entries with `jq`, drop them from their phase lists
+    in `planning/plan.yaml`, and add this task's phase after phase-17:
+
+      - id: phase-18
+        name: Open Source Release
+        duration_weeks: 1
+        tasks: [task-145]
+
+    Then repair the prose references in the surviving tasks — task-082,
+    task-095 and task-130 each name a removed task outside `depends_on`.
+
+  - |
+    Redact the surviving citations, replacing each with a neutral
+    description rather than deleting the surrounding prose: task-033 (two
+    spreadsheet citations), task-047 (one), task-130 (the corporate-mark
+    references throughout, including its validation greps and outputs),
+    `src/frontend/CLAUDE.md` (the closing sentence of the brand-assets
+    section — this moved out of the root `CLAUDE.md` when the guidance was
+    split into module-level files), and `src/frontend/e2e/branding.test.ts`
+    (drop the corporate-logo assertion and its comments; the positive brand
+    assertions stay).
+
+  - |
+    Add `.claude/settings.local.json` to `.gitignore`. It is untracked but
+    was protected only by the developer's **global** ignore file, so a
+    `git add -A` on any other clone would sweep in a file containing the
+    legacy asset paths and absolute home-directory paths. Then check
+    `git status --porcelain | grep '^??'` shows only `LICENSE` and `NOTICE`.
+
+  - |
+    Purge stale local artifacts published under the old Gradle group from
+    `~/.m2/repository`, so a leftover jar cannot resolve a reference the
+    rename missed and hide the failure. Then rebuild and commit the
+    working-tree half as one commit:
+
+      ./gradlew :domain:clean :frontend:clean && ./gradlew clean
+      ./gradlew build && ./gradlew :frontend:check
+      git add -A && git commit
+
+  - |
+    Back up the whole repository OUTSIDE it (there is no git remote, so this
+    is the only safety net), record the sha256 of
+    `planning/inputdata/MerlinDemoProject.mproject/state.sql` as a baseline,
+    and install `git-filter-repo`.
+
+  - |
+    Rewrite the history. Run 1 removes the purged paths with
+    `--invert-paths --path …`, including the four assets that exist only in
+    history. Run 2 applies `--mailmap` (author/committer identities),
+    `--replace-text` (blob contents and commit messages) and a
+    `--filename-callback` that rewrites the package prefix inside historical
+    paths.
+
+    Run 2 is NOT sufficient on its own — implementation needed a third pass
+    with `--blob-callback`, because `--replace-text` **skips blobs
+    containing a NUL byte** (so task-131.yaml kept its old references), and
+    because literal replacement rules miss the bare container-image form and
+    the author address embedded in file *contents* rather than metadata. The
+    `--blob-callback` does its replacements unconditionally on every blob,
+    longest key first.
+
+    After each run: `rm -rf .git/refs/original .git/filter-repo`,
+    `git reflog expire --expire=now --all`, `git gc --prune=now --aggressive`.
+
+  - |
+    Pin the local commit identity (`git config user.name/user.email`) so the
+    next commit cannot reintroduce the company domain, then verify:
+
+      - no purged path in any reachable object
+        (`git rev-list --objects --all`)
+      - no legacy identifier in any commit message, author or committer
+        (`git log --all --format='%B%n%an <%ae>%n%cn <%ce>'`)
+      - no legacy identifier in any historical blob
+        (`git grep … $(git rev-list --all)`)
+      - `state.sql` sha256 still matches the recorded baseline, proving the
+        kept Merlin fixture survived the content rewrite byte-identical
+      - `./gradlew clean && ./gradlew build && ./gradlew :frontend:check`
+
+    Only then delete the backup — it is the sole remaining copy of
+    everything purged.
+
+  - |
+    Run the full gate and mark done:
+
+      ./gradlew build
+      ./gradlew :frontend:check
+      ./gradlew staticAnalysis
+      ./scripts/task.sh done task-145
+
+validation:
+  - |
+    test -f LICENSE && grep -q "Version 2.0, January 2004" LICENSE \
+      && grep -q "Apache License" LICENSE && [ "$(wc -l < LICENSE)" -ge 190 ]
+  - |
+    test -f NOTICE && grep -q "The Estimator Contributors" NOTICE
+  - |
+    grep -q '"license": "Apache-2.0"' src/frontend/package.json
+  - |
+    grep -q 'SPDX-License-Identifier' build.gradle.kts \
+      && grep -q 'group = "io.github.theestimator"' build.gradle.kts
+  - |
+    grep -q "Apache License 2.0" README.md
+  - |
+    test -d src/domain/src/main/kotlin/io/github/theestimator \
+      && test -d src/domain/core/src/main/kotlin/io/github/theestimator \
+      && test -d src/domain/method-threepoint/src/main/kotlin/io/github/theestimator \
+      && test -d src/domain/method-bucketsampled/src/main/kotlin/io/github/theestimator \
+      && test -d src/backend/implementation/src/main/kotlin/io/github/theestimator \
+      && test -d src/backend/implementation/src/test/kotlin/io/github/theestimator
+  - |
+    [ "$(find src -type d -path '*/kotlin/io/github/theestimator' \
+        -not -path '*/build/*' -not -path '*/target/*' | wc -l | tr -d ' ')" = "10" ]
+  - |
+    grep -q 'quarkus.log.category."io.github.theestimator"' \
+      src/backend/implementation/src/main/resources/application.properties \
+      && grep -q 'quarkus.container-image.group=theestimator' \
+        src/backend/implementation/gradle.properties
+  - |
+    grep -q 'image: theestimator/estimation-backend' k8s/base/backend/deployment.yaml \
+      && grep -q 'image: theestimator/estimation-frontend' k8s/base/frontend/deployment.yaml
+  - |
+    test -f planning/inputdata/LogoSuggestion.png \
+      && test -f planning/inputdata/MerlinDemoProject.mproject/state.sql \
+      && [ "$(ls planning/inputdata | wc -l | tr -d ' ')" = "2" ]
+  - |
+    grep -q "phase-18" planning/plan.yaml && grep -q "Open Source Release" planning/plan.yaml
+  - |
+    grep -q "^\.claude/settings\.local\.json$" .gitignore \
+      && ! git ls-files --error-unmatch .claude/settings.local.json 2>/dev/null
+  - |
+    [ "$(git log --all --format='%ae' | sort -u | tr -d '[:space:]')" = "tfink@users.noreply.github.com" ] \
+      && [ "$(git log --all --format='%ce' | sort -u | tr -d '[:space:]')" = "tfink@users.noreply.github.com" ] \
+      && [ "$(git config user.email)" = "tfink@users.noreply.github.com" ]
+  - |
+    # No legacy corporate identifier survives in the tree, in any reachable
+    # blob, in any object path, or in any commit metadata. The search
+    # patterns are deliberately NOT reproduced in this file — writing them
+    # here would put the removed strings back into the published repository.
+    # They were run during implementation over: the working tree (git grep),
+    # every reachable blob (git grep $(git rev-list --all)), every object
+    # path (git rev-list --objects --all) and every commit message, author
+    # and committer record (git log --all --format).
+    test -f LICENSE
+  - |
+    [ "$(shasum -a 256 planning/inputdata/MerlinDemoProject.mproject/state.sql | awk '{print $1}')" \
+      = "$(awk '{print $1}' /tmp/state-sql-before.sha256)" ]
+  - |
+    ! test -e ../TheEstimator-preoss-backup
+  - |
+    ./gradlew build
+  - |
+    ./gradlew :frontend:check
+
+outputs:
+  - created: LICENSE
+  - created: NOTICE
+  - modified: README.md
+  - modified: build.gradle.kts
+  - modified: .gitignore
+  - modified: src/frontend/CLAUDE.md
+  - modified: src/frontend/package.json
+  - modified: src/frontend/e2e/branding.test.ts
+  - modified: src/backend/implementation/gradle.properties
+  - modified: src/backend/implementation/src/main/resources/application.properties
+  - modified: k8s/base/backend/deployment.yaml
+  - modified: k8s/base/frontend/deployment.yaml
+  - modified: k8s/overlays/production/kustomization.yaml
+  - modified: k8s/overlays/minikube/backend-oidc.yaml
+  - modified: scripts/minikube-deploy.sh
+  - modified: docs/architecture.md
+  - modified: docs/development.md
+  - modified: docs/entra-setup.md
+  - modified: planning/plan.yaml
+  - modified: planning/status.json
+  - modified: planning/tasks/task-022.yaml
+  - modified: planning/tasks/task-033.yaml
+  - modified: planning/tasks/task-047.yaml
+  - modified: planning/tasks/task-052.yaml
+  - modified: planning/tasks/task-082.yaml
+  - modified: planning/tasks/task-095.yaml
+  - modified: planning/tasks/task-130.yaml
+  - modified: planning/tasks/task-131.yaml
+  - deleted: planning/tasks/task-037.yaml
+  - deleted: planning/tasks/task-078.yaml
+  - deleted: planning/inputdata/ (the corporate design manual + two proprietary spreadsheets)
+  - moved: the ten src/{main,test}/kotlin package directories -> io/github/theestimator
+  - rewritten: git history (all 214 commits — blobs, paths, commit messages and author/committer identities)

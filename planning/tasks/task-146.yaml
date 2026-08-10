@@ -1,0 +1,423 @@
+id: task-146
+phase: phase-18
+title: System settings — name, standard drivers, custom CSS
+depends_on: [task-145]
+description: |
+  Every installation of TheEstimator is operated by one organisation, and
+  nothing in the product lets that organisation identify itself. task-145
+  removes the originating company from the source tree; this task gives the
+  product back the ability to be branded and preconfigured — as DATA owned by
+  the installation, not as source code.
+
+  Current state — three gaps:
+
+  - **No name.** The application name is the hardcoded i18n string
+    `brand.name` ("The Estimator") in `de.json`/`en.json`, rendered by
+    `AppHeader.svelte` and the dev-login dialog. Changing it means editing two
+    checked-in catalogs and redeploying.
+  - **No standard effort drivers.** `EstimationVersionService.createDraft`
+    clones effort drivers from the latest submitted version when one exists,
+    and otherwise creates a draft with an EMPTY driver list. Every estimator
+    starting a first estimate re-types the same organisation-wide drivers by
+    hand.
+  - **No styling override.** Brand colours are three CSS custom properties in
+    `src/frontend/src/app.css` (`--color-brand-green`,
+    `--color-brand-green-light`, `--gradient-brand`). Restyling means editing
+    the repo.
+
+  Target state — one singleton settings row plus a driver template, all
+  editable at runtime by an ADMIN, exposed over `/api/system`, and consumed
+  by the frontend at startup.
+
+  ## Design decisions — do not deviate
+
+  **This is installation CONFIGURATION, not business logic, so it does NOT
+  touch the KMP domain.** `src/domain/` is untouched: no new domain type, no
+  `@JsExport`, no `typescriptDist` regeneration, no Kotlin/JS constraints in
+  play. The standard drivers reuse the EXISTING `EffortDriver` shape via the
+  existing effort-driver DTO. Do not put installation data next to
+  `EstimationDefaults` — that object holds universal calculation defaults
+  (`dailyRate`/`stdDevFactor`/`salesSurcharge`), which are a different thing
+  from per-installation data.
+
+  **One settings row, enforced in the schema.** `system_settings` is a
+  singleton: `id SMALLINT NOT NULL PRIMARY KEY DEFAULT 1 CHECK (id = 1)`,
+  and `V18` INSERTs the single row so every read finds it and no code path
+  needs a lazy create. Per the V15 lesson (see `src/backend/CLAUDE.md`),
+  the CHECK must ALSO be declared on the `SystemSettings` entity — `%test`
+  and `%dev` build the schema from Hibernate with Flyway off, so a
+  constraint that lives only in the migration does not exist where you test.
+  `SystemSettings` therefore does NOT extend `BaseEntity` (that supplies a
+  uuid id); it is a deliberate exception, and the entity carries a comment
+  saying so.
+
+  **The display name falls back, it does not replace.** `brand.name` stays
+  in both i18n catalogs and remains the fallback whenever the configured
+  name is null or blank. Do NOT delete the key or hardcode "The Estimator"
+  at the call sites.
+
+  **Standard drivers seed only a FRESH draft.** In `createDraft`, apply the
+  template only on the `latestSubmitted == null` branch. A draft cloned from
+  a submitted version must keep exactly the drivers it inherited — appending
+  the template there would silently mutate a continuing estimate.
+
+  **`GET /api/system` and `GET /api/system/css` are `@PermitAll`.** The auth
+  gate renders the login dialog with the brand lockup BEFORE any account
+  exists, so a `@RolesAllowed` read would leave the login screen unbranded.
+  Both expose only the name and the stylesheet — public branding, no
+  business data. Every WRITE is `@RolesAllowed("ADMIN")`.
+
+  **The stylesheet is delivered as a `<link>`, not injected as text.** The
+  root layout adds `<link rel="stylesheet" href="/api/system/css">` inside
+  `<svelte:head>`, after the `app.css` import so it wins the cascade. This
+  is deliberately NOT `<style>{cssText}</style>`: a `</style>` sequence
+  inside an uploaded file would close the element early and inject arbitrary
+  markup, and the safe alternative (setting `.textContent` imperatively)
+  buys nothing here. The `<link>` needs no `Authorization` header, which is
+  exactly why the endpoint is `@PermitAll`; this is NOT a violation of the
+  "downloads must go through apiFetch" rule, which is about authenticated
+  file downloads that silently save a 401 body.
+
+  **An uploaded stylesheet is ADMIN-trusted.** CSS cannot execute
+  JavaScript, but it CAN overlay, hide or spoof UI. That is acceptable at
+  the ADMIN trust level (the same person configures the auth provider) and
+  is the reason the write endpoints must never be widened to ESTIMATOR.
+  Enforce a **256 KB** limit and reject an empty upload with `400`.
+  No gateway change is needed: `src/frontend/nginx.conf` already allows
+  32m on `location /api/` and `quarkus.http.limits.max-body-size` is 32M
+  (see the `merlin-integration` skill for why that pair exists) — 256 KB is
+  far inside both, so do NOT touch either number.
+
+  **Driver template writes replace the whole list**, matching the
+  `DraftUpdateApplier` clear-and-rebuild convention rather than diffing.
+
+steps:
+  - |
+    Add the Flyway migration
+    `src/backend/implementation/src/main/resources/db/migration/V18__system_settings.sql`
+    (V17 is the highest existing) with two tables:
+
+      CREATE TABLE system_settings (
+          id            SMALLINT     NOT NULL DEFAULT 1,
+          display_name  VARCHAR(200),
+          custom_css    TEXT,
+          custom_css_filename VARCHAR(255),
+          custom_css_updated_at TIMESTAMPTZ,
+          created_at    TIMESTAMPTZ  NOT NULL DEFAULT now(),
+          updated_at    TIMESTAMPTZ  NOT NULL DEFAULT now(),
+          CONSTRAINT pk_system_settings PRIMARY KEY (id),
+          CONSTRAINT ck_system_settings_singleton CHECK (id = 1)
+      );
+      INSERT INTO system_settings (id) VALUES (1);
+
+      CREATE TABLE system_effort_drivers (
+          id          UUID         NOT NULL PRIMARY KEY,
+          position    INTEGER      NOT NULL,
+          description VARCHAR(500) NOT NULL,
+          factor      DOUBLE PRECISION NOT NULL DEFAULT 0,
+          comment     VARCHAR(2000) NOT NULL DEFAULT '',
+          created_at  TIMESTAMPTZ  NOT NULL DEFAULT now(),
+          updated_at  TIMESTAMPTZ  NOT NULL DEFAULT now(),
+          CONSTRAINT uq_system_effort_drivers_position UNIQUE (position)
+      );
+
+    `display_name` is nullable on purpose — NULL means "fall back to the
+    i18n `brand.name`".
+  - |
+    Add the JPA entities under
+    `src/backend/implementation/src/main/kotlin/io/github/theestimator/domain/system/`:
+
+    `SystemSettings.kt` — `@Entity @Table(name = "system_settings")`, NOT a
+    `BaseEntity` (comment why: singleton, fixed id). `@Id var id: Short = 1`,
+    `displayName: String?`, `customCss: String?`, `customCssFilename: String?`,
+    `customCssUpdatedAt: Instant?`, plus `createdAt`/`updatedAt`. Declare the
+    singleton CHECK on the entity too — `@Table(check = [CheckConstraint(name
+    = "ck_system_settings_singleton", constraint = "id = 1")])` — per the V15
+    migration/entity parity rule.
+
+    `SystemEffortDriver.kt` — `@Entity @Table(name = "system_effort_drivers")`
+    extending `BaseEntity`, with `position: Int`, `description: String`,
+    `factor: Double`, `comment: String`, and the `UNIQUE(position)` constraint
+    declared on the entity as well.
+  - |
+    Add `SystemSettingsRepository` and `SystemEffortDriverRepository` under
+    `…/repository/` as Panache repositories, following the existing
+    convention (finders as methods on the repository class):
+    `SystemSettingsRepository.get(): SystemSettings` (returns the id=1 row;
+    the migration guarantees it exists) and
+    `SystemEffortDriverRepository.findAllOrdered(): List<SystemEffortDriver>`
+    (ordered by `position`).
+  - |
+    Add `…/service/SystemSettingsService.kt`, `@ApplicationScoped`, each
+    mutator `@Transactional`:
+
+      fun settings(): SystemSettings
+      fun updateDisplayName(name: String?)          // blank → stored as null
+      fun standardDrivers(): List<SystemEffortDriver>
+      fun replaceStandardDrivers(drivers: List<EffortDriverDto>)
+      fun storeCss(filename: String?, css: String)  // validates size + non-empty
+      fun clearCss()
+
+    `replaceStandardDrivers` deletes all rows and re-inserts in list order,
+    assigning `position` from the index (the clear-and-rebuild convention).
+    `storeCss` rejects an empty body and anything over 256 KB with a `400`
+    `WebApplicationException`.
+
+    Log per the CLAUDE.md conventions via `io.quarkus.logging.Log`: INFO on
+    each mutation with the key fact (`Log.info("System display name set to
+    …")`, `Log.info("Replaced standard effort drivers (n=…)")`,
+    `Log.info("Stored custom CSS (…bytes, filename=…)")`,
+    `Log.info("Cleared custom CSS")`), DEBUG for finer detail, and WARN on
+    each rejection path (empty upload, oversize).
+  - |
+    Add `…/rest/SystemSettingsResource.kt`, `@Path("/api/system")`, annotated
+    in the same MicroProfile OpenAPI style as the existing resources
+    (`@Tag`, `@Operation`, `@APIResponse` + `@Content`/`@Schema`), returning
+    `jakarta.ws.rs.core.Response`:
+
+      GET    /api/system              @PermitAll  → 200 SystemSettingsDto
+      PUT    /api/system              ADMIN       → 204 (body SystemSettingsUpdateDto{displayName})
+      GET    /api/system/css          @PermitAll  → 200 text/css | 404 when none
+      PUT    /api/system/css          ADMIN       → 204 (multipart `file`) | 400 empty/oversize
+      DELETE /api/system/css          ADMIN       → 204
+      GET    /api/system/effort-drivers  VIEWER   → 200 List<EffortDriverDto>
+      PUT    /api/system/effort-drivers  ADMIN    → 200 List<EffortDriverDto>
+
+    Add the DTOs to `…/rest/dto/` — `SystemSettingsDto(displayName: String?,
+    hasCustomCss: Boolean, customCssUpdatedAt: String?)` and
+    `SystemSettingsUpdateDto(displayName: String?)`; reuse the existing
+    effort-driver DTO for the driver list rather than adding a second shape.
+    Log at INFO on each mutating endpoint with the caller's subjectId.
+  - |
+    Seed the standard drivers into a fresh draft: in
+    `…/service/EstimationVersionService.kt::createDraft`, inject
+    `SystemSettingsService` and, **only in the `latestSubmitted == null`
+    branch**, copy each standard driver into a `DraftEffortDriver` on the new
+    draft (preserving `position` order). Add
+    `Log.debug("Seeded N standard effort drivers into draft …")`. Do not
+    touch `cloneFromSubmitted`.
+  - |
+    Frontend client: add `src/frontend/src/lib/api/system.ts` with `apiFetch`
+    wrappers (`getSystemSettings`, `updateSystemSettings`,
+    `getStandardDrivers`, `replaceStandardDrivers`, `uploadSystemCss`,
+    `deleteSystemCss`), each `await assertOk(res, '<fallback>')` before
+    parsing. Raw `fetch` is banned; every call goes through `apiFetch`.
+  - |
+    Wire the name and stylesheet into the app shell:
+
+    - `src/frontend/src/routes/+layout.svelte` — add
+      `<link rel="stylesheet" href="/api/system/css" />` inside the existing
+      `<svelte:head>`, AFTER the `app.css` import so it wins the cascade.
+    - Load the settings once on startup (alongside the existing account
+      resolution) and expose the resolved name through a small runes store
+      `src/frontend/src/lib/stores/system.svelte.ts`; on failure `log.error`
+      and fall through to the i18n fallback WITHOUT blocking the app (a
+      missing name must never gate rendering).
+    - `src/frontend/src/lib/components/AppHeader.svelte` — render the
+      configured name when present, else `$_('brand.name')`. Do the same for
+      the dev-login dialog's product name.
+  - |
+    Add the admin UI at `src/frontend/src/routes/admin/system/+page.svelte`,
+    gated to ADMIN with the existing role-gate component: a display-name
+    field, an effort-driver table (add / edit / remove / reorder, PUT the
+    whole list), and a CSS section (file input → `uploadSystemCss`, plus a
+    "remove" action and a display of the current filename/updated-at). Every
+    `try`/`catch` both `log.error(...)`s and surfaces the message through
+    `ErrorBanner`; no bare `console.*`. Add a link to it from `UserMenu`
+    visible only to ADMIN.
+  - |
+    Add all new UI strings as i18n keys to BOTH
+    `src/frontend/src/lib/i18n/de.json` and `.../en.json`, key-for-key
+    identical, under an `admin.system.*` namespace (title, name label + hint,
+    drivers table headers, add/remove/reorder actions, CSS upload label,
+    current-file line, remove-CSS action, and one error string per failure
+    path). Keep `brand.name` in both catalogs — it is the fallback.
+  - |
+    Backend IT: add
+    `src/backend/implementation/src/test/kotlin/io/github/theestimator/rest/SystemSettingsResourceIT.kt`
+    (`@QuarkusTest`, per-request `Authorization: Dev <subject>` headers like
+    `SessionResourceIT`) proving: `GET /api/system` works ANONYMOUSLY (the
+    `@PermitAll` contract the login screen depends on); a non-admin `PUT
+    /api/system` → 403; an admin PUT then GET round-trips the name; a blank
+    name reads back as null; `GET /api/system/css` → 404 before upload, then
+    200 with `Content-Type: text/css` after an admin upload, then 404 after
+    DELETE; an empty CSS upload → 400 and an oversize one (>256 KB) → 400;
+    replacing the standard drivers round-trips them in order; and — the
+    behavioural core — after setting two standard drivers, `POST
+    /api/estimations/{id}/versions` on an estimation with NO submitted
+    version returns a draft carrying those two drivers, while a draft created
+    after a submit carries the SUBMITTED version's drivers and not the
+    template.
+  - |
+    Frontend e2e: add `src/frontend/e2e/system-settings.test.ts` following the
+    existing spec conventions (`dev-admin` storage state, `locale: 'de-DE'`) —
+    set a display name in the admin UI, reload, and assert the header shows
+    it; upload a small CSS file that sets an unmistakable custom property and
+    assert the computed style changed; remove it and assert the style
+    reverts. Use a dedicated project/estimation so the spec does not collide
+    with other suites sharing the backend.
+  - |
+    Regenerate and commit the API contract: `./gradlew build` refreshes
+    `src/frontend/src/lib/api/openapi.json` and
+    `src/frontend/src/lib/api/schema.d.ts` with the seven new endpoints and
+    the two new DTOs. Both files are outputs of this task.
+  - |
+    Update documentation: add a "System settings" section to
+    `src/backend/CLAUDE.md` (the singleton row + its entity-level CHECK, the
+    `@PermitAll` reads and why, the ADMIN writes, the 256 KB limit and the
+    explicit note that no gateway change is needed) and a short note to
+    `src/frontend/CLAUDE.md` (the `<link rel="stylesheet">` delivery, why it
+    is not `<style>` text injection, and the name-with-i18n-fallback rule).
+  - |
+    Run the full gate: `./gradlew :backend:implementation:test`, then
+    `./gradlew build`, then the e2e suite with the dev stack running
+    (`./scripts/dev.sh`; backend :8090, Vite :5173;
+    `cd src/frontend && npm run test:e2e`). Stop the stack with SIGTERM to
+    `dev.sh`, never by killing the child JVMs.
+
+validation:
+  - |
+    The migration exists, creates both tables, seeds the singleton row, and
+    no earlier migration was edited:
+      M=src/backend/implementation/src/main/resources/db/migration/V18__system_settings.sql
+      test -f "$M"
+      grep -q "CREATE TABLE system_settings" "$M"
+      grep -q "CREATE TABLE system_effort_drivers" "$M"
+      grep -q "CHECK (id = 1)" "$M"
+      grep -q "INSERT INTO system_settings" "$M"
+  - |
+    The singleton CHECK is mirrored on the entity (the V15 parity lesson —
+    %test/%dev build the schema from Hibernate, not Flyway):
+      E=src/backend/implementation/src/main/kotlin/io/github/theestimator/domain/system/SystemSettings.kt
+      test -f "$E"
+      grep -q "id = 1" "$E"
+      test -f src/backend/implementation/src/main/kotlin/io/github/theestimator/domain/system/SystemEffortDriver.kt
+  - |
+    The service exists with all six operations and logs every mutation at
+    INFO via io.quarkus.logging.Log (CLAUDE.md logging convention):
+      S=src/backend/implementation/src/main/kotlin/io/github/theestimator/service/SystemSettingsService.kt
+      grep -q "fun updateDisplayName(" "$S"
+      grep -q "fun replaceStandardDrivers(" "$S"
+      grep -q "fun storeCss(" "$S"
+      grep -q "fun clearCss(" "$S"
+      test "$(grep -c 'Log\.info' "$S")" -ge 4
+      grep -q "Log\.warn" "$S"
+  - |
+    The resource exposes all seven endpoints with the intended access
+    control — the two reads PermitAll (the login screen depends on it), every
+    write ADMIN:
+      R=src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/SystemSettingsResource.kt
+      grep -q '@Path("/api/system")' "$R"
+      grep -q '"/css"' "$R"
+      grep -q '"/effort-drivers"' "$R"
+      grep -q "PermitAll" "$R"
+      test "$(grep -c 'RolesAllowed("ADMIN")' "$R")" -ge 4
+  - |
+    A fresh draft is seeded from the template, and the clone path is NOT
+    touched:
+      V=src/backend/implementation/src/main/kotlin/io/github/theestimator/service/EstimationVersionService.kt
+      grep -q "systemSettingsService\|SystemSettingsService" "$V"
+      grep -q "standardDrivers" "$V"
+  - |
+    The backend IT covers the anonymous read, the 403, the CSS lifecycle and
+    the seeding behaviour:
+      T=src/backend/implementation/src/test/kotlin/io/github/theestimator/rest/SystemSettingsResourceIT.kt
+      test -f "$T"
+      grep -q "403" "$T"
+      grep -q "404" "$T"
+      grep -q "400" "$T"
+      grep -q "text/css" "$T"
+      grep -qi "anonymous\|no auth\|without.*header" "$T"
+  - |
+    The frontend client and admin page are wired, log failures, and use no
+    bare console.* or raw fetch:
+      A=src/frontend/src/lib/api/system.ts
+      P=src/frontend/src/routes/admin/system/+page.svelte
+      test -f "$A"; test -f "$P"
+      grep -q "apiFetch" "$A"
+      ! grep -qE "[^a-zA-Z.]fetch\(" "$A"
+      grep -q "assertOk" "$A"
+      grep -q "ErrorBanner" "$P"
+      grep -q "log\." "$P"
+      ! grep -q "console\." "$P"
+  - |
+    The stylesheet is delivered as a link element, never as injected style
+    text (a `</style>` in an uploaded file would break out):
+      L=src/frontend/src/routes/+layout.svelte
+      grep -q '/api/system/css' "$L"
+      ! grep -q 'innerHTML' "$L"
+  - |
+    The configured name falls back to the i18n key rather than replacing it:
+      grep -q "brand.name" src/frontend/src/lib/components/AppHeader.svelte
+      python3 -c "
+      import json,sys
+      for l in ('de','en'):
+          d=json.load(open(f'src/frontend/src/lib/i18n/{l}.json'))
+          assert d.get('brand',{}).get('name'), f'{l}.json lost brand.name'
+      print('brand.name fallback intact')
+      "
+  - |
+    Both catalogs carry the new admin.system.* keys and stay key-for-key
+    identical:
+      python3 - <<'PY'
+      import json, sys
+      cat = {l: json.load(open(f'src/frontend/src/lib/i18n/{l}.json')) for l in ('de', 'en')}
+
+      def flat(o, p=''):
+          s = set()
+          for k, v in o.items():
+              n = f'{p}.{k}' if p else k
+              s |= flat(v, n) if isinstance(v, dict) else {n}
+          return s
+
+      keys = {l: flat(d) for l, d in cat.items()}
+      problems = []
+      if keys['de'] != keys['en']:
+          problems.append(f"de/en key drift: {sorted(keys['de'] ^ keys['en'])}")
+      for l, k in keys.items():
+          if not any(x.startswith('admin.system.') for x in k):
+              problems.append(f'{l}.json has no admin.system.* keys')
+      print('\n'.join(problems) or 'i18n catalogs OK')
+      sys.exit(1 if problems else 0)
+      PY
+  - |
+    The regenerated API contract is committed with the change:
+      grep -q "/api/system/css" src/frontend/src/lib/api/openapi.json
+      grep -q "/api/system/effort-drivers" src/frontend/src/lib/api/openapi.json
+      grep -q "SystemSettingsDto" src/frontend/src/lib/api/schema.d.ts
+  - |
+    The domain module is untouched by this task (installation config is not
+    business logic):
+      git diff --quiet HEAD -- src/domain || { echo "src/domain must not change"; exit 1; }
+  - |
+    ./gradlew :backend:implementation:test
+  - |
+    ./gradlew build
+  - |
+    Requires a running dev stack (`./scripts/dev.sh`; backend :8090, Vite :5173):
+      ( cd src/frontend && npm run test:e2e )
+
+outputs:
+  - created: src/backend/implementation/src/main/resources/db/migration/V18__system_settings.sql
+  - created: src/backend/implementation/src/main/kotlin/io/github/theestimator/domain/system/SystemSettings.kt
+  - created: src/backend/implementation/src/main/kotlin/io/github/theestimator/domain/system/SystemEffortDriver.kt
+  - created: src/backend/implementation/src/main/kotlin/io/github/theestimator/repository/SystemSettingsRepository.kt
+  - created: src/backend/implementation/src/main/kotlin/io/github/theestimator/repository/SystemEffortDriverRepository.kt
+  - created: src/backend/implementation/src/main/kotlin/io/github/theestimator/service/SystemSettingsService.kt
+  - created: src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/SystemSettingsResource.kt
+  - created: src/backend/implementation/src/test/kotlin/io/github/theestimator/rest/SystemSettingsResourceIT.kt
+  - created: src/frontend/src/lib/api/system.ts
+  - created: src/frontend/src/lib/stores/system.svelte.ts
+  - created: src/frontend/src/routes/admin/system/+page.svelte
+  - created: src/frontend/e2e/system-settings.test.ts
+  - modified: src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/dto/SystemSettingsDtos.kt
+  - modified: src/backend/implementation/src/main/kotlin/io/github/theestimator/service/EstimationVersionService.kt
+  - modified: src/frontend/src/routes/+layout.svelte
+  - modified: src/frontend/src/lib/components/AppHeader.svelte
+  - modified: src/frontend/src/lib/components/UserMenu.svelte
+  - modified: src/frontend/src/lib/i18n/de.json
+  - modified: src/frontend/src/lib/i18n/en.json
+  - modified: src/frontend/src/lib/api/openapi.json
+  - modified: src/frontend/src/lib/api/schema.d.ts
+  - modified: src/backend/CLAUDE.md
+  - modified: src/frontend/CLAUDE.md

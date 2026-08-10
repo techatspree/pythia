@@ -859,6 +859,12 @@
       "started_at": "2026-08-10T12:50:30+00:00",
       "completed_at": null,
       "notes": "Publish under a permissive Open Source licence and purge all corporate/confidential data from the application, the planning tasks and the git history"
+    },
+    "task-146": {
+      "status": "pending",
+      "started_at": null,
+      "completed_at": null,
+      "notes": "Per-installation system settings: a display name (the operating corporation), a set of standard effort drivers seeded into new drafts, and an admin-uploadable CSS file that overrides the standard GUI styling"
     }
   }
 }

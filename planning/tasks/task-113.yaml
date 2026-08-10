@@ -154,7 +154,7 @@ validation:
       grep -q "else -> error" src/backend/implementation/src/main/kotlin/io/github/theestimator/service/EstimationVersionService.kt
   - |
     No leftover imports of the leaves from the old model package:
-      ! grep -rE "import de\\.spree\\.estimation\\.model\\.(Fixed|TimeRelative)EstimationItem" src/domain/src src/backend/implementation/src
+      ! grep -rE "import io\\.github\\.theestimator\\.model\\.(Fixed|TimeRelative)EstimationItem" src/domain/src src/backend/implementation/src
   - |
     CLAUDE.md documents the new rule:
       grep -q "abstract" CLAUDE.md
