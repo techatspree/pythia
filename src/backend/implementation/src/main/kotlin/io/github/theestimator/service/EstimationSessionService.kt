@@ -11,17 +11,26 @@ import io.github.theestimator.domain.session.SessionParticipant
 import io.github.theestimator.domain.session.SessionPhase
 import io.github.theestimator.domain.session.SessionStatus
 import io.github.theestimator.domain.session.SessionVote
+import io.github.theestimator.method.EstimationMethod
 import io.github.theestimator.method.EstimationMethodRegistry
 import io.github.theestimator.method.EstimationMethodSessionSupport
+import io.github.theestimator.method.bucketsampled.AssignmentResult
+import io.github.theestimator.method.bucketsampled.BucketSampledSessionResult
+import io.github.theestimator.method.bucketsampled.BucketVoteInput
+import io.github.theestimator.method.bucketsampled.EstimatorBucketAssignment
+import io.github.theestimator.method.bucketsampled.SampleTriple
 import io.github.theestimator.method.threepoint.PertReduction
 import io.github.theestimator.method.threepoint.PertVoteInput
 import io.github.theestimator.model.EstimatorVote
 import io.github.theestimator.model.VoteAggregate
+import kotlinx.datetime.Instant as KotlinInstant
 import io.github.theestimator.repository.DraftEstimationVersionRepository
 import io.github.theestimator.repository.EstimationRepository
 import io.github.theestimator.repository.EstimationSessionRepository
 import io.github.theestimator.repository.SessionVoteRepository
 import io.github.theestimator.rest.dto.AggregateDto
+import io.github.theestimator.rest.dto.AssignmentConflictDto
+import io.github.theestimator.rest.dto.BucketAssignmentDto
 import io.github.theestimator.rest.dto.EstimationNodeUpdateDto
 import io.github.theestimator.rest.dto.ParticipantDto
 import io.github.theestimator.rest.dto.SessionDto
@@ -134,8 +143,9 @@ class EstimationSessionService(
     fun listSessions(estimationId: UUID): List<SessionDto> =
         sessionRepository.findByEstimationId(estimationId).map { buildDto(it) }
 
-    // Joinable (CREATED/RUNNING) sessions across every estimation — powers the
-    // frontend's open-sessions join list when no estimationId is supplied.
+    // Joinable (CREATED/RUNNING/SUSPENDED) sessions across every estimation —
+    // powers the frontend's open-sessions join list when no estimationId is
+    // supplied, and is how a parked session is found again and resumed.
     @Transactional
     fun listJoinableSessions(): List<SessionDto> {
         val sessions = sessionRepository.findJoinable()
@@ -187,6 +197,7 @@ class EstimationSessionService(
     @Transactional
     fun revealPhase2(id: UUID, moderatorSubjectId: String): SessionDto {
         val session = requireModerator(id, moderatorSubjectId)
+        requireRunning(session, id)
         val item = currentItem(session) ?: throw conflict("Session $id has no current item")
         if (session.currentPhase != SessionPhase.PHASE1 || item.status != SessionItemStatus.PHASE1) {
             throw conflict("Current item of session $id is not in PHASE1")
@@ -198,10 +209,14 @@ class EstimationSessionService(
         return buildDto(session)
     }
 
-    @Transactional
-    fun submitVote(id: UUID, subjectId: String, min: Double, expected: Double, max: Double): SessionDto {
+    /**
+     * Shared guard for every vote shape: the session must be running, the caller
+     * must be a participant, and a moderate-only moderator may not vote. Returns
+     * the session + the item being voted on.
+     */
+    private fun requireVotable(id: UUID, subjectId: String): Pair<EstimationSession, SessionItem> {
         val session = requireSession(id)
-        if (session.status != SessionStatus.RUNNING) throw conflict("Session $id is not RUNNING")
+        requireRunning(session, id)
         if (session.participants.none { it.subjectId == subjectId }) {
             throw conflict("$subjectId is not a participant of session $id")
         }
@@ -210,6 +225,12 @@ class EstimationSessionService(
             throw conflict("The moderator does not estimate in session $id")
         }
         val item = currentItem(session) ?: throw conflict("Session $id has no current item")
+        return session to item
+    }
+
+    @Transactional
+    fun submitVote(id: UUID, subjectId: String, min: Double, expected: Double, max: Double): SessionDto {
+        val (session, item) = requireVotable(id, subjectId)
         val phase = session.currentPhase
         val existing = voteRepository.findByItemAndPhase(item.id!!, phase)
             .firstOrNull { it.participantSubjectId == subjectId }
@@ -233,6 +254,59 @@ class EstimationSessionService(
         return buildDto(session)
     }
 
+    /**
+     * BUCKET_SAMPLED_PERT vote: a bucket assignment, plus an optional three-point
+     * sample reusing the same min/expected/max columns a BUCKETED node uses.
+     */
+    @Transactional
+    fun submitBucketVote(
+        id: UUID,
+        subjectId: String,
+        bucketId: UUID,
+        isSample: Boolean,
+        min: Double,
+        expected: Double,
+        max: Double
+    ): SessionDto {
+        val (session, item) = requireVotable(id, subjectId)
+        if (session.estimation?.method != EstimationMethod.BUCKET_SAMPLED_PERT) {
+            Log.warn("Rejected bucket vote on session $id: estimation method is ${session.estimation?.method}")
+            throw conflict("Session $id does not use the bucket+sampled method")
+        }
+        // The bucket must belong to THIS estimation — otherwise a caller could
+        // file a vote against another offer's bucket.
+        val bucket = session.estimation?.buckets?.firstOrNull { it.id == bucketId }
+            ?: run {
+                Log.warn("Rejected bucket vote on session $id: bucket $bucketId is not one of the estimation's")
+                throw conflict("Bucket $bucketId does not belong to session $id's estimation")
+            }
+        val phase = session.currentPhase
+        val existing = voteRepository.findByItemAndPhase(item.id!!, phase)
+            .firstOrNull { it.participantSubjectId == subjectId }
+        if (existing != null) {
+            existing.bucket = bucket
+            existing.isSample = isSample
+            existing.minEffort = min
+            existing.expectedEffort = expected
+            existing.maxEffort = max
+        } else {
+            voteRepository.persist(SessionVote().apply {
+                this.session = session
+                this.sessionItem = item
+                this.participantSubjectId = subjectId
+                this.phase = phase
+                this.bucket = bucket
+                this.isSample = isSample
+                this.minEffort = min
+                this.expectedEffort = expected
+                this.maxEffort = max
+            })
+        }
+        Log.debug("Bucket vote by $subjectId on item ${item.position} ($phase) of session $id -> bucket $bucketId")
+        eventPublisher.published(id.toString())
+        return buildDto(session)
+    }
+
     @Transactional
     fun agree(id: UUID, subjectId: String): SessionDto {
         val session = requireSession(id)
@@ -252,9 +326,56 @@ class EstimationSessionService(
         return buildDto(session)
     }
 
+    /**
+     * Park a running session. Nothing else is touched — item statuses, votes,
+     * notes, currentItemIndex and currentPhase all stay as they are, so a resume
+     * continues exactly where the room stopped.
+     */
+    @Transactional
+    fun suspend(id: UUID, moderatorSubjectId: String): SessionDto {
+        val session = requireModerator(id, moderatorSubjectId)
+        requireRunning(session, id)
+        session.status = SessionStatus.SUSPENDED
+        Log.info("Suspended session $id (now ${session.status})")
+        eventPublisher.published(id.toString())
+        return buildDto(session)
+    }
+
+    /** Un-park a suspended session, back to exactly the item and phase it held. */
+    @Transactional
+    fun resume(id: UUID, moderatorSubjectId: String): SessionDto {
+        val session = requireModerator(id, moderatorSubjectId)
+        if (session.status != SessionStatus.SUSPENDED) throw conflict("Session $id is not SUSPENDED")
+        session.status = SessionStatus.RUNNING
+        Log.info("Resumed session $id (now ${session.status})")
+        eventPublisher.published(id.toString())
+        return buildDto(session)
+    }
+
+    /**
+     * Close a session before its last item, KEEPING the results gathered so far.
+     * Every already-finalized item was written back to the draft leaf as it was
+     * finalized, so there is nothing to flush here. The in-flight item's votes are
+     * deliberately NOT aggregated — finalizing a partially-voted item would invent
+     * a number nobody agreed on; it simply keeps no final estimate.
+     */
+    @Transactional
+    fun endEarly(id: UUID, moderatorSubjectId: String): SessionDto {
+        val session = requireModerator(id, moderatorSubjectId)
+        if (session.status != SessionStatus.RUNNING && session.status != SessionStatus.SUSPENDED) {
+            throw conflict("Session $id is not RUNNING or SUSPENDED")
+        }
+        session.status = SessionStatus.ENDED_EARLY
+        session.finalizedAt = Instant.now()
+        Log.info("Ended session $id early (now ${session.status})")
+        eventPublisher.published(id.toString())
+        return buildDto(session)
+    }
+
     @Transactional
     fun finalizeCurrent(id: UUID, moderator: User): SessionDto {
         val session = requireModerator(id, moderator.entraSubjectId ?: "")
+        requireRunning(session, id)
         val item = currentItem(session) ?: throw conflict("Session $id has no current item")
         if (session.currentPhase != SessionPhase.PHASE2 || item.status != SessionItemStatus.PHASE2) {
             throw conflict("Current item of session $id is not in PHASE2")
@@ -262,20 +383,44 @@ class EstimationSessionService(
 
         val votes = effectiveVotes(item)
         if (votes.isEmpty()) throw conflict("No votes to finalize item ${item.position} of session $id")
-        val aggregate = reducePert(sessionSupport(session), votes)
 
-        item.finalMinEffort = aggregate.meanMin
-        item.finalExpectedEffort = aggregate.meanExpected
-        item.finalMaxEffort = aggregate.meanMax
+        val support = sessionSupport(session)
+        // Each method contributes its own final values. PERT finalizes the mean
+        // triple; bucket+sampled finalizes the LWW bucket plus the averaged
+        // sample (a non-sample item legitimately finalizes 0/0/0 — its effort is
+        // derived from its bucket's samples by EstimationVersion.calculate(),
+        // not stored on the leaf).
+        val bucketId: UUID?
+        if (support.method == EstimationMethod.BUCKET_SAMPLED_PERT) {
+            val reduction = reduceBucket(support, votes)
+            bucketId = reduction.assignment?.bucketId?.let(UUID::fromString)
+            val sample = reduction.averagedSample
+            item.finalMinEffort = sample?.optimistic ?: 0.0
+            item.finalExpectedEffort = sample?.likely ?: 0.0
+            item.finalMaxEffort = sample?.pessimistic ?: 0.0
+            Log.info(
+                "Reduced item ${item.position} of session $id to bucket ${reduction.assignment?.bucketId} " +
+                    "(source=${reduction.assignment?.source}, " +
+                    "conflicts=${reduction.assignment?.conflictingAssignments?.size ?: 0}, " +
+                    "sampled=${sample != null})"
+            )
+        } else {
+            bucketId = null
+            val aggregate = reducePert(support, votes)
+            item.finalMinEffort = aggregate.meanMin
+            item.finalExpectedEffort = aggregate.meanExpected
+            item.finalMaxEffort = aggregate.meanMax
+        }
         item.status = SessionItemStatus.FINALIZED
 
-        writeBackToDraft(session, item, moderator)
+        writeBackToDraft(session, item, moderator, bucketId)
         session.participants.forEach { it.agreed = false }
         advance(session)
 
         Log.info(
             "Finalized item ${item.position} of session $id " +
-                "(mean=${aggregate.meanMin}/${aggregate.meanExpected}/${aggregate.meanMax}); " +
+                "(${item.finalMinEffort}/${item.finalExpectedEffort}/${item.finalMaxEffort}" +
+                (bucketId?.let { ", bucket=$it" } ?: "") + "); " +
                 "session now ${session.status} at index ${session.currentItemIndex}"
         )
         eventPublisher.published(id.toString())
@@ -298,7 +443,12 @@ class EstimationSessionService(
     // Writes the finalized triple back onto the matching draft leaf through the
     // existing draft-update path (records an undo-log entry, task-076), NOT with
     // ad-hoc SQL.
-    private fun writeBackToDraft(session: EstimationSession, item: SessionItem, moderator: User) {
+    private fun writeBackToDraft(
+        session: EstimationSession,
+        item: SessionItem,
+        moderator: User,
+        bucketId: UUID? = null
+    ) {
         val estimationId = session.estimation?.id ?: return
         val draft = draftRepository.findByEstimationId(estimationId) ?: return
         val beforeDto = draft.toUpdateDto()
@@ -310,7 +460,8 @@ class EstimationSessionService(
         val noteEntry = item.discussionNotes?.takeIf { it.isNotBlank() }?.let { "${session.title}: $it" }
         val newRoots = beforeDto.roots?.map {
             patchFinalizedLeaf(
-                it, targetId, item.finalMinEffort!!, item.finalExpectedEffort!!, item.finalMaxEffort!!, noteEntry
+                it, targetId, item.finalMinEffort!!, item.finalExpectedEffort!!, item.finalMaxEffort!!,
+                noteEntry, bucketId
             )
         }
         draftUpdateApplier.apply(draft, beforeDto.copy(roots = newRoots))
@@ -326,7 +477,8 @@ class EstimationSessionService(
         min: Double,
         expected: Double,
         max: Double,
-        noteEntry: String?
+        noteEntry: String?,
+        bucketId: UUID? = null
     ): EstimationNodeUpdateDto {
         val patched = if (targetLogicalId != null && node.logicalId?.toString() == targetLogicalId) {
             val assumptions = if (noteEntry != null) {
@@ -335,12 +487,24 @@ class EstimationSessionService(
             } else {
                 node.assumptions
             }
-            node.copy(minEffort = min, expectedEffort = expected, maxEffort = max, assumptions = assumptions)
+            node.copy(
+                minEffort = min,
+                expectedEffort = expected,
+                maxEffort = max,
+                assumptions = assumptions,
+                // Bucket sessions also decide the leaf's bucket; a null keeps the
+                // leaf's existing assignment (PERT sessions never touch it). A
+                // leaf that received a sample triple becomes a sample.
+                bucketId = bucketId?.toString() ?: node.bucketId,
+                isSample = if (bucketId != null) max > 0.0 else node.isSample
+            )
         } else {
             node
         }
         return patched.copy(
-            children = patched.children.map { patchFinalizedLeaf(it, targetLogicalId, min, expected, max, noteEntry) }
+            children = patched.children.map {
+                patchFinalizedLeaf(it, targetLogicalId, min, expected, max, noteEntry, bucketId)
+            }
         )
     }
 
@@ -369,6 +533,13 @@ class EstimationSessionService(
         return session
     }
 
+    // Every estimation activity — voting, revealing, finalizing — requires a
+    // RUNNING session, so a SUSPENDED room is inert rather than quietly
+    // accepting work that its participants are not there to do (task-144).
+    private fun requireRunning(session: EstimationSession, id: UUID) {
+        if (session.status != SessionStatus.RUNNING) throw conflict("Session $id is not RUNNING")
+    }
+
     // The session's estimation method decides how votes reduce to a group
     // estimate. A session without an estimation is a data bug, not a PERT
     // session, so this fails loudly rather than defaulting.
@@ -381,6 +552,39 @@ class EstimationSessionService(
     // method; this wraps them into the SPI's method-neutral input and unwraps
     // the PERT reduction back out. When bucket voting lands, this is the seam
     // that grows a second branch.
+    /**
+     * BUCKET_SAMPLED_PERT counterpart of [reducePert]. Wraps the persisted votes
+     * into the method's own SPI input and unwraps its reduction.
+     *
+     * LWW uses `updatedAt ?: createdAt`: a re-vote UPSERTs the existing row, so
+     * `createdAt` would pin the estimator's FIRST write and make a later change
+     * lose the race it should win.
+     */
+    private fun reduceBucket(
+        support: EstimationMethodSessionSupport,
+        votes: List<SessionVote>
+    ): BucketSampledSessionResult {
+        val inputs = votes.mapNotNull { vote ->
+            val bucketId = vote.bucket?.id ?: return@mapNotNull null
+            val writtenAt = vote.updatedAt ?: vote.createdAt ?: Instant.EPOCH
+            BucketVoteInput(
+                assignment = EstimatorBucketAssignment(
+                    estimatorId = vote.participantSubjectId ?: "",
+                    bucketId = bucketId.toString(),
+                    at = KotlinInstant.fromEpochMilliseconds(writtenAt.toEpochMilli())
+                ),
+                sample = if (vote.isSample == true) {
+                    SampleTriple(vote.minEffort, vote.expectedEffort, vote.maxEffort)
+                } else {
+                    null
+                }
+            )
+        }
+        val reduction = support.reduce(inputs)
+        return reduction as? BucketSampledSessionResult
+            ?: error("Expected a bucket reduction from ${support.method}, got ${reduction::class.simpleName}")
+    }
+
     private fun reducePert(
         support: EstimationMethodSessionSupport,
         votes: List<SessionVote>
@@ -434,8 +638,16 @@ class EstimationSessionService(
         } else {
             null
         }
-        val aggregate: AggregateDto? = if (revealed && votes.isNotEmpty()) {
+        // Each method reduces its own vote shape; feeding a bucket session's
+        // votes to the PERT reducer would (correctly) blow up in the SPI.
+        val isBucketMethod = support.method == EstimationMethod.BUCKET_SAMPLED_PERT
+        val aggregate: AggregateDto? = if (revealed && votes.isNotEmpty() && !isBucketMethod) {
             reducePert(support, votes).toDto()
+        } else {
+            null
+        }
+        val bucketAssignment: BucketAssignmentDto? = if (revealed && votes.isNotEmpty() && isBucketMethod) {
+            reduceBucket(support, votes).assignment?.toDto(participantNames)
         } else {
             null
         }
@@ -453,9 +665,23 @@ class EstimationSessionService(
             finalTriple = finalTriple,
             submittedVoteCount = votes.size,
             votes = voteDtos,
-            aggregate = aggregate
+            aggregate = aggregate,
+            bucketAssignment = bucketAssignment
         )
     }
+
+    private fun AssignmentResult.toDto(participantNames: Map<String?, String?>) = BucketAssignmentDto(
+        bucketId = bucketId,
+        source = source,
+        conflictingAssignments = conflictingAssignments.map {
+            AssignmentConflictDto(
+                estimatorId = it.estimatorId,
+                displayName = participantNames[it.estimatorId],
+                bucketId = it.bucketId,
+                at = it.at.toString()
+            )
+        }
+    )
 
     private fun draftLeafDescriptions(session: EstimationSession): Map<String, String?> {
         val estimationId = session.estimation?.id ?: return emptyMap()

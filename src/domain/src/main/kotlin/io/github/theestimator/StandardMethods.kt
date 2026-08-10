@@ -2,6 +2,7 @@ package io.github.theestimator
 
 import io.github.theestimator.method.EstimationMethodRegistry
 import io.github.theestimator.method.bucketsampled.BucketMethodModule
+import io.github.theestimator.method.bucketsampled.BucketSampledSessionSupport
 import io.github.theestimator.method.threepoint.ThreePointMethodModule
 import io.github.theestimator.method.threepoint.ThreePointSessionSupport
 import io.github.oshai.kotlinlogging.KotlinLogging
@@ -34,6 +35,7 @@ object StandardMethods {
         EstimationMethodRegistry.register(ThreePointMethodModule())
         EstimationMethodRegistry.register(BucketMethodModule())
         EstimationMethodRegistry.registerSessionSupport(ThreePointSessionSupport())
+        EstimationMethodRegistry.registerSessionSupport(BucketSampledSessionSupport())
         logger.debug { "Installed standard estimation methods" }
     }
 }

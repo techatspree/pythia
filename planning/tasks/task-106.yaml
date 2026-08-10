@@ -21,20 +21,38 @@ description: |
   `error(…)` on an input subtype it does not handle. This task consumes that
   shape and must not re-litigate it.
 
-  **task-143 — one Gradle module per method.** It moves each method into its
-  own Gradle module so the boundary is compiler-enforced, and inverts the
-  core→method references (leaf-owned `method` / `nodeTypeLabel`, `DomainFactory`
-  and `installStandardMethods()` relocated to the aggregator `:domain`). That
-  changes where this task's new files live and how it registers: the bucket
-  files land under
-  `src/domain/method-bucketsampled/src/main/kotlin/io/github/theestimator/method/bucketsampled/`
-  (package name unchanged), and `BucketSampledSessionSupport` is registered
-  from the aggregator's `StandardMethods.installAll()`, NOT from
-  `EstimationMethodRegistry` — the registry no longer self-populates. The paths
-  in the steps/outputs below are written for the PRE-143 layout; after task-143
-  they shift to the method module, and the registry-registration step becomes
-  an edit to `StandardMethods`. Re-run `/improve-task task-106` after task-143
-  lands to refresh them.
+  **task-143 — one Gradle module per method (done).** Each method is now its
+  own Gradle module, so the boundary is compiler-enforced. Every path below has
+  been refreshed for that layout. Four consequences bind this task:
+
+    1. **Where the files live.** The bucket files go in the `:domain:method-bucketsampled`
+       module — `src/domain/method-bucketsampled/src/main/kotlin/io/github/theestimator/method/bucketsampled/`
+       and its `src/test/kotlin/…` twin. The PACKAGE name is unchanged. Do not
+       recreate `src/domain/src/main/kotlin/…/method/bucketsampled/` in the
+       aggregator; a validation below fails if you do.
+    2. **How it registers.** `EstimationMethodRegistry.installStandardMethods()`
+       no longer exists — the registry does not self-populate. Register from
+       `io.github.theestimator.StandardMethods.installAll()` in the aggregator
+       `:domain` (the only module that can see every method).
+    3. **A method module cannot see the aggregator.** So
+       `BucketSampledSessionSupportTest` CANNOT call `StandardMethods.installAll()`.
+       It registers its own module directly —
+       `EstimationMethodRegistry.register(...)` /
+       `registerSessionSupport(BucketSampledSessionSupport())` — exactly as
+       `BucketMethodModuleTest` does. Each Gradle module also runs its own test
+       JVM now, so cross-module registry pollution is impossible; the only
+       hazard left is within one module's JVM, where `clear()` can still race a
+       sibling class. Prefer registering over clearing.
+    4. **`kotlinx-datetime` must be promoted to `api`.** It is currently
+       `implementation` in every domain module, which keeps it OFF a consumer's
+       compile classpath. `EstimatorBucketAssignment` exposes
+       `kotlinx.datetime.Instant` in its public API and the backend has to
+       construct one to map its `java.time.Instant`, so as things stand that
+       mapping code will not compile (`:backend:implementation` does not declare
+       kotlinx-datetime itself). Change it to `api("org.jetbrains.kotlinx:kotlinx-datetime:0.6.2")`
+       in BOTH `src/domain/method-bucketsampled/build.gradle.kts` and
+       `src/domain/build.gradle.kts`. This is the same `api`-vs-`implementation`
+       trap task-143 documents — do not "tidy" it back to `implementation`.
 
   Do not start before both are done.
 
@@ -97,13 +115,12 @@ description: |
     `SessionVoteInput` / `SessionReduction` subtypes in its own package
     (e.g. `BucketVoteInput`, `BucketSampledReduction`). A foreign input type
     must `error(...)`, matching `ThreePointSessionSupport`.
-  - **Registration.** Wire into
-    `EstimationMethodRegistry.installStandardMethods()` alongside
-    `BucketMethodModule`. NOTE the registry-test race: `clear()` empties the
-    session-support map too, and `EstimationMethodRegistryTest` /
-    `ThreePointMethodModuleTest` both call it. New tests must either follow
-    the `@AfterEach { clear(); installStandardMethods() }` pattern or avoid
-    `clear()` entirely (see `BucketMethodModuleTest`).
+  - **Registration.** Add
+    `registerSessionSupport(BucketSampledSessionSupport())` to
+    `StandardMethods.installAll()` in the aggregator, beside the existing
+    `register(BucketMethodModule())`. The domain-internal SPI subtypes stay
+    un-`@JsExport`ed, so the `domain.d.mts` surface and the `whole-program`
+    JS bundle are unaffected — do not export them.
   - **Wire shape.** Add a bucket-vote payload rather than overloading
     `TripleDto`: a `BucketVoteDto(bucketId)` on a dedicated
     `POST /api/sessions/{id}/votes/bucket`, and a
@@ -142,14 +159,14 @@ steps:
     extends.
   - |
     Add
-    `src/domain/src/main/kotlin/io/github/theestimator/method/bucketsampled/BucketSampledSessionTypes.kt`
+    `src/domain/method-bucketsampled/src/main/kotlin/io/github/theestimator/method/bucketsampled/BucketSampledSessionTypes.kt`
     with `EstimatorBucketAssignment`, `AssignmentResult`,
     `BucketSampledSessionResult`, and the SPI subtypes (`BucketVoteInput :
     SessionVoteInput`, `BucketSampledReduction : SessionReduction`). Use
     `kotlinx.datetime.Instant`.
   - |
     Add
-    `src/domain/src/main/kotlin/io/github/theestimator/method/bucketsampled/reduceBucketSampledSession.kt`
+    `src/domain/method-bucketsampled/src/main/kotlin/io/github/theestimator/method/bucketsampled/reduceBucketSampledSession.kt`
     with `reduceBucketSampledSession(inputs)`. Split into two
     private helpers: `resolveAssignmentLWW(inputs)` and
     `averageSamplePert(inputs)`. Feed the averaged samples into task-102's
@@ -157,21 +174,27 @@ steps:
     equal timestamps on `estimatorId`. Add the `logger.debug { … }` lines.
   - |
     Add
-    `src/domain/src/main/kotlin/io/github/theestimator/method/bucketsampled/BucketSampledSessionSupport.kt`
+    `src/domain/method-bucketsampled/src/main/kotlin/io/github/theestimator/method/bucketsampled/BucketSampledSessionSupport.kt`
     implementing `EstimationMethodSessionSupport`, delegating to the reducer
     and `error(...)`-ing on a foreign input type.
   - |
-    Register the new session support in
-    `EstimationMethodRegistry.installStandardMethods()`.
+    Register the new session support in `StandardMethods.installAll()`
+    (`src/domain/src/main/kotlin/io/github/theestimator/StandardMethods.kt`), and
+    promote `kotlinx-datetime` from `implementation` to `api` in
+    `src/domain/method-bucketsampled/build.gradle.kts` and
+    `src/domain/build.gradle.kts` so the backend can see
+    `kotlinx.datetime.Instant`.
   - |
     Domain unit tests in the JVM `src/test` source set (JUnit 5,
     `org.junit.jupiter.api` — the `:domain` module has NO `commonTest`):
-      src/domain/src/test/kotlin/io/github/theestimator/method/bucketsampled/BucketSampledSessionSupportTest.kt
-      src/domain/src/test/kotlin/io/github/theestimator/method/bucketsampled/ReduceBucketSampledSessionTest.kt
+      src/domain/method-bucketsampled/src/test/kotlin/io/github/theestimator/method/bucketsampled/BucketSampledSessionSupportTest.kt
+      src/domain/method-bucketsampled/src/test/kotlin/io/github/theestimator/method/bucketsampled/ReduceBucketSampledSessionTest.kt
     Cover: LWW selects most recent estimator; conflict list populated when
     others also wrote; equal-timestamp tie-break is deterministic; sample PT
     element-wise average with 3+ estimators; two-bucket case; foreign input
-    throws. Honour the registry-test race note above.
+    throws. These live in a METHOD module, so they cannot call
+    `StandardMethods.installAll()` — register this module's own support
+    directly, following `BucketMethodModuleTest`.
   - |
     Backend persistence: add `V17__session_bucket_votes.sql` adding the
     nullable bucket-assignment column to `session_votes` (FK to
@@ -216,19 +239,26 @@ validation:
   - |
     Domain module + reducer + SPI subtypes + tests exist, in the JVM test
     source set (there is no commonTest):
-      test -f src/domain/src/main/kotlin/io/github/theestimator/method/bucketsampled/BucketSampledSessionSupport.kt
-      test -f src/domain/src/main/kotlin/io/github/theestimator/method/bucketsampled/reduceBucketSampledSession.kt
-      test -f src/domain/src/main/kotlin/io/github/theestimator/method/bucketsampled/BucketSampledSessionTypes.kt
-      test -f src/domain/src/test/kotlin/io/github/theestimator/method/bucketsampled/ReduceBucketSampledSessionTest.kt
-      test -f src/domain/src/test/kotlin/io/github/theestimator/method/bucketsampled/BucketSampledSessionSupportTest.kt
+      test -f src/domain/method-bucketsampled/src/main/kotlin/io/github/theestimator/method/bucketsampled/BucketSampledSessionSupport.kt
+      test -f src/domain/method-bucketsampled/src/main/kotlin/io/github/theestimator/method/bucketsampled/reduceBucketSampledSession.kt
+      test -f src/domain/method-bucketsampled/src/main/kotlin/io/github/theestimator/method/bucketsampled/BucketSampledSessionTypes.kt
+      test -f src/domain/method-bucketsampled/src/test/kotlin/io/github/theestimator/method/bucketsampled/ReduceBucketSampledSessionTest.kt
+      test -f src/domain/method-bucketsampled/src/test/kotlin/io/github/theestimator/method/bucketsampled/BucketSampledSessionSupportTest.kt
       ! test -d src/domain/src/commonTest
+      # The files must land in the METHOD MODULE, not be recreated in the
+      # aggregator — otherwise every check above still passes while silently
+      # defeating task-143's compiler-enforced boundary.
+      ! test -e src/domain/src/main/kotlin/io/github/theestimator/method/bucketsampled
   - |
     KMP-safe Instant (java.time would pass jvmTest then fail the JS compile):
-      grep -q "kotlinx.datetime.Instant" src/domain/src/main/kotlin/io/github/theestimator/method/bucketsampled/BucketSampledSessionTypes.kt
-      ! grep -rq "java.time" src/domain/src/main/kotlin/io/github/theestimator/method/bucketsampled/
+      grep -q "kotlinx.datetime.Instant" src/domain/method-bucketsampled/src/main/kotlin/io/github/theestimator/method/bucketsampled/BucketSampledSessionTypes.kt
+      # Match IMPORTS, not prose: the KDoc deliberately names java.time to
+      # explain why it must not be used, so a bare `grep java.time` is a false
+      # positive on correct code.
+      ! grep -rqE "^import java\.time" src/domain/method-bucketsampled/src/main/kotlin/io/github/theestimator/method/bucketsampled/
   - |
     Reuses task-102's per-bucket reducer rather than reimplementing it:
-      grep -q "computeBucketAverages" src/domain/src/main/kotlin/io/github/theestimator/method/bucketsampled/reduceBucketSampledSession.kt
+      grep -q "computeBucketAverages" src/domain/method-bucketsampled/src/main/kotlin/io/github/theestimator/method/bucketsampled/reduceBucketSampledSession.kt
   - |
     Registration is wired into standard-method installation. Deliberately
     layout-agnostic: pre-143 that call sits in `EstimationMethodRegistry
@@ -236,9 +266,16 @@ validation:
     `StandardMethods.installAll()` — this passes either way and does not go
     stale when task-143 moves it:
       grep -rq "registerSessionSupport(BucketSampledSessionSupport()" src/domain/
+      grep -q "BucketSampledSessionSupport" src/domain/src/main/kotlin/io/github/theestimator/StandardMethods.kt
+  - |
+    kotlinx-datetime is exposed as `api` so the backend can construct the
+    kotlinx Instant it maps into (implementation-scoped would not reach a
+    consumer's compile classpath):
+      grep -q 'api("org.jetbrains.kotlinx:kotlinx-datetime' src/domain/method-bucketsampled/build.gradle.kts
+      grep -q 'api("org.jetbrains.kotlinx:kotlinx-datetime' src/domain/build.gradle.kts
   - |
     Domain logging idiom used (lambda form):
-      grep -q "logger.debug {" src/domain/src/main/kotlin/io/github/theestimator/method/bucketsampled/reduceBucketSampledSession.kt
+      grep -q "logger.debug {" src/domain/method-bucketsampled/src/main/kotlin/io/github/theestimator/method/bucketsampled/reduceBucketSampledSession.kt
   - |
     Migration exists and the entity mirrors it (V15 lesson — %test/%dev build
     the schema from Hibernate, so an entity-less constraint is untested):
@@ -271,14 +308,16 @@ validation:
       ./gradlew build
 
 outputs:
-  - created: src/domain/src/main/kotlin/io/github/theestimator/method/bucketsampled/BucketSampledSessionSupport.kt
-  - created: src/domain/src/main/kotlin/io/github/theestimator/method/bucketsampled/BucketSampledSessionTypes.kt
-  - created: src/domain/src/main/kotlin/io/github/theestimator/method/bucketsampled/reduceBucketSampledSession.kt
-  - created: src/domain/src/test/kotlin/io/github/theestimator/method/bucketsampled/BucketSampledSessionSupportTest.kt
-  - created: src/domain/src/test/kotlin/io/github/theestimator/method/bucketsampled/ReduceBucketSampledSessionTest.kt
+  - created: src/domain/method-bucketsampled/src/main/kotlin/io/github/theestimator/method/bucketsampled/BucketSampledSessionSupport.kt
+  - created: src/domain/method-bucketsampled/src/main/kotlin/io/github/theestimator/method/bucketsampled/BucketSampledSessionTypes.kt
+  - created: src/domain/method-bucketsampled/src/main/kotlin/io/github/theestimator/method/bucketsampled/reduceBucketSampledSession.kt
+  - created: src/domain/method-bucketsampled/src/test/kotlin/io/github/theestimator/method/bucketsampled/BucketSampledSessionSupportTest.kt
+  - created: src/domain/method-bucketsampled/src/test/kotlin/io/github/theestimator/method/bucketsampled/ReduceBucketSampledSessionTest.kt
   - created: src/backend/implementation/src/main/resources/db/migration/V17__session_bucket_votes.sql
   - created: src/backend/implementation/src/test/kotlin/io/github/theestimator/rest/BucketSessionResourceIT.kt
-  - modified: src/domain/src/main/kotlin/io/github/theestimator/method/EstimationMethodRegistry.kt
+  - modified: src/domain/src/main/kotlin/io/github/theestimator/StandardMethods.kt
+  - modified: src/domain/method-bucketsampled/build.gradle.kts
+  - modified: src/domain/build.gradle.kts
   - modified: src/backend/implementation/src/main/kotlin/io/github/theestimator/domain/session/SessionVote.kt
   - modified: src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/dto/SessionDtos.kt
   - modified: src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/SessionResource.kt

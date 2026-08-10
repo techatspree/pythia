@@ -3,6 +3,7 @@
 	import { formatFixed, DEFAULT_LOCALE } from '$lib/format';
 	import { log } from '$lib/log';
 	import { submitVote, agree, finalize, updateNotes } from '$lib/session/api';
+	import ConflictBadge from '$lib/session/ConflictBadge.svelte';
 	import type { SessionStore } from '$lib/session/store.svelte';
 	// Single source of truth for mean/spread: reduce the votes with the SAME
 	// domain code the backend uses (task-062), reached through the JS-friendly
@@ -132,8 +133,11 @@
 	{/if}
 
 	<div>
-		<h3 class="text-sm font-semibold uppercase tracking-wide text-gray-500 mb-2">
+		<h3 class="text-sm font-semibold uppercase tracking-wide text-gray-500 mb-2 flex items-center gap-2">
 			{$_('session.phaseTwo.title')}
+			<!-- Bucket sessions only: surfaces a live LWW disagreement on the item
+			     under discussion, so the moderator sees it before finalizing. -->
+			<ConflictBadge assignment={store.currentItem?.bucketAssignment} />
 		</h3>
 		{#if votes.length === 0}
 			<p class="text-sm text-gray-500">{$_('session.phaseTwo.noVotes')}</p>

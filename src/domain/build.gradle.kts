@@ -46,7 +46,10 @@ kotlin {
                 api(project(":domain:core"))
                 api(project(":domain:method-threepoint"))
                 api(project(":domain:method-bucketsampled"))
-                implementation("org.jetbrains.kotlinx:kotlinx-datetime:0.6.2")
+                // `api`, not `implementation` (task-106): EstimatorBucketAssignment exposes
+                // kotlinx.datetime.Instant in its public API and the backend has to
+                // construct one, so the type must reach a consumer's compile classpath.
+                api("org.jetbrains.kotlinx:kotlinx-datetime:0.6.2")
                 implementation("io.github.oshai:kotlin-logging:7.0.7")
             }
         }

@@ -3,7 +3,15 @@
 	import { page } from '$app/state';
 	import { resolve } from '$app/paths';
 	import { _ } from 'svelte-i18n';
-	import { getSession, join, start, cancel } from '$lib/session/api';
+	import {
+		getSession,
+		join,
+		start,
+		cancel,
+		suspendSession,
+		resumeSession,
+		endSessionEarly
+	} from '$lib/session/api';
 	import { connectSessionSocket, type SessionSocketHandle } from '$lib/session/socket';
 	import { SessionStore } from '$lib/session/store.svelte';
 	import { getAuthProvider } from '$lib/auth';
@@ -34,7 +42,13 @@
 			// Join as an estimator if not already a participant and the session is
 			// still joinable (idempotent server-side; moderator is already in).
 			const s = store.session;
-			if (s && !store.myParticipant && (s.status === 'CREATED' || s.status === 'RUNNING')) {
+			// SUSPENDED counts as joinable: a parked room is resumed later, so a
+			// participant opening it now should already be in it.
+			if (
+				s &&
+				!store.myParticipant &&
+				(s.status === 'CREATED' || s.status === 'RUNNING' || s.status === 'SUSPENDED')
+			) {
 				store.apply(await join(sessionId));
 			}
 		} catch (e: unknown) {
@@ -67,6 +81,33 @@
 			store.apply(await cancel(sessionId));
 		} catch (e: unknown) {
 			log.error('session room: cancel failed', e);
+			bannerMessage = e instanceof Error ? e.message : String(e);
+		}
+	}
+
+	async function pauseSession() {
+		try {
+			store.apply(await suspendSession(sessionId));
+		} catch (e: unknown) {
+			log.error('session room: suspend failed', e);
+			bannerMessage = e instanceof Error ? e.message : String(e);
+		}
+	}
+
+	async function continueSession() {
+		try {
+			store.apply(await resumeSession(sessionId));
+		} catch (e: unknown) {
+			log.error('session room: resume failed', e);
+			bannerMessage = e instanceof Error ? e.message : String(e);
+		}
+	}
+
+	async function endEarly() {
+		try {
+			store.apply(await endSessionEarly(sessionId));
+		} catch (e: unknown) {
+			log.error('session room: end-early failed', e);
 			bannerMessage = e instanceof Error ? e.message : String(e);
 		}
 	}
@@ -125,6 +166,38 @@
 			</div>
 		{:else if s.status === 'FINALIZED'}
 			<SessionSummary {store} />
+		{:else if s.status === 'ENDED_EARLY'}
+			<p
+				data-testid="session-ended-early"
+				class="mb-4 border rounded-lg p-4 bg-white text-sm text-gray-600"
+			>
+				{$_('session.room.endedEarly')}
+			</p>
+			<SessionSummary {store} />
+		{:else if s.status === 'SUSPENDED'}
+			<div data-testid="session-suspended" class="border rounded-lg p-4 bg-white">
+				<p class="text-sm text-gray-600 mb-3">{$_('session.room.suspended')}</p>
+				{#if store.isModerator}
+					<div class="flex items-center gap-3">
+						<button
+							type="button"
+							data-testid="session-resume"
+							onclick={continueSession}
+							class="px-4 py-2 text-sm bg-brand-green text-white rounded hover:bg-[#007a45]"
+						>
+							{$_('session.room.resume')}
+						</button>
+						<button
+							type="button"
+							data-testid="session-end-early"
+							onclick={endEarly}
+							class="px-4 py-2 text-sm text-gray-500 hover:text-gray-700"
+						>
+							{$_('session.room.endEarly')}
+						</button>
+					</div>
+				{/if}
+			</div>
 		{:else if s.status === 'CREATED'}
 			<div class="border rounded-lg p-4 bg-white">
 				{#if store.isModerator}
@@ -177,6 +250,26 @@
 					<p class="text-gray-500">{$_('session.room.noCurrentItem')}</p>
 				{/if}
 			</div>
+			{#if store.isModerator}
+				<div class="flex items-center gap-3 mt-3">
+					<button
+						type="button"
+						data-testid="session-suspend"
+						onclick={pauseSession}
+						class="px-4 py-2 text-sm text-gray-500 hover:text-gray-700"
+					>
+						{$_('session.room.suspend')}
+					</button>
+					<button
+						type="button"
+						data-testid="session-end-early"
+						onclick={endEarly}
+						class="px-4 py-2 text-sm text-gray-500 hover:text-gray-700"
+					>
+						{$_('session.room.endEarly')}
+					</button>
+				</div>
+			{/if}
 		{/if}
 	{:else}
 		<p class="text-gray-500">{$_('session.room.loading')}</p>

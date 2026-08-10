@@ -87,7 +87,7 @@ phases:
   - id: phase-11
     name: Collaborative Estimation Sessions
     duration_weeks: 2
-    tasks: [task-062, task-063, task-064, task-065, task-066, task-067]
+    tasks: [task-062, task-063, task-064, task-065, task-066, task-067, task-128, task-129, task-144]
   - id: phase-12
     name: Persistent Undo Across Sessions
     duration_weeks: 2

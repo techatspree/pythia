@@ -13,9 +13,15 @@ class EstimationSessionRepository : PanacheRepositoryBase<EstimationSession, UUI
     fun findByEstimationId(estimationId: UUID): List<EstimationSession> =
         list("estimation.id", estimationId)
 
-    // Sessions a user can still join: CREATED or RUNNING, across every estimation.
+    // Sessions a user can still join: CREATED, RUNNING or SUSPENDED, across every
+    // estimation. A suspended session must stay listed — this list is how a
+    // parked room is found again and resumed. The terminal states (FINALIZED,
+    // ENDED_EARLY, CANCELLED) are excluded.
     fun findJoinable(): List<EstimationSession> =
-        list("status in ?1", listOf(SessionStatus.CREATED, SessionStatus.RUNNING))
+        list(
+            "status in ?1",
+            listOf(SessionStatus.CREATED, SessionStatus.RUNNING, SessionStatus.SUSPENDED)
+        )
 
     fun findParticipant(sessionId: UUID, subjectId: String): SessionParticipant? =
         getEntityManager()

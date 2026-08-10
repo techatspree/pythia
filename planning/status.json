@@ -633,9 +633,9 @@
       "notes": "Session SPI + PERT session-support module; refactor phase-11 session code behind SPI"
     },
     "task-106": {
-      "status": "pending",
-      "started_at": null,
-      "completed_at": null,
+      "status": "done",
+      "started_at": "2026-08-08T16:38:18+00:00",
+      "completed_at": "2026-08-08T16:53:40+00:00",
       "notes": "Bucket+sampled session-support module (LWW bucket assignment + averaged sample PERT)"
     },
     "task-107": {
@@ -861,10 +861,16 @@
       "notes": "Split each estimation method into its own Gradle module so cross-method and core-to-method dependencies are compiler-enforced instead of convention-enforced"
     },
     "task-144": {
+      "status": "done",
+      "started_at": "2026-08-08T21:54:40+00:00",
+      "completed_at": "2026-08-08T22:10:27+00:00",
+      "notes": "Moderator cannot pause or end an estimation session early; add a suspended (resumable) state and an early-termination state, keeping every finalized item's write-back"
+    },
+    "task-145": {
       "status": "pending",
       "started_at": null,
       "completed_at": null,
-      "notes": "Moderator cannot pause or end an estimation session early; add a suspended (resumable) state and an early-termination state, keeping every finalized item's write-back"
+      "notes": "Publish under a permissive Open Source licence and purge all corporate/confidential data from the application, the planning tasks and the git history"
     }
   }
 }

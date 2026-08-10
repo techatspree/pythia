@@ -22,10 +22,23 @@ storage separately (task-106).
 - **Estimator** — joins the room, submits a blind estimate in phase 1, and in
   phase 2 may submit a revised estimate and mark "I agree".
 
-Coarse session status: `CREATED → RUNNING → FINALIZED` (or `CANCELLED`). Within
-`RUNNING`, each item walks its own status `PHASE1 → PHASE2 → FINALIZED`; the
-session tracks `currentItemIndex` + `currentPhase`. When the last item is
-finalized the session becomes `FINALIZED`.
+Coarse session status:
+`CREATED → RUNNING → (SUSPENDED ⇄ RUNNING) → FINALIZED | ENDED_EARLY`, with
+`CANCELLED` as the abandon exit. Within `RUNNING`, each item walks its own status
+`PHASE1 → PHASE2 → FINALIZED`; the session tracks `currentItemIndex` +
+`currentPhase`. When the last item is finalized the session becomes `FINALIZED`.
+
+A session that runs out of time does not have to be thrown away (task-144). The
+moderator can **pause** it (`SUSPENDED`) and resume later exactly where the room
+stopped — item statuses, votes, notes, index and phase are all untouched, and a
+paused session stays in the open-sessions list so it can be found again. While
+paused the room is inert: votes, reveals and finalizes are all `409`. The
+moderator can also **end it early** (`ENDED_EARLY`), which is terminal and
+**keeps the results** — unlike `CANCELLED`, which means "this session was a
+mistake". Ending early does not aggregate the item that was mid-vote: that item
+simply keeps no final estimate. Everything finalized before the pause or the
+early end was already written back to the draft, item by item (see below), so
+nothing is lost either way.
 
 ## The two phases
 
@@ -90,8 +103,9 @@ session channel" note in `CLAUDE.md` (task-065) for the server-side detail.
 
 ## Frontend layout
 
-- Route group `src/frontend/src/routes/sessions/` with its own room chrome (the
-  standard app header is hidden for `/sessions`).
+- Route group `src/frontend/src/routes/sessions/`. Since task-141 it has NO
+  chrome of its own — the shared `AppHeader` renders on `/sessions` like on
+  every other route, and the group layout is only the room background wrapper.
 - `sessions/+page.svelte` — moderator setup (pick project → offer, choose leaf
   items, name, create). It can be launched **directly from the active offer**:
   the estimation detail page's "Start estimation session" button links here with
@@ -100,10 +114,15 @@ session channel" note in `CLAUDE.md` (task-065) for the server-side detail.
   leaves (PERT triple all null-or-0) — the ones a session is convened to
   estimate — badging the already-estimated ones, and offers select-all /
   deselect-all. The page also shows an **open-sessions** list at the top (all
-  joinable CREATED/RUNNING sessions across every estimation) so anyone can find
-  and **join** a running session without re-deriving the moderator's offer.
+  joinable CREATED/RUNNING/SUSPENDED sessions across every estimation) so anyone
+  can find and **join** a running session — or pick a paused one back up —
+  without re-deriving the moderator's offer.
 - `sessions/[id]/+page.svelte` — the room; picks the panel by
-  status/phase and auto-joins as an estimator.
+  status/phase and auto-joins as an estimator (a `SUSPENDED` room counts as
+  joinable). The moderator's **Pause** / **End early** controls sit under the
+  running panel; a paused room shows a "this session is paused" panel with
+  **Resume** / **End early**, and an `ENDED_EARLY` room renders the same
+  `SessionSummary` a `FINALIZED` one does.
 - `$lib/session/PhaseOnePanel.svelte`, `PhaseTwoPanel.svelte`,
   `SessionSummary.svelte` — the phase panels.
 - `$lib/session/{api,socket,store.svelte}.ts` — REST wrappers, the socket

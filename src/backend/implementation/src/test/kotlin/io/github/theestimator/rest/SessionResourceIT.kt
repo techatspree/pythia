@@ -193,6 +193,164 @@ class SessionResourceIT {
             .then().statusCode(409)
     }
 
+    // --- task-144: suspend / resume / end-early -----------------------------
+
+    @Test
+    fun `suspend parks a running session and resume restores it exactly`() {
+        val draft = createDraftWithTwoLeaves()
+        val sessionId = startedSession(draft, "Parked", listOf(draft.leaf1, draft.leaf2))
+
+        // Get the room into a non-trivial position first: item 0 revealed to PHASE2.
+        vote(sessionId, moderator, 2.0, 4.0, 6.0)
+        given().header("Authorization", moderator)
+            .`when`().post("/api/sessions/$sessionId/items/current/phase2").then().statusCode(200)
+
+        given().header("Authorization", moderator)
+            .`when`().post("/api/sessions/$sessionId/suspend")
+            .then().statusCode(200).body("status", equalTo("SUSPENDED"))
+
+        // Nothing about the position moved while parked.
+        given().header("Authorization", moderator)
+            .`when`().post("/api/sessions/$sessionId/resume")
+            .then().statusCode(200)
+            .body("status", equalTo("RUNNING"))
+            .body("currentItemIndex", equalTo(0))
+            .body("currentPhase", equalTo("PHASE2"))
+            .body("items[0].status", equalTo("PHASE2"))
+            .body("items[1].status", equalTo("PENDING"))
+            .body("items[0].votes.size()", equalTo(1))
+    }
+
+    @Test
+    fun `a suspended session accepts no vote, reveal or finalize — 409`() {
+        val draft = createDraftWithTwoLeaves()
+        val sessionId = startedSession(draft, "Inert", listOf(draft.leaf1))
+        vote(sessionId, moderator, 2.0, 4.0, 6.0)
+
+        given().header("Authorization", moderator)
+            .`when`().post("/api/sessions/$sessionId/suspend").then().statusCode(200)
+
+        given().header("Authorization", moderator)
+            .contentType(ContentType.JSON).body("""{"minEffort":1.0,"expectedEffort":2.0,"maxEffort":3.0}""")
+            .`when`().post("/api/sessions/$sessionId/votes").then().statusCode(409)
+        given().header("Authorization", moderator)
+            .`when`().post("/api/sessions/$sessionId/items/current/phase2").then().statusCode(409)
+        given().header("Authorization", moderator)
+            .`when`().post("/api/sessions/$sessionId/items/current/finalize").then().statusCode(409)
+    }
+
+    @Test
+    fun `wrong-state transitions are 409`() {
+        val draft = createDraftWithTwoLeaves()
+        val sessionId = createSession(draft, "States", listOf(draft.leaf1))
+
+        // CREATED holds nothing worth parking.
+        given().header("Authorization", moderator)
+            .`when`().post("/api/sessions/$sessionId/suspend").then().statusCode(409)
+
+        given().header("Authorization", moderator).post("/api/sessions/$sessionId/start").then().statusCode(200)
+        // Already running.
+        given().header("Authorization", moderator)
+            .`when`().post("/api/sessions/$sessionId/resume").then().statusCode(409)
+
+        given().header("Authorization", moderator)
+            .`when`().post("/api/sessions/$sessionId/end-early")
+            .then().statusCode(200).body("status", equalTo("ENDED_EARLY"))
+        // ENDED_EARLY is terminal.
+        given().header("Authorization", moderator)
+            .`when`().post("/api/sessions/$sessionId/resume").then().statusCode(409)
+        given().header("Authorization", moderator)
+            .`when`().post("/api/sessions/$sessionId/suspend").then().statusCode(409)
+    }
+
+    @Test
+    fun `suspend, resume and end-early are moderator-only — 403`() {
+        val draft = createDraftWithTwoLeaves()
+        val sessionId = startedSession(draft, "Guarded", listOf(draft.leaf1))
+        given().header("Authorization", estimator)
+            .`when`().post("/api/sessions/$sessionId/join").then().statusCode(200)
+
+        given().header("Authorization", estimator)
+            .`when`().post("/api/sessions/$sessionId/suspend").then().statusCode(403)
+        given().header("Authorization", estimator)
+            .`when`().post("/api/sessions/$sessionId/end-early").then().statusCode(403)
+
+        given().header("Authorization", moderator)
+            .`when`().post("/api/sessions/$sessionId/suspend").then().statusCode(200)
+        given().header("Authorization", estimator)
+            .`when`().post("/api/sessions/$sessionId/resume").then().statusCode(403)
+    }
+
+    @Test
+    fun `ending early keeps the write-back of every finalized item and leaves the rest untouched`() {
+        val draft = createDraftWithTwoLeaves()
+        val sessionId = startedSession(draft, "Out of time", listOf(draft.leaf1, draft.leaf2))
+
+        // Item 1 goes the whole way — its triple reaches the draft leaf immediately.
+        vote(sessionId, moderator, 2.0, 4.0, 6.0)
+        given().header("Authorization", moderator)
+            .`when`().post("/api/sessions/$sessionId/items/current/phase2").then().statusCode(200)
+        given().header("Authorization", moderator)
+            .`when`().post("/api/sessions/$sessionId/items/current/finalize").then().statusCode(200)
+
+        // Item 2 is only half-voted when the clock runs out.
+        vote(sessionId, moderator, 10.0, 20.0, 30.0)
+        given().header("Authorization", moderator)
+            .`when`().post("/api/sessions/$sessionId/end-early")
+            .then().statusCode(200)
+            .body("status", equalTo("ENDED_EARLY"))
+            .body("items[0].status", equalTo("FINALIZED"))
+            .body("items[0].finalTriple.expectedEffort", equalTo(4.0f))
+            // No implicit finalize: the in-flight item keeps no final estimate.
+            .body("items[1].finalTriple", org.hamcrest.Matchers.nullValue())
+
+        given().header("Authorization", moderator)
+            .`when`().get("/api/estimations/${draft.estimationId}/versions/draft")
+            .then().statusCode(200)
+            // Finalized before the early end → saved.
+            .body("roots[0].minEffort", equalTo(2.0f))
+            .body("roots[0].expectedEffort", equalTo(4.0f))
+            .body("roots[0].maxEffort", equalTo(6.0f))
+            // Never finalized → the leaf keeps its original values.
+            .body("roots[1].expectedEffort", equalTo(2.0f))
+    }
+
+    @Test
+    fun `the joinable list keeps a suspended session and drops an ended-early one`() {
+        val draft = createDraftWithTwoLeaves()
+        val parked = startedSession(draft, "Parked room", listOf(draft.leaf1))
+        val over = startedSession(draft, "Finished room", listOf(draft.leaf2))
+
+        given().header("Authorization", moderator)
+            .`when`().post("/api/sessions/$parked/suspend").then().statusCode(200)
+        given().header("Authorization", moderator)
+            .`when`().post("/api/sessions/$over/end-early").then().statusCode(200)
+
+        given().header("Authorization", estimator)
+            .`when`().get("/api/sessions")
+            .then().statusCode(200)
+            .body("find { it.id == '$parked' }.status", equalTo("SUSPENDED"))
+            .body("findAll { it.id == '$over' }.size()", equalTo(0))
+    }
+
+    private fun createSession(draft: Draft, title: String, leaves: List<String>): String =
+        given().header("Authorization", moderator)
+            .contentType(ContentType.JSON)
+            .body(
+                """{"estimationId":"${draft.estimationId}","title":"$title","itemLogicalIds":[${
+                    leaves.joinToString(",") { "\"$it\"" }
+                }]}"""
+            )
+            .`when`().post("/api/sessions")
+            .then().statusCode(201).extract().path("id")
+
+    private fun startedSession(draft: Draft, title: String, leaves: List<String>): String {
+        val id = createSession(draft, title, leaves)
+        given().header("Authorization", moderator)
+            .`when`().post("/api/sessions/$id/start").then().statusCode(200)
+        return id
+    }
+
     private fun vote(sessionId: String, auth: String, min: Double, expected: Double, max: Double) {
         given().header("Authorization", auth)
             .contentType(ContentType.JSON)

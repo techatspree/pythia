@@ -1,6 +1,7 @@
 package io.github.theestimator.domain.session
 
 import io.github.theestimator.domain.BaseEntity
+import io.github.theestimator.domain.EstimationBucket
 import jakarta.persistence.Column
 import jakarta.persistence.Entity
 import jakarta.persistence.EnumType
@@ -40,4 +41,17 @@ class SessionVote : BaseEntity() {
 
     @Column(name = "max_effort", nullable = false)
     var maxEffort: Double = 0.0
+
+    // BUCKET_SAMPLED_PERT only (V17). Null for a PERT session's votes. Declared
+    // on the entity as well as in the migration deliberately: %test/%dev build
+    // the schema from Hibernate with Flyway off, so a column that lives only in
+    // the migration would not exist where the tests run (the V15 lesson).
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "bucket_id")
+    var bucket: EstimationBucket? = null
+
+    // True when this vote also carries a three-point sample in the
+    // min/expected/max_effort triple above, mirroring a BUCKETED node.
+    @Column(name = "is_sample")
+    var isSample: Boolean? = null
 }

@@ -41,7 +41,9 @@ export async function listSessions(estimationId: string): Promise<SessionDto[]> 
 	return readJson(await apiFetch(`${BASE}?estimationId=${estimationId}`), 'Failed to load sessions');
 }
 
-// No estimationId → all joinable (CREATED/RUNNING) sessions across estimations.
+// No estimationId → all joinable (CREATED/RUNNING/SUSPENDED) sessions across
+// estimations. A suspended session stays listed: this is how a parked room is
+// found again and resumed.
 export async function listJoinableSessions(): Promise<SessionDto[]> {
 	return readJson(await apiFetch(BASE), 'Failed to load open sessions');
 }
@@ -81,6 +83,18 @@ export async function agree(id: string): Promise<SessionDto> {
 
 export async function cancel(id: string): Promise<SessionDto> {
 	return post(`${BASE}/${id}/cancel`, 'Failed to cancel session');
+}
+
+export async function suspendSession(id: string): Promise<SessionDto> {
+	return post(`${BASE}/${id}/suspend`, 'Failed to pause session');
+}
+
+export async function resumeSession(id: string): Promise<SessionDto> {
+	return post(`${BASE}/${id}/resume`, 'Failed to resume session');
+}
+
+export async function endSessionEarly(id: string): Promise<SessionDto> {
+	return post(`${BASE}/${id}/end-early`, 'Failed to end session early');
 }
 
 export async function getWsTicket(id: string): Promise<string> {

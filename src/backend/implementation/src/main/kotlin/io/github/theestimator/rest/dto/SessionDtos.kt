@@ -41,7 +41,27 @@ data class SessionItemDto(
     val submittedVoteCount: Int,
     // Populated only when status == PHASE2 or FINALIZED (the reveal).
     val votes: List<VoteDto>?,
-    val aggregate: AggregateDto?
+    val aggregate: AggregateDto?,
+    // BUCKET_SAMPLED_PERT only: the bucket the group landed on, and every
+    // assignment that lost the last-write-wins race. Null for PERT sessions and
+    // before the reveal. The frontend can only see conflicts through this field
+    // — the session SPI and its result types are domain-internal.
+    val bucketAssignment: BucketAssignmentDto? = null
+)
+
+/** The LWW-resolved bucket for an item, with the writes that lost. */
+data class BucketAssignmentDto(
+    val bucketId: String,
+    val source: String,
+    val conflictingAssignments: List<AssignmentConflictDto>
+)
+
+/** One estimator's losing bucket write, surfaced so a disagreement stays visible. */
+data class AssignmentConflictDto(
+    val estimatorId: String,
+    val displayName: String?,
+    val bucketId: String,
+    val at: String
 )
 
 data class VoteDto(
@@ -102,6 +122,22 @@ data class VoteRequest(
     val minEffort: Double,
     val expectedEffort: Double,
     val maxEffort: Double
+)
+
+/**
+ * Body of POST /api/sessions/{id}/votes/bucket — the BUCKET_SAMPLED_PERT vote.
+ *
+ * A separate payload rather than overloading [VoteRequest]: a bucket vote's
+ * required field is the bucket, and its three-point triple is OPTIONAL (only a
+ * sample carries one). Folding the two together would make every field nullable
+ * and lose that distinction on the wire.
+ */
+data class BucketVoteRequest(
+    val bucketId: UUID,
+    val isSample: Boolean = false,
+    val minEffort: Double = 0.0,
+    val expectedEffort: Double = 0.0,
+    val maxEffort: Double = 0.0
 )
 
 // Response of POST /api/sessions/{id}/ws-ticket — a short-lived single-use

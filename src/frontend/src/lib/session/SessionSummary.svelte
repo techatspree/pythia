@@ -2,6 +2,7 @@
 	import { _, locale } from 'svelte-i18n';
 	import { resolve } from '$app/paths';
 	import { formatFixed, DEFAULT_LOCALE } from '$lib/format';
+	import ConflictBadge from '$lib/session/ConflictBadge.svelte';
 	import type { SessionStore } from '$lib/session/store.svelte';
 
 	// FINALIZED view (task-067): every item with its written-back final PERT
@@ -28,7 +29,11 @@
 			<tbody>
 				{#each items as item (item.nodeLogicalId)}
 					<tr class="border-t">
-						<td class="px-3 py-2">{item.description ?? item.nodeLogicalId}</td>
+						<td class="px-3 py-2">
+							<span class="align-middle">{item.description ?? item.nodeLogicalId}</span>
+							<!-- Bucket sessions only: renders nothing when there was no disagreement. -->
+							<ConflictBadge assignment={item.bucketAssignment} />
+						</td>
 						<td class="px-3 py-2 text-right font-medium">
 							{#if item.finalTriple}
 								{formatFixed(item.finalTriple.minEffort, loc, 1)} / {formatFixed(

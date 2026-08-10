@@ -68,6 +68,12 @@ description: |
     currently guard only the ITEM/phase state, so a suspended session would
     still accept a reveal or a finalize. Add the explicit `RUNNING` guard to
     both. `join` and `agree` may stay as they are.
+  - **`endEarly` DISCARDS the in-flight item's votes; it does not auto-finalize
+    them.** Only items already finalized (and therefore already written back to
+    the draft) carry results. A half-voted current item stays PHASE1/PHASE2 with
+    its votes on record but no final triple, which `SessionSummary` already
+    renders as `session.summary.noFinal`. Do not add an implicit finalize —
+    aggregating a partially-voted item would invent a number nobody agreed on.
   - **`ENDED_EARLY` renders the same summary as `FINALIZED`.** Reuse
     `SessionSummary.svelte` — it lists per-item final triples and already
     handles items with no final estimate (`session.summary.noFinal`), which is
@@ -94,7 +100,11 @@ steps:
     (`…/repository/EstimationSessionRepository.kt`) to
     `listOf(SessionStatus.CREATED, SessionStatus.RUNNING, SessionStatus.SUSPENDED)`
     so a parked session stays discoverable and resumable. Leave
-    `findByEstimationId`/`findParticipant` alone.
+    `findByEstimationId`/`findParticipant` alone. Update the method's comment
+    (`// Sessions a user can still join: CREATED or RUNNING`) — and the matching
+    one on `listJoinableSessions` in `src/frontend/src/lib/session/api.ts`
+    (`// No estimationId → all joinable (CREATED/RUNNING) sessions …`) — so
+    neither keeps describing the old set.
   - |
     Add three transitions to
     `…/service/EstimationSessionService.kt`, each `@Transactional`, each
@@ -147,17 +157,24 @@ steps:
         the draft and assert item 1's leaf carries the finalized triple — the
         "estimated items are saved" requirement;
       - `GET /api/sessions` (no `estimationId`) includes a SUSPENDED session and
-        excludes an ENDED_EARLY one.
+        excludes an ENDED_EARLY one;
+      - an item left mid-vote when `end-early` is called has NO final triple
+        (its draft leaf is untouched) — the "no implicit finalize" decision.
   - |
     Add the three client calls to `src/frontend/src/lib/session/api.ts` next to
     `cancel`, using the same `post<SessionDto>(...)` helper and an i18n-free
     fallback message in the same style:
     `suspendSession(id)`, `resumeSession(id)`, `endSessionEarly(id)`.
   - |
-    Wire the room UI in `src/frontend/src/routes/sessions/[id]/+page.svelte`:
-      - the RUNNING branch gains moderator-only "Pause" and "End early" buttons
-        beside the existing controls (`store.isModerator` gate, same button
-        styling as `session.room.cancel` for the secondary actions);
+    Wire the room UI in `src/frontend/src/routes/sessions/[id]/+page.svelte`.
+    NOTE the existing branch shape: there is no explicit RUNNING branch — RUNNING
+    is the trailing `{:else}`. Every new `{:else if}` must therefore be inserted
+    BEFORE that `{:else}`, or a SUSPENDED/ENDED_EARLY session silently renders
+    the running panel.
+      - the RUNNING branch (that trailing `{:else}`) gains moderator-only "Pause"
+        and "End early" buttons beside the existing controls (`store.isModerator`
+        gate, same button styling as `session.room.cancel` for the secondary
+        actions);
       - a new `{:else if s.status === 'SUSPENDED'}` branch shows a "this session
         is paused" panel plus a moderator-only "Resume" button and an
         "End early" button;
@@ -170,6 +187,11 @@ steps:
     Each action follows the file's existing handler shape: call the api wrapper,
     `store.apply(...)` the returned DTO, and on failure `log.error(...)` plus
     `bannerMessage = …`.
+
+    Give the paused panel and the three new buttons stable `data-testid`s
+    (`session-suspended`, `session-suspend`, `session-resume`,
+    `session-end-early`) so the e2e selects on those rather than on translated
+    labels — the Playwright config pins `locale: 'de-DE'`.
   - |
     Add the i18n keys to BOTH `src/frontend/src/lib/i18n/de.json` and
     `src/frontend/src/lib/i18n/en.json`, keeping the catalogs key-for-key
@@ -196,8 +218,11 @@ steps:
     suspends the session, asserts the room shows the paused panel and the
     estimator cannot vote, resumes, and finishes by ending early — then asserts
     via the REST API that the finalized item's triple is on the draft leaf and
-    that the session appears with `ENDED_EARLY`. Follow the file's existing
-    two-context pattern and its `pageerror` assertion style.
+    that the session appears with `ENDED_EARLY`. While suspended, also assert
+    the session is still listed on the setup page's open-sessions list
+    (`/sessions`) — that list is the actual discovery path back into a parked
+    room, and only the backend IT covers `findJoinable` otherwise. Follow the
+    file's existing two-context pattern and its `pageerror` assertion style.
   - |
     Regenerate and commit the API contract: `./gradlew build` refreshes
     `src/frontend/src/lib/api/openapi.json` and
@@ -212,6 +237,16 @@ steps:
     `VARCHAR` with no check constraint, and that `findJoinable` includes
     `SUSPENDED`.
   - |
+    Update `docs/estimation-sessions.md`, which spells the lifecycle out in
+    prose and would otherwise describe a state machine that no longer exists:
+      - the "Coarse session status: `CREATED → RUNNING → FINALIZED` (or
+        `CANCELLED`)" line gains `SUSPENDED` and `ENDED_EARLY`, with the
+        distinction between ending early (keeps results) and cancelling
+        (abandons);
+      - the "joinable CREATED/RUNNING sessions across every estimation" line
+        gains `SUSPENDED`;
+      - the moderator-controls section mentions pause/resume/end-early.
+  - |
     Run the full gate: `./gradlew :backend:implementation:test`, then
     `./gradlew build`, then the e2e suite with the dev stack running
     (`./scripts/dev.sh`; `cd src/frontend && npm run test:e2e`). Stop the stack
@@ -219,11 +254,15 @@ steps:
 
 validation:
   - |
-    The enum carries both new values and no migration was added:
+    The enum carries both new values and NO migration was added for them. The
+    check is name-agnostic on purpose: V17 is already taken by task-106's
+    V17__session_bucket_votes.sql, so asserting one hardcoded filename is absent
+    would prove nothing.
       S=src/backend/implementation/src/main/kotlin/io/github/theestimator/domain/session/SessionStatus.kt
       grep -q "SUSPENDED" "$S"
       grep -q "ENDED_EARLY" "$S"
-      test ! -e src/backend/implementation/src/main/resources/db/migration/V17__session_states.sql
+      ! grep -rli "SUSPENDED\|ENDED_EARLY\|session.*status" \
+          src/backend/implementation/src/main/resources/db/migration/
   - |
     A parked session stays discoverable, a terminated one does not:
       R=src/backend/implementation/src/main/kotlin/io/github/theestimator/repository/EstimationSessionRepository.kt
@@ -236,12 +275,21 @@ validation:
       grep -q "fun suspend(" "$S"
       grep -q "fun resume(" "$S"
       grep -q "fun endEarly(" "$S"
-      test "$(grep -c 'Log\.info' "$S")" -ge 8
+      # The file already has 9 Log.info calls before this task; the three new
+      # transitions must each add one, so the bar is 12 — a lower number would
+      # be satisfied without writing any logging at all.
+      test "$(grep -c 'Log\.info' "$S")" -ge 12
   - |
     Reveal and finalize now refuse a non-RUNNING session (the guard that makes
-    SUSPENDED actually inert):
+    SUSPENDED actually inert). The guard is one `requireRunning(session, id)`
+    helper rather than three copies of the same `if` — inlining it a third time
+    pushed `finalizeCurrent` over detekt's CyclomaticComplexMethod threshold,
+    and the task forbids restructuring that method's aggregation to buy the
+    budget back. So assert the call sites, not the duplicated message:
       S=src/backend/implementation/src/main/kotlin/io/github/theestimator/service/EstimationSessionService.kt
-      test "$(grep -c 'is not RUNNING' "$S")" -ge 3
+      grep -q "private fun requireRunning(" "$S"
+      grep -q "is not RUNNING" "$S"
+      test "$(grep -c 'requireRunning(session, id)' "$S")" -ge 3
   - |
     The three endpoints exist on the session resource:
       R=src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/SessionResource.kt
@@ -253,7 +301,13 @@ validation:
       T=src/backend/implementation/src/test/kotlin/io/github/theestimator/rest/SessionResourceIT.kt
       grep -q "SUSPENDED" "$T"
       grep -q "ENDED_EARLY" "$T"
-      grep -q "suspend" "$T"
+      grep -q "/suspend" "$T"
+      grep -q "/resume" "$T"
+      grep -q "/end-early" "$T"
+      # the two load-bearing cases, not just the happy transitions
+      grep -qi "write.*back\|draft" "$T"
+      grep -q "403" "$T"
+      grep -q "409" "$T"
   - |
     The frontend client and room UI are wired, and the room logs failures
     without bare console.*:
@@ -326,3 +380,4 @@ outputs:
   - modified: src/frontend/src/lib/api/openapi.json
   - modified: src/frontend/src/lib/api/schema.d.ts
   - modified: CLAUDE.md
+  - modified: docs/estimation-sessions.md

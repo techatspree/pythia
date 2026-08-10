@@ -115,6 +115,42 @@
           }
         }
       },
+      "AssignmentConflictDto" : {
+        "type" : "object",
+        "required" : [ "estimatorId", "displayName", "bucketId", "at" ],
+        "properties" : {
+          "estimatorId" : {
+            "type" : "string"
+          },
+          "displayName" : {
+            "type" : [ "string", "null" ]
+          },
+          "bucketId" : {
+            "type" : "string"
+          },
+          "at" : {
+            "type" : "string"
+          }
+        }
+      },
+      "BucketAssignmentDto" : {
+        "type" : "object",
+        "required" : [ "bucketId", "source", "conflictingAssignments" ],
+        "properties" : {
+          "bucketId" : {
+            "type" : "string"
+          },
+          "source" : {
+            "type" : "string"
+          },
+          "conflictingAssignments" : {
+            "type" : "array",
+            "items" : {
+              "$ref" : "#/components/schemas/AssignmentConflictDto"
+            }
+          }
+        }
+      },
       "BucketUpdateDto" : {
         "type" : "object",
         "properties" : {
@@ -134,6 +170,30 @@
           }
         },
         "required" : [ "position", "label" ]
+      },
+      "BucketVoteRequest" : {
+        "type" : "object",
+        "required" : [ "bucketId" ],
+        "properties" : {
+          "bucketId" : {
+            "$ref" : "#/components/schemas/UUID"
+          },
+          "isSample" : {
+            "type" : "boolean"
+          },
+          "minEffort" : {
+            "type" : "number",
+            "format" : "double"
+          },
+          "expectedEffort" : {
+            "type" : "number",
+            "format" : "double"
+          },
+          "maxEffort" : {
+            "type" : "number",
+            "format" : "double"
+          }
+        }
       },
       "ChangeSummaryDto" : {
         "type" : "object",
@@ -1150,6 +1210,13 @@
             }, {
               "type" : "null"
             } ]
+          },
+          "bucketAssignment" : {
+            "anyOf" : [ {
+              "$ref" : "#/components/schemas/BucketAssignmentDto"
+            }, {
+              "type" : "null"
+            } ]
           }
         }
       },
@@ -1163,7 +1230,7 @@
       },
       "SessionStatus" : {
         "type" : "string",
-        "enum" : [ "CREATED", "RUNNING", "FINALIZED", "CANCELLED" ]
+        "enum" : [ "CREATED", "RUNNING", "SUSPENDED", "FINALIZED", "ENDED_EARLY", "CANCELLED" ]
       },
       "TripleDto" : {
         "type" : "object",
@@ -2550,6 +2617,47 @@
         } ]
       }
     },
+    "/api/sessions/{id}/end-early" : {
+      "post" : {
+        "summary" : "Moderator: end the session before its last item, keeping the results so far",
+        "tags" : [ "Estimation sessions" ],
+        "parameters" : [ {
+          "name" : "id",
+          "in" : "path",
+          "required" : true,
+          "schema" : {
+            "$ref" : "#/components/schemas/UUID"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/SessionDto"
+                }
+              }
+            }
+          },
+          "403" : {
+            "description" : "Not the moderator"
+          },
+          "404" : {
+            "description" : "Session not found"
+          },
+          "409" : {
+            "description" : "Session is not in a state that allows this transition"
+          },
+          "401" : {
+            "description" : "Not Authorized"
+          }
+        },
+        "security" : [ {
+          "SecurityScheme" : [ "ESTIMATOR" ]
+        } ]
+      }
+    },
     "/api/sessions/{id}/items/current/finalize" : {
       "post" : {
         "summary" : "Moderator: finalize the current item (writes back to the draft) and advance",
@@ -2712,6 +2820,47 @@
         } ]
       }
     },
+    "/api/sessions/{id}/resume" : {
+      "post" : {
+        "summary" : "Moderator: resume a paused session (SUSPENDED → RUNNING)",
+        "tags" : [ "Estimation sessions" ],
+        "parameters" : [ {
+          "name" : "id",
+          "in" : "path",
+          "required" : true,
+          "schema" : {
+            "$ref" : "#/components/schemas/UUID"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/SessionDto"
+                }
+              }
+            }
+          },
+          "403" : {
+            "description" : "Not the moderator"
+          },
+          "404" : {
+            "description" : "Session not found"
+          },
+          "409" : {
+            "description" : "Session is not in a state that allows this transition"
+          },
+          "401" : {
+            "description" : "Not Authorized"
+          }
+        },
+        "security" : [ {
+          "SecurityScheme" : [ "ESTIMATOR" ]
+        } ]
+      }
+    },
     "/api/sessions/{id}/start" : {
       "post" : {
         "summary" : "Moderator: start the session (CREATED → RUNNING)",
@@ -2740,6 +2889,47 @@
           },
           "409" : {
             "description" : "Session is not in CREATED"
+          },
+          "401" : {
+            "description" : "Not Authorized"
+          }
+        },
+        "security" : [ {
+          "SecurityScheme" : [ "ESTIMATOR" ]
+        } ]
+      }
+    },
+    "/api/sessions/{id}/suspend" : {
+      "post" : {
+        "summary" : "Moderator: pause the session (RUNNING → SUSPENDED), keeping all progress",
+        "tags" : [ "Estimation sessions" ],
+        "parameters" : [ {
+          "name" : "id",
+          "in" : "path",
+          "required" : true,
+          "schema" : {
+            "$ref" : "#/components/schemas/UUID"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/SessionDto"
+                }
+              }
+            }
+          },
+          "403" : {
+            "description" : "Not the moderator"
+          },
+          "404" : {
+            "description" : "Session not found"
+          },
+          "409" : {
+            "description" : "Session is not in a state that allows this transition"
           },
           "401" : {
             "description" : "Not Authorized"
@@ -2785,6 +2975,57 @@
           },
           "409" : {
             "description" : "Not a participant, session not RUNNING, or no current item"
+          },
+          "401" : {
+            "description" : "Not Authorized"
+          },
+          "403" : {
+            "description" : "Not Allowed"
+          },
+          "400" : {
+            "description" : "Bad Request"
+          }
+        },
+        "security" : [ {
+          "SecurityScheme" : [ "ESTIMATOR" ]
+        } ]
+      }
+    },
+    "/api/sessions/{id}/votes/bucket" : {
+      "post" : {
+        "summary" : "Estimator: upsert a BUCKET vote for the current item + current phase",
+        "tags" : [ "Estimation sessions" ],
+        "parameters" : [ {
+          "name" : "id",
+          "in" : "path",
+          "required" : true,
+          "schema" : {
+            "$ref" : "#/components/schemas/UUID"
+          }
+        } ],
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/BucketVoteRequest"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/SessionDto"
+                }
+              }
+            }
+          },
+          "409" : {
+            "description" : "Not a participant, session not RUNNING, no current item, the estimation is not bucket+sampled, or the bucket is not one of its buckets"
           },
           "401" : {
             "description" : "Not Authorized"

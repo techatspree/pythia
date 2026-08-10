@@ -17,7 +17,7 @@ function seed(subject: string) {
 	};
 }
 
-async function setUp(req: APIRequestContext) {
+async function setUp(req: APIRequestContext, title = 'E2E Session') {
 	const H = { Authorization: 'Dev dev-admin' };
 	const proj = await req.post(`${API}/api/projects`, {
 		headers: H,
@@ -57,7 +57,7 @@ async function setUp(req: APIRequestContext) {
 
 	const session = await req.post(`${API}/api/sessions`, {
 		headers: H,
-		data: { estimationId, title: 'E2E Session', itemLogicalIds: leafIds }
+		data: { estimationId, title, itemLogicalIds: leafIds }
 	});
 	expect(session.status(), `POST sessions: ${await session.text()}`).toBe(201);
 	const sessionId = (await session.json()).id;
@@ -179,6 +179,116 @@ test('two-phase session: broadcast, blind count, reveal aggregate, finalize + wr
 		}
 		// Sanity: leaf ids were the ones we ran the session over.
 		expect(finalItems.map((i) => i.nodeLogicalId).sort()).toEqual([...leafIds].sort());
+	} finally {
+		await modCtx.close();
+		await estCtx.close();
+	}
+});
+
+// Pause / resume / end-early (task-144). A session that runs out of time must be
+// parkable and resumable, and endable without being mislabelled as cancelled —
+// while every item finalized along the way stays written back on the draft.
+test('suspend parks the room, resume continues it, end-early keeps the results', async ({
+	browser
+}) => {
+	const title = 'E2E Suspend Session';
+	const modCtx = await browser.newContext({
+		baseURL: LOCAL,
+		locale: 'de-DE',
+		storageState: seed('dev-admin')
+	});
+	const estCtx = await browser.newContext({
+		baseURL: LOCAL,
+		locale: 'de-DE',
+		storageState: seed('dev-estimator')
+	});
+	const mod = await modCtx.newPage();
+	const est = await estCtx.newPage();
+	const H = { Authorization: 'Dev dev-admin' };
+
+	try {
+		const { estimationId, leafIds, sessionId } = await setUp(mod.request, title);
+
+		await mod.goto(`/sessions/${sessionId}`);
+		await est.goto(`/sessions/${sessionId}`);
+		await expect(mod.getByTestId('participant')).toHaveCount(2);
+
+		await mod.getByRole('button', { name: 'Sitzung starten' }).click();
+		await expect(est.getByRole('button', { name: 'Schätzung abgeben' })).toBeVisible();
+
+		// Item 1 goes the whole way — its triple reaches the draft leaf at once.
+		await fillTriple(estCtx, '2', '4', '6');
+		await est.getByRole('button', { name: 'Schätzung abgeben' }).click();
+		await fillTriple(modCtx, '2', '4', '6');
+		await mod.getByRole('button', { name: 'Schätzung abgeben' }).click();
+		await mod.getByRole('button', { name: 'Zu Phase 2 (aufdecken)' }).click();
+		await expect(mod.getByTestId('aggregate')).toBeVisible();
+		await mod.getByRole('button', { name: 'Eintrag abschließen' }).click();
+		await expect(mod.getByText('Eintrag 2 von 2')).toBeVisible();
+
+		// The clock runs out on item 2: the moderator parks the room. Both contexts
+		// see the paused panel (socket broadcast) and the estimator loses the form.
+		await mod.getByTestId('session-suspend').click();
+		await expect(mod.getByTestId('session-suspended')).toBeVisible();
+		await expect(est.getByTestId('session-suspended')).toBeVisible();
+		await expect(est.getByRole('button', { name: 'Schätzung abgeben' })).toHaveCount(0);
+		// The moderator's controls are moderator-only.
+		await expect(est.getByTestId('session-resume')).toHaveCount(0);
+
+		// A parked room stays discoverable — this list is the way back into it.
+		await est.goto('/sessions');
+		await expect(
+			est.getByRole('listitem').filter({ hasText: title }).first()
+		).toContainText('Pausiert');
+		await est.goto(`/sessions/${sessionId}`);
+
+		// Resume continues exactly where it stopped: item 2, PHASE1.
+		await mod.getByTestId('session-resume').click();
+		await expect(mod.getByText('Eintrag 2 von 2')).toBeVisible();
+		await expect(est.getByRole('button', { name: 'Schätzung abgeben' })).toBeVisible();
+
+		// End early with item 2 only half-voted.
+		await fillTriple(estCtx, '3', '5', '7');
+		await est.getByRole('button', { name: 'Schätzung abgeben' }).click();
+		await mod.getByTestId('session-end-early').click();
+		await expect(mod.getByTestId('session-ended-early')).toBeVisible();
+		await expect(est.getByTestId('session-ended-early')).toBeVisible();
+		// The early-ended room shows the SAME summary the FINALIZED one does.
+		await expect(mod.getByText('Sitzung abgeschlossen')).toBeVisible();
+
+		const sRes = await mod.request.get(`${API}/api/sessions/${sessionId}`, { headers: H });
+		const session = await sRes.json();
+		expect(session.status).toBe('ENDED_EARLY');
+
+		const items = session.items as Array<{
+			nodeLogicalId: string;
+			finalTriple: { minEffort: number; expectedEffort: number; maxEffort: number } | null;
+		}>;
+		// Item 1 finalized; item 2 was never finalized, so it holds no final triple
+		// (end-early does NOT aggregate a partially-voted item).
+		expect(items[0].finalTriple).not.toBeNull();
+		expect(items[1].finalTriple).toBeNull();
+
+		const draftRes = await mod.request.get(
+			`${API}/api/estimations/${estimationId}/versions/draft`,
+			{ headers: H }
+		);
+		const leaves = (await draftRes.json()).roots as Array<{
+			logicalId: string;
+			minEffort: number;
+			expectedEffort: number;
+			maxEffort: number;
+		}>;
+
+		// The finalized item's estimate survived the early end.
+		const finalized = leaves.find((l) => l.logicalId === items[0].nodeLogicalId)!;
+		expect(finalized.minEffort).toBeCloseTo(items[0].finalTriple!.minEffort, 5);
+		expect(finalized.expectedEffort).toBeCloseTo(items[0].finalTriple!.expectedEffort, 5);
+		expect(finalized.maxEffort).toBeCloseTo(items[0].finalTriple!.maxEffort, 5);
+		// The unfinalized one kept its original seeded values.
+		const untouched = leaves.find((l) => l.logicalId === items[1].nodeLogicalId)!;
+		expect(untouched.expectedEffort).toBeCloseTo(2, 5);
+		expect(leafIds).toContain(untouched.logicalId);
 	} finally {
 		await modCtx.close();
 		await estCtx.close();

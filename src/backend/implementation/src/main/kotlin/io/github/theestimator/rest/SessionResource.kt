@@ -4,6 +4,7 @@ import io.github.theestimator.auth.CurrentUserProvider
 import io.github.theestimator.rest.dto.CreateSessionRequest
 import io.github.theestimator.rest.dto.NotesRequest
 import io.github.theestimator.rest.dto.SessionDto
+import io.github.theestimator.rest.dto.BucketVoteRequest
 import io.github.theestimator.rest.dto.VoteRequest
 import io.github.theestimator.rest.dto.WsTicketDto
 import io.github.theestimator.service.CurrentUserService
@@ -175,6 +176,24 @@ class SessionResource(
     }
 
     @POST
+    @Path("/{id}/votes/bucket")
+    @Consumes(MediaType.APPLICATION_JSON)
+    @Operation(summary = "Estimator: upsert a BUCKET vote for the current item + current phase")
+    @APIResponse(responseCode = "200", content = [Content(schema = Schema(implementation = SessionDto::class))])
+    @APIResponse(
+        responseCode = "409",
+        description = "Not a participant, session not RUNNING, no current item, " +
+            "the estimation is not bucket+sampled, or the bucket is not one of its buckets"
+    )
+    fun voteBucket(@PathParam("id") id: UUID, body: BucketVoteRequest): Response {
+        val dto = sessionService.submitBucketVote(
+            id, currentUserProvider.get().subjectId,
+            body.bucketId, body.isSample, body.minEffort, body.expectedEffort, body.maxEffort
+        )
+        return Response.ok(dto).build()
+    }
+
+    @POST
     @Path("/{id}/agree")
     @Operation(summary = "Estimator: mark agreement on the current item")
     @APIResponse(responseCode = "200", content = [Content(schema = Schema(implementation = SessionDto::class))])
@@ -189,4 +208,34 @@ class SessionResource(
     @APIResponse(responseCode = "403", description = "Not the moderator")
     fun cancel(@PathParam("id") id: UUID): Response =
         Response.ok(sessionService.cancel(id, currentUserProvider.get().subjectId)).build()
+
+    @POST
+    @Path("/{id}/suspend")
+    @Operation(summary = "Moderator: pause the session (RUNNING → SUSPENDED), keeping all progress")
+    @APIResponse(responseCode = "200", content = [Content(schema = Schema(implementation = SessionDto::class))])
+    @APIResponse(responseCode = "403", description = "Not the moderator")
+    @APIResponse(responseCode = "404", description = "Session not found")
+    @APIResponse(responseCode = "409", description = "Session is not in a state that allows this transition")
+    fun suspend(@PathParam("id") id: UUID): Response =
+        Response.ok(sessionService.suspend(id, currentUserProvider.get().subjectId)).build()
+
+    @POST
+    @Path("/{id}/resume")
+    @Operation(summary = "Moderator: resume a paused session (SUSPENDED → RUNNING)")
+    @APIResponse(responseCode = "200", content = [Content(schema = Schema(implementation = SessionDto::class))])
+    @APIResponse(responseCode = "403", description = "Not the moderator")
+    @APIResponse(responseCode = "404", description = "Session not found")
+    @APIResponse(responseCode = "409", description = "Session is not in a state that allows this transition")
+    fun resume(@PathParam("id") id: UUID): Response =
+        Response.ok(sessionService.resume(id, currentUserProvider.get().subjectId)).build()
+
+    @POST
+    @Path("/{id}/end-early")
+    @Operation(summary = "Moderator: end the session before its last item, keeping the results so far")
+    @APIResponse(responseCode = "200", content = [Content(schema = Schema(implementation = SessionDto::class))])
+    @APIResponse(responseCode = "403", description = "Not the moderator")
+    @APIResponse(responseCode = "404", description = "Session not found")
+    @APIResponse(responseCode = "409", description = "Session is not in a state that allows this transition")
+    fun endEarly(@PathParam("id") id: UUID): Response =
+        Response.ok(sessionService.endEarly(id, currentUserProvider.get().subjectId)).build()
 }

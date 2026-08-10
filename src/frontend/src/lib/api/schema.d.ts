@@ -1726,6 +1726,72 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/sessions/{id}/end-early": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Moderator: end the session before its last item, keeping the results so far */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: components["schemas"]["UUID"];
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["SessionDto"];
+                    };
+                };
+                /** @description Not Authorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Not the moderator */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Session not found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Session is not in a state that allows this transition */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/sessions/{id}/items/current/finalize": {
         parameters: {
             query?: never;
@@ -1966,6 +2032,72 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/sessions/{id}/resume": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Moderator: resume a paused session (SUSPENDED → RUNNING) */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: components["schemas"]["UUID"];
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["SessionDto"];
+                    };
+                };
+                /** @description Not Authorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Not the moderator */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Session not found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Session is not in a state that allows this transition */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/sessions/{id}/start": {
         parameters: {
             query?: never;
@@ -2011,6 +2143,72 @@ export interface paths {
                     content?: never;
                 };
                 /** @description Session is not in CREATED */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/sessions/{id}/suspend": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Moderator: pause the session (RUNNING → SUSPENDED), keeping all progress */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: components["schemas"]["UUID"];
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["SessionDto"];
+                    };
+                };
+                /** @description Not Authorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Not the moderator */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Session not found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Session is not in a state that allows this transition */
                 409: {
                     headers: {
                         [name: string]: unknown;
@@ -2081,6 +2279,76 @@ export interface paths {
                     content?: never;
                 };
                 /** @description Not a participant, session not RUNNING, or no current item */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/sessions/{id}/votes/bucket": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Estimator: upsert a BUCKET vote for the current item + current phase */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: components["schemas"]["UUID"];
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["BucketVoteRequest"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["SessionDto"];
+                    };
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Not Authorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Not Allowed */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Not a participant, session not RUNNING, no current item, the estimation is not bucket+sampled, or the bucket is not one of its buckets */
                 409: {
                     headers: {
                         [name: string]: unknown;
@@ -2203,11 +2471,32 @@ export interface components {
             /** Format: int32 */
             voterCount: number;
         };
+        AssignmentConflictDto: {
+            estimatorId: string;
+            displayName: string | null;
+            bucketId: string;
+            at: string;
+        };
+        BucketAssignmentDto: {
+            bucketId: string;
+            source: string;
+            conflictingAssignments: components["schemas"]["AssignmentConflictDto"][];
+        };
         BucketUpdateDto: {
             id?: components["schemas"]["UUID"] | null;
             /** Format: int32 */
             position: number;
             label: string;
+        };
+        BucketVoteRequest: {
+            bucketId: components["schemas"]["UUID"];
+            isSample?: boolean;
+            /** Format: double */
+            minEffort?: number;
+            /** Format: double */
+            expectedEffort?: number;
+            /** Format: double */
+            maxEffort?: number;
         };
         ChangeSummaryDto: {
             kind: string;
@@ -2537,13 +2826,14 @@ export interface components {
             submittedVoteCount: number;
             votes: components["schemas"]["VoteDto"][] | null;
             aggregate: components["schemas"]["AggregateDto"] | null;
+            bucketAssignment?: components["schemas"]["BucketAssignmentDto"] | null;
         };
         /** @enum {string} */
         SessionItemStatus: "PENDING" | "PHASE1" | "PHASE2" | "FINALIZED";
         /** @enum {string} */
         SessionPhase: "PHASE1" | "PHASE2";
         /** @enum {string} */
-        SessionStatus: "CREATED" | "RUNNING" | "FINALIZED" | "CANCELLED";
+        SessionStatus: "CREATED" | "RUNNING" | "SUSPENDED" | "FINALIZED" | "ENDED_EARLY" | "CANCELLED";
         TripleDto: {
             /** Format: double */
             minEffort: number;
