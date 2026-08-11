@@ -1,4 +1,5 @@
 <script lang="ts">
+	import Select from '$lib/ui/Select.svelte';
 	import Button from '$lib/ui/Button.svelte';
 	import { _ } from 'svelte-i18n';
 	import ErrorBanner from '$lib/components/ErrorBanner.svelte';
@@ -103,15 +104,11 @@
 				</div>
 				<div class="mb-3">
 					<label class="block text-sm font-medium mb-1" for="method">{$_('dialog.createEstimation.methodLabel')}</label>
-					<select
-						id="method"
-						bind:value={method}
-						class="w-full border rounded px-3 py-2 text-sm"
-					>
+					<Select id="method" bind:value={method}>
 						{#each availableMethods as m (m.method)}
 							<option value={m.method}>{m.label}</option>
 						{/each}
-					</select>
+					</Select>
 				</div>
 				<div class="mb-4">
 					<label class="block text-sm font-medium mb-1" for="description">{$_('dialog.createEstimation.descriptionLabel')}</label>

@@ -202,11 +202,17 @@ validation:
   - |
     [ "$(grep -rl "from '\$lib/ui/Select.svelte'" src/frontend/src | wc -l | tr -d ' ')" = "2" ]
   - |
-    ! grep -q 'class="w-full border rounded px-3 py-2 text-sm"' \
-        src/frontend/src/routes/sessions/+page.svelte
+    # No RAW <select> left on the page — they all go through the primitive.
+    # Deliberately not asserting the field-class string is gone: the session-title
+    # TEXT INPUT still uses it, because unifying text inputs (`Field`) is a
+    # stated follow-up, not part of this task.
+    ! grep -q '<select' src/frontend/src/routes/sessions/+page.svelte \
+      && ! grep -q '<select' src/frontend/src/lib/components/CreateEstimationDialog.svelte
   - |
     # The five in-cell selects stay borderless — a blanket unification is wrong.
-    [ "$(grep -rc 'bg-transparent' src/frontend/src/lib/components/EstimationGrid.svelte \
+    # NOTE `grep -c`, not `grep -rc`: with -r grep prefixes the filename even for
+    # a single named file, so the integer test would compare "path:8" and always fail.
+    [ "$(grep -c 'bg-transparent' src/frontend/src/lib/components/EstimationGrid.svelte \
         | tr -d ' ')" -ge 2 ] \
       && ! grep -q 'ui/Select.svelte' src/frontend/src/lib/components/EstimationGrid.svelte \
       && ! grep -q 'ui/Select.svelte' src/frontend/src/lib/components/UserMenu.svelte
@@ -214,7 +220,8 @@ validation:
     grep -q 'max-h-' src/frontend/src/routes/sessions/+page.svelte \
       && grep -q 'overflow-y-auto' src/frontend/src/routes/sessions/+page.svelte
   - |
-    grep -q 'path' src/frontend/src/routes/sessions/+page.svelte \
+    # Specific: a bare 'path' would match any substring (pathname, a comment…).
+    grep -q 'path: string' src/frontend/src/routes/sessions/+page.svelte \
       && grep -q "' / '" src/frontend/src/routes/sessions/+page.svelte
   - |
     for k in selectedCount noneSelected; do \
@@ -225,9 +232,12 @@ validation:
     [ "$(jq -r '.session.setup | keys | length' src/frontend/src/lib/i18n/de.json)" \
       = "$(jq -r '.session.setup | keys | length' src/frontend/src/lib/i18n/en.json)" ]
   - |
+    # The estimated marker is a NEUTRAL chip: assert the grey tokens are there,
+    # not merely that some rounded-full exists somewhere on the page. The six
+    # existing brand-green chips all mean "current/active"; this one must not
+    # borrow that signal.
     grep -q 'rounded-full' src/frontend/src/routes/sessions/+page.svelte \
-      && ! grep -q 'bg-brand-green/20 text-brand-green">{\$_(.session.setup.estimated' \
-           src/frontend/src/routes/sessions/+page.svelte
+      && grep -q 'bg-gray-100 text-gray-500' src/frontend/src/routes/sessions/+page.svelte
   - |
     grep -q 'log\.' src/frontend/src/routes/sessions/+page.svelte \
       && ! grep -rqE '(^|[^.a-zA-Z])console\.' src/frontend/src/routes/sessions/ src/frontend/src/lib/ui/

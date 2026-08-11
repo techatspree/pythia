@@ -891,9 +891,9 @@
       "notes": "Bucket hierarchy view cannot create groups: no root-level add-group affordance, and per-row + Gruppe only renders on GROUP rows, so a flat draft is a dead end"
     },
     "task-151": {
-      "status": "pending",
-      "started_at": null,
-      "completed_at": null,
+      "status": "done",
+      "started_at": "2026-08-11T13:15:05+00:00",
+      "completed_at": "2026-08-11T13:24:03+00:00",
       "notes": "Session setup page: the project/offer dropdowns and the selectable estimation-item list are visually unpolished; restyle them to the app's design system"
     },
     "task-152": {
@@ -901,6 +901,12 @@
       "started_at": "2026-08-11T12:46:18+00:00",
       "completed_at": "2026-08-11T13:06:08+00:00",
       "notes": "Rename the product from The Estimator to Pythia and the namespace from io.github.theestimator to io.pythia, across source, build coordinates, container image, k8s manifests, UI strings and docs"
+    },
+    "task-153": {
+      "status": "pending",
+      "started_at": null,
+      "completed_at": null,
+      "notes": "README.md is a stub: a new visitor cannot tell what Pythia does or which features it has. Rewrite it as an attractive, feature-complete landing page aimed at project managers, not just developers"
     }
   }
 }

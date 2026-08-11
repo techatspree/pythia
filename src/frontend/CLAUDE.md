@@ -14,7 +14,11 @@ SvelteKit 5 (runes) + TypeScript + Tailwind 4, Vite, adapter-static (SPA).
 
 **Arbitrary colour values are banned and enforced.** `scripts/check-design-tokens.mjs` fails `:frontend:check` on any `-[#rrggbb]` in `src/`. Add a token to the `@theme` block in `src/app.css` and use it. This gate is deliberately *not* informational, unlike ESLint/detekt here. `src/lib/assets/logo.svg` is exempt (SVG `fill`/`stroke` cannot reference a Tailwind class) and `.svg` is excluded from the scan.
 
-`Field` (14 duplicated input sites) and `Badge` are known follow-ups.
+`$lib/ui/Select.svelte` is the single definition of a **form** select (task-151). A native `<select>` ignores most of the app's field classes — the browser paints its own arrow and control height — so beside an `<input>` with identical classes it reads as a different, heavier control, and differently again per platform. The primitive adds `appearance-none` plus its own chevron (`pointer-events-none`, or it swallows the click), the standard focus ring, and greys the text while the value is `''` so a placeholder reads as empty. `{...rest}` forwarding is load-bearing here too.
+
+**Only three selects use it, and the others must not.** The app's nine `<select>`s serve three different roles: the three FORM selects (`sessions/+page.svelte` ×2, `CreateEstimationDialog`), five **in-cell editors** (`EstimationGrid` ×2, `AdditionalCostsPanel` ×2, bucket `EditorModule`) that are deliberately `bg-transparent` and borderless because they sit inside a grid cell where a bordered box would be wrong, and one **chrome** select (`UserMenu`'s language switcher). Do not "finish the job" by converting the last six.
+
+`Field` (the remaining duplicated text inputs) and `Badge` are known follow-ups.
 
 ## Logging
 

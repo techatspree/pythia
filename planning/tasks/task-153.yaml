@@ -1,0 +1,242 @@
+id: task-153
+phase: phase-18
+title: README as a landing page for project managers
+depends_on: [task-152]
+description: |
+  `README.md` is the first — often only — thing a visitor reads, and right now
+  it is a 23-line stub (1064 characters). It names six features and stops. A
+  project manager landing on the repository cannot tell what Pythia actually
+  does, what it produces, or why they would use it instead of a spreadsheet.
+
+  ## What the current README omits
+
+  Eighteen phases have shipped; the README describes roughly phase-9. Missing
+  entirely, and all of it directly relevant to the target reader:
+
+  - **Collaborative estimation sessions** (phase-11) — the Wideband-Delphi
+    flow: blind individual estimates, a reveal with divergence highlighting,
+    discussion notes, and a moderator who finalizes. This is the single most
+    differentiating feature and it is not mentioned once.
+  - **Money, not just effort** — daily rate, risk surcharge (std-dev factor),
+    effort drivers, sales surcharge, one-time and recurring additional costs,
+    and a whole-estimate summary producing **cost and offer price**. A PM cares
+    about the offer price; the README only says "effort values".
+  - **Two estimation methods** (phase-15) — classic three-point PERT, and
+    bucket + sampled PERT (size items into buckets, estimate a few samples per
+    bucket, the rest inherit the bucket average).
+  - **Version comparison and persistent undo** (phase-12) — draft → submitted
+    snapshots with a diff between any two versions, plus undo/redo that
+    survives a browser restart and is per-user.
+  - **Import / export** — Excel (xlsx) and CSV export, and round-tripping with
+    **Merlin Project**: import a WBS, push calculated effort back into the plan.
+  - **Per-installation branding** (task-146) — an organisation name, standard
+    effort drivers seeded into new estimates, and an uploadable stylesheet.
+  - **German and English UI** (phase-16), **role-based access** with pluggable
+    auth (dev / Entra ID / Keycloak), an **audit trail**, and a
+    **Kubernetes** deployment.
+
+  ## Target state
+
+  A README that a project manager can skim in 60 seconds and understand: what
+  problem this solves, what it produces, what makes it different, and how to
+  try it. Attractive enough to hold attention — a centred header, badges,
+  grouped features, and **real screenshots**, not a wall of bullets.
+
+  ## Design decisions — do not deviate
+
+  **Audience order: PM first, developer second.** Lead with the problem and the
+  outcome (a defensible offer price from a structured estimate), not with the
+  tech stack. The stack belongs in a short "Built with" line near the bottom,
+  linking to `docs/architecture.md`. Do NOT turn the README into a second
+  architecture document — that already exists.
+
+  **Screenshots are required, and they are generated, not hand-made.** A README
+  aimed at a non-developer that shows no product is not attractive, whatever
+  the prose. Capture them with a Playwright script following the `gen:icons`
+  precedent (`src/frontend/scripts/generate-icons.mjs` already drives
+  Playwright's bundled Chromium) — **do not add an image dependency**, and do
+  not commit hand-cropped screenshots that nobody can reproduce.
+
+  **Capture in ENGLISH.** The dev seed data is German (`TestDataSeeder`:
+  "Webshop Redesign", "RetailCorp GmbH") and that is fine as content, but the
+  UI language is per-user and the README is English, so the script must switch
+  the capture user to EN. A German UI under English prose reads as an accident.
+
+  **GitHub's markdown subset only.** Centred blocks via
+  `<p align="center">`/`<div align="center">` and `<img>` work; `<style>`,
+  scripts and CSS are stripped. Mermaid IS rendered from a ```mermaid fence and
+  is the right tool for the one flow diagram — do not hand-draw ASCII art.
+
+  **Honesty about maturity.** Do not imply a hosted product or a stable release
+  that does not exist. Describe what runs today and how to run it locally.
+
+  **The product is Pythia** (task-152). Do not reintroduce the previous name
+  anywhere, including image alt text and screenshot filenames.
+
+steps:
+  - |
+    Add a screenshot capture script at
+    `src/frontend/scripts/capture-screenshots.mjs`, wired as an npm script
+    `"gen:screenshots": "node scripts/capture-screenshots.mjs"` in
+    `src/frontend/package.json`. Model it on `scripts/generate-icons.mjs`:
+    import `chromium` from `@playwright/test` (already a devDependency — add
+    nothing), launch headless at a fixed viewport (1440x900,
+    `deviceScaleFactor: 2` for a crisp image on high-DPI displays), and write
+    PNGs to `docs/images/`.
+
+    It must run against the dev stack (backend :8090, Vite :5173) and
+    authenticate the same way the e2e specs do — seed `localStorage`
+    `devAuthSubject` = `dev-admin` for the `http://localhost:5173` origin.
+    Before capturing, switch the UI to English by `PUT`ing
+    `/api/auth/me/language` with `{"language":"en"}` (the endpoint from
+    task-123) so the captures match the English README.
+
+    Fail loudly with a non-zero exit and a clear message if the stack is not
+    reachable — a script that silently writes blank images is worse than one
+    that stops.
+  - |
+    Capture four screenshots that show the product to a PM, using the seeded
+    demo project ("Webshop Redesign" / "RetailCorp GmbH"):
+      - `docs/images/estimation-editor.png` — the version editor: the tree of
+        groups and items with three-point inputs, and the summary panel above
+        it showing effort, cost and offer price. This is the core screen.
+      - `docs/images/session-room.png` — a collaborative session in PHASE2
+        (revealed), showing the votes table and the aggregate. Seed the session
+        through the REST API first, exactly as `e2e/session.test.ts` does.
+      - `docs/images/version-compare.png` — the comparison view between two
+        versions.
+      - `docs/images/bucket-editor.png` — the bucket + sampled editor, showing
+        the second estimation method.
+    Crop to the meaningful region (use `clip` or screenshot a specific
+    element); a full page with acres of whitespace looks careless.
+  - |
+    Rewrite `README.md` with this structure, in English:
+
+      1. Centred header: the logo (`src/frontend/src/lib/assets/logo.svg`,
+         `alt="Pythia"`), the name, and a one-line positioning statement — what
+         it does and for whom, in a single sentence.
+      2. A badge row: licence (Apache-2.0), Kotlin/Quarkus/SvelteKit, and the
+         supported languages. Use shields.io static badges (no CI badge — there
+         is no public pipeline to point at yet).
+      3. **"What it does"** — three or four sentences of prose, no bullets, for
+         the reader who will not scroll. Name the outcome: a structured,
+         versioned estimate that yields a defensible offer price.
+      4. The hero screenshot (`estimation-editor.png`).
+      5. **"Why not a spreadsheet"** — a short, honest comparison covering the
+         things a spreadsheet genuinely cannot do here: collaborative blind
+         estimation with divergence detection, versioned snapshots with diffs,
+         per-user undo that survives a restart, an audit trail, and one
+         calculation engine shared by backend and frontend so the numbers
+         cannot drift.
+      6. **Features**, grouped under headings with the remaining screenshots
+         placed beside the group they illustrate: *Estimating* (three-point
+         PERT, bucket + sampled, effort drivers, risk surcharge, phases,
+         time-relative items), *Collaborating* (sessions, blind phase, reveal,
+         divergence, notes, write-back), *Governing* (draft → submitted
+         versions, comparison, undo/redo, audit trail, roles), *Money*
+         (daily rate, additional costs one-time/recurring, sales surcharge,
+         offer price), *Working with your tools* (xlsx/CSV export, Merlin
+         import/export, German + English UI, per-installation branding).
+      7. A ```mermaid diagram of the estimate lifecycle: draft → collaborative
+         session → finalized items written back → submitted version → compare /
+         export.
+      8. **Quick start** — the shortest honest path: prerequisites (JDK 21,
+         Node, Docker running), `./scripts/dev.sh`, and the URLs
+         (frontend :5173, backend :8090). Mention that the dev profile seeds
+         demo data and uses a throwaway PostgreSQL via Dev Services.
+      9. **Documentation** — link every file in `docs/` that is useful to a
+         reader (`architecture.md`, `development.md`, `authentication.md`,
+         `estimation-sessions.md`, `entra-setup.md`), each with a half-line of
+         what it covers. Do not link `InfosNotForGit.txt`.
+      10. **Built with** — one line of stack, linking to `docs/architecture.md`.
+      11. **Licence** — Apache-2.0, linking `LICENSE`.
+  - |
+    Document the regeneration contract so the screenshots do not rot: add a
+    short note to `docs/development.md` saying the README images are generated
+    by `npm run gen:screenshots` against a running dev stack, and must be
+    re-run when the UI they show changes materially. Mirror the one-line rule
+    into the root `CLAUDE.md` next to the existing `gen:icons` note.
+  - |
+    Verify the rendered result rather than trusting the source: run
+    `./gradlew :frontend:check` (the script is under `src/frontend`, so it is
+    linted), confirm every image referenced by the README exists on disk and
+    every relative link resolves, and confirm no occurrence of the previous
+    product name survives anywhere in the README or the image filenames.
+  - |
+    Run the gate: `./gradlew :frontend:check`, then `./gradlew build`. The
+    screenshot capture itself needs the dev stack (`./scripts/dev.sh`; backend
+    :8090, Vite :5173) — stop it with SIGTERM to `dev.sh`, never by killing the
+    child JVMs, and reap a leftover Dev Services container with
+    `docker ps --filter publish=5432 -q | xargs -r docker stop` if the next
+    start fails on port 5432.
+
+validation:
+  - |
+    The README is substantially expanded and structured, not a stub:
+      test "$(wc -c < README.md)" -gt 4000
+      grep -q "^# Pythia" README.md
+      grep -qi "quick start" README.md
+      grep -qi "why not a spreadsheet\|spreadsheet" README.md
+      grep -q '```mermaid' README.md
+  - |
+    Every headline feature area a project manager cares about is actually named
+    (these were all missing from the stub):
+      for kw in "session" "PERT" "bucket" "offer price" "Merlin" "undo" "audit" "Excel"; do
+        grep -qi "$kw" README.md || { echo "README does not mention: $kw"; exit 1; }
+      done
+  - |
+    The screenshots exist, are referenced, and are real images (not empty or
+    placeholder files):
+      for f in estimation-editor session-room version-compare bucket-editor; do
+        test -s "docs/images/$f.png" || { echo "missing or empty: docs/images/$f.png"; exit 1; }
+        test "$(wc -c < "docs/images/$f.png")" -gt 20000 || { echo "suspiciously small: $f.png"; exit 1; }
+        grep -q "docs/images/$f.png" README.md || { echo "not referenced in README: $f.png"; exit 1; }
+      done
+  - |
+    The capture script exists, is wired as an npm script, and adds no image
+    dependency (it must reuse Playwright's bundled Chromium like gen:icons):
+      S=src/frontend/scripts/capture-screenshots.mjs
+      test -f "$S"
+      grep -q "chromium" "$S"
+      grep -q "language" "$S"          # switches the UI to EN before capturing
+      python3 -c "
+      import json,sys
+      p=json.load(open('src/frontend/package.json'))
+      assert 'gen:screenshots' in p['scripts'], 'missing gen:screenshots script'
+      deps={**p.get('dependencies',{}),**p.get('devDependencies',{})}
+      for bad in ('sharp','jimp','canvas','puppeteer'):
+          assert bad not in deps, f'new image dependency added: {bad}'
+      print('package.json OK')
+      "
+  - |
+    Every relative link and image path in the README resolves on disk:
+      python3 - <<'PY'
+      import re, pathlib, sys
+      txt = pathlib.Path('README.md').read_text()
+      targets = re.findall(r'\]\(([^)#][^)]*)\)', txt) + re.findall(r'src="([^"]+)"', txt)
+      broken = [t for t in targets
+                if not t.startswith(('http://', 'https://', 'mailto:'))
+                and not pathlib.Path(t.split('#')[0]).exists()]
+      print('broken links:', broken or 'none')
+      sys.exit(1 if broken else 0)
+      PY
+  - |
+    The previous product name is gone from the README and the image filenames
+    (task-152):
+      ! grep -i "the estimator\|theestimator" README.md
+      ! ls docs/images/ | grep -i "estimator"
+  - |
+    ./gradlew :frontend:check
+  - |
+    ./gradlew build
+
+outputs:
+  - modified: README.md
+  - created: src/frontend/scripts/capture-screenshots.mjs
+  - modified: src/frontend/package.json
+  - created: docs/images/estimation-editor.png
+  - created: docs/images/session-room.png
+  - created: docs/images/version-compare.png
+  - created: docs/images/bucket-editor.png
+  - modified: docs/development.md
+  - modified: CLAUDE.md

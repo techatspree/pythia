@@ -345,6 +345,8 @@
       "selectAll": "Select all",
       "deselectAll": "Deselect all",
       "estimated": "already estimated",
+      "selectedCount": "{selected} of {total} selected",
+      "noneSelected": "Select at least one item to start.",
       "loadFailed": "Failed to load session data"
     },
     "layout": {

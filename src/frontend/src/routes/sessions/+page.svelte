@@ -1,4 +1,5 @@
 <script lang="ts">
+	import Select from '$lib/ui/Select.svelte';
 	import Card from '$lib/ui/Card.svelte';
 	import Button from '$lib/ui/Button.svelte';
 	import { onMount } from 'svelte';
@@ -22,6 +23,8 @@
 	type Leaf = {
 		logicalId: string;
 		description: string;
+		/** Ancestor group titles joined with ' / '; empty for a root-level leaf. */
+		path: string;
 		minEffort: number | null;
 		expectedEffort: number | null;
 		maxEffort: number | null;
@@ -106,13 +109,19 @@
 		noDraft = false;
 	}
 
-	function collectLeaves(nodes: any[], out: Leaf[]) {
+	// Carry the ancestor titles down so the picker can show WHERE a leaf sits.
+	// Flattening the tree away made two leaves called "Backend" under different
+	// groups indistinguishable; the structure is real information, not decoration.
+	// `' / '` is the separator the Merlin WBS path already uses.
+	function collectLeaves(nodes: any[], out: Leaf[], ancestors: string[] = []) {
 		for (const n of nodes) {
-			if (n.type === 'GROUP') collectLeaves(n.children ?? [], out);
+			if (n.type === 'GROUP')
+				collectLeaves(n.children ?? [], out, [...ancestors, n.title || '']);
 			else
 				out.push({
 					logicalId: n.logicalId,
 					description: n.description || n.logicalId,
+					path: ancestors.filter(Boolean).join(' / '),
 					minEffort: n.minEffort ?? null,
 					expectedEffort: n.expectedEffort ?? null,
 					maxEffort: n.maxEffort ?? null
@@ -205,33 +214,23 @@
 	<div class="max-w-2xl">
 		<div class="mb-4">
 		<label class="block text-sm font-medium mb-1" for="project">{$_('session.setup.project')}</label>
-		<select
-			id="project"
-			bind:value={projectId}
-			onchange={onProjectChange}
-			class="w-full border rounded px-3 py-2 text-sm"
-		>
+		<Select id="project" bind:value={projectId} onchange={onProjectChange}>
 			<option value="">{$_('session.setup.selectProject')}</option>
 			{#each projects as p (p.id)}
 				<option value={p.id}>{p.name}</option>
 			{/each}
-		</select>
+		</Select>
 	</div>
 
 	{#if estimations.length > 0}
 		<div class="mb-4">
 			<label class="block text-sm font-medium mb-1" for="estimation">{$_('session.setup.estimation')}</label>
-			<select
-				id="estimation"
-				bind:value={estimationId}
-				onchange={onEstimationChange}
-				class="w-full border rounded px-3 py-2 text-sm"
-			>
+			<Select id="estimation" bind:value={estimationId} onchange={onEstimationChange}>
 				<option value="">{$_('session.setup.selectEstimation')}</option>
 				{#each estimations as e (e.id)}
 					<option value={e.id}>{e.offer}</option>
 				{/each}
-			</select>
+			</Select>
 		</div>
 	{/if}
 
@@ -241,32 +240,59 @@
 
 	{#if leaves.length > 0}
 		<div class="mb-4">
-			<div class="flex items-center mb-1">
-				<span class="block text-sm font-medium">{$_('session.setup.items')}</span>
-				<div class="ml-auto flex items-center gap-3 text-xs">
-					<button type="button" onclick={selectAll} class="text-brand-green hover:underline"
-						>{$_('session.setup.selectAll')}</button
-					>
-					<button type="button" onclick={deselectAll} class="text-brand-green hover:underline"
-						>{$_('session.setup.deselectAll')}</button
-					>
+			<span class="block text-sm font-medium mb-1">{$_('session.setup.items')}</span>
+			<div class="border rounded overflow-hidden">
+				<!-- Header strip: the app's sub-section idiom, carrying the live count
+				     and the bulk controls. -->
+				<div class="flex items-center gap-3 px-3 py-2 bg-gray-50/40 border-b">
+					<span class="text-xs text-gray-500">
+						{$_('session.setup.selectedCount', {
+							values: { selected: selected.size, total: leaves.length }
+						})}
+					</span>
+					<div class="ml-auto flex items-center gap-3 text-xs">
+						<button type="button" onclick={selectAll} class="text-brand-green hover:underline"
+							>{$_('session.setup.selectAll')}</button
+						>
+						<button type="button" onclick={deselectAll} class="text-brand-green hover:underline"
+							>{$_('session.setup.deselectAll')}</button
+						>
+					</div>
 				</div>
-			</div>
-			<div class="border rounded divide-y">
-				{#each leaves as leaf (leaf.logicalId)}
-					<label class="flex items-center gap-2 px-3 py-2 text-sm cursor-pointer hover:bg-gray-50">
-						<input
-							type="checkbox"
-							class="accent-brand-green"
-							checked={selected.has(leaf.logicalId)}
-							onchange={() => toggle(leaf.logicalId)}
-						/>
-						<span>{leaf.description}</span>
-						{#if !isUnestimated(leaf)}
-							<span class="ml-auto text-xs text-gray-400">{$_('session.setup.estimated')}</span>
-						{/if}
-					</label>
-				{/each}
+				<!-- Capped and scrollable: a real draft has dozens of leaves, and an
+				     uncapped list pushed the title field, the moderator checkbox and
+				     the start button below the fold — the form looked submit-less. -->
+				<div class="max-h-72 overflow-y-auto divide-y">
+					{#each leaves as leaf (leaf.logicalId)}
+						{@const isSelected = selected.has(leaf.logicalId)}
+						<label
+							class="flex items-start gap-2 px-3 py-2 text-sm cursor-pointer hover:bg-gray-50 {isSelected
+								? 'bg-brand-green/5'
+								: ''}"
+						>
+							<input
+								type="checkbox"
+								class="accent-brand-green mt-0.5"
+								checked={isSelected}
+								onchange={() => toggle(leaf.logicalId)}
+							/>
+							<span class="min-w-0">
+								<span class="block">{leaf.description}</span>
+								{#if leaf.path}
+									<span class="block text-xs text-gray-400">{leaf.path}</span>
+								{/if}
+							</span>
+							{#if !isUnestimated(leaf)}
+								<!-- Neutral grey, NOT brand-green: every brand-green chip in this
+								     app means "current/active"; this means "already done". -->
+								<span
+									class="ml-auto shrink-0 px-2 py-0.5 text-xs rounded-full bg-gray-100 text-gray-500"
+									>{$_('session.setup.estimated')}</span
+								>
+							{/if}
+						</label>
+					{/each}
+				</div>
 			</div>
 		</div>
 
@@ -280,14 +306,15 @@
 			<span>{$_('session.setup.moderatorEstimates')}</span>
 		</label>
 
-		<Button
-		
-			onclick={start}
-			disabled={!canStart}
-		
-		>
-			{$_('session.setup.start')}
-		</Button>
+		<div class="flex items-center gap-3">
+			<Button onclick={start} disabled={!canStart}>
+				{$_('session.setup.start')}
+			</Button>
+			<!-- Say WHY the button is dead rather than leaving the user to guess. -->
+			{#if selected.size === 0}
+				<span class="text-xs text-gray-500">{$_('session.setup.noneSelected')}</span>
+			{/if}
+		</div>
 	{:else if estimationId && !noDraft}
 		<p class="text-sm text-gray-500 mb-4">{$_('session.setup.noItems')}</p>
 	{/if}

@@ -345,6 +345,8 @@
       "selectAll": "Alle auswählen",
       "deselectAll": "Auswahl aufheben",
       "estimated": "bereits geschätzt",
+      "selectedCount": "{selected} von {total} ausgewählt",
+      "noneSelected": "Mindestens ein Eintrag muss ausgewählt sein.",
       "loadFailed": "Sitzungsdaten konnten nicht geladen werden"
     },
     "layout": {
