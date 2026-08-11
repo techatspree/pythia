@@ -861,10 +861,16 @@
       "notes": "Publish under a permissive Open Source licence and purge all corporate/confidential data from the application, the planning tasks and the git history"
     },
     "task-146": {
+      "status": "done",
+      "started_at": "2026-08-10T14:49:15+00:00",
+      "completed_at": "2026-08-10T15:13:40+00:00",
+      "notes": "Per-installation system settings: a display name (the operating corporation), a set of standard effort drivers seeded into new drafts, and an admin-uploadable CSS file that overrides the standard GUI styling"
+    },
+    "task-147": {
       "status": "pending",
       "started_at": null,
       "completed_at": null,
-      "notes": "Per-installation system settings: a display name (the operating corporation), a set of standard effort drivers seeded into new drafts, and an admin-uploadable CSS file that overrides the standard GUI styling"
+      "notes": "A session-room state change broadcast while the WebSocket is reconnecting is lost forever: the room only fetches state on mount, so after a reconnect the UI can stay stale until the next push (intermittent e2e failures in session.test.ts)"
     }
   }
 }

@@ -83,3 +83,15 @@ The dev module is **strict**: there is no default-user fallback, so a request wi
 ## Reproducible Jib backend image
 
 `src/backend/implementation/gradle.properties` configures Jib for byte-deterministic images. **Both** `quarkus.jib.use-current-timestamp` and `quarkus.jib.use-current-timestamp-file-modification` must be `false`. Setting only one yields non-reproducible builds.
+
+## System settings (per installation)
+
+Per-installation configuration (task-146) — the operating organisation's **display name**, its **standard effort drivers**, and an optional **custom stylesheet**. This is installation DATA, not business logic: none of it lives in the KMP domain, and it is deliberately kept away from `EstimationDefaults` (which holds universal calculation defaults).
+
+`system_settings` (`V18`) is a **singleton**: `id SMALLINT PRIMARY KEY DEFAULT 1` with `CHECK (id = 1)`, so a second row is unrepresentable. The CHECK is mirrored on the `SystemSettings` entity via `@Table(check = [CheckConstraint(...)])` (`jakarta.persistence`, valid since Jakarta Persistence 3.2 — this project is on 3.2.0/Hibernate 7.3.2) per the V15 parity rule. `SystemSettings` deliberately does **not** extend `BaseEntity`: it has a fixed `Short` id rather than a generated uuid.
+
+**The seeded ROW needs the same parity treatment as a constraint, and that is the trap.** `V18` INSERTs the singleton row, but `%test`/`%dev` build the schema from Hibernate with Flyway OFF, so that INSERT never runs there and every read 500s. `SystemSettingsBootstrap` (`@Observes StartupEvent`, mirroring `AuthProviderGuard`/`MethodRegistryBootstrap`) creates the row when absent, in every profile. When a migration seeds data the tests depend on, mirror the DATA too — not just the constraints.
+
+`system_effort_drivers` is the organisation-wide driver template, ordered by a `UNIQUE` `position`. `EstimationVersionService.createDraft` copies it into a new draft **only on the `latestSubmitted == null` branch** — a draft cloned from a submitted version keeps exactly the drivers it inherited, because appending the template there would silently mutate a continuing estimate. Writes replace the whole list (the `DraftUpdateApplier` clear-and-rebuild convention), with `position` taken from the list index.
+
+`SystemSettingsResource` (`/api/system`): `GET /api/system` and `GET /api/system/css` are **`@PermitAll`** — the auth gate renders the brand lockup with the login dialog before any account exists, so role-gating them would leave the login screen unbranded; they expose only public branding. Every write is `@RolesAllowed("ADMIN")` and must stay that way: an uploaded stylesheet cannot run JavaScript but CAN overlay or spoof UI, which is acceptable only at the ADMIN trust level. Uploads are multipart (`@RestForm("file") FileUpload`, the Merlin pattern) and capped at **256 KB**; that is far inside the existing 32m nginx / 32M Quarkus body limits, so **no gateway change is needed** here. `GET /api/system/css` sends `Cache-Control: no-cache` because the browser pulls it in as an ordinary `<link>` stylesheet — without it an admin's change would not appear until a hard reload.

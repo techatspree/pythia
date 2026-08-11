@@ -42,11 +42,19 @@ description: |
 
   **One settings row, enforced in the schema.** `system_settings` is a
   singleton: `id SMALLINT NOT NULL PRIMARY KEY DEFAULT 1 CHECK (id = 1)`,
-  and `V18` INSERTs the single row so every read finds it and no code path
-  needs a lazy create. Per the V15 lesson (see `src/backend/CLAUDE.md`),
-  the CHECK must ALSO be declared on the `SystemSettings` entity — `%test`
-  and `%dev` build the schema from Hibernate with Flyway off, so a
-  constraint that lives only in the migration does not exist where you test.
+  and `V18` INSERTs the single row. Per the V15 lesson (see
+  `src/backend/CLAUDE.md`), the CHECK must ALSO be declared on the
+  `SystemSettings` entity — `%test` and `%dev` build the schema from
+  Hibernate with Flyway off, so a constraint that lives only in the
+  migration does not exist where you test.
+
+  **The same applies to the seeded ROW, which is the trap here.** Because
+  Flyway is off in `%test`/`%dev`, V18's `INSERT` never runs there either,
+  so the migration alone does NOT guarantee the row exists — every read
+  would 500. A `SystemSettingsBootstrap` `@Observes StartupEvent` bean
+  (mirroring `AuthProviderGuard` / `MethodRegistryBootstrap`) creates the
+  row when absent, in every profile. Mirroring a constraint onto the entity
+  is not enough when the migration also seeds data.
   `SystemSettings` therefore does NOT extend `BaseEntity` (that supplies a
   uuid id); it is a deliberate exception, and the entity carries a comment
   saying so.
@@ -133,7 +141,13 @@ steps:
     `customCssUpdatedAt: Instant?`, plus `createdAt`/`updatedAt`. Declare the
     singleton CHECK on the entity too — `@Table(check = [CheckConstraint(name
     = "ck_system_settings_singleton", constraint = "id = 1")])` — per the V15
-    migration/entity parity rule.
+    migration/entity parity rule. Both annotations are **`jakarta.persistence`**
+    (`jakarta.persistence.CheckConstraint`, available since Jakarta Persistence
+    3.2 — this project is on 3.2.0 / Hibernate 7.3.2, so it compiles); do NOT
+    reach for `org.hibernate.annotations.Check`. No other entity in this
+    codebase declares a check constraint yet — `EstimationBucket` is the
+    precedent for the *style* (`@Table(uniqueConstraints = …)`), not for this
+    exact annotation.
 
     `SystemEffortDriver.kt` — `@Entity @Table(name = "system_effort_drivers")`
     extending `BaseEntity`, with `position: Int`, `description: String`,
@@ -143,10 +157,17 @@ steps:
     Add `SystemSettingsRepository` and `SystemEffortDriverRepository` under
     `…/repository/` as Panache repositories, following the existing
     convention (finders as methods on the repository class):
-    `SystemSettingsRepository.get(): SystemSettings` (returns the id=1 row;
-    the migration guarantees it exists) and
+    `SystemSettingsRepository.get(): SystemSettings` (returns the id=1 row,
+    which `SystemSettingsBootstrap` guarantees exists in every profile — see
+    the description; `error(...)` if absent so a broken schema is loud) and
     `SystemEffortDriverRepository.findAllOrdered(): List<SystemEffortDriver>`
     (ordered by `position`).
+  - |
+    Add `…/service/SystemSettingsBootstrap.kt` — an `@ApplicationScoped` bean
+    with a `@Transactional fun onStart(@Observes event: StartupEvent)` that
+    persists a `SystemSettings()` when `findById(SINGLETON_ID)` is null. This
+    is what makes the singleton row exist under `%test`/`%dev`, where Flyway is
+    off and V18's seed INSERT never runs. Log at INFO when it creates the row.
   - |
     Add `…/service/SystemSettingsService.kt`, `@ApplicationScoped`, each
     mutator `@Transactional`:
@@ -179,6 +200,18 @@ steps:
       PUT    /api/system              ADMIN       → 204 (body SystemSettingsUpdateDto{displayName})
       GET    /api/system/css          @PermitAll  → 200 text/css | 404 when none
       PUT    /api/system/css          ADMIN       → 204 (multipart `file`) | 400 empty/oversize
+
+    `GET /api/system/css` MUST send `Cache-Control: no-cache` (the browser
+    fetches it as an ordinary `<link>` stylesheet, so without it an admin's
+    upload would not show up until a hard reload — and the e2e assertion on
+    the changed computed style would pass or fail depending on cache state).
+
+    The multipart upload follows the established pattern of the two Merlin
+    endpoints in `EstimationVersionResource.kt` (see lines ~122/137):
+    `@Consumes(MediaType.MULTIPART_FORM_DATA)` on the method plus
+    `@RestForm("file") file: FileUpload` (`org.jboss.resteasy.reactive.RestForm`
+    / `org.jboss.resteasy.reactive.multipart.FileUpload`). Read the uploaded
+    bytes as UTF-8 text.
       DELETE /api/system/css          ADMIN       → 204
       GET    /api/system/effort-drivers  VIEWER   → 200 List<EffortDriverDto>
       PUT    /api/system/effort-drivers  ADMIN    → 200 List<EffortDriverDto>
@@ -214,11 +247,16 @@ steps:
       and fall through to the i18n fallback WITHOUT blocking the app (a
       missing name must never gate rendering).
     - `src/frontend/src/lib/components/AppHeader.svelte` — render the
-      configured name when present, else `$_('brand.name')`. Do the same for
-      the dev-login dialog's product name.
+      configured name when present, else `$_('brand.name')`. This is the
+      product's ONLY visible product-name call site (`AppHeader.svelte:49`).
+    - `src/frontend/src/lib/components/DevLoginDialog.svelte` — it renders no
+      product-name TEXT, only the mark with `alt={$_('brand.logoAlt')}`
+      (line ~21). Apply the configured name to that alt text as well, with
+      `brand.logoAlt` as the fallback. Do not invent a visible title there.
   - |
     Add the admin UI at `src/frontend/src/routes/admin/system/+page.svelte`,
-    gated to ADMIN with the existing role-gate component: a display-name
+    gated to ADMIN with the existing `src/frontend/src/lib/auth/RequiredRole.svelte`
+    component: a display-name
     field, an effort-driver table (add / edit / remove / reorder, PUT the
     whole list), and a CSS section (file input → `uploadSystemCss`, plus a
     "remove" action and a display of the current filename/updated-at). Every
@@ -302,6 +340,9 @@ validation:
       grep -q "fun clearCss(" "$S"
       test "$(grep -c 'Log\.info' "$S")" -ge 4
       grep -q "Log\.warn" "$S"
+      B=src/backend/implementation/src/main/kotlin/io/github/theestimator/service/SystemSettingsBootstrap.kt
+      test -f "$B"
+      grep -q "StartupEvent" "$B"
   - |
     The resource exposes all seven endpoints with the intended access
     control — the two reads PermitAll (the login screen depends on it), every
@@ -312,6 +353,8 @@ validation:
       grep -q '"/effort-drivers"' "$R"
       grep -q "PermitAll" "$R"
       test "$(grep -c 'RolesAllowed("ADMIN")' "$R")" -ge 4
+      grep -q "no-cache" "$R"
+      grep -q "Log\.info" "$R"
   - |
     A fresh draft is seeded from the template, and the clone path is NOT
     touched:
@@ -347,8 +390,11 @@ validation:
       grep -q '/api/system/css' "$L"
       ! grep -q 'innerHTML' "$L"
   - |
-    The configured name falls back to the i18n key rather than replacing it:
-      grep -q "brand.name" src/frontend/src/lib/components/AppHeader.svelte
+    The configured name falls back to the i18n key rather than replacing it.
+    Assert the FALLBACK still exists in both catalogs and that the header
+    consults the system store — not that a particular literal stayed in
+    AppHeader, which moves legitimately if the fallback lands in the store:
+      grep -qE "systemStore|system\.svelte|brand\.name" src/frontend/src/lib/components/AppHeader.svelte
       python3 -c "
       import json,sys
       for l in ('de','en'):
@@ -388,7 +434,13 @@ validation:
   - |
     The domain module is untouched by this task (installation config is not
     business logic):
-      git diff --quiet HEAD -- src/domain || { echo "src/domain must not change"; exit 1; }
+      git diff --quiet HEAD -- src/domain || {
+        echo "src/domain changed. Installation config is not business logic —"
+        echo "this task must not touch the KMP domain. (If you have unrelated"
+        echo "uncommitted domain work, stash it before running this check.)"
+        git diff --stat HEAD -- src/domain
+        exit 1
+      }
   - |
     ./gradlew :backend:implementation:test
   - |
@@ -404,16 +456,18 @@ outputs:
   - created: src/backend/implementation/src/main/kotlin/io/github/theestimator/repository/SystemSettingsRepository.kt
   - created: src/backend/implementation/src/main/kotlin/io/github/theestimator/repository/SystemEffortDriverRepository.kt
   - created: src/backend/implementation/src/main/kotlin/io/github/theestimator/service/SystemSettingsService.kt
+  - created: src/backend/implementation/src/main/kotlin/io/github/theestimator/service/SystemSettingsBootstrap.kt
   - created: src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/SystemSettingsResource.kt
   - created: src/backend/implementation/src/test/kotlin/io/github/theestimator/rest/SystemSettingsResourceIT.kt
   - created: src/frontend/src/lib/api/system.ts
   - created: src/frontend/src/lib/stores/system.svelte.ts
   - created: src/frontend/src/routes/admin/system/+page.svelte
   - created: src/frontend/e2e/system-settings.test.ts
-  - modified: src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/dto/SystemSettingsDtos.kt
+  - created: src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/dto/SystemSettingsDtos.kt
   - modified: src/backend/implementation/src/main/kotlin/io/github/theestimator/service/EstimationVersionService.kt
   - modified: src/frontend/src/routes/+layout.svelte
   - modified: src/frontend/src/lib/components/AppHeader.svelte
+  - modified: src/frontend/src/lib/components/DevLoginDialog.svelte
   - modified: src/frontend/src/lib/components/UserMenu.svelte
   - modified: src/frontend/src/lib/i18n/de.json
   - modified: src/frontend/src/lib/i18n/en.json

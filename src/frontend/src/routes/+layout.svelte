@@ -11,6 +11,7 @@
 	import type { AuthAccount } from '$lib/auth/AuthProvider';
 	import { setUserLanguage } from '$lib/i18n';
 	import { SupportedLanguage } from '$lib/domain/domain.mjs';
+	import { system } from '$lib/stores/system.svelte';
 	import { log } from '$lib/log';
 
 	let { children } = $props();
@@ -35,6 +36,11 @@
 	}
 
 	onMount(async () => {
+		// The installation's name (task-146). Unauthenticated and deliberately
+		// NOT awaited into the auth path: it must not gate rendering, and the
+		// login screen needs it before an account exists. Its own catch logs and
+		// leaves the built-in name in place.
+		void system.load();
 		try {
 			// Entra/MSAL must be initialized before reading the account (init()
 			// also processes the post-login redirect); the dev module's init() is
@@ -59,6 +65,15 @@
 	<link rel="shortcut icon" href="/favicon.ico" />
 	<link rel="apple-touch-icon" href="/apple-touch-icon.png" />
 	<link rel="manifest" href="/site.webmanifest" />
+	<!-- The installation's optional stylesheet (task-146), LAST so it overrides
+	     app.css. Delivered as a <link> rather than injected <style> text: a
+	     `</style>` sequence in an uploaded file would close the element early.
+	     Rendered ONLY when one is configured — an unconditional link would 404
+	     on every page of a default install, and a 404 subresource logs a console
+	     error that `e2e/smoke.test.ts` (rightly) fails on. -->
+	{#if system.settings?.hasCustomCss}
+		<link rel="stylesheet" href="/api/system/css" />
+	{/if}
 </svelte:head>
 
 <AppHeader {account} onlogout={refresh} />

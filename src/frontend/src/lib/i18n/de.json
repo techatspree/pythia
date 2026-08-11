@@ -321,7 +321,8 @@
   "nav": {
     "mainLabel": "Hauptnavigation",
     "projects": "Projekte",
-    "sessions": "Sitzungen"
+    "sessions": "Sitzungen",
+    "system": "System"
   },
   "session": {
     "setup": {
@@ -431,6 +432,37 @@
       "badge": "{count, plural, one {# Konflikt} other {# Konflikte}}",
       "tooltip": "Estimatoren haben unterschiedliche Buckets gewählt",
       "explain": "Übernommen wurde Bucket {bucket} (letzte Schreiboperation gewinnt). Diese Zuordnungen wurden überstimmt:"
+    }
+  },
+  "admin": {
+    "system": {
+      "title": "Systemeinstellungen",
+      "nameSection": "Name der Organisation",
+      "nameLabel": "Anzeigename",
+      "nameHint": "Erscheint in der Kopfzeile. Leer lassen, um den Standardnamen zu verwenden.",
+      "nameSave": "Namen speichern",
+      "nameSaved": "Name gespeichert.",
+      "driversSection": "Standard-Aufwandstreiber",
+      "driversHint": "Diese Treiber werden in jede neue Schätzung übernommen, die nicht aus einer abgegebenen Version entsteht.",
+      "driverDescription": "Beschreibung",
+      "driverFactor": "Faktor",
+      "driverComment": "Kommentar",
+      "driverAdd": "Treiber hinzufügen",
+      "driverRemove": "Entfernen",
+      "driverUp": "Nach oben",
+      "driverDown": "Nach unten",
+      "driversSave": "Treiber speichern",
+      "driversSaved": "Treiber gespeichert.",
+      "driversEmpty": "Keine Standard-Treiber definiert.",
+      "cssSection": "Eigenes Stylesheet",
+      "cssHint": "Eine CSS-Datei (max. 256 KB), die das Standard-Design überschreibt.",
+      "cssUpload": "CSS-Datei hochladen",
+      "cssCurrent": "Aktuell: {filename} (geändert {updated})",
+      "cssNone": "Kein eigenes Stylesheet hinterlegt.",
+      "cssRemove": "Stylesheet entfernen",
+      "cssRemoved": "Stylesheet entfernt.",
+      "cssUploaded": "Stylesheet gespeichert. Die Seite wird neu geladen.",
+      "loading": "Einstellungen werden geladen…"
     }
   }
 }

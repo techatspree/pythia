@@ -41,7 +41,9 @@ import java.util.UUID
 // The snapshot/clone tree builders are split into focused private helpers to
 // keep each method's complexity low; that deliberately raises the class's
 // function count past the TooManyFunctions threshold for one cohesive service.
-@Suppress("TooManyFunctions")
+// LongParameterList is likewise deliberate: these are DI-injected collaborators
+// on a single cohesive service, not a call-site argument list.
+@Suppress("TooManyFunctions", "LongParameterList")
 @ApplicationScoped
 class EstimationVersionService(
     private val draftRepository: DraftEstimationVersionRepository,
@@ -49,7 +51,8 @@ class EstimationVersionService(
     private val estimationRepository: EstimationRepository,
     private val draftVersionMapper: DraftVersionMapper,
     private val auditLogService: AuditLogService,
-    private val merlinImporter: MerlinImporter
+    private val merlinImporter: MerlinImporter,
+    private val systemSettingsService: SystemSettingsService
 ) {
 
     fun findDraft(estimationId: UUID): DraftEstimationVersion? =
@@ -94,6 +97,12 @@ class EstimationVersionService(
 
         if (latestSubmitted != null) {
             cloneFromSubmitted(latestSubmitted, draft)
+        } else {
+            // No submitted version to inherit from: seed the installation's
+            // standard effort drivers so a first estimate does not start empty.
+            // Deliberately NOT done on the clone path — appending the template
+            // there would silently mutate a continuing estimate.
+            seedStandardDrivers(draft)
         }
 
         draftRepository.persist(draft)
@@ -320,6 +329,21 @@ class EstimationVersionService(
                 throw WebApplicationException("No draft found for estimation $estimationId", Response.Status.NOT_FOUND)
             }
         draftRepository.delete(draft)
+    }
+
+    private fun seedStandardDrivers(draft: DraftEstimationVersion) {
+        val standard = systemSettingsService.standardDrivers()
+        standard.forEach { template ->
+            draft.effortDrivers.add(DraftEffortDriver().apply {
+                this.version = draft
+                this.description = template.description
+                this.factor = template.factor
+                this.comment = template.comment
+            })
+        }
+        if (standard.isNotEmpty()) {
+            Log.debug("Seeded ${standard.size} standard effort driver(s) into the new draft")
+        }
     }
 
     private fun cloneFromSubmitted(source: SubmittedEstimationVersion, target: DraftEstimationVersion) {

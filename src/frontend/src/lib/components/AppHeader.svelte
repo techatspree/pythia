@@ -4,6 +4,7 @@
 	import { page } from '$app/state';
 	import logo from '$lib/assets/logo.svg';
 	import UserMenu from '$lib/components/UserMenu.svelte';
+	import { system } from '$lib/stores/system.svelte';
 	import type { AuthAccount } from '$lib/auth/AuthProvider';
 
 	// The ONE app header (task-141). Every route renders it through the root
@@ -18,10 +19,15 @@
 		onlogout: () => void;
 	} = $props();
 
-	const items = [
+	// `$derived` because the System destination depends on the account's roles:
+	// it is ADMIN-only, and `account` arrives asynchronously.
+	const items = $derived([
 		{ key: 'nav.projects', href: resolve('/projects'), testid: 'nav-projects' },
-		{ key: 'nav.sessions', href: resolve('/sessions'), testid: 'nav-sessions' }
-	];
+		{ key: 'nav.sessions', href: resolve('/sessions'), testid: 'nav-sessions' },
+		...(account?.roles.includes('ADMIN')
+			? [{ key: 'nav.system', href: resolve('/admin/system'), testid: 'nav-system' }]
+			: [])
+	]);
 
 	// A destination stays marked while the user is anywhere below it, so
 	// `/projects/{id}` keeps "Projects" active and a room keeps "Sessions".
@@ -46,7 +52,11 @@
 				class="w-9 h-9"
 				data-testid="brand-logo"
 			/>
-			<span class="font-heading text-lg tracking-tight text-gray-900">{$_('brand.name')}</span>
+			<!-- The installation's configured name (task-146), falling back to the
+			     built-in brand.name when none is set. -->
+			<span class="font-heading text-lg tracking-tight text-gray-900" data-testid="brand-name"
+				>{system.displayName ?? $_('brand.name')}</span
+			>
 		</a>
 		{#if account}
 			<!-- A flat row of links, deliberately not a <ul>/<li> list: the nav is

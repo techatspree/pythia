@@ -321,7 +321,8 @@
   "nav": {
     "mainLabel": "Main navigation",
     "projects": "Projects",
-    "sessions": "Sessions"
+    "sessions": "Sessions",
+    "system": "System"
   },
   "session": {
     "setup": {
@@ -431,6 +432,37 @@
       "badge": "{count, plural, one {# conflict} other {# conflicts}}",
       "tooltip": "Estimators picked different buckets",
       "explain": "Bucket {bucket} was adopted (last write wins). These assignments were overruled:"
+    }
+  },
+  "admin": {
+    "system": {
+      "title": "System settings",
+      "nameSection": "Organisation name",
+      "nameLabel": "Display name",
+      "nameHint": "Shown in the header. Leave empty to use the built-in name.",
+      "nameSave": "Save name",
+      "nameSaved": "Name saved.",
+      "driversSection": "Standard effort drivers",
+      "driversHint": "These drivers are copied into every new estimate that does not continue from a submitted version.",
+      "driverDescription": "Description",
+      "driverFactor": "Factor",
+      "driverComment": "Comment",
+      "driverAdd": "Add driver",
+      "driverRemove": "Remove",
+      "driverUp": "Move up",
+      "driverDown": "Move down",
+      "driversSave": "Save drivers",
+      "driversSaved": "Drivers saved.",
+      "driversEmpty": "No standard drivers defined.",
+      "cssSection": "Custom stylesheet",
+      "cssHint": "A CSS file (max. 256 KB) that overrides the standard styling.",
+      "cssUpload": "Upload CSS file",
+      "cssCurrent": "Current: {filename} (updated {updated})",
+      "cssNone": "No custom stylesheet configured.",
+      "cssRemove": "Remove stylesheet",
+      "cssRemoved": "Stylesheet removed.",
+      "cssUploaded": "Stylesheet saved. Reloading the page.",
+      "loading": "Loading settings…"
     }
   }
 }

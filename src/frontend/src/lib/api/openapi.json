@@ -1232,6 +1232,32 @@
         "type" : "string",
         "enum" : [ "CREATED", "RUNNING", "SUSPENDED", "FINALIZED", "ENDED_EARLY", "CANCELLED" ]
       },
+      "SystemSettingsDto" : {
+        "type" : "object",
+        "required" : [ "displayName", "hasCustomCss", "customCssFilename", "customCssUpdatedAt" ],
+        "properties" : {
+          "displayName" : {
+            "type" : [ "string", "null" ]
+          },
+          "hasCustomCss" : {
+            "type" : "boolean"
+          },
+          "customCssFilename" : {
+            "type" : [ "string", "null" ]
+          },
+          "customCssUpdatedAt" : {
+            "type" : [ "string", "null" ]
+          }
+        }
+      },
+      "SystemSettingsUpdateDto" : {
+        "type" : "object",
+        "properties" : {
+          "displayName" : {
+            "type" : [ "string", "null" ]
+          }
+        }
+      },
       "TripleDto" : {
         "type" : "object",
         "required" : [ "minEffort", "expectedEffort", "maxEffort" ],
@@ -1368,6 +1394,9 @@
   }, {
     "name" : "Projects",
     "description" : "Projects and their estimations"
+  }, {
+    "name" : "System",
+    "description" : "Per-installation settings: name, standard effort drivers, custom CSS"
   } ],
   "paths" : {
     "/api/admin/ping" : {
@@ -3077,6 +3106,202 @@
         },
         "security" : [ {
           "SecurityScheme" : [ "ESTIMATOR" ]
+        } ]
+      }
+    },
+    "/api/system" : {
+      "put" : {
+        "summary" : "Admin: set the installation's display name",
+        "tags" : [ "System" ],
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/SystemSettingsUpdateDto"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "204" : {
+            "description" : "Stored"
+          },
+          "403" : {
+            "description" : "Not an administrator"
+          },
+          "401" : {
+            "description" : "Not Authorized"
+          },
+          "400" : {
+            "description" : "Bad Request"
+          }
+        },
+        "security" : [ {
+          "SecurityScheme" : [ "ADMIN" ]
+        } ]
+      },
+      "get" : {
+        "summary" : "Read the installation's settings (unauthenticated: the login screen needs them)",
+        "tags" : [ "System" ],
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/SystemSettingsDto"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/system/css" : {
+      "put" : {
+        "summary" : "Admin: upload a stylesheet that overrides the standard GUI styling",
+        "tags" : [ "System" ],
+        "requestBody" : {
+          "content" : {
+            "multipart/form-data" : {
+              "schema" : {
+                "type" : "object",
+                "required" : [ "file" ],
+                "properties" : {
+                  "file" : {
+                    "type" : "string",
+                    "format" : "binary"
+                  }
+                }
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "204" : {
+            "description" : "Stored"
+          },
+          "400" : {
+            "description" : "The upload is empty or larger than 256 KB"
+          },
+          "403" : {
+            "description" : "Not an administrator"
+          },
+          "401" : {
+            "description" : "Not Authorized"
+          }
+        },
+        "security" : [ {
+          "SecurityScheme" : [ "ADMIN" ]
+        } ]
+      },
+      "delete" : {
+        "summary" : "Admin: remove the custom stylesheet",
+        "tags" : [ "System" ],
+        "responses" : {
+          "204" : {
+            "description" : "Removed"
+          },
+          "403" : {
+            "description" : "Not an administrator"
+          },
+          "401" : {
+            "description" : "Not Authorized"
+          }
+        },
+        "security" : [ {
+          "SecurityScheme" : [ "ADMIN" ]
+        } ]
+      },
+      "get" : {
+        "summary" : "The installation's custom stylesheet, if any",
+        "tags" : [ "System" ],
+        "responses" : {
+          "200" : {
+            "description" : "The stylesheet",
+            "content" : {
+              "text/css" : { }
+            }
+          },
+          "404" : {
+            "description" : "No custom stylesheet is configured"
+          }
+        }
+      }
+    },
+    "/api/system/effort-drivers" : {
+      "put" : {
+        "summary" : "Admin: replace the standard effort drivers wholesale",
+        "tags" : [ "System" ],
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "type" : "array",
+                "items" : {
+                  "$ref" : "#/components/schemas/EffortDriverDto"
+                }
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "type" : "array",
+                  "items" : {
+                    "$ref" : "#/components/schemas/EffortDriverDto"
+                  }
+                }
+              }
+            }
+          },
+          "403" : {
+            "description" : "Not an administrator"
+          },
+          "401" : {
+            "description" : "Not Authorized"
+          },
+          "400" : {
+            "description" : "Bad Request"
+          }
+        },
+        "security" : [ {
+          "SecurityScheme" : [ "ADMIN" ]
+        } ]
+      },
+      "get" : {
+        "summary" : "The installation's standard effort drivers",
+        "tags" : [ "System" ],
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "type" : "array",
+                  "items" : {
+                    "$ref" : "#/components/schemas/EffortDriverDto"
+                  }
+                }
+              }
+            }
+          },
+          "401" : {
+            "description" : "Not Authorized"
+          },
+          "403" : {
+            "description" : "Not Allowed"
+          }
+        },
+        "security" : [ {
+          "SecurityScheme" : [ "VIEWER" ]
         } ]
       }
     }
