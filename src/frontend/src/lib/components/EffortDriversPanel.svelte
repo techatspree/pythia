@@ -120,7 +120,7 @@
 			</table>
 			{#if editable}
 				<div class="p-3 border-t bg-gray-50/40">
-					<button onclick={addRow} class="text-sm text-brand-green hover:text-[#007a45]">
+					<button onclick={addRow} class="text-sm text-brand-green hover:text-brand-green-hover">
 						{$_('panel.effortDrivers.addRow')}
 					</button>
 				</div>

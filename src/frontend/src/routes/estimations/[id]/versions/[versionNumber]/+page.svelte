@@ -1,4 +1,5 @@
 <script lang="ts">
+	import Button from '$lib/ui/Button.svelte';
 	import { page } from '$app/state';
 	import { goto } from '$app/navigation';
 	import { resolve } from '$app/paths';
@@ -375,12 +376,12 @@
 					>
 						{$_('editor.history')}
 					</button>
-					<button
+					<Button
 						onclick={submitVersion}
-						class="px-4 py-2 text-sm bg-brand-green text-white rounded hover:bg-[#007a45]"
+					
 					>
 						{$_('editor.submit')}
-					</button>
+					</Button>
 				{/if}
 				<details class="relative" bind:open={exportMenuOpen}>
 					<summary class="px-4 py-2 text-sm border rounded cursor-pointer select-none">{$_('editor.export')}</summary>

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import Button from '$lib/ui/Button.svelte';
 	import { _, locale } from 'svelte-i18n';
 	import { formatFixed, DEFAULT_LOCALE } from '$lib/format';
 	import { log } from '$lib/log';
@@ -215,24 +216,24 @@
 				</label>
 			</div>
 			<div class="flex items-center gap-3">
-				<button
-					type="button"
+				<Button variant="secondary"
+				
 					onclick={submitRevision}
 					disabled={busy}
 					data-testid="revise-submit"
-					class="px-4 py-2 text-sm border rounded hover:bg-gray-50 disabled:opacity-50"
+				
 				>
 					{$_('session.phaseTwo.reviseSubmit')}
-				</button>
+				</Button>
 				{#if !store.isModerator}
-					<button
-						type="button"
+					<Button
+					
 						onclick={toggleAgree}
 						disabled={busy || store.myParticipant?.agreed}
-						class="px-4 py-2 text-sm bg-brand-green text-white rounded hover:bg-[#007a45] disabled:opacity-50"
+					
 					>
 						{$_('session.phaseTwo.agree')}
-					</button>
+					</Button>
 					{#if store.myParticipant?.agreed}
 						<span class="text-sm text-green-600">✓ {$_('session.phaseTwo.agreed')}</span>
 					{/if}
@@ -250,14 +251,14 @@
 							values: { count: agreedCount, total: estimators.length }
 						})}
 			</span>
-			<button
-				type="button"
+			<Button class="ml-auto"
+			
 				onclick={finalizeItem}
 				disabled={busy}
-				class="ml-auto px-4 py-2 text-sm bg-brand-green text-white rounded hover:bg-[#007a45] disabled:opacity-50"
+			
 			>
 				{$_('session.phaseTwo.finalize')}
-			</button>
+			</Button>
 		</div>
 	{/if}
 </div>

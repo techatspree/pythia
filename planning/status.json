@@ -879,9 +879,9 @@
       "notes": "Session room and setup pages diverge visually from the rest of the app; align them with the shared GUI style"
     },
     "task-149": {
-      "status": "pending",
-      "started_at": null,
-      "completed_at": null,
+      "status": "done",
+      "started_at": "2026-08-11T09:16:12+00:00",
+      "completed_at": "2026-08-11T09:41:23+00:00",
       "notes": "No component layer: recurring UI concepts are retyped inline (primary button 24x, brand hover hex 42x); add design tokens + $lib/ui primitives + a lint gate"
     }
   }

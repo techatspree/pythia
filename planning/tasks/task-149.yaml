@@ -1,7 +1,7 @@
 id: task-149
 phase: phase-17
 title: Design tokens + $lib/ui primitives + token lint gate
-depends_on: [task-146, task-148]
+depends_on: [task-148]
 description: |
   The frontend has a **token layer but no component layer**, and that is the
   root cause task-148 treated the symptom of.
@@ -189,15 +189,40 @@ steps:
     arbitrary colour values matching `-\[#[0-9a-fA-F]{3,8}\]` and exits non-zero
     with the offending file:line list.
 
-    Wire it as a Gradle task in `src/frontend/build.gradle.kts` (e.g.
-    `checkDesignTokens`, following the existing `npmCheck` / `npmLintReport`
-    task style), make `:frontend:check` depend on it, and add it to the
-    `staticAnalysis` aggregator's `dependsOn` list in the root
-    `build.gradle.kts` alongside `:frontend:npmCheck`.
+    **Resolve the scan root relative to the SCRIPT, never to the working
+    directory:**
 
-    Unlike detekt/ESLint (whose findings are informational), this gate must
-    FAIL the build — that is the whole point, and it is enforceable now only
-    because step 1 brought the count to zero.
+      const root = join(dirname(fileURLToPath(import.meta.url)), '..');
+
+    exactly as `src/frontend/scripts/generate-icons.mjs:10` already does. The
+    script is invoked from two different working directories — Gradle runs it
+    with the `:frontend` project dir as cwd, the validation step runs it from
+    the repo root — and a cwd-relative glob would match nothing in one of them.
+    A gate that silently scans zero files still exits 0 and looks healthy,
+    which is the worst possible failure for this task.
+
+    Wire it in `src/frontend/build.gradle.kts` as a `NodeTask` — the type is
+    already imported there and `sarifHtmlReport` is the working precedent:
+
+      val checkDesignTokens = tasks.register<NodeTask>("checkDesignTokens") {
+          dependsOn(tasks.npmInstall)
+          script.set(file("scripts/check-design-tokens.mjs"))
+      }
+
+    (Use `file(...)`, not `rootProject.file(...)` — this script lives under the
+    frontend project, unlike the root-level `scripts/sarif-to-html.mjs`.) Then
+    make the existing `tasks.named("check")` block depend on it, and add
+    `":frontend:checkDesignTokens"` to the `staticAnalysis` aggregator's
+    `dependsOn` list in the root `build.gradle.kts`.
+
+    **This deliberately deviates from a documented project convention.**
+    `src/frontend/build.gradle.kts` states that static analysis is
+    informational — "`lint:report` always exits 0, so the build stays green
+    regardless of findings". This one gate is different: it must FAIL the
+    build, because a token rule that only warns is a rule that decays. That is
+    enforceable only because step 1 brings the count to zero first. Record the
+    deviation in a comment next to the task so the next reader sees it is
+    intentional rather than an inconsistency.
 
   - |
     Update the documentation:
@@ -232,7 +257,7 @@ validation:
   - |
     ! grep -rqE '(bg|text|border|from|to|via)-\[#[0-9a-fA-F]{3,8}\]' src/frontend/src
   - |
-    [ "$(grep -rc '#007a45' src/frontend/src/lib/assets/logo.svg | tr -d ' ')" = "4" ]
+    [ "$(grep -c '#007a45' src/frontend/src/lib/assets/logo.svg | tr -d ' ')" = "4" ]
   - |
     test -f src/frontend/src/lib/ui/Button.svelte && test -f src/frontend/src/lib/ui/Card.svelte
   - |

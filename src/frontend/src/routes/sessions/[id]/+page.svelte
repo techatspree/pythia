@@ -1,4 +1,6 @@
 <script lang="ts">
+	import Card from '$lib/ui/Card.svelte';
+	import Button from '$lib/ui/Button.svelte';
 	import { onMount, onDestroy } from 'svelte';
 	import { page } from '$app/state';
 	import { resolve } from '$app/paths';
@@ -145,13 +147,7 @@
 			{store.isModerator ? $_('session.room.roleModerator') : $_('session.room.roleEstimator')}
 		</p>
 
-		<div class="border rounded-lg overflow-hidden mb-4">
-			<h2
-				class="px-4 py-2 bg-brand-green/10 text-brand-green text-xs font-semibold uppercase tracking-wide"
-			>
-				{$_('session.room.participants')}
-			</h2>
-			<div class="p-4">
+		<Card title={$_('session.room.participants')} class="mb-4">
 				<ul class="flex flex-wrap gap-2">
 					{#each s.participants as p (p.subjectId)}
 						<li
@@ -167,8 +163,7 @@
 						</li>
 					{/each}
 				</ul>
-			</div>
-		</div>
+		</Card>
 
 		{#if s.status === 'CANCELLED'}
 			<div class="border rounded-lg p-4 text-gray-600">
@@ -186,22 +181,22 @@
 				<p class="text-sm text-gray-600 mb-3">{$_('session.room.suspended')}</p>
 				{#if store.isModerator}
 					<div class="flex items-center gap-3">
-						<button
-							type="button"
+						<Button
+						
 							data-testid="session-resume"
 							onclick={continueSession}
-							class="px-4 py-2 text-sm bg-brand-green text-white rounded hover:bg-[#007a45]"
+						
 						>
 							{$_('session.room.resume')}
-						</button>
-						<button
-							type="button"
+						</Button>
+						<Button variant="ghost"
+						
 							data-testid="session-end-early"
 							onclick={endEarly}
-							class="px-4 py-2 text-sm text-gray-500 hover:text-gray-700"
+						
 						>
 							{$_('session.room.endEarly')}
-						</button>
+						</Button>
 					</div>
 				{/if}
 			</div>
@@ -210,20 +205,20 @@
 				{#if store.isModerator}
 					<p class="text-sm text-gray-600 mb-3">{$_('session.room.startHint')}</p>
 					<div class="flex items-center gap-3">
-						<button
-							type="button"
+						<Button
+						
 							onclick={startSession}
-							class="px-4 py-2 text-sm bg-brand-green text-white rounded hover:bg-[#007a45]"
+						
 						>
 							{$_('session.room.start')}
-						</button>
-						<button
-							type="button"
+						</Button>
+						<Button variant="ghost"
+						
 							onclick={cancelSession}
-							class="px-4 py-2 text-sm text-gray-500 hover:text-gray-700"
+						
 						>
 							{$_('session.room.cancel')}
-						</button>
+						</Button>
 					</div>
 				{:else}
 					<p class="text-gray-500">{$_('session.room.waitingToStart')}</p>
@@ -261,22 +256,22 @@
 			</div>
 			{#if store.isModerator}
 				<div class="flex items-center gap-3 mt-3">
-					<button
-						type="button"
+					<Button variant="ghost"
+					
 						data-testid="session-suspend"
 						onclick={pauseSession}
-						class="px-4 py-2 text-sm text-gray-500 hover:text-gray-700"
+					
 					>
 						{$_('session.room.suspend')}
-					</button>
-					<button
-						type="button"
+					</Button>
+					<Button variant="ghost"
+					
 						data-testid="session-end-early"
 						onclick={endEarly}
-						class="px-4 py-2 text-sm text-gray-500 hover:text-gray-700"
+					
 					>
 						{$_('session.room.endEarly')}
-					</button>
+					</Button>
 				</div>
 			{/if}
 		{/if}

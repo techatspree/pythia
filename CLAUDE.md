@@ -73,6 +73,7 @@ Detail and rationale: `src/frontend/CLAUDE.md`. The bans themselves:
 - **Never inline UI strings** — they belong in the `svelte-i18n` catalogs, both `de.json` and `en.json`, key-for-key.
 - **Never call `.toFixed()`/`toLocale*()` or hardcode a locale** — all number/currency/date formatting goes through `$lib/format.ts`.
 - **Editor components use `$bindable` two-way binding**, never the "snapshot prop into local `$state` + onchange" pattern.
+- **Buttons and cards come from `$lib/ui/`** — never retype their utility strings. Arbitrary colour values (`bg-[#abc]`) are banned: add a token to `@theme` in `app.css`. `:frontend:check` fails on both.
 
 ### Kotlin/JS gotcha — super-property recursion
 

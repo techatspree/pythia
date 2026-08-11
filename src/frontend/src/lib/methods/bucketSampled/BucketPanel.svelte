@@ -74,7 +74,7 @@
 			<button
 				type="button"
 				onclick={addBucket}
-				class="text-xs text-brand-green hover:text-[#007a45]"
+				class="text-xs text-brand-green hover:text-brand-green-hover"
 				title={$_('bucket.addTitle')}>{$_('bucket.add')}</button
 			>
 		{/if}

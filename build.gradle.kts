@@ -54,6 +54,8 @@ tasks.register("staticAnalysis") {
         ":backend:implementation:detekt",
         ":frontend:npmCheck",
         ":frontend:npmLintReport",
+        // Unlike the two above, this one FAILS on findings (task-149).
+        ":frontend:checkDesignTokens",
         // Consolidated HTML + merged SARIF over all of the above.
         ":frontend:sarifHtmlReport"
     )

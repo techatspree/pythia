@@ -1,4 +1,6 @@
 <script lang="ts">
+	import Card from '$lib/ui/Card.svelte';
+	import Button from '$lib/ui/Button.svelte';
 	import { onMount } from 'svelte';
 	import { SvelteSet } from 'svelte/reactivity';
 	import { goto } from '$app/navigation';
@@ -179,13 +181,7 @@
 
 	<ErrorBanner message={bannerMessage} ondismiss={() => (bannerMessage = null)} />
 
-	<div class="border rounded-lg overflow-hidden mb-4 max-w-3xl">
-		<div
-			class="px-4 py-2 bg-brand-green/10 text-brand-green text-xs font-semibold uppercase tracking-wide"
-		>
-			{$_('session.setup.openSessions')}
-		</div>
-		<div class="p-4">
+	<Card title={$_('session.setup.openSessions')} class="mb-4 max-w-3xl">
 			{#if openSessions.length > 0}
 				<ul class="space-y-2">
 					{#each openSessions as sess (sess.id)}
@@ -202,8 +198,7 @@
 			{:else}
 				<p class="text-sm text-gray-500">{$_('session.setup.noOpenSessions')}</p>
 			{/if}
-		</div>
-	</div>
+	</Card>
 
 	<!-- The setup form is a single narrow column by nature: the page stays
 	     full width like every other route, the form constrains itself. -->
@@ -285,27 +280,21 @@
 			<span>{$_('session.setup.moderatorEstimates')}</span>
 		</label>
 
-		<button
-			type="button"
+		<Button
+		
 			onclick={start}
 			disabled={!canStart}
-			class="px-4 py-2 text-sm bg-brand-green text-white rounded hover:bg-[#007a45] disabled:opacity-50"
+		
 		>
 			{$_('session.setup.start')}
-		</button>
+		</Button>
 	{:else if estimationId && !noDraft}
 		<p class="text-sm text-gray-500 mb-4">{$_('session.setup.noItems')}</p>
 	{/if}
 	</div>
 
 	{#if existing.length > 0}
-		<div class="border rounded-lg overflow-hidden mt-8 max-w-3xl">
-			<div
-				class="px-4 py-2 bg-brand-green/10 text-brand-green text-xs font-semibold uppercase tracking-wide"
-			>
-				{$_('session.setup.existing')}
-			</div>
-			<div class="p-4">
+		<Card title={$_('session.setup.existing')} class="mt-8 max-w-3xl">
 				<ul class="space-y-2">
 					{#each existing as sess (sess.id)}
 						<li class="flex items-center gap-3 border rounded px-3 py-2 text-sm">
@@ -318,7 +307,6 @@
 						</li>
 					{/each}
 				</ul>
-			</div>
-		</div>
+		</Card>
 	{/if}
 </div>

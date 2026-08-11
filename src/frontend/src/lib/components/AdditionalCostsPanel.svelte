@@ -1,4 +1,5 @@
 <script lang="ts">
+	import Button from '$lib/ui/Button.svelte';
 	import { _, locale } from 'svelte-i18n';
 	import { formatFixed, DEFAULT_LOCALE } from '$lib/format';
 	import type { ApiAdditionalCost, ApiPhase } from '$lib/api/types.js';
@@ -88,12 +89,12 @@
 				{#if editable}
 					<div class="p-4 text-center">
 						<p class="text-sm text-gray-400 mb-3">{$_('panel.additionalCosts.oneTimeEmpty')}</p>
-						<button
+						<Button
 							onclick={addOneTime}
-							class="px-3 py-1.5 text-sm bg-brand-green text-white rounded hover:bg-[#007a45]"
+							size="sm"
 						>
 							{$_('panel.additionalCosts.oneTimeAdd')}
-						</button>
+						</Button>
 					</div>
 				{:else}
 					<p class="p-4 text-sm text-gray-400 text-center">{$_('panel.additionalCosts.oneTimeEmpty')}</p>
@@ -171,7 +172,7 @@
 				</table>
 				{#if editable}
 					<div class="p-3 border-t bg-gray-50/40">
-						<button onclick={addOneTime} class="text-sm text-brand-green hover:text-[#007a45]">
+						<button onclick={addOneTime} class="text-sm text-brand-green hover:text-brand-green-hover">
 							{$_('panel.additionalCosts.oneTimeAddRow')}
 						</button>
 					</div>
@@ -187,12 +188,12 @@
 				{#if editable}
 					<div class="p-4 text-center">
 						<p class="text-sm text-gray-400 mb-3">{$_('panel.additionalCosts.recurringEmpty')}</p>
-						<button
+						<Button
 							onclick={addRecurring}
-							class="px-3 py-1.5 text-sm bg-brand-green text-white rounded hover:bg-[#007a45]"
+							size="sm"
 						>
 							{$_('panel.additionalCosts.recurringAdd')}
-						</button>
+						</Button>
 					</div>
 				{:else}
 					<p class="p-4 text-sm text-gray-400 text-center">{$_('panel.additionalCosts.recurringEmpty')}</p>
@@ -274,7 +275,7 @@
 				</table>
 				{#if editable}
 					<div class="p-3 border-t bg-gray-50/40">
-						<button onclick={addRecurring} class="text-sm text-brand-green hover:text-[#007a45]">
+						<button onclick={addRecurring} class="text-sm text-brand-green hover:text-brand-green-hover">
 							{$_('panel.additionalCosts.recurringAddRow')}
 						</button>
 					</div>

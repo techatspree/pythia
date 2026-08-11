@@ -1,4 +1,5 @@
 <script lang="ts">
+	import Button from '$lib/ui/Button.svelte';
 	import { _, locale } from 'svelte-i18n';
 	import { formatFixed, DEFAULT_LOCALE } from '$lib/format';
 
@@ -77,12 +78,12 @@
 			{#if editable}
 				<div class="p-4 text-center">
 					<p class="text-sm text-gray-400 mb-3">{$_('panel.phases.empty')}</p>
-					<button
+					<Button
 						onclick={addRow}
-						class="px-3 py-1.5 text-sm bg-brand-green text-white rounded hover:bg-[#007a45]"
+						size="sm"
 					>
 						{$_('panel.phases.add')}
-					</button>
+					</Button>
 				</div>
 			{:else}
 				<p class="p-4 text-sm text-gray-400 text-center">{$_('panel.phases.emptyReadonly')}</p>
@@ -165,7 +166,7 @@
 			</table>
 			{#if editable}
 				<div class="p-3 border-t bg-gray-50/40">
-					<button onclick={addRow} class="text-sm text-brand-green hover:text-[#007a45]">
+					<button onclick={addRow} class="text-sm text-brand-green hover:text-brand-green-hover">
 						{$_('panel.phases.addRow')}
 					</button>
 				</div>

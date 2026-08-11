@@ -1,4 +1,5 @@
 <script lang="ts">
+	import Button from '$lib/ui/Button.svelte';
 	import { onMount } from 'svelte';
 	import { _, locale } from 'svelte-i18n';
 	import RequiredRole from '$lib/auth/RequiredRole.svelte';
@@ -147,14 +148,14 @@
 				class="border rounded px-2 py-1 w-full max-w-sm mb-3"
 			/>
 			<div>
-				<button
-					type="button"
+				<Button
+				
 					data-testid="system-save-name"
 					onclick={saveName}
-					class="px-4 py-2 text-sm bg-brand-green text-white rounded hover:bg-[#007a45]"
+				
 				>
 					{$_('admin.system.nameSave')}
-				</button>
+				</Button>
 			</div>
 		</section>
 
@@ -218,22 +219,22 @@
 			{/if}
 
 			<div class="flex items-center gap-3">
-				<button
-					type="button"
+				<Button variant="secondary" class="px-3 py-1.5"
+				
 					data-testid="system-add-driver"
 					onclick={addDriver}
-					class="px-3 py-1.5 text-sm border rounded hover:bg-gray-50"
+				
 				>
 					{$_('admin.system.driverAdd')}
-				</button>
-				<button
-					type="button"
+				</Button>
+				<Button
+				
 					data-testid="system-save-drivers"
 					onclick={saveDrivers}
-					class="px-4 py-2 text-sm bg-brand-green text-white rounded hover:bg-[#007a45]"
+				
 				>
 					{$_('admin.system.driversSave')}
-				</button>
+				</Button>
 			</div>
 		</section>
 

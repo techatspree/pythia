@@ -1,4 +1,5 @@
 <script lang="ts">
+	import Button from '$lib/ui/Button.svelte';
 	import { page } from '$app/state';
 	import { resolve } from '$app/paths';
 	import { onMount } from 'svelte';
@@ -246,15 +247,15 @@
 					bind:this={fileInput}
 					onchange={onMerlinFileSelected}
 				/>
-				<button
-					type="button"
+				<Button variant="secondary"
+				
 					onclick={() => fileInput?.click()}
 					disabled={importing}
 					title={$_('estimation.importMerlinHint')}
-					class="px-4 py-2 text-sm border border-brand-green text-brand-green rounded hover:bg-brand-green/10 disabled:opacity-50"
+				
 				>
 					{$_('estimation.importMerlin')}
-				</button>
+				</Button>
 				<input
 					type="file"
 					accept=".zip,.mproject,.sqlite,.sql"
@@ -263,21 +264,22 @@
 					bind:this={exportInput}
 					onchange={onMerlinExportFileSelected}
 				/>
-				<button
-					type="button"
+				<Button variant="secondary"
+				
 					onclick={() => exportInput?.click()}
 					disabled={exporting || exportVersionRef == null}
 					title={$_('estimation.exportMerlinHint')}
-					class="px-4 py-2 text-sm border border-brand-green text-brand-green rounded hover:bg-brand-green/10 disabled:opacity-50"
+				
 				>
 					{$_('estimation.exportMerlin')}
-				</button>
+				</Button>
 				<!-- sessionHref resolves the route via resolve(); only the dynamic
-				     estimationId/projectId query is concatenated, which this rule cannot model. -->
-				<!-- eslint-disable-next-line svelte/no-navigation-without-resolve -->
-				<a href={sessionHref} class="px-4 py-2 text-sm bg-brand-green text-white rounded hover:bg-[#007a45]">
+				     estimationId/projectId query is concatenated. The no-navigation-
+				     without-resolve suppression this line used to carry is gone with the
+				     raw <a>: the rule inspects anchor elements, not component props. -->
+				<Button href={sessionHref}>
 					{$_('estimation.startSession')}
-				</a>
+				</Button>
 			</div>
 		</div>
 		<VersionList versions={estimation.versions} estimationId={estimation.id ?? ''} oncreate={createVersion} onsubmit={submitVersion} />

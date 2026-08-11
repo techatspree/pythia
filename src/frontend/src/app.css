@@ -2,6 +2,10 @@
 
 @theme {
 	--color-brand-green: #009e5a;
+	/* Hover shade of brand-green. Was an unnamed literal repeated 38x in class
+	   attributes until task-149; `scripts/check-design-tokens.mjs` now fails the
+	   build if an arbitrary colour value comes back. */
+	--color-brand-green-hover: #007a45;
 	--color-brand-green-light: #bade4e;
 	--color-brand-blue: #3840ed;
 	--color-brand-pink: #ec66a2;

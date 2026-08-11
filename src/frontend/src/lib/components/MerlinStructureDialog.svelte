@@ -1,4 +1,5 @@
 <script lang="ts" module>
+	import Button from '$lib/ui/Button.svelte';
 	// Body of the 409 the Merlin export answers with when the uploaded document's
 	// WBS no longer matches the estimation tree (task-133).
 	export type MerlinStructureDiff = {
@@ -66,18 +67,16 @@
 		{/each}
 
 		<div class="flex justify-end gap-2 mt-4">
-			<button
-				bind:this={cancelButton}
-				type="button"
+			<Button variant="secondary"
+				bind:element={cancelButton}
+			
 				onclick={oncancel}
-				class="px-4 py-2 text-sm border rounded hover:bg-gray-50">{$_('merlin.cancel')}</button
-			>
-			<button
-				type="button"
+			>{$_('merlin.cancel')}</Button>
+			<Button variant="danger"
+			
 				onclick={onconfirm}
-				class="px-4 py-2 text-sm bg-red-600 text-white rounded hover:bg-red-700"
-				>{$_('merlin.overwrite')}</button
-			>
+			
+				>{$_('merlin.overwrite')}</Button>
 		</div>
 	</div>
 </div>

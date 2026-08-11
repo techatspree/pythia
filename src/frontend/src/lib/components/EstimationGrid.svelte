@@ -1,4 +1,5 @@
 <script lang="ts">
+	import Button from '$lib/ui/Button.svelte';
 	import { _, locale } from 'svelte-i18n';
 	import { formatFixed, DEFAULT_LOCALE } from '$lib/format';
 	import TreeTable from './treetable/TreeTable.svelte';
@@ -465,13 +466,13 @@
 			<button
 				type="button"
 				onclick={() => addChildGroupAt(ctx.path)}
-				class="text-xs text-brand-green hover:text-[#007a45]"
+				class="text-xs text-brand-green hover:text-brand-green-hover"
 				title={$_('grid.actionAddChildGroupTitle')}>{$_('grid.actionAddChildGroup')}</button
 			>
 			<button
 				type="button"
 				onclick={() => addChildLeafAt(ctx.path)}
-				class="text-xs text-brand-green hover:text-[#007a45]"
+				class="text-xs text-brand-green hover:text-brand-green-hover"
 				title={$_('grid.actionAddChildItemTitle')}>{$_('grid.actionAddChildItem')}</button
 			>
 		{/if}
@@ -519,12 +520,11 @@
 		<div class="p-10 text-center text-gray-400">
 			<p class="mb-4 text-sm">{$_('grid.empty')}</p>
 			{#if editable}
-				<button
-					type="button"
+				<Button
+				
 					onclick={addRootGroup}
-					class="px-4 py-2 text-sm bg-brand-green text-white rounded hover:bg-[#007a45]"
-					>{$_('grid.addGroup')}</button
-				>
+				
+					>{$_('grid.addGroup')}</Button>
 			{/if}
 		</div>
 	{:else}
@@ -546,7 +546,7 @@
 				<button
 					type="button"
 					onclick={addRootGroup}
-					class="text-sm text-brand-green hover:text-[#007a45]">{$_('grid.addGroupRow')}</button
+					class="text-sm text-brand-green hover:text-brand-green-hover">{$_('grid.addGroupRow')}</button
 				>
 			</div>
 		{/if}

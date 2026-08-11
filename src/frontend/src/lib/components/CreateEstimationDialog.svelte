@@ -1,4 +1,5 @@
 <script lang="ts">
+	import Button from '$lib/ui/Button.svelte';
 	import { _ } from 'svelte-i18n';
 	import ErrorBanner from '$lib/components/ErrorBanner.svelte';
 	import { apiFetch } from '$lib/api/fetch';
@@ -122,18 +123,12 @@
 					></textarea>
 				</div>
 				<div class="flex justify-end gap-2">
-					<button
-						type="button"
-						onclick={handleCancel}
-						class="px-4 py-2 text-sm border rounded hover:bg-gray-50">{$_('dialog.createEstimation.cancel')}</button
+					<Button variant="secondary" onclick={handleCancel}
+						>{$_('dialog.createEstimation.cancel')}</Button
 					>
-					<button
-						type="submit"
-						disabled={loading}
-						class="px-4 py-2 text-sm bg-brand-green text-white rounded hover:bg-[#007a45] disabled:opacity-50"
-					>
+					<Button type="submit" disabled={loading}>
 						{loading ? $_('dialog.createEstimation.saving') : $_('dialog.createEstimation.save')}
-					</button>
+					</Button>
 				</div>
 			</form>
 		</div>

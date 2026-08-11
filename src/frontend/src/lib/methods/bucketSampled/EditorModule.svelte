@@ -1,4 +1,5 @@
 <script lang="ts">
+	import Button from '$lib/ui/Button.svelte';
 	import type { Snippet } from 'svelte';
 	import { _, locale } from 'svelte-i18n';
 	import { formatFixed, DEFAULT_LOCALE } from '$lib/format';
@@ -514,13 +515,13 @@
 			<button
 				type="button"
 				onclick={() => addChildGroupAt(ctx.path)}
-				class="text-xs text-brand-green hover:text-[#007a45]"
+				class="text-xs text-brand-green hover:text-brand-green-hover"
 				title={$_('grid.actionAddChildGroupTitle')}>{$_('grid.actionAddChildGroup')}</button
 			>
 			<button
 				type="button"
 				onclick={() => addChildLeafAt(ctx.path)}
-				class="text-xs text-brand-green hover:text-[#007a45]"
+				class="text-xs text-brand-green hover:text-brand-green-hover"
 				title={$_('grid.actionAddChildItemTitle')}>{$_('grid.actionAddChildItem')}</button
 			>
 		{/if}
@@ -583,12 +584,11 @@
 		<div class="p-10 text-center text-gray-400">
 			<p class="mb-4 text-sm">{$_('bucket.itemsEmpty')}</p>
 			{#if editable}
-				<button
-					type="button"
+				<Button
+				
 					onclick={addItem}
-					class="px-4 py-2 text-sm bg-brand-green text-white rounded hover:bg-[#007a45]"
-					>{$_('bucket.addItem')}</button
-				>
+				
+					>{$_('bucket.addItem')}</Button>
 			{/if}
 		</div>
 	{:else if view === 'hierarchy'}
@@ -615,7 +615,7 @@
 		/>
 		{#if editable}
 			<div class="p-3 border-t bg-gray-50/40">
-				<button type="button" onclick={addItem} class="text-sm text-brand-green hover:text-[#007a45]"
+				<button type="button" onclick={addItem} class="text-sm text-brand-green hover:text-brand-green-hover"
 					>{$_('bucket.addItemRow')}</button
 				>
 			</div>
@@ -649,7 +649,7 @@
 		/>
 		{#if editable}
 			<div class="p-3 border-t bg-gray-50/40">
-				<button type="button" onclick={addItem} class="text-sm text-brand-green hover:text-[#007a45]"
+				<button type="button" onclick={addItem} class="text-sm text-brand-green hover:text-brand-green-hover"
 					>{$_('bucket.addItemRow')}</button
 				>
 			</div>

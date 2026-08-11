@@ -4,6 +4,18 @@ Loaded when working under `src/frontend/`. The always-loaded hard rules live in 
 
 SvelteKit 5 (runes) + TypeScript + Tailwind 4, Vite, adapter-static (SPA).
 
+## UI primitives (`$lib/ui/`)
+
+`$lib/ui/Button.svelte` and `$lib/ui/Card.svelte` are the **single definition** of those two shapes (task-149). **Never retype their utility strings** — before this the primary-button classes were retyped at 24 sites across 17 files and the brand hover shade was an unnamed literal at 38, which is precisely how the session UI drifted out of style (task-148) with nothing failing to signal it.
+
+`Button` takes `variant` (`primary` | `secondary` | `ghost` | `danger`), `size` (`md` | `sm` | `xs`) and an optional `href` — with `href` it renders an `<a>` styled identically, for the links that look like buttons ("compare versions", "start estimation session"). Two details are load-bearing: it forwards `{...rest}` so `data-testid`, `disabled`, `title` and `aria-*` reach the real element (the Playwright suite selects on those, and a version that drops rest props type-checks fine then fails e2e broadly); and it exposes `bind:element` because three modal dialogs focus their cancel/reload button on open — `bind:this` on a component yields the component instance, not the DOM node.
+
+`Card` is `border rounded-lg overflow-hidden` plus the brand-green header strip: `<Card title="…">` for a titled card, `<Card>` for an untitled status card, and `<Card {header} padded={false}>` when the caller owns both strip and body. The four collapsible editor panels (`ParametersPanel` and siblings) deliberately still hand-roll their shell — their strip is a toggle `<button>` with a chevron and their body is `{#if open}`-gated, so wrapping them in `Card` would add indirection for one class string. Adopting them is a follow-up, not an oversight.
+
+**Arbitrary colour values are banned and enforced.** `scripts/check-design-tokens.mjs` fails `:frontend:check` on any `-[#rrggbb]` in `src/`. Add a token to the `@theme` block in `src/app.css` and use it. This gate is deliberately *not* informational, unlike ESLint/detekt here. `src/lib/assets/logo.svg` is exempt (SVG `fill`/`stroke` cannot reference a Tailwind class) and `.svg` is excluded from the scan.
+
+`Field` (14 duplicated input sites) and `Badge` are known follow-ups.
+
 ## Logging
 
 Import `log` from `$lib/log.ts` (a configured `loglevel` instance — `debug` under `import.meta.env.DEV`, else `warn`). **Never write bare `console.*`.** The error-surfacing rule below still holds: a `catch` must surface failure via `ErrorBanner` — `log.error(...)` is *in addition to*, not instead of, user-facing surfacing.

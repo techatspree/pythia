@@ -1,4 +1,5 @@
 <script lang="ts">
+	import Button from '$lib/ui/Button.svelte';
 	import { _ } from 'svelte-i18n';
 	import { log } from '$lib/log';
 	import { submitVote, updateNotes, revealPhase2 } from '$lib/session/api';
@@ -103,14 +104,14 @@
 		</div>
 
 		<div class="flex items-center gap-3">
-			<button
-				type="button"
+			<Button
+			
 				onclick={submit}
 				disabled={busy}
-				class="px-4 py-2 text-sm bg-brand-green text-white rounded hover:bg-[#007a45] disabled:opacity-50"
+			
 			>
 				{submitted ? $_('session.phaseOne.resubmit') : $_('session.phaseOne.submit')}
-			</button>
+			</Button>
 			{#if submitted}
 				<span class="text-sm text-green-600">✓ {$_('session.phaseOne.submitted')}</span>
 			{/if}
@@ -139,14 +140,14 @@
 					class="w-full border rounded px-3 py-2 text-sm"
 				></textarea>
 			</div>
-			<button
-				type="button"
+			<Button
+			
 				onclick={reveal}
 				disabled={busy}
-				class="px-4 py-2 text-sm bg-brand-green text-white rounded hover:bg-[#007a45] disabled:opacity-50"
+			
 			>
 				{$_('session.phaseOne.advance')}
-			</button>
+			</Button>
 		</div>
 	{/if}
 </div>

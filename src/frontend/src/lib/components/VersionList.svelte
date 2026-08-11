@@ -1,4 +1,5 @@
 <script lang="ts">
+	import Button from '$lib/ui/Button.svelte';
 	import { resolve } from '$app/paths';
 	import { _, locale } from 'svelte-i18n';
 	import { formatDate, DEFAULT_LOCALE } from '$lib/format';
@@ -55,9 +56,9 @@
 <div class="mt-6">
 	<div class="flex items-center justify-between mb-3">
 		<h2 class="text-lg font-semibold">{$_('version.listTitle')}</h2>
-		<button onclick={oncreate} class="px-4 py-2 text-sm bg-brand-green text-white rounded hover:bg-[#007a45]">
+		<Button onclick={oncreate}>
 			{$_('version.createNew')}
-		</button>
+		</Button>
 	</div>
 
 	{#if versions.length === 0}
@@ -95,12 +96,12 @@
 							</div>
 							<div class="flex items-center gap-3">
 								{#if version.isDraft}
-									<button
+									<Button
 										onclick={(e: MouseEvent) => { e.stopPropagation(); onsubmit(); }}
-										class="px-3 py-1 text-xs bg-brand-green text-white rounded hover:bg-[#007a45]"
+										size="xs"
 									>
 										{$_('version.submit')}
-									</button>
+									</Button>
 								{/if}
 								<span class="text-sm text-gray-500">
 									{version.createdAt ? formatDate(version.createdAt, $locale ?? DEFAULT_LOCALE) : ''}
@@ -125,8 +126,8 @@
 		<!-- compareHref resolves the route via resolve(); only the dynamic ?a/?b
 		     query is concatenated, which this rule cannot model. -->
 		<!-- eslint-disable-next-line svelte/no-navigation-without-resolve -->
-		<a href={compareHref} class="mt-3 inline-block px-4 py-2 text-sm bg-brand-green text-white rounded hover:bg-[#007a45]">
+		<Button href={compareHref} class="mt-3 inline-block">
 			{compareLabel}
-		</a>
+		</Button>
 	{/if}
 </div>

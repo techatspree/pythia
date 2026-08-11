@@ -1,4 +1,5 @@
 <script lang="ts">
+	import Button from '$lib/ui/Button.svelte';
 	import { _, locale } from 'svelte-i18n';
 	import { formatDate, DEFAULT_LOCALE } from '$lib/format';
 	import type { components } from '$lib/api/schema';
@@ -48,18 +49,16 @@
 		</p>
 
 		<div class="flex justify-end gap-2">
-			<button
-				type="button"
+			<Button variant="secondary"
+			
 				onclick={oncancel}
-				class="px-4 py-2 text-sm border rounded hover:bg-gray-50">{$_('history.conflict.cancel')}</button
-			>
-			<button
-				bind:this={reloadButton}
-				type="button"
+			>{$_('history.conflict.cancel')}</Button>
+			<Button
+				bind:element={reloadButton}
+			
 				onclick={onreload}
-				class="px-4 py-2 text-sm bg-brand-green text-white rounded hover:bg-[#007a45]"
-				>{$_('history.conflict.reload')}</button
-			>
+			
+				>{$_('history.conflict.reload')}</Button>
 		</div>
 	</div>
 </div>

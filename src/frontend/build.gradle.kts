@@ -137,8 +137,25 @@ val verifyOpenApiSchemaCommitted = tasks.register<Exec>("verifyOpenApiSchemaComm
 val openApiGate = providers.environmentVariable("CI").isPresent ||
     providers.gradleProperty("openApiGate").isPresent
 
+// Design-token gate (task-149). Deliberately UNLIKE npmLintReport/detekt, which
+// are informational and always exit 0: this one FAILS the build on an arbitrary
+// colour value (`bg-[#abc]`), because a token rule that only warns decays. It is
+// enforceable only because task-149 first brought the count to zero. The script
+// resolves its own scan root, so it behaves identically under Gradle's cwd and
+// a manual run from the repo root.
+val checkDesignTokens = tasks.register<NodeTask>("checkDesignTokens") {
+    dependsOn(tasks.npmInstall)
+    script.set(file("scripts/check-design-tokens.mjs"))
+    // Deliberately NO declared inputs/outputs: the scanned `src` tree also holds
+    // generated output (`src/lib/api` from syncBackendOpenapi, `src/lib/domain`
+    // from unpackDomainTypescript), so declaring it as an input makes Gradle
+    // demand a dependency on every generator. The scan takes ~50 ms, so always
+    // running it is cheaper than the coupling.
+    outputs.upToDateWhen { false }
+}
+
 tasks.named("check") {
-    dependsOn(npmCheck, npmLintReport)
+    dependsOn(npmCheck, npmLintReport, checkDesignTokens)
     if (openApiGate) dependsOn(verifyOpenApiSchemaCommitted)
 }
 

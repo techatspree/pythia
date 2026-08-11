@@ -107,7 +107,7 @@
 				<button
 					type="button"
 					onclick={useDefaults}
-					class="mt-4 text-sm text-brand-green hover:text-[#007a45]"
+					class="mt-4 text-sm text-brand-green hover:text-brand-green-hover"
 				>
 					{$_('panel.parameters.useDefaults')}
 				</button>

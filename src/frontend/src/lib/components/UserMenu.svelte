@@ -72,7 +72,7 @@
 	<button
 		type="button"
 		data-testid="logout-button"
-		class="text-sm text-brand-green hover:text-[#007a45] underline-offset-2 hover:underline"
+		class="text-sm text-brand-green hover:text-brand-green-hover underline-offset-2 hover:underline"
 		onclick={async () => {
 			await getAuthProvider().logout();
 			onlogout();

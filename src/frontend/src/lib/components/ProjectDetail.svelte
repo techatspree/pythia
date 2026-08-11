@@ -1,4 +1,5 @@
 <script lang="ts">
+	import Button from '$lib/ui/Button.svelte';
 	import { resolve } from '$app/paths';
 	import { goto } from '$app/navigation';
 	import { _, locale } from 'svelte-i18n';
@@ -47,13 +48,13 @@
 	<div class="flex items-center justify-between mb-3">
 		<h2 class="text-lg font-semibold">{$_('project.detailEstimations')}</h2>
 		<RequiredRole role="ESTIMATOR">
-			<button
-				type="button"
+			<Button
+			
 				onclick={() => (dialogOpen = true)}
-				class="px-4 py-2 text-sm bg-brand-green text-white rounded hover:bg-[#007a45]"
+			
 			>
 				{$_('project.detailNewOffer')}
-			</button>
+			</Button>
 		</RequiredRole>
 	</div>
 

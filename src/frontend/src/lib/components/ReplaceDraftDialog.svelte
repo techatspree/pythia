@@ -1,4 +1,5 @@
 <script lang="ts">
+	import Button from '$lib/ui/Button.svelte';
 	import { _ } from 'svelte-i18n';
 
 	// Confirmation before a DESTRUCTIVE replace: importing a Merlin project when a
@@ -28,18 +29,16 @@
 		<h2 class="text-lg font-semibold mb-4">{$_('estimation.replaceDraftTitle')}</h2>
 		<p class="text-sm text-gray-600 mb-4">{$_('estimation.replaceDraftBody')}</p>
 		<div class="flex justify-end gap-2">
-			<button
-				bind:this={cancelButton}
-				type="button"
+			<Button variant="secondary"
+				bind:element={cancelButton}
+			
 				onclick={oncancel}
-				class="px-4 py-2 text-sm border rounded hover:bg-gray-50">{$_('estimation.replaceDraftCancel')}</button
-			>
-			<button
-				type="button"
+			>{$_('estimation.replaceDraftCancel')}</Button>
+			<Button variant="danger"
+			
 				onclick={onconfirm}
-				class="px-4 py-2 text-sm bg-red-600 text-white rounded hover:bg-red-700"
-				>{$_('estimation.importMerlinReplace')}</button
-			>
+			
+				>{$_('estimation.importMerlinReplace')}</Button>
 		</div>
 	</div>
 </div>

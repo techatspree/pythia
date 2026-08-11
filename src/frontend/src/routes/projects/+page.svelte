@@ -1,4 +1,5 @@
 <script lang="ts">
+	import Button from '$lib/ui/Button.svelte';
 	import { onMount } from 'svelte';
 	import { _ } from 'svelte-i18n';
 	import ProjectList from '$lib/components/ProjectList.svelte';
@@ -44,9 +45,9 @@
 <div class="p-6">
 	<div class="flex items-center justify-between mb-6">
 		<h1 class="text-2xl font-bold">{$_('project.pageTitle')}</h1>
-		<button onclick={() => showCreate = true} class="px-4 py-2 text-sm bg-brand-green text-white rounded hover:bg-[#007a45]">
+		<Button onclick={() => showCreate = true}>
 			{$_('project.pageNewProject')}
-		</button>
+		</Button>
 	</div>
 
 	<div class="mb-4">
