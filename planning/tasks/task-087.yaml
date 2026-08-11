@@ -69,8 +69,8 @@ description: |
 steps:
   - |
     Create the smoke suite
-    `src/backend/end2end/src/test/java/io/github/theestimator/e2e/smoke/MinikubeSmokeIT.java`
-    (package `io.github.theestimator.e2e.smoke`). Annotate the class with
+    `src/backend/end2end/src/test/java/io/pythia/e2e/smoke/MinikubeSmokeIT.java`
+    (package `io.pythia.e2e.smoke`). Annotate the class with
     `@org.junit.jupiter.api.Tag("smoke")`. In `@BeforeAll`, set the backend
     base URI from `System.getProperty("backend.url", "http://localhost:8080")`.
     Read the frontend base URL from `System.getProperty("frontend.url",
@@ -134,10 +134,10 @@ steps:
 validation:
   - |
     Smoke suite exists, is tagged, and is strictly read-only:
-      test -f src/backend/end2end/src/test/java/io/github/theestimator/e2e/smoke/MinikubeSmokeIT.java
-      grep -q '@Tag("smoke")' src/backend/end2end/src/test/java/io/github/theestimator/e2e/smoke/MinikubeSmokeIT.java
-      grep -q "statusCode(401)" src/backend/end2end/src/test/java/io/github/theestimator/e2e/smoke/MinikubeSmokeIT.java
-      ! grep -qE "\.(post|put|delete|patch)\(" src/backend/end2end/src/test/java/io/github/theestimator/e2e/smoke/MinikubeSmokeIT.java
+      test -f src/backend/end2end/src/test/java/io/pythia/e2e/smoke/MinikubeSmokeIT.java
+      grep -q '@Tag("smoke")' src/backend/end2end/src/test/java/io/pythia/e2e/smoke/MinikubeSmokeIT.java
+      grep -q "statusCode(401)" src/backend/end2end/src/test/java/io/pythia/e2e/smoke/MinikubeSmokeIT.java
+      ! grep -qE "\.(post|put|delete|patch)\(" src/backend/end2end/src/test/java/io/pythia/e2e/smoke/MinikubeSmokeIT.java
   - |
     Dedicated task exists, filters to the smoke tag, and is NOT in the
     default build:
@@ -159,7 +159,7 @@ validation:
       ./gradlew :backend:end2end:smokeTest --dry-run
 
 outputs:
-  - created: src/backend/end2end/src/test/java/io/github/theestimator/e2e/smoke/MinikubeSmokeIT.java
+  - created: src/backend/end2end/src/test/java/io/pythia/e2e/smoke/MinikubeSmokeIT.java
   - modified: src/backend/end2end/build.gradle.kts
   - created: scripts/minikube-smoke.sh
   - modified: docs/development.md

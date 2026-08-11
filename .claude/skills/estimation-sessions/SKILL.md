@@ -9,7 +9,7 @@ Narrative overview for humans: `docs/estimation-sessions.md`. This file is the i
 
 ## Persistence (V13 migration)
 
-Four tables under `io.github.theestimator.domain.session` (all JPA `BaseEntity` — uuid `id` + `created_at`/`updated_at`).
+Four tables under `io.pythia.domain.session` (all JPA `BaseEntity` — uuid `id` + `created_at`/`updated_at`).
 
 `estimation_sessions` (`EstimationSession`: `estimation_id` FK, `title`, `moderator_subject_id`, `status`, `current_item_index`, `current_phase`, `finalized_at`, and `moderator_estimates` boolean default true — V14, task-129: whether the moderator also votes). The coarse lifecycle is `SessionStatus` (`CREATED`/`RUNNING`/`SUSPENDED`/`FINALIZED`/`ENDED_EARLY`/`CANCELLED`); per-item progress is tracked by `session_items.status` + `current_item_index`/`current_phase`.
 

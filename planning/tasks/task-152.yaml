@@ -1,0 +1,286 @@
+id: task-152
+phase: phase-18
+title: Rename the product to Pythia (namespace io.pythia)
+depends_on: [task-145]
+description: |
+  The product is renamed from **The Estimator** to **Pythia**, and its
+  namespace from `io.github.theestimator` to `io.pythia`.
+
+  ## Why this name (context, not up for re-litigation)
+
+  The collaborative sessions implement a **Wideband-Delphi** flow — that is the
+  wording already used in `docs/estimation-sessions.md` and
+  `EstimationSessionService`. Pythia was the oracle **at Delphi**, so the name
+  names the method the product actually implements rather than decorating it.
+  It also fits the existing crystal-ball mark from task-130, which is why the
+  logo is kept unchanged (see the decisions below).
+
+  "The Estimator" is generic, unsearchable, and the `theestimator` namespace was
+  itself a tell — the definite article is what you reach for when the plain word
+  is taken. This is the last cheap moment to change it: task-145 made the repo
+  publishable but it is not yet public, and once it is, the name is sticky
+  (clone URLs, forks, package coordinates, anything anyone links).
+
+  ## Decisions already taken — do not re-open
+
+  **Namespace: `io.pythia`.** Kotlin/Java packages are reverse-DNS, so the
+  domain `pythia.io` yields `io.pythia`, NOT `pythia.io`. `io.github.pythia`
+  was considered and rejected: `io.github.*` exists solely to satisfy Maven
+  Central's identity check for publishers without a domain, and **this project
+  publishes nothing** — `mavenCentral()` appears in the build only as a
+  dependency source, there is no `maven-publish` plugin or `publishing {}`
+  block anywhere, and the backend consumes the domain via `project(":domain")`
+  inside the same build. Baking a hosting provider into ~200 package paths to
+  satisfy a rule that does not apply would be the wrong trade. (Residual risk,
+  accepted: if the `:domain` artifact is ever published to Maven Central,
+  `io.pythia` requires proving ownership of `pythia.io`.)
+
+  **This is a flat prefix swap**, exactly like task-145's: `io/github/theestimator/…`
+  → `io/pythia/…`. No package *structure* below the prefix changes, so
+  `io.github.theestimator.method.threepoint` becomes `io.pythia.method.threepoint`.
+
+  **Scope, measured against the current tree:** 319 files contain the namespace
+  by content, across 11 source directories (`:domain` core + both method modules
+  + aggregator, `:backend:implementation` main + test, `:backend:end2end`).
+  Plus the Gradle `group`, `rootProject.name`, the Quarkus log categories, the
+  container-image coordinates, the k8s manifests, the `brand.*` i18n strings,
+  the HTML `<title>`, the README, the licence/NOTICE copyright holder, the
+  `CLAUDE.md` files and the `.claude/skills/*` docs.
+
+  **One commit.** Like task-145, the sweep must land atomically or the tree
+  half-references a namespace that no longer exists. Run it when the working
+  tree is otherwise clean and no other frontend task is mid-flight (task-151
+  was pending when this was written).
+
+  **NO git-history rewrite.** task-145 rewrote history because it purged
+  confidential material. Nothing here is confidential — this is a forward
+  rename, and rewriting history would invalidate every existing clone for no
+  benefit.
+
+  **The logo is KEPT unchanged.** The crystal ball (task-130) fits an oracle
+  named Pythia better than it fit "The Estimator". Do NOT regenerate the raster
+  icons or re-run `npm run gen:icons` — `logo.svg` does not change, so the
+  committed PNGs/ICO stay byte-identical. Only the `brand.logoAlt` TEXT changes.
+
+  **The k8s namespace stays `estimation`.** It is an operational identifier, not
+  a brand surface; renaming it would orphan existing deployments for cosmetics.
+  The container IMAGE coordinates do change — they carry the old brand.
+
+  **Use `git grep` / `git ls-files`, not raw `grep -r`.** They respect
+  `.gitignore`, which removes an entire class of bug: `src/frontend/.svelte-kit`
+  is GENERATED and gitignored yet contains the old namespace, so a raw recursive
+  grep both "finds" files that must not be edited and keeps failing the
+  verification after every rebuild. Where a raw grep is unavoidable, exclude
+  `.git`, `node_modules`, `build`, `target` AND `.svelte-kit`.
+
+  **`planning/status.json` is NOT part of the sweep.** It contains the old
+  namespace inside historical task `notes`, but it is owned by
+  `./scripts/task.sh` and its notes are a record of what was written at the
+  time. Do not sed it. (Blindly rewriting this file is how it got clobbered
+  once already.)
+
+steps:
+  - |
+    Move the eleven source directories, preserving history where the tool
+    allows (`git mv`), then rewrite the package declarations and imports:
+
+      src/domain/src/{main,test}/kotlin/io/github/theestimator
+      src/domain/core/src/{main,test}/kotlin/io/github/theestimator
+      src/domain/method-threepoint/src/{main,test}/kotlin/io/github/theestimator
+      src/domain/method-bucketsampled/src/{main,test}/kotlin/io/github/theestimator
+      src/backend/implementation/src/{main,test}/kotlin/io/github/theestimator
+      src/backend/end2end/src/test/java/io/github/theestimator
+
+    each `io/github/theestimator` → `io/pythia`. Then replace every remaining
+    textual occurrence of `io.github.theestimator` → `io.pythia` and
+    `io/github/theestimator` → `io/pythia` in TRACKED files — drive the list
+    with `git ls-files` (or `git grep -l`) so gitignored build output is skipped
+    automatically, and exclude `planning/status.json` (see the decisions).
+    Remove the now-empty `io/github` parent directories.
+
+    `src/domain/build.gradle.kts` is part of this and is **not** cosmetic: line
+    71 is `annotation("io.github.theestimator.model.DomainEntity")`, which
+    configures the Kotlin all-open plugin. Missing it does not fail compilation
+    — it silently stops opening the annotated classes, which breaks JPA/no-arg
+    behaviour at runtime.
+  - |
+    Update the build coordinates:
+      - `settings.gradle.kts`: `rootProject.name = "the-estimator"` → `"pythia"`.
+      - the root `build.gradle.kts` Gradle `group` → `io.pythia`, and the
+        `SPDX`/licence jar-manifest attributes' copyright holder → `Pythia
+        Contributors`. Those manifest values must stay CONSTANT — never
+        time- or environment-derived — or the reproducible Jib image stops
+        being byte-deterministic.
+      - `src/backend/implementation/gradle.properties`:
+        `quarkus.container-image.group=theestimator` → `pythia`, and
+        `quarkus.container-image.name=estimation-backend` → `pythia-backend`.
+        Update the frontend image coordinates to match its own build config.
+  - |
+    Update the Quarkus log categories in
+    `src/backend/implementation/src/main/resources/application.properties`:
+    every `quarkus.log.category."io.github.theestimator".level` key becomes
+    `"io.pythia"`. A stale category is silently inert — the app still starts and
+    simply logs at the root level, so this will not fail any test. Grep for it
+    explicitly rather than trusting the build.
+  - |
+    Update the k8s manifests (4 files reference the old namespace):
+    `k8s/base/backend/deployment.yaml`, `k8s/base/frontend/deployment.yaml`,
+    `k8s/overlays/minikube/backend-oidc.yaml`,
+    `k8s/overlays/production/kustomization.yaml` — image coordinates and any
+    label/annotation carrying the old name. Leave the `estimation` NAMESPACE
+    alone (see the decisions above).
+  - |
+    Rename the product in the UI. Per the i18n gate, the string must change in
+    EVERY catalog under `src/frontend/src/lib/i18n/` (today `de.json` and
+    `en.json`), key-for-key:
+      - `brand.name`: "The Estimator" → "Pythia"
+      - `brand.logoAlt`: "The Estimator" → "Pythia"
+    Both are the same proper noun in German and English, which is the legitimate
+    identical-value case the gate carves out — note it in the report rather than
+    inventing a difference.
+
+    Also update `src/frontend/src/app.html`'s `<title>The Estimator</title>`.
+    Do NOT hardcode "Pythia" into a component: `AppHeader` and `DevLoginDialog`
+    read `system.displayName ?? $_('brand.name')` (task-146) and must keep doing
+    so, since an installation can override the displayed name.
+  - |
+    Update the licence and project identity:
+      - `LICENSE` / `NOTICE`: copyright holder "The Estimator Contributors" →
+        "Pythia Contributors".
+      - `README.md`: title, the logo `alt`, and any prose naming the product.
+      - `src/frontend/package.json` keeps `"name": "frontend"` (it is the module
+        name, not the product) — change only the `"license"`-adjacent metadata
+        if it names the product.
+  - |
+    Update the documentation and agent-facing files, which carry both the
+    product name and the old package paths: the root `CLAUDE.md`,
+    `src/{domain,backend,frontend}/CLAUDE.md`, `.claude/skills/*/SKILL.md`
+    (`estimation-sessions`, `merlin-integration`), and `docs/*.md`.
+  - |
+    Update the historical task YAMLs under `planning/tasks/`, mechanically, for
+    the package paths only — `/implement-task` reads these files and a stale
+    `io.github.theestimator` path would misdirect a future implementer. This
+    follows the precedent set by task-145, which did the same. Do NOT rewrite
+    their prose or their titles: they are a record of what was decided at the
+    time.
+  - |
+    Verify nothing references the old identity, then run the full gate:
+    `./gradlew :backend:implementation:test`, then `./gradlew build`, then the
+    e2e suite with the dev stack running (`./scripts/dev.sh`; backend :8090,
+    Vite :5173; `cd src/frontend && npm run test:e2e`). Stop the stack with
+    SIGTERM to `dev.sh`, never by killing the child JVMs.
+
+validation:
+  - |
+    The old namespace is gone from every TRACKED file, and the new one is
+    present. `git grep` is used deliberately — it honours .gitignore, so the
+    generated `src/frontend/.svelte-kit` (which carries the old name and
+    regenerates on every build) cannot make this check unpassable:
+      ! git grep -l "io\.github\.theestimator\|io/github/theestimator" -- \
+          . ':(exclude)planning/status.json'
+      test -z "$(find . -type d -path '*io/github/theestimator' -not -path '*/build/*' -not -path '*/target/*' -not -path '*/.svelte-kit/*')"
+      test -d src/domain/core/src/main/kotlin/io/pythia
+      test -d src/backend/implementation/src/main/kotlin/io/pythia
+  - |
+    No stray `io/github` parent directories were left behind in the source sets:
+      test -z "$(find src -type d -name github -not -path '*/build/*' -not -path '*/target/*')"
+  - |
+    Build coordinates and the container image carry the new identity:
+      grep -q 'rootProject.name = "pythia"' settings.gradle.kts
+      grep -q "io.pythia" build.gradle.kts
+      grep -q "quarkus.container-image.group=pythia" src/backend/implementation/gradle.properties
+      ! grep -rq "theestimator" src/backend/implementation/gradle.properties
+  - |
+    The log categories were re-pointed (a stale category is silently inert, so
+    the build cannot catch this):
+      P=src/backend/implementation/src/main/resources/application.properties
+      ! grep -q "theestimator" "$P"
+      grep -q "io.pythia" "$P"
+  - |
+    The Kotlin all-open plugin still points at a class that exists (a stale
+    annotation FQN compiles fine and silently stops opening the entities):
+      grep -q 'annotation("io.pythia.model.DomainEntity")' src/domain/build.gradle.kts
+      ! grep -q "theestimator" src/domain/build.gradle.kts
+  - |
+    The k8s manifests no longer name the old product:
+      ! grep -rq "theestimator\|the-estimator" k8s/
+  - |
+    The product name changed in EVERY catalog, and the catalogs stay
+    key-for-key identical (the i18n gate):
+      python3 - <<'PY'
+      import json, pathlib, sys
+      cats = {p.stem: json.loads(p.read_text())
+              for p in pathlib.Path('src/frontend/src/lib/i18n').glob('*.json')}
+      def flat(o, p=''):
+          s = set()
+          for k, v in o.items():
+              n = f'{p}.{k}' if p else k
+              s |= flat(v, n) if isinstance(v, dict) else {n}
+          return s
+      keys = {l: flat(d) for l, d in cats.items()}
+      ref = set().union(*keys.values())
+      problems = [f'{l} missing {sorted(ref - k)}' for l, k in keys.items() if ref - k]
+      for l, d in cats.items():
+          brand = d.get('brand', {})
+          if brand.get('name') != 'Pythia':
+              problems.append(f'{l}.json brand.name is {brand.get("name")!r}, expected Pythia')
+          if brand.get('logoAlt') != 'Pythia':
+              problems.append(f'{l}.json brand.logoAlt is {brand.get("logoAlt")!r}, expected Pythia')
+      print('\n'.join(problems) or f'catalogs {sorted(cats)} OK')
+      sys.exit(1 if problems else 0)
+      PY
+  - |
+    The UI still reads the name through the store + i18n fallback rather than a
+    hardcoded literal (task-146 lets an installation override it):
+      grep -q "brand.name" src/frontend/src/lib/components/AppHeader.svelte
+      ! grep -q ">Pythia<" src/frontend/src/lib/components/AppHeader.svelte
+      grep -q "Pythia" src/frontend/src/app.html
+  - |
+    Licence and README carry the new holder/name:
+      grep -q "Pythia Contributors" LICENSE
+      grep -q "Pythia Contributors" NOTICE
+      ! grep -q "The Estimator" README.md
+  - |
+    The logo asset is untouched — the crystal ball fits the new name, so no icon
+    regeneration should appear in the diff:
+      git diff --quiet HEAD -- src/frontend/src/lib/assets/logo.svg src/frontend/static
+  - |
+    ./gradlew :backend:implementation:test
+  - |
+    ./gradlew build
+  - |
+    Requires a running dev stack (`./scripts/dev.sh`; backend :8090, Vite :5173):
+      ( cd src/frontend && npm run test:e2e )
+
+outputs:
+  - modified: settings.gradle.kts
+  - modified: build.gradle.kts
+  - modified: src/backend/implementation/gradle.properties
+  - modified: src/domain/build.gradle.kts
+  - modified: src/backend/implementation/src/main/resources/application.properties
+  - modified: src/domain/src/main/kotlin/io/pythia/**
+  - modified: src/domain/core/src/main/kotlin/io/pythia/**
+  - modified: src/domain/method-threepoint/src/main/kotlin/io/pythia/**
+  - modified: src/domain/method-bucketsampled/src/main/kotlin/io/pythia/**
+  - modified: src/backend/implementation/src/main/kotlin/io/pythia/**
+  - modified: src/backend/implementation/src/test/kotlin/io/pythia/**
+  - modified: src/backend/end2end/src/test/java/io/pythia/**
+  - modified: src/frontend/src/lib/i18n/de.json
+  - modified: src/frontend/src/lib/i18n/en.json
+  - modified: src/frontend/src/app.html
+  - modified: k8s/base/backend/deployment.yaml
+  - modified: k8s/base/frontend/deployment.yaml
+  - modified: k8s/overlays/minikube/backend-oidc.yaml
+  - modified: k8s/overlays/production/kustomization.yaml
+  - modified: LICENSE
+  - modified: NOTICE
+  - modified: README.md
+  - modified: CLAUDE.md
+  - modified: src/domain/CLAUDE.md
+  - modified: src/backend/CLAUDE.md
+  - modified: src/frontend/CLAUDE.md
+  - modified: .claude/skills/estimation-sessions/SKILL.md
+  - modified: .claude/skills/merlin-integration/SKILL.md
+  - modified: docs/development.md
+  - modified: docs/entra-setup.md
+  - modified: planning/tasks/*.yaml

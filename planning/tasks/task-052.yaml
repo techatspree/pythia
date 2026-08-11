@@ -167,11 +167,11 @@ validation:
   - |
     The new comparison DTOs exist and the old ones are gone:
       grep -q "ComparisonNodeDto" \
-            src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/dto/VersionComparisonDtos.kt
+            src/backend/implementation/src/main/kotlin/io/pythia/rest/dto/VersionComparisonDtos.kt
       grep -q "NodeModificationDto" \
-            src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/dto/VersionComparisonDtos.kt
+            src/backend/implementation/src/main/kotlin/io/pythia/rest/dto/VersionComparisonDtos.kt
       ! grep -qE "ComparisonItemDto|ComparisonGroupDto|ItemModificationDto" \
-            src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/dto/VersionComparisonDtos.kt
+            src/backend/implementation/src/main/kotlin/io/pythia/rest/dto/VersionComparisonDtos.kt
   - |
     The frontend TS types are renamed too — no stale field names left in
     types.ts or the compare page (this is the silent-runtime-break guard):
@@ -184,7 +184,7 @@ validation:
   - |
     VersionComparisonService no longer flattens itemGroups:
       ! grep -q "itemGroups" \
-            src/backend/implementation/src/main/kotlin/io/github/theestimator/service/VersionComparisonService.kt
+            src/backend/implementation/src/main/kotlin/io/pythia/service/VersionComparisonService.kt
   - |
     Backend tests pass:
       mvn -pl src/backend/implementation -am test
@@ -204,9 +204,9 @@ validation:
     counts for both sides.
 
 outputs:
-  - modified: src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/dto/VersionComparisonDtos.kt
-  - modified: src/backend/implementation/src/main/kotlin/io/github/theestimator/service/VersionComparisonService.kt
+  - modified: src/backend/implementation/src/main/kotlin/io/pythia/rest/dto/VersionComparisonDtos.kt
+  - modified: src/backend/implementation/src/main/kotlin/io/pythia/service/VersionComparisonService.kt
   - modified: src/frontend/src/lib/api/types.ts
   - modified: src/frontend/src/routes/estimations/[id]/compare/+page.svelte
-  - created: src/backend/implementation/src/test/kotlin/io/github/theestimator/service/VersionComparisonServiceTest.kt
-  - modified: src/backend/implementation/src/test/kotlin/io/github/theestimator/rest/EstimationVersionResourceIT.kt
+  - created: src/backend/implementation/src/test/kotlin/io/pythia/service/VersionComparisonServiceTest.kt
+  - modified: src/backend/implementation/src/test/kotlin/io/pythia/rest/EstimationVersionResourceIT.kt

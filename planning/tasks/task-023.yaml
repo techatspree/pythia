@@ -17,7 +17,7 @@ description: |
   - CRITICAL: `npm run build` depends on src/frontend/src/lib/domain/*.mjs
     (the KMP domain compiled to TypeScript). Those files are produced by the
     frontend Maven module (maven-dependency-plugin unpacks the
-    io.github.theestimator:domain:1.0.0-SNAPSHOT:typescript artifact into
+    io.pythia:domain:1.0.0-SNAPSHOT:typescript artifact into
     src/lib/domain/, and `mvn clean` deletes them). src/lib/adapter.ts
     imports from './domain/domain.mjs'. A Dockerfile that only copies the
     frontend source and runs `npm run build` WILL FAIL unless src/lib/domain/

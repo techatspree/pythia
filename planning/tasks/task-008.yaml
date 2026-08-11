@@ -170,7 +170,7 @@ steps:
     Fix DevSecurityIdentityAugmentor — replace the no-op stub from
     task-006 with the real role mapper. Concrete shape (replace
     the existing class body in
-    src/backend/implementation/src/main/kotlin/io/github/theestimator/auth/dev/DevSecurityIdentityAugmentor.kt):
+    src/backend/implementation/src/main/kotlin/io/pythia/auth/dev/DevSecurityIdentityAugmentor.kt):
 
         @ApplicationScoped
         @IfBuildProperty(name = "app.auth.provider", stringValue = "dev")
@@ -206,7 +206,7 @@ steps:
 
   - |
     Guard MeResource against null `current` — change
-    `src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/MeResource.kt`
+    `src/backend/implementation/src/main/kotlin/io/pythia/rest/MeResource.kt`
     so that when `currentUserProvider.current` is null, it returns
     `Response.status(401).build()` instead of throwing. Concrete:
 
@@ -229,11 +229,11 @@ steps:
 
   - |
     Add the canary admin endpoint. Create
-    src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/AdminPingResource.kt:
+    src/backend/implementation/src/main/kotlin/io/pythia/rest/AdminPingResource.kt:
 
-        package io.github.theestimator.rest
+        package io.pythia.rest
 
-        import io.github.theestimator.auth.CurrentUserProvider
+        import io.pythia.auth.CurrentUserProvider
         import jakarta.annotation.security.RolesAllowed
         import jakarta.enterprise.context.ApplicationScoped
         import jakarta.ws.rs.GET
@@ -344,14 +344,14 @@ validation:
     `@Path("/api/...")` convention (verified at runtime — the
     project has NO global REST prefix; ProjectResource/
     EstimationResource hard-code `/api/...`), and is role-gated:
-      test -f src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/AdminPingResource.kt
-      grep -q "@RolesAllowed" src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/AdminPingResource.kt
-      grep -q "ADMIN" src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/AdminPingResource.kt
-      grep -q "@Path(\"/api/admin\")" src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/AdminPingResource.kt
+      test -f src/backend/implementation/src/main/kotlin/io/pythia/rest/AdminPingResource.kt
+      grep -q "@RolesAllowed" src/backend/implementation/src/main/kotlin/io/pythia/rest/AdminPingResource.kt
+      grep -q "ADMIN" src/backend/implementation/src/main/kotlin/io/pythia/rest/AdminPingResource.kt
+      grep -q "@Path(\"/api/admin\")" src/backend/implementation/src/main/kotlin/io/pythia/rest/AdminPingResource.kt
   - |
     MeResource path is corrected from task-005's slip — the
     endpoint must live at `/api/auth/me`, not `/auth/me`:
-      grep -q "@Path(\"/api/auth\")" src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/MeResource.kt
+      grep -q "@Path(\"/api/auth\")" src/backend/implementation/src/main/kotlin/io/pythia/rest/MeResource.kt
   - |
     Dev module wires SecurityIdentity through Quarkus's standard
     HttpAuthenticationMechanism (verified at runtime — augmentors
@@ -359,17 +359,17 @@ validation:
     they run on the Vert.x event loop before request context is
     bound; the mechanism receives RoutingContext as a method
     parameter so this hazard disappears):
-      test -f src/backend/implementation/src/main/kotlin/io/github/theestimator/auth/dev/DevHttpAuthMechanism.kt
-      grep -q "HttpAuthenticationMechanism" src/backend/implementation/src/main/kotlin/io/github/theestimator/auth/dev/DevHttpAuthMechanism.kt
-      grep -q "QuarkusSecurityIdentity.builder" src/backend/implementation/src/main/kotlin/io/github/theestimator/auth/dev/DevHttpAuthMechanism.kt
-      grep -q "addRoles" src/backend/implementation/src/main/kotlin/io/github/theestimator/auth/dev/DevHttpAuthMechanism.kt
+      test -f src/backend/implementation/src/main/kotlin/io/pythia/auth/dev/DevHttpAuthMechanism.kt
+      grep -q "HttpAuthenticationMechanism" src/backend/implementation/src/main/kotlin/io/pythia/auth/dev/DevHttpAuthMechanism.kt
+      grep -q "QuarkusSecurityIdentity.builder" src/backend/implementation/src/main/kotlin/io/pythia/auth/dev/DevHttpAuthMechanism.kt
+      grep -q "addRoles" src/backend/implementation/src/main/kotlin/io/pythia/auth/dev/DevHttpAuthMechanism.kt
   - |
     Shared header parser exists and is gated to the dev provider:
-      test -f src/backend/implementation/src/main/kotlin/io/github/theestimator/auth/dev/DevAuthHeaderParser.kt
-      grep -q "resolveDevUser" src/backend/implementation/src/main/kotlin/io/github/theestimator/auth/dev/DevAuthHeaderParser.kt
+      test -f src/backend/implementation/src/main/kotlin/io/pythia/auth/dev/DevAuthHeaderParser.kt
+      grep -q "resolveDevUser" src/backend/implementation/src/main/kotlin/io/pythia/auth/dev/DevAuthHeaderParser.kt
   - |
     MeResource returns 401 (not throws/500) on null current:
-      grep -q "UNAUTHORIZED\\|401" src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/MeResource.kt
+      grep -q "UNAUTHORIZED\\|401" src/backend/implementation/src/main/kotlin/io/pythia/rest/MeResource.kt
   - |
     Frontend role-guard component exists with the documented
     reactive pattern (NOT the captured-once `const acc = …`):
@@ -409,12 +409,12 @@ validation:
       cd src/frontend && npx playwright test
 
 outputs:
-  - created: src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/AdminPingResource.kt
-  - created: src/backend/implementation/src/main/kotlin/io/github/theestimator/auth/dev/DevHttpAuthMechanism.kt
-  - created: src/backend/implementation/src/main/kotlin/io/github/theestimator/auth/dev/DevAuthHeaderParser.kt
-  - modified: src/backend/implementation/src/main/kotlin/io/github/theestimator/auth/dev/DevAuthFilter.kt
-  - modified: src/backend/implementation/src/main/kotlin/io/github/theestimator/auth/dev/DevSecurityIdentityAugmentor.kt
-  - modified: src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/MeResource.kt
+  - created: src/backend/implementation/src/main/kotlin/io/pythia/rest/AdminPingResource.kt
+  - created: src/backend/implementation/src/main/kotlin/io/pythia/auth/dev/DevHttpAuthMechanism.kt
+  - created: src/backend/implementation/src/main/kotlin/io/pythia/auth/dev/DevAuthHeaderParser.kt
+  - modified: src/backend/implementation/src/main/kotlin/io/pythia/auth/dev/DevAuthFilter.kt
+  - modified: src/backend/implementation/src/main/kotlin/io/pythia/auth/dev/DevSecurityIdentityAugmentor.kt
+  - modified: src/backend/implementation/src/main/kotlin/io/pythia/rest/MeResource.kt
   - created: src/frontend/src/lib/auth/RequiredRole.svelte
   - created: src/frontend/e2e/auth.test.ts
   - created: docs/auth-verification.md

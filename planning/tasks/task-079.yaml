@@ -76,8 +76,8 @@ description: |
 steps:
   - |
     Create the regression-guard unit test
-    `src/backend/implementation/src/test/kotlin/io/github/theestimator/auth/AuthProviderProfileTest.kt`
-    (package `io.github.theestimator.auth`). It must NOT be a
+    `src/backend/implementation/src/test/kotlin/io/pythia/auth/AuthProviderProfileTest.kt`
+    (package `io.pythia.auth`). It must NOT be a
     `@QuarkusTest` (the dev-minikube profile needs PostgreSQL + OIDC and
     will not boot in the test phase) — use SmallRye Config directly so
     it is a pure, fast unit test:
@@ -135,10 +135,10 @@ validation:
   - |
     Regression-guard test exists and asserts the dev-minikube → entra
     mapping via the profile API:
-      test -f src/backend/implementation/src/test/kotlin/io/github/theestimator/auth/AuthProviderProfileTest.kt
-      grep -q "SmallRyeConfigBuilder" src/backend/implementation/src/test/kotlin/io/github/theestimator/auth/AuthProviderProfileTest.kt
-      grep -q "dev-minikube" src/backend/implementation/src/test/kotlin/io/github/theestimator/auth/AuthProviderProfileTest.kt
-      grep -q "entra" src/backend/implementation/src/test/kotlin/io/github/theestimator/auth/AuthProviderProfileTest.kt
+      test -f src/backend/implementation/src/test/kotlin/io/pythia/auth/AuthProviderProfileTest.kt
+      grep -q "SmallRyeConfigBuilder" src/backend/implementation/src/test/kotlin/io/pythia/auth/AuthProviderProfileTest.kt
+      grep -q "dev-minikube" src/backend/implementation/src/test/kotlin/io/pythia/auth/AuthProviderProfileTest.kt
+      grep -q "entra" src/backend/implementation/src/test/kotlin/io/pythia/auth/AuthProviderProfileTest.kt
   - |
     The verified-but-unchanged wiring is still in place (guards against
     an accidental edit in the same change):
@@ -157,5 +157,5 @@ validation:
       ./gradlew :backend:implementation:test
 
 outputs:
-  - created: src/backend/implementation/src/test/kotlin/io/github/theestimator/auth/AuthProviderProfileTest.kt
+  - created: src/backend/implementation/src/test/kotlin/io/pythia/auth/AuthProviderProfileTest.kt
   - modified: docs/development.md

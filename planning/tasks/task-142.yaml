@@ -9,7 +9,7 @@ description: |
 
   ## Current state
 
-  task-105 introduced the session SPI in `io.github.theestimator.method` with a
+  task-105 introduced the session SPI in `io.pythia.method` with a
   deliberately PERT-shaped signature, because PERT was the only
   implementation available to generalise against:
 
@@ -34,7 +34,7 @@ description: |
 
   ## Target state — marker-interface hierarchy, not generics
 
-  Two domain-internal marker interfaces in `io.github.theestimator.method`, and a
+  Two domain-internal marker interfaces in `io.pythia.method`, and a
   non-generic SPI:
 
   ```kotlin
@@ -78,7 +78,7 @@ description: |
 
   **`EstimatorVote` / `VoteAggregate` are WRAPPED, not modified.** Do NOT make
   them implement the sealed interfaces directly. They live in
-  `io.github.theestimator.model`, they are `@JsExport`ed, and they are consumed by
+  `io.pythia.model`, they are `@JsExport`ed, and they are consumed by
   the frontend (`aggregateVotes` in `DomainFactory.kt` →
   `PhaseTwoPanel.svelte`) and by the wire DTOs. Giving an `@JsExport`ed class a
   non-exported supertype risks a Kotlin/JS exportability warning and changes the
@@ -108,14 +108,14 @@ description: |
 steps:
   - |
     Read the three files this task reshapes:
-      src/domain/src/main/kotlin/io/github/theestimator/method/EstimationMethodSessionSupport.kt
-      src/domain/src/main/kotlin/io/github/theestimator/method/threepoint/ThreePointSessionSupport.kt
-      src/backend/implementation/src/main/kotlin/io/github/theestimator/service/EstimationSessionService.kt
+      src/domain/src/main/kotlin/io/pythia/method/EstimationMethodSessionSupport.kt
+      src/domain/src/main/kotlin/io/pythia/method/threepoint/ThreePointSessionSupport.kt
+      src/backend/implementation/src/main/kotlin/io/pythia/service/EstimationSessionService.kt
     Note the two reduce call sites: `finalizeCurrent` and `itemDto` (the
     latter takes the resolved support as a parameter from `buildDto`).
   - |
     Add
-    `src/domain/src/main/kotlin/io/github/theestimator/method/SessionVoteInput.kt`
+    `src/domain/src/main/kotlin/io/pythia/method/SessionVoteInput.kt`
     declaring BOTH marker types:
       interface SessionVoteInput
       interface SessionReduction
@@ -125,14 +125,14 @@ steps:
     share its package, which collides with one-package-per-method).
   - |
     Widen the SPI in
-    `src/domain/src/main/kotlin/io/github/theestimator/method/EstimationMethodSessionSupport.kt`
+    `src/domain/src/main/kotlin/io/pythia/method/EstimationMethodSessionSupport.kt`
     to `fun reduce(votes: List<SessionVoteInput>): SessionReduction`. Update
     the KDoc: it no longer reuses the PERT types directly; each method
     contributes its own `SessionVoteInput` / `SessionReduction` subtypes from
     its own package.
   - |
     Add
-    `src/domain/src/main/kotlin/io/github/theestimator/method/threepoint/PertSessionTypes.kt`
+    `src/domain/src/main/kotlin/io/pythia/method/threepoint/PertSessionTypes.kt`
     with `PertVoteInput(vote: EstimatorVote) : SessionVoteInput` and
     `PertReduction(aggregate: VoteAggregate) : SessionReduction`.
   - |
@@ -154,7 +154,7 @@ steps:
       * An unexpected reduction subtype must throw, not default.
   - |
     Update
-    `src/domain/src/test/kotlin/io/github/theestimator/method/threepoint/ThreePointSessionSupportTest.kt`
+    `src/domain/src/test/kotlin/io/pythia/method/threepoint/ThreePointSessionSupportTest.kt`
     for the new signature (JVM `src/test`, JUnit 5 — the `:domain` module has
     NO `commonTest` source set). Keep the existing parity assertions against
     `VoteAggregation.aggregate` and add one case proving a foreign
@@ -182,56 +182,56 @@ validation:
     Marker types and PERT subtypes exist. They must NOT be `sealed` — a sealed
     type's subtypes must share its package, which collides with
     one-package-per-method (the compiler rejects it outright):
-      test -f src/domain/src/main/kotlin/io/github/theestimator/method/SessionVoteInput.kt
-      test -f src/domain/src/main/kotlin/io/github/theestimator/method/threepoint/PertSessionTypes.kt
-      grep -q "^interface SessionVoteInput" src/domain/src/main/kotlin/io/github/theestimator/method/SessionVoteInput.kt
-      grep -q "^interface SessionReduction" src/domain/src/main/kotlin/io/github/theestimator/method/SessionVoteInput.kt
-      ! grep -q "sealed interface Session" src/domain/src/main/kotlin/io/github/theestimator/method/SessionVoteInput.kt
+      test -f src/domain/src/main/kotlin/io/pythia/method/SessionVoteInput.kt
+      test -f src/domain/src/main/kotlin/io/pythia/method/threepoint/PertSessionTypes.kt
+      grep -q "^interface SessionVoteInput" src/domain/src/main/kotlin/io/pythia/method/SessionVoteInput.kt
+      grep -q "^interface SessionReduction" src/domain/src/main/kotlin/io/pythia/method/SessionVoteInput.kt
+      ! grep -q "sealed interface Session" src/domain/src/main/kotlin/io/pythia/method/SessionVoteInput.kt
   - |
     The SPI is widened to the sealed types and no longer names the PERT types
     in its signature:
-      grep -q "fun reduce(votes: List<SessionVoteInput>): SessionReduction" src/domain/src/main/kotlin/io/github/theestimator/method/EstimationMethodSessionSupport.kt
+      grep -q "fun reduce(votes: List<SessionVoteInput>): SessionReduction" src/domain/src/main/kotlin/io/pythia/method/EstimationMethodSessionSupport.kt
   - |
     PERT contributes its own subtypes:
-      grep -q "PertVoteInput" src/domain/src/main/kotlin/io/github/theestimator/method/threepoint/PertSessionTypes.kt
-      grep -q "PertReduction" src/domain/src/main/kotlin/io/github/theestimator/method/threepoint/PertSessionTypes.kt
-      grep -q "SessionVoteInput" src/domain/src/main/kotlin/io/github/theestimator/method/threepoint/PertSessionTypes.kt
+      grep -q "PertVoteInput" src/domain/src/main/kotlin/io/pythia/method/threepoint/PertSessionTypes.kt
+      grep -q "PertReduction" src/domain/src/main/kotlin/io/pythia/method/threepoint/PertSessionTypes.kt
+      grep -q "SessionVoteInput" src/domain/src/main/kotlin/io/pythia/method/threepoint/PertSessionTypes.kt
   - |
     The exported vote types were NOT given a domain-internal supertype (the
     JS surface must be unchanged):
-      ! grep -q "SessionVoteInput" src/domain/src/main/kotlin/io/github/theestimator/model/EstimatorVote.kt
-      ! grep -q "SessionReduction" src/domain/src/main/kotlin/io/github/theestimator/model/VoteAggregation.kt
+      ! grep -q "SessionVoteInput" src/domain/src/main/kotlin/io/pythia/model/EstimatorVote.kt
+      ! grep -q "SessionReduction" src/domain/src/main/kotlin/io/pythia/model/VoteAggregation.kt
   - |
     A foreign input type fails loudly rather than being filtered away:
-      grep -q "error(" src/domain/src/main/kotlin/io/github/theestimator/method/threepoint/ThreePointSessionSupport.kt
+      grep -q "error(" src/domain/src/main/kotlin/io/pythia/method/threepoint/ThreePointSessionSupport.kt
   - |
     The backend still routes through the registry, and the PERT wrap/unwrap
     is factored into one place (the cast must not be duplicated):
-      grep -q "requireSession" src/backend/implementation/src/main/kotlin/io/github/theestimator/service/EstimationSessionService.kt
-      test "$(grep -c 'PertReduction' src/backend/implementation/src/main/kotlin/io/github/theestimator/service/EstimationSessionService.kt)" -le 2
+      grep -q "requireSession" src/backend/implementation/src/main/kotlin/io/pythia/service/EstimationSessionService.kt
+      test "$(grep -c 'PertReduction' src/backend/implementation/src/main/kotlin/io/pythia/service/EstimationSessionService.kt)" -le 2
   - |
     Frontend and the exported domain bridge are untouched by this task:
-      git diff --quiet HEAD -- src/frontend/src/lib/session/ src/domain/src/main/kotlin/io/github/theestimator/model/DomainFactory.kt
+      git diff --quiet HEAD -- src/frontend/src/lib/session/ src/domain/src/main/kotlin/io/pythia/model/DomainFactory.kt
   - |
     Domain tests cover the new shape, in the JVM test source set (there is no
     commonTest):
-      test -f src/domain/src/test/kotlin/io/github/theestimator/method/threepoint/ThreePointSessionSupportTest.kt
+      test -f src/domain/src/test/kotlin/io/pythia/method/threepoint/ThreePointSessionSupportTest.kt
       ! test -d src/domain/src/commonTest
       ./gradlew :domain:jvmTest
   - |
     PARITY GATE — the existing PERT session round-trip passes with its
     write-back assertion intact:
-      grep -q "roots\[0\].minEffort" src/backend/implementation/src/test/kotlin/io/github/theestimator/rest/SessionResourceIT.kt
-      ./gradlew :backend:implementation:test --tests "io.github.theestimator.rest.SessionResourceIT"
+      grep -q "roots\[0\].minEffort" src/backend/implementation/src/test/kotlin/io/pythia/rest/SessionResourceIT.kt
+      ./gradlew :backend:implementation:test --tests "io.pythia.rest.SessionResourceIT"
   - |
     Full-stack build is green:
       ./gradlew build
 
 outputs:
-  - created: src/domain/src/main/kotlin/io/github/theestimator/method/SessionVoteInput.kt
-  - created: src/domain/src/main/kotlin/io/github/theestimator/method/threepoint/PertSessionTypes.kt
-  - modified: src/domain/src/main/kotlin/io/github/theestimator/method/EstimationMethodSessionSupport.kt
-  - modified: src/domain/src/main/kotlin/io/github/theestimator/method/threepoint/ThreePointSessionSupport.kt
-  - modified: src/domain/src/test/kotlin/io/github/theestimator/method/threepoint/ThreePointSessionSupportTest.kt
-  - modified: src/backend/implementation/src/main/kotlin/io/github/theestimator/service/EstimationSessionService.kt
+  - created: src/domain/src/main/kotlin/io/pythia/method/SessionVoteInput.kt
+  - created: src/domain/src/main/kotlin/io/pythia/method/threepoint/PertSessionTypes.kt
+  - modified: src/domain/src/main/kotlin/io/pythia/method/EstimationMethodSessionSupport.kt
+  - modified: src/domain/src/main/kotlin/io/pythia/method/threepoint/ThreePointSessionSupport.kt
+  - modified: src/domain/src/test/kotlin/io/pythia/method/threepoint/ThreePointSessionSupportTest.kt
+  - modified: src/backend/implementation/src/main/kotlin/io/pythia/service/EstimationSessionService.kt
   - modified: CLAUDE.md

@@ -40,25 +40,25 @@ description: |
 
 steps:
   - |
-    Create DraftVersionMapper.kt in io.github.theestimator.service.
+    Create DraftVersionMapper.kt in io.pythia.service.
     Annotate with @ApplicationScoped. Provide a single function
     toDomain(draft: DraftEstimationVersion): EstimationVersion.
     The function constructs a domain EstimationVersion using all of draft's
     collections, mapping each JPA entity type to its domain equivalent.
     Mappings (all fields are the same names; just different class types):
-      DraftEstimationParameter -> io.github.theestimator.model.EstimationParameter
+      DraftEstimationParameter -> io.pythia.model.EstimationParameter
         (name, value, comment ?: "")
-      DraftEffortDriver -> io.github.theestimator.model.EffortDriver
+      DraftEffortDriver -> io.pythia.model.EffortDriver
         (description, factor, comment ?: "")
-      DraftProjectPhase -> io.github.theestimator.model.ProjectPhase
+      DraftProjectPhase -> io.pythia.model.ProjectPhase
         (name, abbreviation, durationWeeks ?: 0.0)
-      DraftEstimationItemGroup -> io.github.theestimator.model.EstimationItemGroup
+      DraftEstimationItemGroup -> io.pythia.model.EstimationItemGroup
         (logicalId, title, phase as ProjectPhase?, items as List<EstimationItem>)
-      DraftFixedEstimationItem -> io.github.theestimator.model.FixedEstimationItem
+      DraftFixedEstimationItem -> io.pythia.model.FixedEstimationItem
         (description, code ?: "", minEffort ?: 0.0, expectedEffort ?: 0.0,
          maxEffort ?: 0.0, assumptions ?: "", logicalId = item.logicalId,
          phase = group's ProjectPhase if present)
-      DraftTimeRelativeEstimationItem -> io.github.theestimator.model.TimeRelativeEstimationItem
+      DraftTimeRelativeEstimationItem -> io.pythia.model.TimeRelativeEstimationItem
         (same fields as above, plus unit)
     Note: do not set id/createdAt/updatedAt on domain objects; they are not needed
     for calculation. Set versionNumber and notes from draft.
@@ -66,7 +66,7 @@ steps:
   - |
     Modify EstimationVersionService. Inject DraftVersionMapper as a constructor
     parameter. Change the calculateDraft method signature from returning
-    CalculationResult to returning io.github.theestimator.model.EstimationVersion.
+    CalculationResult to returning io.pythia.model.EstimationVersion.
     Replace the body: map draft via mapper.toDomain(draft), call .calculate()
     on the result, and return the calculated domain EstimationVersion directly.
     In submitDraft, replace:
@@ -95,7 +95,7 @@ steps:
           .flatMap { it.items }
           .associateBy { it.logicalId }
       In DraftEstimationItem.toDto, the second parameter changes from
-      CalculatedItem? to io.github.theestimator.model.EstimationItem?, and all
+      CalculatedItem? to io.pythia.model.EstimationItem?, and all
       field accesses remain the same (mean, variance, riskSurcharge, etc.
       are the same names on both the old CalculatedItem and the domain EstimationItem).
     Remove the import of CalculationResult and CalculatedItem from this file.
@@ -121,7 +121,7 @@ steps:
     ItemMeanVariance) are also deleted with it.
     Verify that no other file imports CalculationResult or CalculatedItem.
     Note: the domain module's own EstimationCalculator.kt (in
-    io.github.theestimator.service within the domain module) is UNRELATED and must
+    io.pythia.service within the domain module) is UNRELATED and must
     NOT be deleted — it delegates to version.calculate() and is used by domain
     tests.
 
@@ -137,7 +137,7 @@ validation:
     zero files (the class is deleted from the implementation module)
   - grep -r "CalculationResult" src/backend/implementation/src matches zero files
   - grep -r "CalculatedItem" src/backend/implementation/src matches zero files
-  - grep -r "item.id" src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/dto
+  - grep -r "item.id" src/backend/implementation/src/main/kotlin/io/pythia/rest/dto
     matches zero files (correlation is now by logicalId)
   - All four draft DTO call sites in EstimationVersionResource accept
     EstimationVersion (domain) not CalculationResult
@@ -148,8 +148,8 @@ validation:
     values as before the refactoring
 
 outputs:
-  - added:   src/backend/implementation/src/main/kotlin/io/github/theestimator/service/DraftVersionMapper.kt
-  - modified: src/backend/implementation/src/main/kotlin/io/github/theestimator/service/EstimationVersionService.kt
-  - modified: src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/dto/EstimationVersionMapper.kt
-  - modified: src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/EstimationVersionResource.kt
-  - deleted:  src/backend/implementation/src/main/kotlin/io/github/theestimator/service/EstimationCalculator.kt
+  - added:   src/backend/implementation/src/main/kotlin/io/pythia/service/DraftVersionMapper.kt
+  - modified: src/backend/implementation/src/main/kotlin/io/pythia/service/EstimationVersionService.kt
+  - modified: src/backend/implementation/src/main/kotlin/io/pythia/rest/dto/EstimationVersionMapper.kt
+  - modified: src/backend/implementation/src/main/kotlin/io/pythia/rest/EstimationVersionResource.kt
+  - deleted:  src/backend/implementation/src/main/kotlin/io/pythia/service/EstimationCalculator.kt

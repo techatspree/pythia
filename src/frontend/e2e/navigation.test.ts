@@ -88,7 +88,7 @@ test('the same header and menu render on every route, including a session room',
 	await expect(page.getByTestId('nav-sessions')).toBeVisible();
 
 	// The old room chrome is gone.
-	await expect(page.getByText('The Estimator · Session')).toHaveCount(0);
+	await expect(page.getByText('Pythia · Session')).toHaveCount(0);
 
 	expect(errors, 'the room must not throw').toEqual([]);
 });

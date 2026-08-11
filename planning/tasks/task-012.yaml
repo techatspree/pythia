@@ -55,6 +55,6 @@ validation:
   - existing unit tests (EstimationCalculatorTest, ExcelImporterTest, EstimationVersionServiceTest) still pass
   - `mvn clean install` from project root passes
 outputs:
-  - src/backend/implementation/src/test/kotlin/io/github/theestimator/service/ProjectServiceIT.kt
-  - src/backend/implementation/src/test/kotlin/io/github/theestimator/service/EstimationVersionServiceIT.kt
-  - src/backend/implementation/src/test/kotlin/io/github/theestimator/repository/RepositoryIT.kt
+  - src/backend/implementation/src/test/kotlin/io/pythia/service/ProjectServiceIT.kt
+  - src/backend/implementation/src/test/kotlin/io/pythia/service/EstimationVersionServiceIT.kt
+  - src/backend/implementation/src/test/kotlin/io/pythia/repository/RepositoryIT.kt

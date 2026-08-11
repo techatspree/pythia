@@ -9,7 +9,7 @@ description: |
   `MerlinImporter` and reuses its file handling and schema knowledge.
 
   ── Current state ──
-  `MerlinImporter` (`io.github.theestimator.service`) reads a zipped
+  `MerlinImporter` (`io.pythia.service`) reads a zipped
   `.mproject` bundle (or a bare `state.sql`, which despite its name is a
   SQLite 3 Core Data store), pulls the WBS from `ZSCHEDULEITEM`, and builds
   a draft estimation tree. Nothing writes back, and the import stores no
@@ -110,7 +110,7 @@ description: |
 
 steps:
   - |
-    Add `src/backend/implementation/src/main/kotlin/io/github/theestimator/service/MerlinExporter.kt`
+    Add `src/backend/implementation/src/main/kotlin/io/pythia/service/MerlinExporter.kt`
     (`@ApplicationScoped`). Reuse the container handling of `MerlinImporter`
     (ZIP magic `PK\x03\x04` → the entry ending in `state.sql`; else the
     bytes must be a SQLite document) — factor the shared detection helpers
@@ -185,7 +185,7 @@ steps:
 
   - |
     Add the REST endpoint to
-    `src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/EstimationVersionResource.kt`:
+    `src/backend/implementation/src/main/kotlin/io/pythia/rest/EstimationVersionResource.kt`:
     `@POST @Path("/{versionNumber}/export/merlin")
     @Consumes(MediaType.MULTIPART_FORM_DATA) @RolesAllowed("ESTIMATOR")`,
     taking `@RestForm("file") file: FileUpload` and
@@ -200,7 +200,7 @@ steps:
     for an unknown estimation/version. Document all of them with
     MicroProfile OpenAPI annotations like the neighbouring endpoints.
     Map the exception to the 409 body with a new
-    `src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/MerlinStructureChangedExceptionMapper.kt`,
+    `src/backend/implementation/src/main/kotlin/io/pythia/rest/MerlinStructureChangedExceptionMapper.kt`,
     copying the shape of the existing `rest/UndoConflictExceptionMapper.kt`
     (an `@Provider ExceptionMapper<…>` returning `Response.status(409)` with
     the DTO). Note it goes in `rest/`, NOT `rest/error/` — that package
@@ -208,7 +208,7 @@ steps:
 
   - |
     Add `MerlinStructureDiffDto(missingInMerlin, missingInEstimation, reordered, inSync)`
-    to `src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/dto/`
+    to `src/backend/implementation/src/main/kotlin/io/pythia/rest/dto/`
     (next to the other export/compare DTOs), annotated with `@Schema` so it
     lands in the OpenAPI document.
 
@@ -262,7 +262,7 @@ steps:
 
   - |
     Backend test
-    `src/backend/implementation/src/test/kotlin/io/github/theestimator/service/MerlinExporterTest.kt`,
+    `src/backend/implementation/src/test/kotlin/io/pythia/service/MerlinExporterTest.kt`,
     reading the existing test resource `merlin/state.sql`:
       - import it into a THREE_POINT_PERT estimation, estimate a known leaf
         (e.g. "Setup TRAIN Infrastructure"), export, then reopen the
@@ -285,7 +285,7 @@ steps:
 
   - |
     Backend IT
-    `src/backend/implementation/src/test/kotlin/io/github/theestimator/rest/MerlinExportResourceIT.kt`
+    `src/backend/implementation/src/test/kotlin/io/pythia/rest/MerlinExportResourceIT.kt`
     (@QuarkusTest, DevAdminAuth): import the sample, POST the same file to
     `…/versions/draft/export/merlin` and expect `200` with a non-empty
     body and a `Content-Disposition` attachment header; then change the
@@ -318,23 +318,23 @@ steps:
 validation:
   - |
     The exporter exists and knows the Merlin write schema:
-      test -f src/backend/implementation/src/main/kotlin/io/github/theestimator/service/MerlinExporter.kt
-      grep -q "ZGIVENWORK_" src/backend/implementation/src/main/kotlin/io/github/theestimator/service/MerlinExporter.kt
-      grep -q "Z_PRIMARYKEY" src/backend/implementation/src/main/kotlin/io/github/theestimator/service/MerlinExporter.kt
-      grep -q "offerPT" src/backend/implementation/src/main/kotlin/io/github/theestimator/service/MerlinExporter.kt
-      grep -q "MerlinStructureDiff" src/backend/implementation/src/main/kotlin/io/github/theestimator/service/MerlinExporter.kt
-      grep -q "Log\." src/backend/implementation/src/main/kotlin/io/github/theestimator/service/MerlinExporter.kt
+      test -f src/backend/implementation/src/main/kotlin/io/pythia/service/MerlinExporter.kt
+      grep -q "ZGIVENWORK_" src/backend/implementation/src/main/kotlin/io/pythia/service/MerlinExporter.kt
+      grep -q "Z_PRIMARYKEY" src/backend/implementation/src/main/kotlin/io/pythia/service/MerlinExporter.kt
+      grep -q "offerPT" src/backend/implementation/src/main/kotlin/io/pythia/service/MerlinExporter.kt
+      grep -q "MerlinStructureDiff" src/backend/implementation/src/main/kotlin/io/pythia/service/MerlinExporter.kt
+      grep -q "Log\." src/backend/implementation/src/main/kotlin/io/pythia/service/MerlinExporter.kt
   - |
     The REST layer exposes it, resolves the version through the EXISTING
     helper (not a second path), and the 409 exception + mapper + DTO exist:
-      grep -q "export/merlin" src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/EstimationVersionResource.kt
-      grep -q "overwriteStructure" src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/EstimationVersionResource.kt
-      grep -q "resolveVersion" src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/EstimationVersionResource.kt
-      grep -q "SubmittedEstimationVersion" src/backend/implementation/src/main/kotlin/io/github/theestimator/service/MerlinExporter.kt
-      ! grep -q "calculateDraft" src/backend/implementation/src/main/kotlin/io/github/theestimator/service/MerlinExporter.kt
-      test -f src/backend/implementation/src/main/kotlin/io/github/theestimator/service/MerlinStructureChangedException.kt
-      test -f src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/MerlinStructureChangedExceptionMapper.kt
-      test -f src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/dto/MerlinStructureDiffDto.kt
+      grep -q "export/merlin" src/backend/implementation/src/main/kotlin/io/pythia/rest/EstimationVersionResource.kt
+      grep -q "overwriteStructure" src/backend/implementation/src/main/kotlin/io/pythia/rest/EstimationVersionResource.kt
+      grep -q "resolveVersion" src/backend/implementation/src/main/kotlin/io/pythia/rest/EstimationVersionResource.kt
+      grep -q "SubmittedEstimationVersion" src/backend/implementation/src/main/kotlin/io/pythia/service/MerlinExporter.kt
+      ! grep -q "calculateDraft" src/backend/implementation/src/main/kotlin/io/pythia/service/MerlinExporter.kt
+      test -f src/backend/implementation/src/main/kotlin/io/pythia/service/MerlinStructureChangedException.kt
+      test -f src/backend/implementation/src/main/kotlin/io/pythia/rest/MerlinStructureChangedExceptionMapper.kt
+      test -f src/backend/implementation/src/main/kotlin/io/pythia/rest/dto/MerlinStructureDiffDto.kt
   - |
     The regenerated client carries the new endpoint:
       grep -q "export/merlin" src/frontend/src/lib/api/openapi.json
@@ -355,12 +355,12 @@ validation:
   - |
     Tests exist and cover the drift decision (assert by the NEW names —
     "merlin" alone already appears in these directories):
-      test -f src/backend/implementation/src/test/kotlin/io/github/theestimator/service/MerlinExporterTest.kt
-      test -f src/backend/implementation/src/test/kotlin/io/github/theestimator/rest/MerlinExportResourceIT.kt
+      test -f src/backend/implementation/src/test/kotlin/io/pythia/service/MerlinExporterTest.kt
+      test -f src/backend/implementation/src/test/kotlin/io/pythia/rest/MerlinExportResourceIT.kt
       test -f src/frontend/e2e/merlin-export.test.ts
-      grep -q "overwriteStructure" src/backend/implementation/src/test/kotlin/io/github/theestimator/rest/MerlinExportResourceIT.kt
-      grep -q "MerlinStructureChangedException" src/backend/implementation/src/test/kotlin/io/github/theestimator/service/MerlinExporterTest.kt
-      grep -qi "round.?trip" src/backend/implementation/src/test/kotlin/io/github/theestimator/service/MerlinExporterTest.kt
+      grep -q "overwriteStructure" src/backend/implementation/src/test/kotlin/io/pythia/rest/MerlinExportResourceIT.kt
+      grep -q "MerlinStructureChangedException" src/backend/implementation/src/test/kotlin/io/pythia/service/MerlinExporterTest.kt
+      grep -qi "round.?trip" src/backend/implementation/src/test/kotlin/io/pythia/service/MerlinExporterTest.kt
   - |
     CLAUDE.md documents the export (assert a phrase this task introduces —
     "merlin" already appears from task-131):
@@ -372,14 +372,14 @@ validation:
       cd src/frontend && npm run test:e2e
 
 outputs:
-  - created: src/backend/implementation/src/main/kotlin/io/github/theestimator/service/MerlinExporter.kt
-  - modified: src/backend/implementation/src/main/kotlin/io/github/theestimator/service/MerlinImporter.kt
-  - modified: src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/EstimationVersionResource.kt
-  - created: src/backend/implementation/src/main/kotlin/io/github/theestimator/service/MerlinStructureChangedException.kt
-  - created: src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/MerlinStructureChangedExceptionMapper.kt
-  - created: src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/dto/MerlinStructureDiffDto.kt
-  - created: src/backend/implementation/src/test/kotlin/io/github/theestimator/service/MerlinExporterTest.kt
-  - created: src/backend/implementation/src/test/kotlin/io/github/theestimator/rest/MerlinExportResourceIT.kt
+  - created: src/backend/implementation/src/main/kotlin/io/pythia/service/MerlinExporter.kt
+  - modified: src/backend/implementation/src/main/kotlin/io/pythia/service/MerlinImporter.kt
+  - modified: src/backend/implementation/src/main/kotlin/io/pythia/rest/EstimationVersionResource.kt
+  - created: src/backend/implementation/src/main/kotlin/io/pythia/service/MerlinStructureChangedException.kt
+  - created: src/backend/implementation/src/main/kotlin/io/pythia/rest/MerlinStructureChangedExceptionMapper.kt
+  - created: src/backend/implementation/src/main/kotlin/io/pythia/rest/dto/MerlinStructureDiffDto.kt
+  - created: src/backend/implementation/src/test/kotlin/io/pythia/service/MerlinExporterTest.kt
+  - created: src/backend/implementation/src/test/kotlin/io/pythia/rest/MerlinExportResourceIT.kt
   - modified: src/frontend/src/lib/api/openapi.json
   - modified: src/frontend/src/lib/api/schema.d.ts
   - modified: src/frontend/src/routes/estimations/[id]/+page.svelte

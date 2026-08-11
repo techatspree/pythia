@@ -26,7 +26,7 @@ kotlin {
         // Pin the JS output module name to "domain" so the emitted files stay
         // `domain.mjs` / `domain.d.mts` (adapter.ts + CLAUDE.md depend on this).
         // Without this the KMP module name would inherit the root project name
-        // ("the-estimator-domain") now that domain is a subproject.
+        // ("pythia-domain") now that domain is a subproject.
         outputModuleName.set("domain")
         useEsModules()
         browser()
@@ -40,7 +40,7 @@ kotlin {
             dependencies {
                 // MUST be `api`, never `implementation` (task-143).
                 // :backend:implementation depends on this aggregator and imports
-                // io.github.theestimator.model.* in ~13 files; `implementation`
+                // io.pythia.model.* in ~13 files; `implementation`
                 // dependencies do not reach a consumer's compile classpath, so
                 // downgrading these would break the backend build wholesale.
                 api(project(":domain:core"))
@@ -68,7 +68,7 @@ kotlin {
 }
 
 allOpen {
-    annotation("io.github.theestimator.model.DomainEntity")
+    annotation("io.pythia.model.DomainEntity")
 }
 
 // Create .d.mts companions for .mjs files so TypeScript bundler mode resolves types correctly.

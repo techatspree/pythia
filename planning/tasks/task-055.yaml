@@ -32,7 +32,7 @@ description: |
        check.
 
     2. TestDataSeeder
-       (src/backend/implementation/src/main/kotlin/io/github/theestimator/
+       (src/backend/implementation/src/main/kotlin/io/pythia/
        testdata/TestDataSeeder.kt) currently builds tree entities but
        only depth-1 (each top-level group containing leaves directly).
        Restructure at least one of the three drafts (seedWebshop's
@@ -59,7 +59,7 @@ steps:
   - |
     Pre-flight audit — verify the already-done cleanup:
       ! grep -r "EstimationItemGroup" src
-      test ! -f src/domain/src/main/kotlin/io/github/theestimator/model/EstimationItemGroup.kt
+      test ! -f src/domain/src/main/kotlin/io/pythia/model/EstimationItemGroup.kt
       grep -q "phase-9" planning/plan.yaml
     All three must already pass before doing any work.
 
@@ -116,12 +116,12 @@ validation:
     EstimationItemGroup is gone from the source tree (already true
     after task-054 — verifies nothing crept back in):
       ! grep -r "EstimationItemGroup" src
-      test ! -f src/domain/src/main/kotlin/io/github/theestimator/model/EstimationItemGroup.kt
+      test ! -f src/domain/src/main/kotlin/io/pythia/model/EstimationItemGroup.kt
   - |
     TestDataSeeder builds tree entities AND has at least one nested
     group inside another group (depth ≥ 3 from root):
       grep -q "DraftEstimationNode" \
-            src/backend/implementation/src/main/kotlin/io/github/theestimator/testdata/TestDataSeeder.kt
+            src/backend/implementation/src/main/kotlin/io/pythia/testdata/TestDataSeeder.kt
       # Mechanical depth ≥ 3 check: count `group(` calls whose line is
       # indented deeper than a top-level group. Top-level groups in the
       # seeder are at 12-space indent (inside `addRoots(version, listOf(`);
@@ -130,7 +130,7 @@ validation:
       # has at least one.
       python3 -c "
       import sys
-      src = open('src/backend/implementation/src/main/kotlin/io/github/theestimator/testdata/TestDataSeeder.kt').read()
+      src = open('src/backend/implementation/src/main/kotlin/io/pythia/testdata/TestDataSeeder.kt').read()
       nested = sum(1 for line in src.split('\n')
                    if line.lstrip().startswith('group(')
                    and (len(line) - len(line.lstrip())) >= 16)
@@ -150,5 +150,5 @@ validation:
       cd src/frontend && npx playwright test
 
 outputs:
-  - modified: src/backend/implementation/src/main/kotlin/io/github/theestimator/testdata/TestDataSeeder.kt
+  - modified: src/backend/implementation/src/main/kotlin/io/pythia/testdata/TestDataSeeder.kt
   - modified: planning/README.md

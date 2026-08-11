@@ -12,7 +12,7 @@ Two endpoints on `EstimationVersionResource`:
 
 ## WBS import (task-131)
 
-`MerlinImporter` (`io.github.theestimator.service`, alongside `ExcelImporter`) turns a **Merlin Project** document's Work Breakdown Structure into a new draft version. A `.mproject` is a macOS bundle whose `state.sql` is a **SQLite 3 database** (an Apple Core Data store, `Z`-prefixed tables); activities live in `ZSCHEDULEITEM` (`ZTITLE`, `ZPARENTACTIVITY_` for hierarchy, `ZORDERINPARENTACTIVITY`, `ZISMILESTONE`, `ZGIVENWORK_` = a short string like `"1d"`). Activities are filtered by `ZTITLE IS NOT NULL` (resource-assignment rows have no title; **do not** gate on the version-specific `Z_ENT`).
+`MerlinImporter` (`io.pythia.service`, alongside `ExcelImporter`) turns a **Merlin Project** document's Work Breakdown Structure into a new draft version. A `.mproject` is a macOS bundle whose `state.sql` is a **SQLite 3 database** (an Apple Core Data store, `Z`-prefixed tables); activities live in `ZSCHEDULEITEM` (`ZTITLE`, `ZPARENTACTIVITY_` for hierarchy, `ZORDERINPARENTACTIVITY`, `ZISMILESTONE`, `ZGIVENWORK_` = a short string like `"1d"`). Activities are filtered by `ZTITLE IS NOT NULL` (resource-assignment rows have no title; **do not** gate on the version-specific `Z_ENT`).
 
 The upload is accepted either as a **zipped** `.mproject` (the importer finds the `state.sql` entry) or the raw `state.sql`; it is read via a plain `org.xerial:sqlite-jdbc` `DriverManager` connection on a temp file — **not** a Quarkus datasource (the app DB stays PostgreSQL). Work maps to person-days (d×1, w×5, h×0.125) and a single value seeds optimistic=likely=pessimistic (the task's "single work → triple").
 

@@ -126,11 +126,11 @@ validation:
       ./gradlew :backend:implementation:test
 
 outputs:
-  - modified: src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/ProjectResource.kt
-  - modified: src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/EstimationResource.kt
-  - modified: src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/EstimationVersionResource.kt
-  - modified: src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/MeResource.kt
-  - modified: src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/AdminPingResource.kt
+  - modified: src/backend/implementation/src/main/kotlin/io/pythia/rest/ProjectResource.kt
+  - modified: src/backend/implementation/src/main/kotlin/io/pythia/rest/EstimationResource.kt
+  - modified: src/backend/implementation/src/main/kotlin/io/pythia/rest/EstimationVersionResource.kt
+  - modified: src/backend/implementation/src/main/kotlin/io/pythia/rest/MeResource.kt
+  - modified: src/backend/implementation/src/main/kotlin/io/pythia/rest/AdminPingResource.kt
   - modified: src/frontend/src/lib/api/openapi.json
   - modified: src/frontend/src/lib/api/schema.d.ts
   - modified: CLAUDE.md

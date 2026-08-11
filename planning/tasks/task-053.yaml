@@ -164,7 +164,7 @@ steps:
 
   - |
     Write ExcelExporterTreeTest, CsvExporterTreeTest, ExcelImporterTreeTest
-    under src/backend/implementation/src/test/kotlin/io/github/theestimator/service/
+    under src/backend/implementation/src/test/kotlin/io/pythia/service/
     using the 3-level fixture described in the task description. The
     importer test must assert SAME logicalIds, not just same shape.
 
@@ -187,41 +187,41 @@ validation:
     All three services walk roots, not itemGroups, and the legacy
     "task-051 compile shim" comments are gone:
       ! grep -q "itemGroups" \
-            src/backend/implementation/src/main/kotlin/io/github/theestimator/service/ExcelExporter.kt
+            src/backend/implementation/src/main/kotlin/io/pythia/service/ExcelExporter.kt
       ! grep -q "itemGroups" \
-            src/backend/implementation/src/main/kotlin/io/github/theestimator/service/CsvExporter.kt
+            src/backend/implementation/src/main/kotlin/io/pythia/service/CsvExporter.kt
       ! grep -q "itemGroups" \
-            src/backend/implementation/src/main/kotlin/io/github/theestimator/service/ExcelImporter.kt
+            src/backend/implementation/src/main/kotlin/io/pythia/service/ExcelImporter.kt
       ! grep -q "task-051 compile shim" \
-            src/backend/implementation/src/main/kotlin/io/github/theestimator/service/ExcelExporter.kt
+            src/backend/implementation/src/main/kotlin/io/pythia/service/ExcelExporter.kt
       ! grep -q "task-051 compile shim" \
-            src/backend/implementation/src/main/kotlin/io/github/theestimator/service/CsvExporter.kt
+            src/backend/implementation/src/main/kotlin/io/pythia/service/CsvExporter.kt
   - |
     Both exporters emit a "Node type" column (literal header check —
     catches a tree-walking-but-forgetting-type-emit regression):
       grep -q "Node type" \
-            src/backend/implementation/src/main/kotlin/io/github/theestimator/service/ExcelExporter.kt
+            src/backend/implementation/src/main/kotlin/io/pythia/service/ExcelExporter.kt
       grep -q "Node type" \
-            src/backend/implementation/src/main/kotlin/io/github/theestimator/service/CsvExporter.kt
+            src/backend/implementation/src/main/kotlin/io/pythia/service/CsvExporter.kt
   - |
     The importer no longer uses the null-effort group-row heuristic or
     the section-marker toggle:
       ! grep -q "isTimeRelativeSection" \
-            src/backend/implementation/src/main/kotlin/io/github/theestimator/service/ExcelImporter.kt
+            src/backend/implementation/src/main/kotlin/io/pythia/service/ExcelImporter.kt
       ! grep -q "Aufwände relativ zur Zeit" \
-            src/backend/implementation/src/main/kotlin/io/github/theestimator/service/ExcelImporter.kt
+            src/backend/implementation/src/main/kotlin/io/pythia/service/ExcelImporter.kt
   - |
     The three new test files exist and pass:
-      test -f src/backend/implementation/src/test/kotlin/io/github/theestimator/service/ExcelExporterTreeTest.kt
-      test -f src/backend/implementation/src/test/kotlin/io/github/theestimator/service/CsvExporterTreeTest.kt
-      test -f src/backend/implementation/src/test/kotlin/io/github/theestimator/service/ExcelImporterTreeTest.kt
+      test -f src/backend/implementation/src/test/kotlin/io/pythia/service/ExcelExporterTreeTest.kt
+      test -f src/backend/implementation/src/test/kotlin/io/pythia/service/CsvExporterTreeTest.kt
+      test -f src/backend/implementation/src/test/kotlin/io/pythia/service/ExcelImporterTreeTest.kt
       mvn -pl src/backend/implementation -am test
 
 outputs:
-  - modified: src/backend/implementation/src/main/kotlin/io/github/theestimator/service/ExcelExporter.kt
-  - modified: src/backend/implementation/src/main/kotlin/io/github/theestimator/service/CsvExporter.kt
-  - modified: src/backend/implementation/src/main/kotlin/io/github/theestimator/service/ExcelImporter.kt
-  - modified: src/backend/implementation/src/test/kotlin/io/github/theestimator/rest/EstimationVersionResourceIT.kt
-  - created: src/backend/implementation/src/test/kotlin/io/github/theestimator/service/ExcelExporterTreeTest.kt
-  - created: src/backend/implementation/src/test/kotlin/io/github/theestimator/service/CsvExporterTreeTest.kt
-  - created: src/backend/implementation/src/test/kotlin/io/github/theestimator/service/ExcelImporterTreeTest.kt
+  - modified: src/backend/implementation/src/main/kotlin/io/pythia/service/ExcelExporter.kt
+  - modified: src/backend/implementation/src/main/kotlin/io/pythia/service/CsvExporter.kt
+  - modified: src/backend/implementation/src/main/kotlin/io/pythia/service/ExcelImporter.kt
+  - modified: src/backend/implementation/src/test/kotlin/io/pythia/rest/EstimationVersionResourceIT.kt
+  - created: src/backend/implementation/src/test/kotlin/io/pythia/service/ExcelExporterTreeTest.kt
+  - created: src/backend/implementation/src/test/kotlin/io/pythia/service/CsvExporterTreeTest.kt
+  - created: src/backend/implementation/src/test/kotlin/io/pythia/service/ExcelImporterTreeTest.kt

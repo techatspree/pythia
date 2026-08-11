@@ -33,7 +33,7 @@ description: |
         included so the GUI can render the timeline.
 
   DTOs (under
-  src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/dto/):
+  src/backend/implementation/src/main/kotlin/io/pythia/rest/dto/):
 
     data class ConflictDetailsDto(
         val message: String,
@@ -65,7 +65,7 @@ description: |
     Add `UndoConflictExceptionMapper` (JAX-RS `ExceptionMapper`) that
     serialises `UndoConflictException` → HTTP 409 with a
     `ConflictDetailsDto` body. Place it under
-    src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/.
+    src/backend/implementation/src/main/kotlin/io/pythia/rest/.
     IMPORTANT: an `ExceptionMapper` runs AFTER the resource method, so the
     `@Transactional` scope has already ended (the service threw, the tx
     rolled back). `blockingEntry.user` and `blockingEntry.draftVersion`
@@ -89,7 +89,7 @@ description: |
 
   Tests:
     REST IT under
-    src/backend/implementation/src/test/kotlin/io/github/theestimator/rest/UndoEndpointsIT.kt:
+    src/backend/implementation/src/test/kotlin/io/pythia/rest/UndoEndpointsIT.kt:
       - 200 happy path for undo + redo (state matches expectations).
       - 404 when no draft exists.
       - 404 when undo has nothing to undo / redo has nothing to redo.
@@ -133,7 +133,7 @@ steps:
 
   - |
     REST IT under
-    src/backend/implementation/src/test/kotlin/io/github/theestimator/rest/UndoEndpointsIT.kt
+    src/backend/implementation/src/test/kotlin/io/pythia/rest/UndoEndpointsIT.kt
     covering the five scenarios in the description. Use the existing
     test helpers (`buildRealisticDraft`, the dev-auth header pattern
     from `EstimationVersionResourceIT`) for setup.
@@ -154,12 +154,12 @@ steps:
 validation:
   - |
     Resource and DTOs exist:
-      grep -q "/draft/undo" src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/EstimationVersionResource.kt
-      grep -q "/draft/redo" src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/EstimationVersionResource.kt
-      grep -q "/draft/history" src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/EstimationVersionResource.kt
-      test -f src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/dto/ConflictDetailsDto.kt
-      test -f src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/dto/MutationLogEntryDto.kt
-      test -f src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/UndoConflictExceptionMapper.kt
+      grep -q "/draft/undo" src/backend/implementation/src/main/kotlin/io/pythia/rest/EstimationVersionResource.kt
+      grep -q "/draft/redo" src/backend/implementation/src/main/kotlin/io/pythia/rest/EstimationVersionResource.kt
+      grep -q "/draft/history" src/backend/implementation/src/main/kotlin/io/pythia/rest/EstimationVersionResource.kt
+      test -f src/backend/implementation/src/main/kotlin/io/pythia/rest/dto/ConflictDetailsDto.kt
+      test -f src/backend/implementation/src/main/kotlin/io/pythia/rest/dto/MutationLogEntryDto.kt
+      test -f src/backend/implementation/src/main/kotlin/io/pythia/rest/UndoConflictExceptionMapper.kt
       grep -q "/draft/undo" CLAUDE.md
   - |
     Tests pass and OpenAPI is updated:
@@ -168,10 +168,10 @@ validation:
       grep -q "/versions/draft/redo" src/backend/implementation/target/openapi/openapi.json
 
 outputs:
-  - created: src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/dto/ConflictDetailsDto.kt
-  - created: src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/dto/MutationLogEntryDto.kt
-  - created: src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/dto/MutationLogMapper.kt
-  - created: src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/UndoConflictExceptionMapper.kt
-  - modified: src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/EstimationVersionResource.kt
+  - created: src/backend/implementation/src/main/kotlin/io/pythia/rest/dto/ConflictDetailsDto.kt
+  - created: src/backend/implementation/src/main/kotlin/io/pythia/rest/dto/MutationLogEntryDto.kt
+  - created: src/backend/implementation/src/main/kotlin/io/pythia/rest/dto/MutationLogMapper.kt
+  - created: src/backend/implementation/src/main/kotlin/io/pythia/rest/UndoConflictExceptionMapper.kt
+  - modified: src/backend/implementation/src/main/kotlin/io/pythia/rest/EstimationVersionResource.kt
   - modified: CLAUDE.md
-  - created: src/backend/implementation/src/test/kotlin/io/github/theestimator/rest/UndoEndpointsIT.kt
+  - created: src/backend/implementation/src/test/kotlin/io/pythia/rest/UndoEndpointsIT.kt

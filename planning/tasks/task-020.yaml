@@ -383,7 +383,7 @@ validation:
   - |
     Backend endpoint is wired:
       grep -n "compareVersions\|VersionComparisonService" \
-        src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/EstimationVersionResource.kt
+        src/backend/implementation/src/main/kotlin/io/pythia/rest/EstimationVersionResource.kt
     Must show both the injection and the method.
   - |
     API types added to types.ts:
@@ -395,15 +395,15 @@ validation:
   - |
     Compare tests exist in EstimationVersionResourceIT:
       grep -c "compare endpoint returns 404\|comparing identical\|replaced items\|changed effort values\|compared against the draft" \
-        src/backend/implementation/src/test/kotlin/io/github/theestimator/rest/EstimationVersionResourceIT.kt
+        src/backend/implementation/src/test/kotlin/io/pythia/rest/EstimationVersionResourceIT.kt
     Must return 5.
   - |
     Draft is selectable for comparison — String compare path params and a
     non-persisting snapshot helper:
       grep -n "versionA: String" \
-        src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/EstimationVersionResource.kt
+        src/backend/implementation/src/main/kotlin/io/pythia/rest/EstimationVersionResource.kt
       grep -n "fun snapshotDraft" \
-        src/backend/implementation/src/main/kotlin/io/github/theestimator/service/EstimationVersionService.kt
+        src/backend/implementation/src/main/kotlin/io/pythia/service/EstimationVersionService.kt
     Both must return a match.
   - |
     mvn test -pl src/backend/implementation passes with zero failures.
@@ -411,9 +411,9 @@ validation:
     cd src/frontend && npm run check passes with zero errors.
 
 outputs:
-  - modified: src/backend/implementation/src/test/kotlin/io/github/theestimator/rest/EstimationVersionResourceIT.kt
-  - modified: src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/EstimationVersionResource.kt
-  - modified: src/backend/implementation/src/main/kotlin/io/github/theestimator/service/EstimationVersionService.kt
+  - modified: src/backend/implementation/src/test/kotlin/io/pythia/rest/EstimationVersionResourceIT.kt
+  - modified: src/backend/implementation/src/main/kotlin/io/pythia/rest/EstimationVersionResource.kt
+  - modified: src/backend/implementation/src/main/kotlin/io/pythia/service/EstimationVersionService.kt
   - modified: src/frontend/src/lib/api/types.ts
   - modified: src/frontend/src/lib/components/VersionList.svelte
   - added:    src/frontend/src/routes/estimations/[id]/compare/+page.svelte

@@ -7,12 +7,12 @@ description: |
   Use Panache repository pattern (not active record) for separation of concerns.
   Add a BaseEntity mapped superclass with id (UUID), created_at, updated_at.
 steps:
-  - create io.github.theestimator.domain.BaseEntity (@MappedSuperclass)
+  - create io.pythia.domain.BaseEntity (@MappedSuperclass)
       - id: UUID, generated with GenerationType.UUID
       - createdAt: Instant, set on @PrePersist
       - updatedAt: Instant, set on @PreUpdate
-  - create enum io.github.theestimator.domain.ProjectStatus (ACTIVE, ARCHIVED)
-  - create enum io.github.theestimator.domain.EstimationVersionStatus (DRAFT, SUBMITTED)
+  - create enum io.pythia.domain.ProjectStatus (ACTIVE, ARCHIVED)
+  - create enum io.pythia.domain.EstimationVersionStatus (DRAFT, SUBMITTED)
   - create entities:
       - Project: name (String, required), description (String), client (String), status (ProjectStatus), owner (User)
       - Estimation: offer (String, required), description (String), project (Project), currentVersion (EstimationVersion)
@@ -36,12 +36,12 @@ validation:
   - project compiles: mvn compile -Pdev-local
   - "./mvnw test" passes (entities load without mapping errors in H2)
 outputs:
-  - src/backend/implementation/src/main/kotlin/io/github/theestimator/domain/BaseEntity.kt
-  - src/backend/implementation/src/main/kotlin/io/github/theestimator/domain/ProjectStatus.kt
-  - src/backend/implementation/src/main/kotlin/io/github/theestimator/domain/EstimationVersionStatus.kt
-  - src/backend/implementation/src/main/kotlin/io/github/theestimator/domain/Project.kt
-  - src/backend/implementation/src/main/kotlin/io/github/theestimator/domain/Estimation.kt
-  - src/backend/implementation/src/main/kotlin/io/github/theestimator/domain/EstimationVersion.kt
-  - src/backend/implementation/src/main/kotlin/io/github/theestimator/domain/EstimationItem.kt
-  - src/backend/implementation/src/main/kotlin/io/github/theestimator/domain/User.kt
-  - src/backend/implementation/src/main/kotlin/io/github/theestimator/domain/AuditLog.kt
+  - src/backend/implementation/src/main/kotlin/io/pythia/domain/BaseEntity.kt
+  - src/backend/implementation/src/main/kotlin/io/pythia/domain/ProjectStatus.kt
+  - src/backend/implementation/src/main/kotlin/io/pythia/domain/EstimationVersionStatus.kt
+  - src/backend/implementation/src/main/kotlin/io/pythia/domain/Project.kt
+  - src/backend/implementation/src/main/kotlin/io/pythia/domain/Estimation.kt
+  - src/backend/implementation/src/main/kotlin/io/pythia/domain/EstimationVersion.kt
+  - src/backend/implementation/src/main/kotlin/io/pythia/domain/EstimationItem.kt
+  - src/backend/implementation/src/main/kotlin/io/pythia/domain/User.kt
+  - src/backend/implementation/src/main/kotlin/io/pythia/domain/AuditLog.kt

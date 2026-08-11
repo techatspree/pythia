@@ -55,7 +55,7 @@ steps:
       fun createTimeRelativeItem(..., logicalId: String = newId(), phase: ProjectPhase? = null)
     Pass _phase = phase in the body."
 
-  - "Domain: create src/domain/src/test/kotlin/io/github/theestimator/model/
+  - "Domain: create src/domain/src/test/kotlin/io/pythia/model/
     TimeRelativeEstimationItemTest.kt (JUnit 5, already in build.gradle.kts jvmTest sourceSet).
     Use a helper that builds a version with stdDevFactor=0 and no drivers so offerPT == mean.
     Required tests:
@@ -180,15 +180,15 @@ validation:
   - import.sql loads cleanly on H2: no UUID conversion errors, no FK violations
 
 outputs:
-  - domain: src/domain/src/main/kotlin/io/github/theestimator/model/TimeRelativeEstimationItem.kt
-  - domain: src/domain/src/main/kotlin/io/github/theestimator/model/DomainFactory.kt
-  - domain: src/domain/src/test/kotlin/io/github/theestimator/model/TimeRelativeEstimationItemTest.kt (new)
+  - domain: src/domain/src/main/kotlin/io/pythia/model/TimeRelativeEstimationItem.kt
+  - domain: src/domain/src/main/kotlin/io/pythia/model/DomainFactory.kt
+  - domain: src/domain/src/test/kotlin/io/pythia/model/TimeRelativeEstimationItemTest.kt (new)
   - domain-js: src/frontend/src/lib/domain/domain.mjs + domain.mjs.map + domain.d.ts + domain.d.mts
   - domain-js: src/frontend/src/lib/domain/kotlin-kotlin-stdlib.mjs + kotlin-kotlin-stdlib.mjs.map
   - frontend: src/frontend/src/lib/domain/adapter.ts
   - frontend: src/frontend/src/routes/estimations/[id]/versions/[versionNumber]/+page.svelte
   - frontend: src/frontend/src/lib/components/EstimationGrid.svelte
-  - backend: src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/dto/EstimationVersionDtos.kt
-  - backend: src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/EstimationVersionResource.kt
-  - backend: src/backend/implementation/src/test/kotlin/io/github/theestimator/rest/EstimationVersionResourceIT.kt
+  - backend: src/backend/implementation/src/main/kotlin/io/pythia/rest/dto/EstimationVersionDtos.kt
+  - backend: src/backend/implementation/src/main/kotlin/io/pythia/rest/EstimationVersionResource.kt
+  - backend: src/backend/implementation/src/test/kotlin/io/pythia/rest/EstimationVersionResourceIT.kt
   - data: src/backend/implementation/src/main/resources/import.sql

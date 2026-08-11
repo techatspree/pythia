@@ -80,8 +80,8 @@ description: |
 steps:
   - |
     Backend — add the JSON error mappers. Create
-    `src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/error/AuthorizationExceptionMappers.kt`
-    (package `io.github.theestimator.rest.error`) containing:
+    `src/backend/implementation/src/main/kotlin/io/pythia/rest/error/AuthorizationExceptionMappers.kt`
+    (package `io.pythia.rest.error`) containing:
       - a small serializable payload
         `data class ApiError(val message: String, val status: Int)`;
       - `@Provider class ForbiddenExceptionMapper : ExceptionMapper<io.quarkus.security.ForbiddenException>`
@@ -138,7 +138,7 @@ steps:
     `log.error(...)` intact so the message still reaches `ErrorBanner`.
   - |
     Backend test — create
-    `src/backend/implementation/src/test/kotlin/io/github/theestimator/rest/AuthorizationErrorIT.kt`
+    `src/backend/implementation/src/test/kotlin/io/pythia/rest/AuthorizationErrorIT.kt`
     as a `@QuarkusTest` using rest-assured. Assert:
       - a VIEWER write is denied with a JSON body: `given().header(
         "Authorization", "Dev dev-viewer").post("/api/projects")` →
@@ -181,10 +181,10 @@ validation:
   - |
     Backend mappers exist, map the Quarkus security exceptions, return
     JSON, and log:
-      test -f src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/error/AuthorizationExceptionMappers.kt
-      grep -q "ExceptionMapper<io.quarkus.security.ForbiddenException>" src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/error/AuthorizationExceptionMappers.kt
-      grep -q "ExceptionMapper<io.quarkus.security.UnauthorizedException>" src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/error/AuthorizationExceptionMappers.kt
-      grep -q "Log\." src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/error/AuthorizationExceptionMappers.kt
+      test -f src/backend/implementation/src/main/kotlin/io/pythia/rest/error/AuthorizationExceptionMappers.kt
+      grep -q "ExceptionMapper<io.quarkus.security.ForbiddenException>" src/backend/implementation/src/main/kotlin/io/pythia/rest/error/AuthorizationExceptionMappers.kt
+      grep -q "ExceptionMapper<io.quarkus.security.UnauthorizedException>" src/backend/implementation/src/main/kotlin/io/pythia/rest/error/AuthorizationExceptionMappers.kt
+      grep -q "Log\." src/backend/implementation/src/main/kotlin/io/pythia/rest/error/AuthorizationExceptionMappers.kt
   - |
     Frontend helper exists, maps 401/403, and uses no bare console:
       test -f src/frontend/src/lib/api/errors.ts
@@ -200,8 +200,8 @@ validation:
       ! grep -q "throw new Error('Failed to load projects')" src/frontend/src/routes/projects/+page.svelte
   - |
     Tests exist:
-      test -f src/backend/implementation/src/test/kotlin/io/github/theestimator/rest/AuthorizationErrorIT.kt
-      grep -q "statusCode(403)" src/backend/implementation/src/test/kotlin/io/github/theestimator/rest/AuthorizationErrorIT.kt
+      test -f src/backend/implementation/src/test/kotlin/io/pythia/rest/AuthorizationErrorIT.kt
+      grep -q "statusCode(403)" src/backend/implementation/src/test/kotlin/io/pythia/rest/AuthorizationErrorIT.kt
       test -f src/frontend/e2e/authorization-error.test.ts
       grep -qi "not authorized" src/frontend/e2e/authorization-error.test.ts
   - |
@@ -210,8 +210,8 @@ validation:
       ./gradlew :frontend:check
 
 outputs:
-  - created: src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/error/AuthorizationExceptionMappers.kt
-  - created: src/backend/implementation/src/test/kotlin/io/github/theestimator/rest/AuthorizationErrorIT.kt
+  - created: src/backend/implementation/src/main/kotlin/io/pythia/rest/error/AuthorizationExceptionMappers.kt
+  - created: src/backend/implementation/src/test/kotlin/io/pythia/rest/AuthorizationErrorIT.kt
   - created: src/frontend/src/lib/api/errors.ts
   - created: src/frontend/e2e/authorization-error.test.ts
   - modified: src/frontend/src/routes/projects/+page.svelte

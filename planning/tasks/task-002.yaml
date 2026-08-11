@@ -7,7 +7,7 @@ description: |
   for REST, persistence, OIDC authentication, migrations, and OpenAPI docs.
 steps:
   - cd backend
-  - run Quarkus CLI to create a subproject named implementation with groupId io.github.theestimator, artifactId backend
+  - run Quarkus CLI to create a subproject named implementation with groupId io.pythia, artifactId backend
   - add extensions:
       - resteasy-reactive-jackson
       - hibernate-orm-panache

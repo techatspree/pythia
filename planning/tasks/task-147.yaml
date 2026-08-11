@@ -118,7 +118,7 @@ steps:
     indicator span so the e2e can await it.
   - |
     Backend heartbeat: add a scheduled method to
-    `src/backend/implementation/src/main/kotlin/io/github/theestimator/ws/SessionBroadcaster.kt`
+    `src/backend/implementation/src/main/kotlin/io/pythia/ws/SessionBroadcaster.kt`
     that sends `{"type":"heartbeat"}` to every connection in
     `connections.listAll()` via the existing private `send(...)`. Log at DEBUG
     with the connection count (never INFO — this fires every 20 s and would
@@ -151,7 +151,7 @@ steps:
     are fine, and would fight the mechanism this task is adding.
   - |
     Backend IT: extend the EXISTING
-    `src/backend/implementation/src/test/kotlin/io/github/theestimator/ws/SessionSocketIT.kt`
+    `src/backend/implementation/src/test/kotlin/io/pythia/ws/SessionSocketIT.kt`
     — not the REST-only `SessionResourceIT`. It already has everything needed:
     a `@QuarkusTest` harness, a `WebSocket.Listener`-based `Collector` that
     accumulates text frames, and the ws-ticket handshake. Add a case that opens
@@ -209,20 +209,20 @@ validation:
       grep -q "session-connection" "$P"
   - |
     The server emits the heartbeat and reaps dead clients:
-      B=src/backend/implementation/src/main/kotlin/io/github/theestimator/ws/SessionBroadcaster.kt
+      B=src/backend/implementation/src/main/kotlin/io/pythia/ws/SessionBroadcaster.kt
       grep -q "Scheduled" "$B"
       grep -q "heartbeat" "$B"
       grep -q "Log\.debug" "$B"
       grep -q "quarkus-scheduler" src/backend/implementation/build.gradle.kts
       grep -q "app.session.heartbeat-interval" src/backend/implementation/src/main/resources/application.properties
       # the heartbeat IT belongs with the other WebSocket tests
-      grep -q "heartbeat" src/backend/implementation/src/test/kotlin/io/github/theestimator/ws/SessionSocketIT.kt
+      grep -q "heartbeat" src/backend/implementation/src/test/kotlin/io/pythia/ws/SessionSocketIT.kt
       ! grep -qE 'Log\.info\("Heartbeat|Log\.info\("heartbeat' "$B"
       grep -q "auto-ping-interval" src/backend/implementation/src/main/resources/application.properties
   - |
     The on-open snapshot is still the re-sync path (no redundant REST fetch was
     added to the reconnect path):
-      W=src/backend/implementation/src/main/kotlin/io/github/theestimator/ws/SessionSocket.kt
+      W=src/backend/implementation/src/main/kotlin/io/pythia/ws/SessionSocket.kt
       grep -q "sendSnapshot" "$W"
   - |
     Both e2e specs exist and neither papers over the race with a sleep:
@@ -244,10 +244,10 @@ outputs:
   - modified: src/frontend/src/lib/session/socket.ts
   - modified: src/frontend/src/lib/session/store.svelte.ts
   - modified: src/frontend/src/routes/sessions/[id]/+page.svelte
-  - modified: src/backend/implementation/src/main/kotlin/io/github/theestimator/ws/SessionBroadcaster.kt
+  - modified: src/backend/implementation/src/main/kotlin/io/pythia/ws/SessionBroadcaster.kt
   - modified: src/backend/implementation/src/main/resources/application.properties
   - modified: src/backend/implementation/build.gradle.kts
-  - modified: src/backend/implementation/src/test/kotlin/io/github/theestimator/ws/SessionSocketIT.kt
+  - modified: src/backend/implementation/src/test/kotlin/io/pythia/ws/SessionSocketIT.kt
   - modified: src/frontend/e2e/session.test.ts
   - created: src/frontend/e2e/session-connection.test.ts
   - modified: .claude/skills/estimation-sessions/SKILL.md

@@ -115,13 +115,13 @@ steps:
 
   - |
     Edit the regression-guard test
-    `src/backend/implementation/src/test/kotlin/io/github/theestimator/auth/AuthProviderProfileTest.kt`:
+    `src/backend/implementation/src/test/kotlin/io/pythia/auth/AuthProviderProfileTest.kt`:
     replace the `dev-local` assertion with a `dev` one — assert profile
     `dev` resolves `app.auth.provider` to `dev` — and keep the
     `dev-minikube` → `entra`, `prod` → `entra`, `test` → `dev` cases.
 
   - |
-    Edit `src/backend/implementation/src/main/kotlin/io/github/theestimator/testdata/TestDataSeeder.kt`:
+    Edit `src/backend/implementation/src/main/kotlin/io/pythia/testdata/TestDataSeeder.kt`:
     its `@IfBuildProfile(anyOf = ["dev", "dev-local"])` gate references the
     removed profile — change it to `@IfBuildProfile("dev")` so the seeder
     still runs under the (now canonical) `dev` local profile.
@@ -197,8 +197,8 @@ validation:
       test -f scripts/dev.sh
       ! test -f scripts/dev-local.sh
       grep -q "QUARKUS_PROFILE=dev" scripts/dev.sh
-      ! grep -q "dev-local" src/backend/implementation/src/test/kotlin/io/github/theestimator/auth/AuthProviderProfileTest.kt
-      grep -q "dev-minikube" src/backend/implementation/src/test/kotlin/io/github/theestimator/auth/AuthProviderProfileTest.kt
+      ! grep -q "dev-local" src/backend/implementation/src/test/kotlin/io/pythia/auth/AuthProviderProfileTest.kt
+      grep -q "dev-minikube" src/backend/implementation/src/test/kotlin/io/pythia/auth/AuthProviderProfileTest.kt
   - |
     No dangling references to the removed profile remain in config,
     docs, scripts, or backend main sources (the optional historical
@@ -207,7 +207,7 @@ validation:
       ! grep -rIq "dev-local" CLAUDE.md docs/ scripts/dev.sh \
           src/backend/implementation/src/main/resources/application.properties \
           src/backend/implementation/src/main/kotlin
-      grep -q "@IfBuildProfile(\"dev\")" src/backend/implementation/src/main/kotlin/io/github/theestimator/testdata/TestDataSeeder.kt
+      grep -q "@IfBuildProfile(\"dev\")" src/backend/implementation/src/main/kotlin/io/pythia/testdata/TestDataSeeder.kt
   - |
     Build + @QuarkusTest suite green on PostgreSQL (Docker required):
       ./gradlew :backend:implementation:test
@@ -216,8 +216,8 @@ validation:
 outputs:
   - modified: src/backend/implementation/src/main/resources/application.properties
   - modified: src/backend/implementation/build.gradle.kts
-  - modified: src/backend/implementation/src/test/kotlin/io/github/theestimator/auth/AuthProviderProfileTest.kt
-  - modified: src/backend/implementation/src/main/kotlin/io/github/theestimator/testdata/TestDataSeeder.kt
+  - modified: src/backend/implementation/src/test/kotlin/io/pythia/auth/AuthProviderProfileTest.kt
+  - modified: src/backend/implementation/src/main/kotlin/io/pythia/testdata/TestDataSeeder.kt
   - deleted: scripts/dev-local.sh
   - created: scripts/dev.sh
   - deleted: scripts/dev-local-strict.sh

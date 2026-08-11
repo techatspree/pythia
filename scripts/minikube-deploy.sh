@@ -81,7 +81,7 @@ echo "Loading images into Minikube..."
 # keep running yesterday's bundle. Piping `docker save` straight into the
 # in-cluster docker daemon bypasses that cache and always installs the new
 # content, retagging 1.0.0-SNAPSHOT to the fresh image id.
-for img in theestimator/estimation-backend:1.0.0-SNAPSHOT theestimator/estimation-frontend:1.0.0-SNAPSHOT; do
+for img in pythia/pythia-backend:1.0.0-SNAPSHOT pythia/pythia-frontend:1.0.0-SNAPSHOT; do
     echo "  -> $img"
     docker save "$img" | minikube ssh --native-ssh=false -- docker load
 done
@@ -145,8 +145,8 @@ verify_image() {
     fi
 }
 echo "Verifying pods run the freshly built images..."
-verify_image backend  theestimator/estimation-backend:1.0.0-SNAPSHOT
-verify_image frontend theestimator/estimation-frontend:1.0.0-SNAPSHOT
+verify_image backend  pythia/pythia-backend:1.0.0-SNAPSHOT
+verify_image frontend pythia/pythia-frontend:1.0.0-SNAPSHOT
 
 echo "Deployment complete."
 kubectl -n estimation get pods

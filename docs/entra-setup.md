@@ -115,7 +115,7 @@ Consequences:
 ## Backend wiring
 
 The `entra` module is implemented in
-`src/backend/implementation/src/main/kotlin/io/github/theestimator/auth/entra/`:
+`src/backend/implementation/src/main/kotlin/io/pythia/auth/entra/`:
 
 - `EntraAuthModule` — declares `name() = "entra"`,
   `@IfBuildProperty`-gated to `app.auth.provider=entra`.
@@ -314,7 +314,7 @@ Common failures seen during setup:
 
 ## Cross-references
 
-- Modular SPI: `src/backend/implementation/src/main/kotlin/io/github/theestimator/auth/`
+- Modular SPI: `src/backend/implementation/src/main/kotlin/io/pythia/auth/`
   + `src/frontend/src/lib/auth/`.
 - Dev module (default for local development): `docs/auth-dev.md`.
 - Keycloak module (planned): `task-060`.

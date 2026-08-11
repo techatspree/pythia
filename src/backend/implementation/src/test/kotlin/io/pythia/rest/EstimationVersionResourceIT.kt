@@ -1,0 +1,1206 @@
+package io.pythia.rest
+
+import io.pythia.domain.Estimation
+import io.pythia.domain.Project
+import io.pythia.method.EstimationMethod
+import io.pythia.repository.EstimationRepository
+import io.pythia.auth.DevAdminAuth
+import io.pythia.repository.ProjectRepository
+import io.quarkus.narayana.jta.QuarkusTransaction
+import io.quarkus.test.junit.QuarkusTest
+import org.junit.jupiter.api.extension.ExtendWith
+import io.restassured.RestAssured.given
+import io.restassured.http.ContentType
+import jakarta.inject.Inject
+import jakarta.transaction.Transactional
+import org.hamcrest.Matchers.*
+import org.junit.jupiter.api.BeforeEach
+import org.junit.jupiter.api.Test
+import java.util.UUID
+
+@QuarkusTest
+@ExtendWith(DevAdminAuth::class)
+class EstimationVersionResourceIT {
+
+    @Inject
+    lateinit var projectRepository: ProjectRepository
+
+    @Inject
+    lateinit var estimationRepository: EstimationRepository
+
+    @Inject
+    lateinit var dataSource: javax.sql.DataSource
+
+    private lateinit var estimationId: UUID
+
+    @BeforeEach
+    @Transactional
+    fun setup() {
+        val project = Project().apply { name = "Test Project" }
+        projectRepository.persist(project)
+
+        val estimation = Estimation().apply {
+            offer = "TEST-001"
+            this.project = project
+        }
+        estimationRepository.persist(estimation)
+        estimationId = estimation.id!!
+    }
+
+    @Test
+    fun `create draft returns 201 with version data`() {
+        given()
+            .`when`().post("/api/estimations/$estimationId/versions")
+            .then()
+            .statusCode(201)
+            .body("versionNumber", equalTo(1))
+            .body("isDraft", equalTo(true))
+            .body("totalEffort", notNullValue())
+    }
+
+    @Test
+    fun `create duplicate draft returns 409`() {
+        given().post("/api/estimations/$estimationId/versions")
+            .then().statusCode(201)
+
+        given()
+            .`when`().post("/api/estimations/$estimationId/versions")
+            .then()
+            .statusCode(409)
+    }
+
+    @Test
+    fun `get draft returns on-the-fly calculations`() {
+        given().post("/api/estimations/$estimationId/versions")
+            .then().statusCode(201)
+
+        given()
+            .`when`().get("/api/estimations/$estimationId/versions/draft")
+            .then()
+            .statusCode(200)
+            .body("isDraft", equalTo(true))
+            .body("versionNumber", equalTo(1))
+            .body("dailyRate", notNullValue())
+    }
+
+    @Test
+    fun `get draft when none exists returns 404`() {
+        given()
+            .`when`().get("/api/estimations/$estimationId/versions/draft")
+            .then()
+            .statusCode(404)
+    }
+
+    @Test
+    fun `update draft changes parameters`() {
+        given().post("/api/estimations/$estimationId/versions")
+            .then().statusCode(201)
+
+        given()
+            .contentType(ContentType.JSON)
+            .body("""
+                {
+                    "notes": "Updated notes",
+                    "dailyRate": 1000.0,
+                    "stdDevFactor": 2.5
+                }
+            """.trimIndent())
+            .`when`().put("/api/estimations/$estimationId/versions/draft")
+            .then()
+            .statusCode(200)
+            .body("notes", equalTo("Updated notes"))
+            .body("stdDevFactor", equalTo(2.5f))
+            .body("dailyRate", equalTo(1000.0f))
+    }
+
+    @Test
+    fun `update draft with a BUCKETED leaf is rejected with 400`() {
+        given().post("/api/estimations/$estimationId/versions")
+            .then().statusCode(201)
+
+        given()
+            .contentType(ContentType.JSON)
+            .body("""
+                {
+                    "roots": [
+                        {"type": "BUCKETED", "description": "Not yet supported", "bucketId": "b1"}
+                    ]
+                }
+            """.trimIndent())
+            .`when`().put("/api/estimations/$estimationId/versions/draft")
+            .then()
+            .statusCode(400)
+    }
+
+    @Test
+    fun `submit draft creates submitted version and removes draft`() {
+        buildRealisticDraft(estimationId)
+
+        given()
+            .`when`().post("/api/estimations/$estimationId/versions/draft/submit")
+            .then()
+            .statusCode(200)
+            .body("isDraft", equalTo(false))
+            .body("versionNumber", equalTo(1))
+            .body("submittedAt", notNullValue())
+            .body("totalEffort", notNullValue())
+            .body("roots[0].children.size()", equalTo(2))
+            .body("roots[0].children[0].offerPT", greaterThan(0.0f))
+
+        given()
+            .`when`().get("/api/estimations/$estimationId/versions/draft")
+            .then()
+            .statusCode(404)
+    }
+
+    @Test
+    fun `get submitted version by number`() {
+        given().post("/api/estimations/$estimationId/versions")
+        given().post("/api/estimations/$estimationId/versions/draft/submit")
+
+        given()
+            .`when`().get("/api/estimations/$estimationId/versions/1")
+            .then()
+            .statusCode(200)
+            .body("isDraft", equalTo(false))
+            .body("versionNumber", equalTo(1))
+    }
+
+    @Test
+    fun `list versions returns draft first then submitted`() {
+        given().post("/api/estimations/$estimationId/versions")
+        given().post("/api/estimations/$estimationId/versions/draft/submit")
+        given().post("/api/estimations/$estimationId/versions")
+
+        given()
+            .`when`().get("/api/estimations/$estimationId/versions")
+            .then()
+            .statusCode(200)
+            .body("size()", equalTo(2))
+            .body("[0].isDraft", equalTo(true))
+            .body("[0].versionNumber", equalTo(2))
+            .body("[1].isDraft", equalTo(false))
+            .body("[1].versionNumber", equalTo(1))
+    }
+
+    @Test
+    fun `delete draft removes it`() {
+        given().post("/api/estimations/$estimationId/versions")
+            .then().statusCode(201)
+
+        given()
+            .`when`().delete("/api/estimations/$estimationId/versions/draft")
+            .then()
+            .statusCode(204)
+
+        given()
+            .`when`().get("/api/estimations/$estimationId/versions/draft")
+            .then()
+            .statusCode(404)
+    }
+
+    @Test
+    fun `new draft after submit clones from previous version`() {
+        buildRealisticDraft(estimationId)
+        given().post("/api/estimations/$estimationId/versions/draft/submit")
+
+        given().post("/api/estimations/$estimationId/versions")
+            .then()
+            .statusCode(201)
+            .body("versionNumber", equalTo(2))
+            .body("dailyRate", equalTo(900.0f))
+            .body("effortDrivers.size()", equalTo(1))
+            .body("effortDrivers[0].description", equalTo("QA"))
+            .body("roots[0].children.size()", equalTo(2))
+    }
+
+    @Test
+    fun `update draft with roots persists items`() {
+        given().post("/api/estimations/$estimationId/versions")
+            .then().statusCode(201)
+
+        given()
+            .contentType(ContentType.JSON)
+            .body("""
+                {
+                    "roots": [{
+                        "type": "GROUP",
+                        "title": "Backend",
+                        "children": [
+                            {"type": "FIXED", "description": "Task A", "minEffort": 1.0, "expectedEffort": 2.0, "maxEffort": 3.0},
+                            {"type": "FIXED", "description": "Task B", "minEffort": 2.0, "expectedEffort": 4.0, "maxEffort": 6.0, "assumptions": "Needs design"}
+                        ]
+                    }]
+                }
+            """.trimIndent())
+            .`when`().put("/api/estimations/$estimationId/versions/draft")
+            .then()
+            .statusCode(200)
+            .body("roots.size()", equalTo(1))
+            .body("roots[0].title", equalTo("Backend"))
+            .body("roots[0].children.size()", equalTo(2))
+            .body("roots[0].children[0].description", equalTo("Task A"))
+            .body("roots[0].children[0].minEffort", equalTo(1.0f))
+            .body("roots[0].children[0].expectedEffort", equalTo(2.0f))
+            .body("roots[0].children[0].maxEffort", equalTo(3.0f))
+            .body("roots[0].children[0].mean", equalTo(2.0f))
+            .body("roots[0].children[1].assumptions", equalTo("Needs design"))
+    }
+
+    @Test
+    fun `update draft roots replaces previous roots`() {
+        given().post("/api/estimations/$estimationId/versions")
+        given()
+            .contentType(ContentType.JSON)
+            .body("""{"roots": [{"type": "GROUP", "title": "First", "children": [{"type": "FIXED", "description": "Old"}]}]}""")
+            .put("/api/estimations/$estimationId/versions/draft")
+
+        given()
+            .contentType(ContentType.JSON)
+            .body("""{"roots": [{"type": "GROUP", "title": "Second", "children": [{"type": "FIXED", "description": "New", "minEffort": 2.0, "expectedEffort": 4.0, "maxEffort": 6.0}]}]}""")
+            .`when`().put("/api/estimations/$estimationId/versions/draft")
+            .then()
+            .statusCode(200)
+            .body("roots.size()", equalTo(1))
+            .body("roots[0].title", equalTo("Second"))
+            .body("roots[0].children[0].description", equalTo("New"))
+            .body("totalEffort", greaterThan(0.0f))
+    }
+
+    @Test
+    fun `update draft with a three-level tree round-trips`() {
+        given().post("/api/estimations/$estimationId/versions")
+            .then().statusCode(201)
+
+        given()
+            .contentType(ContentType.JSON)
+            .body("""
+                {
+                    "stdDevFactor": 0.0,
+                    "roots": [{
+                        "type": "GROUP",
+                        "title": "Backend",
+                        "children": [
+                            {
+                                "type": "GROUP",
+                                "title": "Auth",
+                                "children": [
+                                    {"type": "FIXED", "description": "Token endpoint", "minEffort": 1.0, "expectedEffort": 2.0, "maxEffort": 3.0},
+                                    {"type": "FIXED", "description": "Session storage", "minEffort": 2.0, "expectedEffort": 4.0, "maxEffort": 6.0}
+                                ]
+                            },
+                            {"type": "FIXED", "description": "Health endpoint", "minEffort": 1.0, "expectedEffort": 1.0, "maxEffort": 1.0}
+                        ]
+                    }]
+                }
+            """.trimIndent())
+            .`when`().put("/api/estimations/$estimationId/versions/draft")
+            .then()
+            .statusCode(200)
+            .body("roots.size()", equalTo(1))
+            .body("roots[0].type", equalTo("GROUP"))
+            .body("roots[0].title", equalTo("Backend"))
+            .body("roots[0].children.size()", equalTo(2))
+            .body("roots[0].children[0].type", equalTo("GROUP"))
+            .body("roots[0].children[0].title", equalTo("Auth"))
+            .body("roots[0].children[0].children.size()", equalTo(2))
+            .body("roots[0].children[0].children[0].description", equalTo("Token endpoint"))
+            .body("roots[0].children[1].description", equalTo("Health endpoint"))
+            // Backend.offerPT should sum the two leaves under Auth plus the Health leaf
+            .body("roots[0].offerPT", equalTo(7.0f))
+            .body("roots[0].children[0].offerPT", equalTo(6.0f))
+
+        // GET round-trip preserves the nested shape
+        given()
+            .`when`().get("/api/estimations/$estimationId/versions/draft")
+            .then()
+            .statusCode(200)
+            .body("roots[0].children[0].children.size()", equalTo(2))
+            .body("roots[0].children[0].children[1].description", equalTo("Session storage"))
+    }
+
+    @Test
+    fun `PUT replacing only phases while persistent nodes reference them does not break the flush`() {
+        // Reproduces the dev-local autosave error
+        //   "Persistent instance of DraftFixedItemNode references an unsaved
+        //    transient instance of DraftProjectPhase"
+        // The current frontend sends `itemGroups` (not `roots`) in the autosave
+        // payload, so Jackson drops the items and `update.roots` is null — the
+        // existing persistent nodes stay put. But the PUT also sends `phases`,
+        // which clear()s the persistent phases (orphan-marking them) and adds
+        // fresh transient ones with the same abbreviation. The persistent nodes
+        // still hold references to the now-orphaned phases, and the flush blows
+        // up before commit.
+        given().post("/api/estimations/$estimationId/versions").then().statusCode(201)
+
+        // Seed: phases + nodes referencing them. After this PUT both phases
+        // and nodes are persistent in the DB.
+        given().contentType(ContentType.JSON).body("""
+            {
+                "phases": [{"name": "Analysis", "abbreviation": "AN", "durationWeeks": 2.0}],
+                "roots": [{"type": "GROUP", "title": "G", "children": [
+                    {"type": "FIXED", "description": "T", "minEffort": 1.0, "expectedEffort": 2.0, "maxEffort": 3.0, "phaseAbbreviation": "AN"}
+                ]}]
+            }
+        """.trimIndent()).put("/api/estimations/$estimationId/versions/draft").then().statusCode(200)
+
+        // Autosave-style PUT with only phases (no roots). The persistent nodes
+        // already reference phase AN; this PUT clears and re-adds AN with a
+        // new durationWeeks.
+        given().contentType(ContentType.JSON).body("""
+            {
+                "phases": [{"name": "Analysis", "abbreviation": "AN", "durationWeeks": 3.0}]
+            }
+        """.trimIndent()).put("/api/estimations/$estimationId/versions/draft").then().statusCode(200)
+
+        // Verify the existing node still resolves its phase correctly.
+        given().`when`().get("/api/estimations/$estimationId/versions/draft")
+            .then().statusCode(200)
+            .body("roots[0].children[0].phaseAbbreviation", equalTo("AN"))
+            .body("phases[0].durationWeeks", equalTo(3.0f))
+    }
+
+    @Test
+    fun `submit preserves a three-level tree end-to-end`() {
+        given().post("/api/estimations/$estimationId/versions").then().statusCode(201)
+
+        given()
+            .contentType(ContentType.JSON)
+            .body("""
+                {
+                    "stdDevFactor": 0.0,
+                    "roots": [{
+                        "type": "GROUP",
+                        "title": "Backend",
+                        "children": [
+                            {
+                                "type": "GROUP",
+                                "title": "Auth",
+                                "children": [
+                                    {"type": "FIXED", "description": "Token endpoint", "minEffort": 1.0, "expectedEffort": 2.0, "maxEffort": 3.0},
+                                    {"type": "FIXED", "description": "Session storage", "minEffort": 2.0, "expectedEffort": 4.0, "maxEffort": 6.0}
+                                ]
+                            },
+                            {"type": "FIXED", "description": "Health endpoint", "minEffort": 1.0, "expectedEffort": 1.0, "maxEffort": 1.0}
+                        ]
+                    }]
+                }
+            """.trimIndent())
+            .put("/api/estimations/$estimationId/versions/draft")
+            .then().statusCode(200)
+
+        given().post("/api/estimations/$estimationId/versions/draft/submit").then().statusCode(200)
+
+        given()
+            .`when`().get("/api/estimations/$estimationId/versions/1")
+            .then()
+            .statusCode(200)
+            .body("roots.size()", equalTo(1))
+            .body("roots[0].type", equalTo("GROUP"))
+            .body("roots[0].title", equalTo("Backend"))
+            .body("roots[0].children.size()", equalTo(2))
+            .body("roots[0].children[0].type", equalTo("GROUP"))
+            .body("roots[0].children[0].title", equalTo("Auth"))
+            .body("roots[0].children[0].children.size()", equalTo(2))
+            .body("roots[0].children[0].children[0].description", equalTo("Token endpoint"))
+            .body("roots[0].children[0].children[1].description", equalTo("Session storage"))
+            .body("roots[0].children[1].description", equalTo("Health endpoint"))
+            // Accumulated values stored on group rows: Auth has 2.0 + 4.0 = 6.0 PT
+            .body("roots[0].children[0].offerPT", equalTo(6.0f))
+            // Backend root accumulates Auth + Health = 7.0 PT
+            .body("roots[0].offerPT", equalTo(7.0f))
+    }
+
+    @Test
+    fun `effort drivers increase offerPT`() {
+        given().post("/api/estimations/$estimationId/versions")
+            .then().statusCode(201)
+
+        // stdDevFactor=0 eliminates risk surcharge so offerPT == mean exactly
+        given()
+            .contentType(ContentType.JSON)
+            .body("""
+                {
+                    "stdDevFactor": 0.0,
+                    "roots": [{"type": "GROUP", "title": "G", "children": [{"type": "FIXED", "description": "T", "minEffort": 2.0, "expectedEffort": 4.0, "maxEffort": 6.0}]}]
+                }
+            """.trimIndent())
+            .`when`().put("/api/estimations/$estimationId/versions/draft")
+            .then()
+            .statusCode(200)
+            .body("roots[0].children[0].offerPT", equalTo(4.0f))
+
+        // driver factor=0.5: driverSurcharge = mean*0.5, offerPT = mean + 0 + mean*0.5 = 1.5*mean = 6.0
+        given()
+            .contentType(ContentType.JSON)
+            .body("""
+                {
+                    "stdDevFactor": 0.0,
+                    "effortDrivers": [{"description": "QA", "factor": 0.5}],
+                    "roots": [{"type": "GROUP", "title": "G", "children": [{"type": "FIXED", "description": "T", "minEffort": 2.0, "expectedEffort": 4.0, "maxEffort": 6.0}]}]
+                }
+            """.trimIndent())
+            .`when`().put("/api/estimations/$estimationId/versions/draft")
+            .then()
+            .statusCode(200)
+            .body("roots[0].children[0].offerPT", equalTo(6.0f))
+            .body("totalEffort", equalTo(6.0f))
+    }
+
+    @Test
+    fun `dailyRate affects cost but not offerPT`() {
+        given().post("/api/estimations/$estimationId/versions")
+            .then().statusCode(201)
+
+        given()
+            .contentType(ContentType.JSON)
+            .body("""
+                {
+                    "dailyRate": 800.0,
+                    "stdDevFactor": 0.0,
+                    "roots": [{"type": "GROUP", "title": "G", "children": [{"type": "FIXED", "description": "T", "minEffort": 2.0, "expectedEffort": 4.0, "maxEffort": 6.0}]}]
+                }
+            """.trimIndent())
+            .`when`().put("/api/estimations/$estimationId/versions/draft")
+            .then()
+            .statusCode(200)
+            .body("roots[0].children[0].offerPT", equalTo(4.0f))
+            .body("roots[0].children[0].cost", equalTo(3200.0f))
+
+        // Doubling dailyRate doubles cost but leaves offerPT unchanged
+        given()
+            .contentType(ContentType.JSON)
+            .body("""
+                {
+                    "dailyRate": 1600.0,
+                    "stdDevFactor": 0.0,
+                    "roots": [{"type": "GROUP", "title": "G", "children": [{"type": "FIXED", "description": "T", "minEffort": 2.0, "expectedEffort": 4.0, "maxEffort": 6.0}]}]
+                }
+            """.trimIndent())
+            .`when`().put("/api/estimations/$estimationId/versions/draft")
+            .then()
+            .statusCode(200)
+            .body("roots[0].children[0].offerPT", equalTo(4.0f))
+            .body("roots[0].children[0].cost", equalTo(6400.0f))
+            .body("roots[0].children[0].offerPrice", equalTo(7040.0f))
+    }
+
+    @Test
+    fun `nonexistent estimation returns 404`() {
+        val fakeId = UUID.randomUUID()
+
+        given()
+            .`when`().get("/api/estimations/$fakeId/versions")
+            .then()
+            .statusCode(404)
+    }
+
+    @Test
+    fun `phase assignment per item is saved and cloned`() {
+        given().post("/api/estimations/$estimationId/versions").then().statusCode(201)
+
+        // PUT with phases and item carrying phaseAbbreviation
+        given()
+            .contentType(ContentType.JSON)
+            .body("""
+                {
+                    "phases": [{"name": "Analysis", "abbreviation": "AN", "durationWeeks": 2.0}],
+                    "stdDevFactor": 0.0,
+                    "roots": [{"type": "GROUP", "title": "G", "children": [
+                        {"type": "FIXED", "description": "T", "minEffort": 2.0, "expectedEffort": 4.0, "maxEffort": 6.0, "phaseAbbreviation": "AN"}
+                    ]}]
+                }
+            """.trimIndent())
+            .`when`().put("/api/estimations/$estimationId/versions/draft")
+            .then()
+            .statusCode(200)
+            .body("phases.size()", equalTo(1))
+            .body("roots[0].children[0].phaseAbbreviation", equalTo("AN"))
+            .body("roots[0].phaseAbbreviation", nullValue())
+
+        // Submit and verify phaseAbbreviation on submitted snapshot
+        given().post("/api/estimations/$estimationId/versions/draft/submit").then().statusCode(200)
+
+        given()
+            .`when`().get("/api/estimations/$estimationId/versions/1")
+            .then()
+            .statusCode(200)
+            .body("roots[0].children[0].phaseAbbreviation", equalTo("AN"))
+            .body("roots[0].phaseAbbreviation", nullValue())
+
+        // Clone into new draft — phaseAbbreviation must be preserved
+        given().post("/api/estimations/$estimationId/versions")
+            .then()
+            .statusCode(201)
+            .body("versionNumber", equalTo(2))
+            .body("roots[0].children[0].phaseAbbreviation", equalTo("AN"))
+    }
+
+    @Test
+    fun `time-relative item offerPT scales with phase duration`() {
+        given().post("/api/estimations/$estimationId/versions").then().statusCode(201)
+
+        given()
+            .contentType(ContentType.JSON)
+            .body("""
+                {
+                    "phases": [{"name": "Analysis", "abbreviation": "AN", "durationWeeks": 4.0}],
+                    "stdDevFactor": 0.0,
+                    "roots": [{"type": "GROUP", "title": "G", "children": [{
+                        "type": "TIME_RELATIVE",
+                        "description": "T",
+                        "unit": "h/Woche",
+                        "minEffort": 1.0,
+                        "expectedEffort": 2.0,
+                        "maxEffort": 3.0,
+                        "phaseAbbreviation": "AN"
+                    }]}]
+                }
+            """.trimIndent())
+            .`when`().put("/api/estimations/$estimationId/versions/draft")
+            .then()
+            .statusCode(200)
+            // PERT(1,2,3) = 2.0, * 4 weeks = 8.0
+            .body("roots[0].children[0].offerPT", equalTo(8.0f))
+            .body("roots[0].children[0].unit", equalTo("h/Woche"))
+            .body("roots[0].children[0].type", equalTo("TIME_RELATIVE"))
+    }
+
+    @Test
+    fun `time-relative item without phase has offerPT zero`() {
+        given().post("/api/estimations/$estimationId/versions").then().statusCode(201)
+
+        given()
+            .contentType(ContentType.JSON)
+            .body("""
+                {
+                    "stdDevFactor": 0.0,
+                    "roots": [{"type": "GROUP", "title": "G", "children": [{
+                        "type": "TIME_RELATIVE",
+                        "description": "T",
+                        "minEffort": 1.0,
+                        "expectedEffort": 2.0,
+                        "maxEffort": 3.0
+                    }]}]
+                }
+            """.trimIndent())
+            .`when`().put("/api/estimations/$estimationId/versions/draft")
+            .then()
+            .statusCode(200)
+            .body("roots[0].children[0].offerPT", equalTo(0.0f))
+    }
+
+    @Test
+    fun `compare endpoint returns 404 for non-existent version`() {
+        buildRealisticDraft(estimationId)
+        given().post("/api/estimations/$estimationId/versions/draft/submit")
+
+        given()
+            .`when`().get("/api/estimations/$estimationId/versions/1/compare/99")
+            .then()
+            .statusCode(404)
+    }
+
+    @Test
+    fun `comparing identical versions returns empty diff`() {
+        buildRealisticDraft(estimationId)
+        given().post("/api/estimations/$estimationId/versions/draft/submit")
+        given().post("/api/estimations/$estimationId/versions")
+        given().post("/api/estimations/$estimationId/versions/draft/submit")
+
+        given()
+            .`when`().get("/api/estimations/$estimationId/versions/1/compare/2")
+            .then()
+            .statusCode(200)
+            .body("versionA", equalTo(1))
+            .body("versionB", equalTo(2))
+            .body("addedNodes.size()", equalTo(0))
+            .body("removedNodes.size()", equalTo(0))
+            .body("modifiedNodes.size()", equalTo(0))
+            .body("parameterChanges.size()", equalTo(0))
+    }
+
+    @Test
+    fun `replaced items appear as removed from v1 and added in v2`() {
+        buildRealisticDraft(estimationId)
+        given().post("/api/estimations/$estimationId/versions/draft/submit")
+        given().post("/api/estimations/$estimationId/versions")
+
+        given()
+            .contentType(ContentType.JSON)
+            .body("""
+                {"roots": [{"type": "GROUP", "title": "Development", "children": [
+                    {"type": "FIXED", "description": "New Feature X", "minEffort": 1.0, "expectedEffort": 2.0, "maxEffort": 3.0}
+                ]}]}
+            """.trimIndent())
+            .put("/api/estimations/$estimationId/versions/draft")
+        given().post("/api/estimations/$estimationId/versions/draft/submit")
+
+        // v1 has Development(Feature A, Feature B); v2 PUT replaces the roots
+        // with fresh logicalIds, so the old group + its two leaves all show as
+        // removed (3) and the new group + its one leaf as added (2).
+        given()
+            .`when`().get("/api/estimations/$estimationId/versions/1/compare/2")
+            .then()
+            .statusCode(200)
+            .body("removedNodes.size()", equalTo(3))
+            .body("addedNodes.size()", equalTo(2))
+            .body("addedNodes.find { it.type == 'FIXED' }.description", equalTo("New Feature X"))
+            .body("modifiedNodes.size()", equalTo(0))
+    }
+
+    @Test
+    fun `changed effort values appear in modifiedNodes with correct changedFields`() {
+        buildRealisticDraft(estimationId)
+        given().post("/api/estimations/$estimationId/versions/draft/submit")
+        given().post("/api/estimations/$estimationId/versions")
+
+        val jp = given().get("/api/estimations/$estimationId/versions/draft")
+            .then().extract().jsonPath()
+        val groupId = jp.getString("roots[0].logicalId")
+        val idA     = jp.getString("roots[0].children[0].logicalId")
+        val idB     = jp.getString("roots[0].children[1].logicalId")
+
+        given()
+            .contentType(ContentType.JSON)
+            .body("""
+                {"roots": [{"logicalId": "$groupId", "type": "GROUP", "title": "Development", "children": [
+                    {"logicalId": "$idA", "type": "FIXED", "description": "Feature A",
+                     "minEffort": 3.0, "expectedEffort": 6.0, "maxEffort": 9.0},
+                    {"logicalId": "$idB", "type": "FIXED", "description": "Feature B",
+                     "minEffort": 1.0, "expectedEffort": 3.0, "maxEffort": 5.0}
+                ]}]}
+            """.trimIndent())
+            .put("/api/estimations/$estimationId/versions/draft")
+        given().post("/api/estimations/$estimationId/versions/draft/submit")
+
+        given()
+            .`when`().get("/api/estimations/$estimationId/versions/1/compare/2")
+            .then()
+            .statusCode(200)
+            .body("modifiedNodes.size()", equalTo(1))
+            .body("modifiedNodes[0].after.description", equalTo("Feature A"))
+            .body("modifiedNodes[0].changedFields",
+                  containsInAnyOrder("minEffort", "expectedEffort", "maxEffort"))
+            .body("modifiedNodes[0].before.minEffort", equalTo(2.0f))
+            .body("modifiedNodes[0].after.minEffort",  equalTo(3.0f))
+            .body("addedNodes.size()",   equalTo(0))
+            .body("removedNodes.size()", equalTo(0))
+    }
+
+    @Test
+    fun `submitted version can be compared against the draft`() {
+        buildRealisticDraft(estimationId)
+        given().post("/api/estimations/$estimationId/versions/draft/submit")
+        given().post("/api/estimations/$estimationId/versions")
+
+        val jp = given().get("/api/estimations/$estimationId/versions/draft")
+            .then().extract().jsonPath()
+        val groupId = jp.getString("roots[0].logicalId")
+        val idA     = jp.getString("roots[0].children[0].logicalId")
+        val idB     = jp.getString("roots[0].children[1].logicalId")
+
+        given()
+            .contentType(ContentType.JSON)
+            .body("""
+                {"roots": [{"logicalId": "$groupId", "type": "GROUP", "title": "Development", "children": [
+                    {"logicalId": "$idA", "type": "FIXED", "description": "Feature A",
+                     "minEffort": 3.0, "expectedEffort": 6.0, "maxEffort": 9.0},
+                    {"logicalId": "$idB", "type": "FIXED", "description": "Feature B",
+                     "minEffort": 1.0, "expectedEffort": 3.0, "maxEffort": 5.0}
+                ]}]}
+            """.trimIndent())
+            .put("/api/estimations/$estimationId/versions/draft")
+
+        given()
+            .`when`().get("/api/estimations/$estimationId/versions/1/compare/draft")
+            .then()
+            .statusCode(200)
+            .body("modifiedNodes.size()", equalTo(1))
+            .body("modifiedNodes[0].after.description", equalTo("Feature A"))
+
+        // selecting the draft for comparison must not have submitted it
+        given()
+            .`when`().get("/api/estimations/$estimationId/versions/draft")
+            .then()
+            .statusCode(200)
+    }
+
+    @Test
+    fun `xlsx export returns a valid spreadsheet`() {
+        buildRealisticDraft(estimationId)
+        given().post("/api/estimations/$estimationId/versions/draft/submit")
+
+        val bytes = given()
+            .`when`().get("/api/estimations/$estimationId/versions/1/export?format=xlsx")
+            .then()
+            .statusCode(200)
+            .contentType("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+            .header("Content-Disposition", containsString("attachment"))
+            .extract().asByteArray()
+        // .xlsx is a ZIP — magic bytes 'P','K'
+        assert(bytes.size > 2 && bytes[0].toInt() == 0x50 && bytes[1].toInt() == 0x4B)
+    }
+
+    @Test
+    fun `csv export total matches the version total effort`() {
+        buildRealisticDraft(estimationId)
+        given().post("/api/estimations/$estimationId/versions/draft/submit")
+
+        val totalEffort = given().get("/api/estimations/$estimationId/versions/1")
+            .then().extract().jsonPath().getDouble("totalEffort")
+
+        val csv = given()
+            .`when`().get("/api/estimations/$estimationId/versions/1/export?format=csv")
+            .then()
+            .statusCode(200)
+            .contentType("text/csv")
+            .extract().asString()
+
+        // Locate the totals row by its "Total" marker in the Group column,
+        // then read the OfferPT column directly (column-aware so future
+        // CSV-shape changes break the test loudly, not silently).
+        val lines = csv.trim().lines()
+        val headers = lines.first().split(",")
+        val groupCol = headers.indexOf("Group")
+        val offerPtCol = headers.indexOf("OfferPT")
+        assert(groupCol >= 0 && offerPtCol >= 0) { "CSV missing Group or OfferPT header" }
+        val totalsRow = lines.first { it.split(",").getOrNull(groupCol) == "Total" }
+        val totalsCells = totalsRow.split(",")
+        assert(Math.abs(totalsCells[offerPtCol].toDouble() - totalEffort) < 0.001)
+    }
+
+    @Test
+    fun `export defaults to xlsx when no format given`() {
+        buildRealisticDraft(estimationId)
+        given().post("/api/estimations/$estimationId/versions/draft/submit")
+
+        given()
+            .`when`().get("/api/estimations/$estimationId/versions/1/export")
+            .then()
+            .statusCode(200)
+            .contentType("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+    }
+
+    @Test
+    fun `export rejects an unknown format with 400`() {
+        buildRealisticDraft(estimationId)
+        given().post("/api/estimations/$estimationId/versions/draft/submit")
+
+        given()
+            .`when`().get("/api/estimations/$estimationId/versions/1/export?format=pdf")
+            .then()
+            .statusCode(400)
+    }
+
+    @Test
+    fun `export returns 404 for a non-existent version`() {
+        buildRealisticDraft(estimationId)
+        given().post("/api/estimations/$estimationId/versions/draft/submit")
+
+        given()
+            .`when`().get("/api/estimations/$estimationId/versions/99/export?format=csv")
+            .then()
+            .statusCode(404)
+    }
+
+    @Test
+    fun `draft can be exported without submitting it`() {
+        buildRealisticDraft(estimationId)
+
+        given()
+            .`when`().get("/api/estimations/$estimationId/versions/draft/export?format=csv")
+            .then()
+            .statusCode(200)
+            .contentType("text/csv")
+
+        // exporting the draft must not have submitted it
+        given()
+            .`when`().get("/api/estimations/$estimationId/versions/draft")
+            .then()
+            .statusCode(200)
+    }
+
+    private fun buildRealisticDraft(estimationId: UUID) {
+        given().post("/api/estimations/$estimationId/versions")
+            .then().statusCode(201)
+
+        given()
+            .contentType(ContentType.JSON)
+            .body("""
+                {
+                    "dailyRate": 900.0,
+                    "stdDevFactor": 2.0,
+                    "salesSurcharge": 0.10,
+                    "effortDrivers": [
+                        {"description": "QA", "factor": 0.15}
+                    ],
+                    "roots": [{
+                        "type": "GROUP",
+                        "title": "Development",
+                        "children": [
+                            {"type": "FIXED", "description": "Feature A", "minEffort": 2.0, "expectedEffort": 4.0, "maxEffort": 6.0},
+                            {"type": "FIXED", "description": "Feature B", "minEffort": 1.0, "expectedEffort": 3.0, "maxEffort": 5.0}
+                        ]
+                    }]
+                }
+            """.trimIndent())
+            .put("/api/estimations/$estimationId/versions/draft")
+            .then().statusCode(200)
+    }
+
+    // ---- Bucket + sampled method (task-103) ----------------------------------
+
+    // Bucket ids are global primary keys; each test mints fresh ones so the rows
+    // (which the endpoint commits and never rolls back) don't collide across tests.
+
+    // Uses an explicit transaction rather than @Transactional: a self-call from a
+    // test method would bypass the CDI interceptor and run without a transaction.
+    private fun createBucketEstimation(): UUID = QuarkusTransaction.requiringNew().call {
+        val project = Project().apply { name = "Bucket Project" }
+        projectRepository.persist(project)
+        val estimation = Estimation().apply {
+            offer = "BUCKET-001"
+            this.project = project
+            method = EstimationMethod.BUCKET_SAMPLED_PERT
+        }
+        estimationRepository.persist(estimation)
+        estimation.id!!
+    }
+
+    // Two buckets, 4 leaves (2 samples, 2 non-samples). With
+    // stdDevFactor=0 the risk factor is 0, so offerPT == mean.
+    // b1 sample mean = PERT(1,2,a1Max); b2 sample mean = PERT(2,4,6) = 4.0.
+    private fun bucketDraftBody(b1: String, b2: String, a1Max: Double = 3.0) = """
+        {
+            "stdDevFactor": 0.0,
+            "buckets": [
+                {"id": "$b1", "position": 0, "label": "Frontend"},
+                {"id": "$b2", "position": 1, "label": "Backend"}
+            ],
+            "roots": [
+                {"type": "BUCKETED", "description": "Sample A1", "bucketId": "$b1", "isSample": true, "minEffort": 1.0, "expectedEffort": 2.0, "maxEffort": $a1Max},
+                {"type": "BUCKETED", "description": "NonSample A2", "bucketId": "$b1", "isSample": false},
+                {"type": "BUCKETED", "description": "Sample B1", "bucketId": "$b2", "isSample": true, "minEffort": 2.0, "expectedEffort": 4.0, "maxEffort": 6.0},
+                {"type": "BUCKETED", "description": "NonSample B2", "bucketId": "$b2", "isSample": false}
+            ]
+        }
+    """.trimIndent()
+
+    @Test
+    fun `bucket draft computes per-bucket averages on non-sample leaves`() {
+        val eid = createBucketEstimation()
+        val b1 = UUID.randomUUID().toString()
+        val b2 = UUID.randomUUID().toString()
+        given().post("/api/estimations/$eid/versions").then().statusCode(201)
+
+        given()
+            .contentType(ContentType.JSON)
+            .body(bucketDraftBody(b1, b2))
+            .`when`().put("/api/estimations/$eid/versions/draft")
+            .then()
+            .statusCode(200)
+            .body("roots.size()", equalTo(4))
+            .body("roots.find { it.description == 'Sample A1' }.type", equalTo("BUCKETED"))
+            .body("roots.find { it.description == 'Sample A1' }.isSample", equalTo(true))
+            .body("roots.find { it.description == 'Sample A1' }.bucketId", equalTo(b1))
+            .body("roots.find { it.description == 'Sample A1' }.mean", equalTo(2.0f))
+            // Non-sample rows inherit their bucket's sample average.
+            .body("roots.find { it.description == 'NonSample A2' }.isSample", equalTo(false))
+            .body("roots.find { it.description == 'NonSample A2' }.mean", equalTo(2.0f))
+            .body("roots.find { it.description == 'NonSample A2' }.offerPT", equalTo(2.0f))
+            .body("roots.find { it.description == 'NonSample A2' }.bucketId", equalTo(b1))
+            .body("roots.find { it.description == 'NonSample B2' }.mean", equalTo(4.0f))
+            // 2 + 2 + 4 + 4
+            .body("totalEffort", equalTo(12.0f))
+
+        // The estimation detail exposes the bucket labels.
+        given()
+            .`when`().get("/api/estimations/$eid")
+            .then()
+            .statusCode(200)
+            .body("method", equalTo("BUCKET_SAMPLED_PERT"))
+            .body("buckets.size()", equalTo(2))
+            .body("buckets[0].label", equalTo("Frontend"))
+            .body("buckets[1].label", equalTo("Backend"))
+    }
+
+    // Bucket estimations may nest their leaves in GROUPs — the Merlin importer
+    // (task-131) builds exactly that shape, and the editor's hierarchy view
+    // (task-132) edits it. GROUP is method-agnostic, so this path is already
+    // supported; this pins it.
+    // The test schema is generated by Hibernate (Flyway is off in %test), so the
+    // unique constraint only exists here because EstimationBucket declares it.
+    // That parity is the point: without it the dev/test schema had NO constraint,
+    // while the Flyway-managed cluster did — so a reorder bug that reliably broke
+    // production was impossible to reproduce or regression-test locally.
+    @Test
+    fun `bucket position uniqueness is enforced in the generated schema too`() {
+        val conn = dataSource.connection
+        try {
+            val st = conn.prepareStatement(
+                "SELECT COUNT(*) FROM pg_constraint c " +
+                    "JOIN pg_class t ON t.oid = c.conrelid " +
+                    "WHERE t.relname = 'estimation_buckets' AND c.contype = 'u'"
+            )
+            val rs = st.executeQuery()
+            rs.next()
+            org.junit.jupiter.api.Assertions.assertTrue(
+                rs.getInt(1) > 0,
+                "estimation_buckets must carry a UNIQUE constraint in the test schema, " +
+                    "otherwise reorder bugs stay invisible locally"
+            )
+            rs.close()
+            st.close()
+        } finally {
+            conn.close()
+        }
+    }
+
+    // The behaviour that constraint makes testable. Note the constraint is
+    // IMMEDIATE here (Hibernate-generated), i.e. the harshest case — stricter
+    // than production, where V15 defers it to COMMIT.
+    @Test
+    fun `reordering buckets to the front is saved`() {
+        val eid = createBucketEstimation()
+        val b1 = UUID.randomUUID().toString()
+        val b2 = UUID.randomUUID().toString()
+        val b3 = UUID.randomUUID().toString()
+        given().post("/api/estimations/$eid/versions").then().statusCode(201)
+
+        fun put(body: String) = given()
+            .contentType(ContentType.JSON).body(body)
+            .`when`().put("/api/estimations/$eid/versions/draft")
+
+        put(
+            """
+            {"buckets":[{"id":"$b1","position":0,"label":"Alpha"},
+                        {"id":"$b2","position":1,"label":"Beta"},
+                        {"id":"$b3","position":2,"label":"Gamma"}],"roots":[]}
+            """.trimIndent()
+        ).then().statusCode(200)
+
+        // Drag the SECOND bucket to the FIRST slot — Beta and Alpha swap, so
+        // both rows transiently share a position mid-flush.
+        put(
+            """
+            {"buckets":[{"id":"$b2","position":0,"label":"Beta"},
+                        {"id":"$b1","position":1,"label":"Alpha"},
+                        {"id":"$b3","position":2,"label":"Gamma"}],"roots":[]}
+            """.trimIndent()
+        ).then().statusCode(200)
+
+        given()
+            .`when`().get("/api/estimations/$eid")
+            .then().statusCode(200)
+            .body("buckets[0].label", equalTo("Beta"))
+            .body("buckets[1].label", equalTo("Alpha"))
+            .body("buckets[2].label", equalTo("Gamma"))
+    }
+
+    // The three calculation inputs are typed FIELDS now (task-138), not
+    // user-named rows. Before, the domain looked them up by the English strings
+    // "dailyRate"/"stdDevFactor"/"salesSurcharge"; renaming one in the GUI made
+    // the lookup miss and SILENTLY fall back to the default. Pin that a
+    // non-default value actually round-trips instead of being replaced by 800.
+    @Test
+    fun `hardwired calculation parameters round-trip with non-default values`() {
+        val eid = createBucketEstimation()
+        given().post("/api/estimations/$eid/versions").then().statusCode(201)
+
+        given()
+            .contentType(ContentType.JSON)
+            .body("""{"dailyRate": 1234.0, "stdDevFactor": 3.5, "salesSurcharge": 0.25, "roots": []}""")
+            .`when`().put("/api/estimations/$eid/versions/draft")
+            .then().statusCode(200)
+
+        given()
+            .`when`().get("/api/estimations/$eid/versions/draft")
+            .then().statusCode(200)
+            .body("dailyRate", equalTo(1234.0f))
+            .body("stdDevFactor", equalTo(3.5f))
+            .body("salesSurcharge", equalTo(0.25f))
+    }
+
+    @Test
+    fun `bucketedLeavesSurviveInsideAGroup`() {
+        val eid = createBucketEstimation()
+        val b1 = UUID.randomUUID().toString()
+        given().post("/api/estimations/$eid/versions").then().statusCode(201)
+
+        val body = """
+            {
+                "stdDevFactor": 0.0,
+                "buckets": [{"id": "$b1", "position": 0, "label": "Frontend"}],
+                "roots": [
+                    {
+                        "type": "GROUP",
+                        "title": "WBS 1",
+                        "children": [
+                            {"type": "BUCKETED", "description": "Nested sample", "bucketId": "$b1", "isSample": true, "minEffort": 1.0, "expectedEffort": 2.0, "maxEffort": 3.0},
+                            {"type": "BUCKETED", "description": "Nested non-sample", "bucketId": "$b1", "isSample": false}
+                        ]
+                    }
+                ]
+            }
+        """.trimIndent()
+
+        given()
+            .contentType(ContentType.JSON)
+            .body(body)
+            .`when`().put("/api/estimations/$eid/versions/draft")
+            .then()
+            .statusCode(200)
+
+        given()
+            .`when`().get("/api/estimations/$eid/versions/draft")
+            .then()
+            .statusCode(200)
+            .body("roots.size()", equalTo(1))
+            .body("roots[0].type", equalTo("GROUP"))
+            .body("roots[0].title", equalTo("WBS 1"))
+            .body("roots[0].children.size()", equalTo(2))
+            // The bucket-specific input survives nesting.
+            .body("roots[0].children.find { it.description == 'Nested sample' }.type", equalTo("BUCKETED"))
+            .body("roots[0].children.find { it.description == 'Nested sample' }.bucketId", equalTo(b1))
+            .body("roots[0].children.find { it.description == 'Nested sample' }.isSample", equalTo(true))
+            .body("roots[0].children.find { it.description == 'Nested sample' }.mean", equalTo(2.0f))
+            // The non-sample still inherits its bucket's average through calculate().
+            .body("roots[0].children.find { it.description == 'Nested non-sample' }.isSample", equalTo(false))
+            .body("roots[0].children.find { it.description == 'Nested non-sample' }.bucketId", equalTo(b1))
+            .body("roots[0].children.find { it.description == 'Nested non-sample' }.mean", equalTo(2.0f))
+            // The group accumulates its subtree.
+            .body("roots[0].offerPT", equalTo(4.0f))
+    }
+
+    @Test
+    fun `submitting a bucket estimation persists neutral and raw bucket columns`() {
+        val eid = createBucketEstimation()
+        val b1 = UUID.randomUUID().toString()
+        val b2 = UUID.randomUUID().toString()
+        given().post("/api/estimations/$eid/versions").then().statusCode(201)
+        given().contentType(ContentType.JSON).body(bucketDraftBody(b1, b2))
+            .put("/api/estimations/$eid/versions/draft").then().statusCode(200)
+
+        given().post("/api/estimations/$eid/versions/draft/submit").then().statusCode(200)
+
+        given()
+            .`when`().get("/api/estimations/$eid/versions/1")
+            .then()
+            .statusCode(200)
+            // Non-sample row: bucket-derived neutral values + raw bucket columns.
+            .body("roots.find { it.description == 'NonSample A2' }.type", equalTo("BUCKETED"))
+            .body("roots.find { it.description == 'NonSample A2' }.mean", equalTo(2.0f))
+            .body("roots.find { it.description == 'NonSample A2' }.offerPT", equalTo(2.0f))
+            .body("roots.find { it.description == 'NonSample A2' }.bucketId", equalTo(b1))
+            .body("roots.find { it.description == 'NonSample A2' }.isSample", equalTo(false))
+            // Sample row: keeps its three-point triple (min/expected/max).
+            .body("roots.find { it.description == 'Sample A1' }.isSample", equalTo(true))
+            .body("roots.find { it.description == 'Sample A1' }.minEffort", equalTo(1.0f))
+            .body("roots.find { it.description == 'Sample A1' }.maxEffort", equalTo(3.0f))
+            .body("roots.find { it.description == 'Sample A1' }.bucketId", equalTo(b1))
+    }
+
+    @Test
+    fun `undo and redo round-trip a bucketed draft`() {
+        val eid = createBucketEstimation()
+        val b1 = UUID.randomUUID().toString()
+        val b2 = UUID.randomUUID().toString()
+        given().post("/api/estimations/$eid/versions").then().statusCode(201)
+
+        // First state: Sample A1 = PERT(1,2,3) = 2.0.
+        given().contentType(ContentType.JSON).body(bucketDraftBody(b1, b2, a1Max = 3.0))
+            .put("/api/estimations/$eid/versions/draft").then().statusCode(200)
+
+        // Second state: Sample A1 = PERT(1,2,9) = 3.0.
+        given().contentType(ContentType.JSON).body(bucketDraftBody(b1, b2, a1Max = 9.0))
+            .put("/api/estimations/$eid/versions/draft").then().statusCode(200)
+            .body("roots.find { it.description == 'Sample A1' }.mean", equalTo(3.0f))
+
+        // Undo restores the first state — with the buckets intact.
+        given().post("/api/estimations/$eid/versions/draft/undo")
+            .then()
+            .statusCode(200)
+            .body("roots.find { it.description == 'Sample A1' }.mean", equalTo(2.0f))
+            .body("roots.find { it.description == 'Sample A1' }.bucketId", equalTo(b1))
+            .body("roots.find { it.description == 'NonSample A2' }.mean", equalTo(2.0f))
+
+        // Redo re-applies the second state.
+        given().post("/api/estimations/$eid/versions/draft/redo")
+            .then()
+            .statusCode(200)
+            .body("roots.find { it.description == 'Sample A1' }.mean", equalTo(3.0f))
+    }
+
+    @Test
+    fun `update draft additional costs persists and replaces them`() {
+        given().post("/api/estimations/$estimationId/versions")
+            .then().statusCode(201)
+
+        given()
+            .contentType(ContentType.JSON)
+            .body("""
+                {
+                    "phases": [{"name": "Implementation", "abbreviation": "IMPL", "durationWeeks": 4.0}],
+                    "additionalCosts": [
+                        {"description": "License", "amount": 1000.0, "type": "ONE_TIME"},
+                        {"description": "Hosting", "amount": 0.0, "type": "RECURRING", "amountPerWeek": 50.0, "phaseAbbreviation": "IMPL"}
+                    ]
+                }
+            """.trimIndent())
+            .`when`().put("/api/estimations/$estimationId/versions/draft")
+            .then()
+            .statusCode(200)
+            .body("additionalCosts.size()", equalTo(2))
+            .body("additionalCosts[0].description", equalTo("License"))
+            .body("additionalCosts[0].type", equalTo("ONE_TIME"))
+            .body("additionalCosts[0].amount", equalTo(1000.0f))
+            .body("additionalCosts[1].description", equalTo("Hosting"))
+            .body("additionalCosts[1].type", equalTo("RECURRING"))
+            .body("additionalCosts[1].amountPerWeek", equalTo(50.0f))
+            .body("additionalCosts[1].phaseAbbreviation", equalTo("IMPL"))
+
+        // Second PUT replaces the list entirely (clear() semantics)
+        given()
+            .contentType(ContentType.JSON)
+            .body("""
+                {
+                    "additionalCosts": [
+                        {"description": "Replaced", "amount": 42.0, "type": "ONE_TIME"}
+                    ]
+                }
+            """.trimIndent())
+            .`when`().put("/api/estimations/$estimationId/versions/draft")
+            .then()
+            .statusCode(200)
+            .body("additionalCosts.size()", equalTo(1))
+            .body("additionalCosts[0].description", equalTo("Replaced"))
+    }
+
+    @Test
+    fun `history entries carry a structured change summary (task-110)`() {
+        given().`when`().post("/api/estimations/$estimationId/versions").then().statusCode(201)
+
+        // Mutation 1: change the daily rate (800 → 900).
+        given().contentType(ContentType.JSON).body("""{"dailyRate": 900.0}""")
+            .`when`().put("/api/estimations/$estimationId/versions/draft")
+            .then().statusCode(200)
+
+        // Mutation 2: add a leaf.
+        given().contentType(ContentType.JSON)
+            .body("""{"roots": [{"type": "FIXED", "description": "Login", "minEffort": 1.0, "expectedEffort": 2.0, "maxEffort": 3.0}]}""")
+            .`when`().put("/api/estimations/$estimationId/versions/draft")
+            .then().statusCode(200)
+
+        given()
+            .`when`().get("/api/estimations/$estimationId/versions/draft/history")
+            .then().statusCode(200)
+            .body("size()", equalTo(2))
+            // Both mutation summaries are present and human-readable, not the raw kind.
+            .body("summary.kind.flatten()", hasItems("PARAMETER_CHANGED", "NODE_ADDED"))
+            // The parameter change carries the before/after values.
+            .body("summary.field.flatten()", hasItem("dailyRate"))
+            .body("summary.oldValue.flatten()", hasItem("800"))
+            .body("summary.newValue.flatten()", hasItem("900"))
+    }
+}

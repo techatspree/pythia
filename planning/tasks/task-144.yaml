@@ -90,7 +90,7 @@ description: |
 steps:
   - |
     Extend the enum in
-    `src/backend/implementation/src/main/kotlin/io/github/theestimator/domain/session/SessionStatus.kt`
+    `src/backend/implementation/src/main/kotlin/io/pythia/domain/session/SessionStatus.kt`
     with `SUSPENDED` and `ENDED_EARLY`, and extend its KDoc to state the
     lifecycle in one place: `CREATED → RUNNING → (SUSPENDED ⇄ RUNNING) →
     FINALIZED | ENDED_EARLY`, with `CANCELLED` as the abandon exit. Add NO
@@ -141,7 +141,7 @@ steps:
     Document the 409 as "session is not in a state that allows this transition".
   - |
     Extend the backend IT
-    `src/backend/implementation/src/test/kotlin/io/github/theestimator/rest/SessionResourceIT.kt`
+    `src/backend/implementation/src/test/kotlin/io/pythia/rest/SessionResourceIT.kt`
     (reuse its existing session-seeding helpers; do not create a second IT class)
     with cases proving:
       - suspend from RUNNING → 200 and `status == "SUSPENDED"`;
@@ -258,20 +258,20 @@ validation:
     check is name-agnostic on purpose: V17 is already taken by task-106's
     V17__session_bucket_votes.sql, so asserting one hardcoded filename is absent
     would prove nothing.
-      S=src/backend/implementation/src/main/kotlin/io/github/theestimator/domain/session/SessionStatus.kt
+      S=src/backend/implementation/src/main/kotlin/io/pythia/domain/session/SessionStatus.kt
       grep -q "SUSPENDED" "$S"
       grep -q "ENDED_EARLY" "$S"
       ! grep -rli "SUSPENDED\|ENDED_EARLY\|session.*status" \
           src/backend/implementation/src/main/resources/db/migration/
   - |
     A parked session stays discoverable, a terminated one does not:
-      R=src/backend/implementation/src/main/kotlin/io/github/theestimator/repository/EstimationSessionRepository.kt
+      R=src/backend/implementation/src/main/kotlin/io/pythia/repository/EstimationSessionRepository.kt
       grep -q "SessionStatus.SUSPENDED" "$R"
       ! grep -q "ENDED_EARLY" "$R"
   - |
     The service has the three transitions and logs each one (CLAUDE.md logging
     convention: INFO with the session id via io.quarkus.logging.Log):
-      S=src/backend/implementation/src/main/kotlin/io/github/theestimator/service/EstimationSessionService.kt
+      S=src/backend/implementation/src/main/kotlin/io/pythia/service/EstimationSessionService.kt
       grep -q "fun suspend(" "$S"
       grep -q "fun resume(" "$S"
       grep -q "fun endEarly(" "$S"
@@ -286,19 +286,19 @@ validation:
     pushed `finalizeCurrent` over detekt's CyclomaticComplexMethod threshold,
     and the task forbids restructuring that method's aggregation to buy the
     budget back. So assert the call sites, not the duplicated message:
-      S=src/backend/implementation/src/main/kotlin/io/github/theestimator/service/EstimationSessionService.kt
+      S=src/backend/implementation/src/main/kotlin/io/pythia/service/EstimationSessionService.kt
       grep -q "private fun requireRunning(" "$S"
       grep -q "is not RUNNING" "$S"
       test "$(grep -c 'requireRunning(session, id)' "$S")" -ge 3
   - |
     The three endpoints exist on the session resource:
-      R=src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/SessionResource.kt
+      R=src/backend/implementation/src/main/kotlin/io/pythia/rest/SessionResource.kt
       grep -q '"/{id}/suspend"' "$R"
       grep -q '"/{id}/resume"' "$R"
       grep -q '"/{id}/end-early"' "$R"
   - |
     The backend IT covers the new states, including the write-back survival:
-      T=src/backend/implementation/src/test/kotlin/io/github/theestimator/rest/SessionResourceIT.kt
+      T=src/backend/implementation/src/test/kotlin/io/pythia/rest/SessionResourceIT.kt
       grep -q "SUSPENDED" "$T"
       grep -q "ENDED_EARLY" "$T"
       grep -q "/suspend" "$T"
@@ -367,11 +367,11 @@ validation:
       ( cd src/frontend && npm run test:e2e )
 
 outputs:
-  - modified: src/backend/implementation/src/main/kotlin/io/github/theestimator/domain/session/SessionStatus.kt
-  - modified: src/backend/implementation/src/main/kotlin/io/github/theestimator/repository/EstimationSessionRepository.kt
-  - modified: src/backend/implementation/src/main/kotlin/io/github/theestimator/service/EstimationSessionService.kt
-  - modified: src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/SessionResource.kt
-  - modified: src/backend/implementation/src/test/kotlin/io/github/theestimator/rest/SessionResourceIT.kt
+  - modified: src/backend/implementation/src/main/kotlin/io/pythia/domain/session/SessionStatus.kt
+  - modified: src/backend/implementation/src/main/kotlin/io/pythia/repository/EstimationSessionRepository.kt
+  - modified: src/backend/implementation/src/main/kotlin/io/pythia/service/EstimationSessionService.kt
+  - modified: src/backend/implementation/src/main/kotlin/io/pythia/rest/SessionResource.kt
+  - modified: src/backend/implementation/src/test/kotlin/io/pythia/rest/SessionResourceIT.kt
   - modified: src/frontend/src/lib/session/api.ts
   - modified: src/frontend/src/routes/sessions/[id]/+page.svelte
   - modified: src/frontend/src/lib/i18n/de.json

@@ -414,7 +414,7 @@ validation:
     level groups sit at 12-space indent, nested groups at ≥ 16:
       python3 -c "
       import sys
-      src = open('src/backend/implementation/src/main/kotlin/io/github/theestimator/testdata/TestDataSeeder.kt').read()
+      src = open('src/backend/implementation/src/main/kotlin/io/pythia/testdata/TestDataSeeder.kt').read()
       nested = sum(1 for line in src.split('\n')
                    if line.lstrip().startswith('group(')
                    and (len(line) - len(line.lstrip())) >= 16)
@@ -441,7 +441,7 @@ outputs:
   - modified: src/frontend/src/lib/components/EstimationGrid.svelte
   - modified: src/frontend/package.json
   - modified: src/frontend/package-lock.json
-  - modified: src/backend/implementation/src/main/kotlin/io/github/theestimator/testdata/TestDataSeeder.kt
+  - modified: src/backend/implementation/src/main/kotlin/io/pythia/testdata/TestDataSeeder.kt
   - modified: src/frontend/e2e/smoke.test.ts
   - modified: README.md
   - modified: planning/plan.yaml

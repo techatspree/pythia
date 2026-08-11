@@ -1,6 +1,6 @@
-<img src="src/frontend/src/lib/assets/logo.svg" alt="The Estimator" width="72" height="72">
+<img src="src/frontend/src/lib/assets/logo.svg" alt="Pythia" width="72" height="72">
 
-# TheEstimator
+# Pythia
 
 Project effort estimation tool for software development tasks.
 

@@ -112,7 +112,7 @@ description: |
           plus the equivalent frontend env. Document this in
           docs/entra-setup.md.
         * Three new Kotlin files under
-          src/backend/implementation/src/main/kotlin/io/github/theestimator/auth/entra/:
+          src/backend/implementation/src/main/kotlin/io/pythia/auth/entra/:
             EntraAuthModule.kt — `@ApplicationScoped` implementing
             `AuthModule` with `name() = "entra"`, gated by
             `@IfBuildProperty(name="app.auth.provider",
@@ -271,7 +271,7 @@ steps:
 
   - |
     Create backend Entra module files under
-    src/backend/implementation/src/main/kotlin/io/github/theestimator/auth/entra/:
+    src/backend/implementation/src/main/kotlin/io/pythia/auth/entra/:
       - EntraAuthModule.kt — `@ApplicationScoped`, gated by
         `@IfBuildProperty(name="app.auth.provider",
         stringValue="entra")`. Tiny stub that delegates `isActive`
@@ -389,21 +389,21 @@ validation:
     new filter — without it CurrentUserProvider stays null and
     /api/auth/me 500s under the entra provider, repeating the
     task-006 bug):
-      test -f src/backend/implementation/src/main/kotlin/io/github/theestimator/auth/entra/EntraAuthModule.kt
-      test -f src/backend/implementation/src/main/kotlin/io/github/theestimator/auth/entra/EntraAuthFilter.kt
-      test -f src/backend/implementation/src/main/kotlin/io/github/theestimator/auth/entra/EntraSecurityIdentityAugmentor.kt
+      test -f src/backend/implementation/src/main/kotlin/io/pythia/auth/entra/EntraAuthModule.kt
+      test -f src/backend/implementation/src/main/kotlin/io/pythia/auth/entra/EntraAuthFilter.kt
+      test -f src/backend/implementation/src/main/kotlin/io/pythia/auth/entra/EntraSecurityIdentityAugmentor.kt
   - |
     The Entra filter is @IfBuildProperty-gated to the entra
     provider AND is post-matching (no @PreMatching, which would
     fire on the Vert.x event loop outside request scope):
-      grep -q "@IfBuildProperty" src/backend/implementation/src/main/kotlin/io/github/theestimator/auth/entra/EntraAuthFilter.kt
-      grep -q "stringValue = \"entra\"" src/backend/implementation/src/main/kotlin/io/github/theestimator/auth/entra/EntraAuthFilter.kt
-      ! grep -q "@PreMatching" src/backend/implementation/src/main/kotlin/io/github/theestimator/auth/entra/EntraAuthFilter.kt
+      grep -q "@IfBuildProperty" src/backend/implementation/src/main/kotlin/io/pythia/auth/entra/EntraAuthFilter.kt
+      grep -q "stringValue = \"entra\"" src/backend/implementation/src/main/kotlin/io/pythia/auth/entra/EntraAuthFilter.kt
+      ! grep -q "@PreMatching" src/backend/implementation/src/main/kotlin/io/pythia/auth/entra/EntraAuthFilter.kt
   - |
     The augmentor does NOT inject CurrentUserProvider (task-006
     lesson — that's a request-scope hazard from the Vert.x event
     loop):
-      ! grep -q "CurrentUserProvider" src/backend/implementation/src/main/kotlin/io/github/theestimator/auth/entra/EntraSecurityIdentityAugmentor.kt
+      ! grep -q "CurrentUserProvider" src/backend/implementation/src/main/kotlin/io/pythia/auth/entra/EntraSecurityIdentityAugmentor.kt
   - |
     quarkus-oidc is on the classpath (verified, not added):
       grep -q "<artifactId>quarkus-oidc</artifactId>" src/backend/implementation/pom.xml
@@ -452,9 +452,9 @@ validation:
       cd src/frontend && npx playwright test
 
 outputs:
-  - created: src/backend/implementation/src/main/kotlin/io/github/theestimator/auth/entra/EntraAuthModule.kt
-  - created: src/backend/implementation/src/main/kotlin/io/github/theestimator/auth/entra/EntraAuthFilter.kt
-  - created: src/backend/implementation/src/main/kotlin/io/github/theestimator/auth/entra/EntraSecurityIdentityAugmentor.kt
+  - created: src/backend/implementation/src/main/kotlin/io/pythia/auth/entra/EntraAuthModule.kt
+  - created: src/backend/implementation/src/main/kotlin/io/pythia/auth/entra/EntraAuthFilter.kt
+  - created: src/backend/implementation/src/main/kotlin/io/pythia/auth/entra/EntraSecurityIdentityAugmentor.kt
   - modified: src/backend/implementation/src/main/resources/application.properties
   - created: src/frontend/src/lib/auth/EntraAuthProvider.ts
   - modified: src/frontend/src/lib/auth/index.ts

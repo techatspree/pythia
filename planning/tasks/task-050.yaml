@@ -56,7 +56,7 @@ description: |
     - After the data migration, DROP TABLE draft_estimation_items, then
       DROP TABLE draft_estimation_item_groups (order matters for FKs).
 
-  JPA layer (src/backend/implementation/src/main/kotlin/io/github/theestimator/domain/draft/):
+  JPA layer (src/backend/implementation/src/main/kotlin/io/pythia/domain/draft/):
     - Delete DraftEstimationItemGroup.kt, DraftEstimationItem.kt,
       DraftFixedEstimationItem.kt, DraftTimeRelativeEstimationItem.kt.
     - Add DraftEstimationNode.kt — single @Entity with SINGLE_TABLE
@@ -74,7 +74,7 @@ description: |
       not @Where — @Where is deprecated in Hibernate 6 and Quarkus 3.x
       ships Hibernate 6. Remove itemGroups.
 
-  DTOs (src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/dto/
+  DTOs (src/backend/implementation/src/main/kotlin/io/pythia/rest/dto/
   EstimationVersionDtos.kt):
     - Replace EstimationItemGroupDto and EstimationItemDto with a single
       recursive EstimationNodeDto:
@@ -203,10 +203,10 @@ steps:
 
   - |
     Delete the four old draft entity files:
-      git rm src/backend/implementation/src/main/kotlin/io/github/theestimator/domain/draft/DraftEstimationItemGroup.kt
-      git rm src/backend/implementation/src/main/kotlin/io/github/theestimator/domain/draft/DraftEstimationItem.kt
-      git rm src/backend/implementation/src/main/kotlin/io/github/theestimator/domain/draft/DraftFixedEstimationItem.kt
-      git rm src/backend/implementation/src/main/kotlin/io/github/theestimator/domain/draft/DraftTimeRelativeEstimationItem.kt
+      git rm src/backend/implementation/src/main/kotlin/io/pythia/domain/draft/DraftEstimationItemGroup.kt
+      git rm src/backend/implementation/src/main/kotlin/io/pythia/domain/draft/DraftEstimationItem.kt
+      git rm src/backend/implementation/src/main/kotlin/io/pythia/domain/draft/DraftFixedEstimationItem.kt
+      git rm src/backend/implementation/src/main/kotlin/io/pythia/domain/draft/DraftTimeRelativeEstimationItem.kt
     Add DraftEstimationNode.kt + DraftGroupNode/DraftFixedItemNode/
     DraftTimeRelativeItemNode as @DiscriminatorValue subclasses in the
     same file. Update DraftEstimationVersion to replace itemGroups with
@@ -309,7 +309,7 @@ validation:
   - |
     EstimationVersion still carries the deprecated itemGroups shim
     (frontend uses it until task-054):
-      grep -q "@Deprecated" src/domain/src/main/kotlin/io/github/theestimator/model/EstimationVersion.kt
+      grep -q "@Deprecated" src/domain/src/main/kotlin/io/pythia/model/EstimationVersion.kt
   - |
     No DRAFT-side Kotlin file still reads `.itemGroups`. The submitted
     side (ExcelExporter, CsvExporter, VersionComparisonService, and
@@ -317,11 +317,11 @@ validation:
     is task-051's territory. The grep targets the draft files this task
     rewrites:
       ! grep -n "\.itemGroups" \
-            src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/EstimationVersionResource.kt \
-            src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/dto/EstimationVersionMapper.kt \
-            src/backend/implementation/src/main/kotlin/io/github/theestimator/service/DraftVersionMapper.kt \
-            src/backend/implementation/src/main/kotlin/io/github/theestimator/service/ExcelImporter.kt \
-            src/backend/implementation/src/main/kotlin/io/github/theestimator/testdata/TestDataSeeder.kt
+            src/backend/implementation/src/main/kotlin/io/pythia/rest/EstimationVersionResource.kt \
+            src/backend/implementation/src/main/kotlin/io/pythia/rest/dto/EstimationVersionMapper.kt \
+            src/backend/implementation/src/main/kotlin/io/pythia/service/DraftVersionMapper.kt \
+            src/backend/implementation/src/main/kotlin/io/pythia/service/ExcelImporter.kt \
+            src/backend/implementation/src/main/kotlin/io/pythia/testdata/TestDataSeeder.kt
     EstimationVersionService is allowed to read submitted.itemGroups in
     the snapshotDraft + deep-copy paths until task-051 — that file is
     intentionally NOT in the list above. After task-051 the global
@@ -330,9 +330,9 @@ validation:
     DraftUpdateDto and EstimationVersionDto expose `roots`, not
     `itemGroups`:
       grep -q "val roots: List<EstimationNodeUpdateDto>" \
-            src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/dto/EstimationVersionDtos.kt
+            src/backend/implementation/src/main/kotlin/io/pythia/rest/dto/EstimationVersionDtos.kt
       grep -q "val roots: List<EstimationNodeDto>" \
-            src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/dto/EstimationVersionDtos.kt
+            src/backend/implementation/src/main/kotlin/io/pythia/rest/dto/EstimationVersionDtos.kt
   - |
     Backend tests pass:
       mvn -pl src/backend/implementation -am test
@@ -342,18 +342,18 @@ validation:
 
 outputs:
   - created: src/backend/implementation/src/main/resources/db/migration/V6__draft_tree.sql
-  - created: src/backend/implementation/src/main/kotlin/io/github/theestimator/domain/draft/DraftEstimationNode.kt
-  - deleted: src/backend/implementation/src/main/kotlin/io/github/theestimator/domain/draft/DraftEstimationItemGroup.kt
-  - deleted: src/backend/implementation/src/main/kotlin/io/github/theestimator/domain/draft/DraftEstimationItem.kt
-  - deleted: src/backend/implementation/src/main/kotlin/io/github/theestimator/domain/draft/DraftFixedEstimationItem.kt
-  - deleted: src/backend/implementation/src/main/kotlin/io/github/theestimator/domain/draft/DraftTimeRelativeEstimationItem.kt
-  - modified: src/backend/implementation/src/main/kotlin/io/github/theestimator/domain/draft/DraftEstimationVersion.kt
-  - modified: src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/dto/EstimationVersionDtos.kt
-  - modified: src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/dto/EstimationVersionMapper.kt
-  - modified: src/backend/implementation/src/main/kotlin/io/github/theestimator/service/DraftVersionMapper.kt
-  - modified: src/backend/implementation/src/main/kotlin/io/github/theestimator/service/EstimationVersionService.kt
-  - modified: src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/EstimationVersionResource.kt
-  - modified: src/backend/implementation/src/main/kotlin/io/github/theestimator/service/ExcelImporter.kt
-  - modified: src/backend/implementation/src/main/kotlin/io/github/theestimator/testdata/TestDataSeeder.kt
-  - created: src/backend/implementation/src/test/kotlin/io/github/theestimator/service/DraftVersionMapperTest.kt
-  - modified: src/backend/implementation/src/test/kotlin/io/github/theestimator/rest/EstimationVersionResourceIT.kt
+  - created: src/backend/implementation/src/main/kotlin/io/pythia/domain/draft/DraftEstimationNode.kt
+  - deleted: src/backend/implementation/src/main/kotlin/io/pythia/domain/draft/DraftEstimationItemGroup.kt
+  - deleted: src/backend/implementation/src/main/kotlin/io/pythia/domain/draft/DraftEstimationItem.kt
+  - deleted: src/backend/implementation/src/main/kotlin/io/pythia/domain/draft/DraftFixedEstimationItem.kt
+  - deleted: src/backend/implementation/src/main/kotlin/io/pythia/domain/draft/DraftTimeRelativeEstimationItem.kt
+  - modified: src/backend/implementation/src/main/kotlin/io/pythia/domain/draft/DraftEstimationVersion.kt
+  - modified: src/backend/implementation/src/main/kotlin/io/pythia/rest/dto/EstimationVersionDtos.kt
+  - modified: src/backend/implementation/src/main/kotlin/io/pythia/rest/dto/EstimationVersionMapper.kt
+  - modified: src/backend/implementation/src/main/kotlin/io/pythia/service/DraftVersionMapper.kt
+  - modified: src/backend/implementation/src/main/kotlin/io/pythia/service/EstimationVersionService.kt
+  - modified: src/backend/implementation/src/main/kotlin/io/pythia/rest/EstimationVersionResource.kt
+  - modified: src/backend/implementation/src/main/kotlin/io/pythia/service/ExcelImporter.kt
+  - modified: src/backend/implementation/src/main/kotlin/io/pythia/testdata/TestDataSeeder.kt
+  - created: src/backend/implementation/src/test/kotlin/io/pythia/service/DraftVersionMapperTest.kt
+  - modified: src/backend/implementation/src/test/kotlin/io/pythia/rest/EstimationVersionResourceIT.kt

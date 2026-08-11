@@ -16,7 +16,7 @@ spec:
     spec:
       containers:
         - name: frontend
-          image: theestimator/estimation-frontend:1.0.0-SNAPSHOT
+          image: pythia/pythia-frontend:1.0.0-SNAPSHOT
           imagePullPolicy: Never
           ports:
             - containerPort: 80

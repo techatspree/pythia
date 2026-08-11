@@ -14,7 +14,7 @@ description: |
   The whole codebase currently assumes a single PERT three-point
   estimate per work item:
     - domain: `EstimationItem` sealed hierarchy in
-      `src/domain/src/main/kotlin/io/github/theestimator/model/` —
+      `src/domain/src/main/kotlin/io/pythia/model/` —
       `FixedEstimationItem` and `TimeRelativeEstimationItem` both
       carry `optimistic`/`likely`/`pessimistic`;
     - backend persistence: draft + submitted node discriminators
@@ -99,11 +99,11 @@ description: |
     in Quarkus services or Svelte components.
   - **One Kotlin package per method.** Each `EstimationMethodModule`
     lives in its own package under
-    `io.github.theestimator.method.<method>` (e.g.
-    `io.github.theestimator.method.threepoint`,
-    `io.github.theestimator.method.bucketsampled`). The SPI itself
+    `io.pythia.method.<method>` (e.g.
+    `io.pythia.method.threepoint`,
+    `io.pythia.method.bucketsampled`). The SPI itself
     (interface + registry + `EstimationMethod` enum) lives in
-    `io.github.theestimator.method`. Cross-method references between
+    `io.pythia.method`. Cross-method references between
     method packages are forbidden — they all interact only via
     the SPI in the parent package.
   - **DTO shape for leaf items.** Extend the existing `type`
@@ -156,7 +156,7 @@ description: |
   - **task-097** — Domain SPI: introduce `EstimationMethod` enum
     (`THREE_POINT_PERT`, `BUCKET_SAMPLED_PERT`) and a
     `EstimationMethodModule` interface in `:domain`, package
-    `io.github.theestimator.method`, covering (a) the sealed leaf
+    `io.pythia.method`, covering (a) the sealed leaf
     item shape the method contributes, (b) the per-leaf
     calculation into the domain-neutral values, (c) the export
     writer's data-shaping. Add `EstimationMethodRegistry`
@@ -169,7 +169,7 @@ description: |
   - **task-098** — PERT-as-method-1: repackage
     `FixedEstimationItem` + `TimeRelativeEstimationItem` behind
     `EstimationMethodModule.THREE_POINT_PERT`, moved into package
-    `io.github.theestimator.method.threepoint`. `calculate()` still
+    `io.pythia.method.threepoint`. `calculate()` still
     routes through the module. Move the existing PERT xlsx/csv
     export logic into the module's export writer. All existing
     domain + backend + frontend behaviour unchanged; existing
@@ -208,7 +208,7 @@ description: |
     `depends_on: [task-100]`.
 
   - **task-102** — Domain: implement bucket+sampled method in
-    package `io.github.theestimator.method.bucketsampled`.
+    package `io.pythia.method.bucketsampled`.
     New leaf item `BucketedEstimationItem` under the sealed
     hierarchy (fields: `bucketId: String`, `isSample: Boolean`,
     optional `optimistic`/`likely`/`pessimistic` when
@@ -218,7 +218,7 @@ description: |
     `EstimationMethod.BUCKET_SAMPLED_PERT`. Includes the bucket
     method's export-writer implementation (per the SPI). No
     cross-references from this package into
-    `io.github.theestimator.method.threepoint`. Kotlin/JS-safe:
+    `io.pythia.method.threepoint`. Kotlin/JS-safe:
     inline the parent formulas — DO NOT reference
     `super.<computed prop>`.
     `depends_on: [task-098]` (needs the SPI + registry).

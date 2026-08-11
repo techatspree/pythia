@@ -3,9 +3,9 @@ kind: Kustomization
 resources:
   - ../../base
 images:
-  - name: theestimator/estimation-backend
+  - name: pythia/pythia-backend
     newName: REGISTRY_PLACEHOLDER/estimation-backend
-  - name: theestimator/estimation-frontend
+  - name: pythia/pythia-frontend
     newName: REGISTRY_PLACEHOLDER/estimation-frontend
 replicas:
   - name: backend

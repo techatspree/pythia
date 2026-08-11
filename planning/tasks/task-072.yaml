@@ -19,7 +19,7 @@ description: |
   Target state:
 
   1. New sealed class `DraftMutation` in
-     `src/domain/src/main/kotlin/io/github/theestimator/model/mutation/`.
+     `src/domain/src/main/kotlin/io/pythia/model/mutation/`.
      Cases (one subclass each, all `@JsExport`-able data classes):
        - `ReplaceWholeDraft(before: EstimationVersion, after: EstimationVersion)`
          — the catch-all that covers today's clear-and-rebuild PUT.
@@ -47,7 +47,7 @@ description: |
      children — verify in tests.
 
   3. Tests in
-     `src/domain/src/test/kotlin/io/github/theestimator/model/mutation/`
+     `src/domain/src/test/kotlin/io/pythia/model/mutation/`
      (the `jvmTest` source set's physical srcDir):
        - `apply` of a `ReplaceWholeDraft` returns its `after`.
        - `inverse().apply(after) == before`.
@@ -78,7 +78,7 @@ description: |
 steps:
   - |
     Create directory
-    `src/domain/src/main/kotlin/io/github/theestimator/model/mutation/`
+    `src/domain/src/main/kotlin/io/pythia/model/mutation/`
     and add `DraftMutation.kt` with the sealed class, the
     `ReplaceWholeDraft` subclass, and the `kind`/`apply`/`inverse`
     members. Annotate with `@JsExport` and follow the existing
@@ -99,7 +99,7 @@ steps:
 
   - |
     Add unit tests under
-    `src/domain/src/test/kotlin/io/github/theestimator/model/mutation/DraftMutationTest.kt`
+    `src/domain/src/test/kotlin/io/pythia/model/mutation/DraftMutationTest.kt`
     (the domain's `jvmTest` source set is remapped to `src/test/kotlin`
     in `src/domain/build.gradle.kts` — that is the physical directory,
     not `src/jvmTest`) covering the five assertions in the description.
@@ -116,13 +116,13 @@ steps:
 validation:
   - |
     Structural checks for the new files:
-      test -f src/domain/src/main/kotlin/io/github/theestimator/model/mutation/DraftMutation.kt
-      test -f src/domain/src/main/kotlin/io/github/theestimator/model/mutation/Diff.kt
-      test -f src/domain/src/test/kotlin/io/github/theestimator/model/mutation/DraftMutationTest.kt
-      grep -q "sealed class DraftMutation" src/domain/src/main/kotlin/io/github/theestimator/model/mutation/DraftMutation.kt
-      grep -q "class ReplaceWholeDraft" src/domain/src/main/kotlin/io/github/theestimator/model/mutation/DraftMutation.kt
-      grep -q "fun EstimationVersion.diff" src/domain/src/main/kotlin/io/github/theestimator/model/mutation/Diff.kt
-      grep -q "logger\." src/domain/src/main/kotlin/io/github/theestimator/model/mutation/Diff.kt
+      test -f src/domain/src/main/kotlin/io/pythia/model/mutation/DraftMutation.kt
+      test -f src/domain/src/main/kotlin/io/pythia/model/mutation/Diff.kt
+      test -f src/domain/src/test/kotlin/io/pythia/model/mutation/DraftMutationTest.kt
+      grep -q "sealed class DraftMutation" src/domain/src/main/kotlin/io/pythia/model/mutation/DraftMutation.kt
+      grep -q "class ReplaceWholeDraft" src/domain/src/main/kotlin/io/pythia/model/mutation/DraftMutation.kt
+      grep -q "fun EstimationVersion.diff" src/domain/src/main/kotlin/io/pythia/model/mutation/Diff.kt
+      grep -q "logger\." src/domain/src/main/kotlin/io/pythia/model/mutation/Diff.kt
 
   - |
     Build and tests pass:
@@ -130,6 +130,6 @@ validation:
       ./gradlew :frontend:check
 
 outputs:
-  - created: src/domain/src/main/kotlin/io/github/theestimator/model/mutation/DraftMutation.kt
-  - created: src/domain/src/main/kotlin/io/github/theestimator/model/mutation/Diff.kt
-  - created: src/domain/src/test/kotlin/io/github/theestimator/model/mutation/DraftMutationTest.kt
+  - created: src/domain/src/main/kotlin/io/pythia/model/mutation/DraftMutation.kt
+  - created: src/domain/src/main/kotlin/io/pythia/model/mutation/Diff.kt
+  - created: src/domain/src/test/kotlin/io/pythia/model/mutation/DraftMutationTest.kt

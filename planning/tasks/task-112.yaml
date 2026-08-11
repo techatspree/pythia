@@ -12,7 +12,7 @@ description: |
   The backend already exposes the create endpoint:
 
     * `POST /api/projects/{id}/estimations` on `ProjectResource.createEstimation`
-      (`src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/ProjectResource.kt`)
+      (`src/backend/implementation/src/main/kotlin/io/pythia/rest/ProjectResource.kt`)
     * Request body: `EstimationCreateDto(offer: String,
       description: String? = null, method: EstimationMethod =
       THREE_POINT_PERT)` (`.../rest/dto/ProjectDtos.kt`)
@@ -173,10 +173,10 @@ steps:
       src/frontend/src/lib/api/schema.d.ts                        (EstimationCreateDto)
       src/frontend/src/routes/projects/[id]/+page.svelte
       src/frontend/src/routes/projects/+page.svelte               (see how CreateProjectDialog is wired: bind:open + oncreated)
-      src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/ProjectResource.kt   (create endpoint)
-      src/backend/implementation/src/test/kotlin/io/github/theestimator/rest/ProjectResourceIT.kt
-      src/backend/implementation/src/test/kotlin/io/github/theestimator/rest/EndpointAuthorizationIT.kt (task-091's cross-endpoint role-guard coverage — the 401/403 assertions live here)
-      src/backend/implementation/src/main/kotlin/io/github/theestimator/testdata/TestDataSeeder.kt   (which project id to hit in e2e)
+      src/backend/implementation/src/main/kotlin/io/pythia/rest/ProjectResource.kt   (create endpoint)
+      src/backend/implementation/src/test/kotlin/io/pythia/rest/ProjectResourceIT.kt
+      src/backend/implementation/src/test/kotlin/io/pythia/rest/EndpointAuthorizationIT.kt (task-091's cross-endpoint role-guard coverage — the 401/403 assertions live here)
+      src/backend/implementation/src/main/kotlin/io/pythia/testdata/TestDataSeeder.kt   (which project id to hit in e2e)
   - |
     Create
     `src/frontend/src/lib/components/CreateEstimationDialog.svelte`
@@ -300,9 +300,9 @@ validation:
     Backend integration test asserts a 201 create in
     ProjectResourceIT, and the role guard for the endpoint is
     covered by EndpointAuthorizationIT (task-091):
-      grep -q "POST.*projects.*estimations\|createEstimation\|/estimations" src/backend/implementation/src/test/kotlin/io/github/theestimator/rest/ProjectResourceIT.kt
-      grep -q "201\|CREATED" src/backend/implementation/src/test/kotlin/io/github/theestimator/rest/ProjectResourceIT.kt
-      grep -qE "/api/projects/.*estimations|createEstimation" src/backend/implementation/src/test/kotlin/io/github/theestimator/rest/EndpointAuthorizationIT.kt
+      grep -q "POST.*projects.*estimations\|createEstimation\|/estimations" src/backend/implementation/src/test/kotlin/io/pythia/rest/ProjectResourceIT.kt
+      grep -q "201\|CREATED" src/backend/implementation/src/test/kotlin/io/pythia/rest/ProjectResourceIT.kt
+      grep -qE "/api/projects/.*estimations|createEstimation" src/backend/implementation/src/test/kotlin/io/pythia/rest/EndpointAuthorizationIT.kt
   - |
     Playwright e2e file exists and covers the key steps:
       test -f src/frontend/e2e/create-estimation.spec.ts
@@ -311,7 +311,7 @@ validation:
       grep -q "estimations/" src/frontend/e2e/create-estimation.spec.ts
   - |
     Backend already logs create (kept intact):
-      grep -q "Log.info" src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/ProjectResource.kt
+      grep -q "Log.info" src/backend/implementation/src/main/kotlin/io/pythia/rest/ProjectResource.kt
   - |
     Full-stack Gradle build is green and the new spec passes:
       ./gradlew build
@@ -321,6 +321,6 @@ outputs:
   - created: src/frontend/src/lib/components/CreateEstimationDialog.svelte
   - modified: src/frontend/src/lib/components/ProjectDetail.svelte
   - created: src/frontend/e2e/create-estimation.spec.ts
-  - modified: src/backend/implementation/src/test/kotlin/io/github/theestimator/rest/ProjectResourceIT.kt
+  - modified: src/backend/implementation/src/test/kotlin/io/pythia/rest/ProjectResourceIT.kt
   # Modified ONLY if it does not already exercise the POST create-estimation endpoint (add one line naming it):
-  - modified: src/backend/implementation/src/test/kotlin/io/github/theestimator/rest/EndpointAuthorizationIT.kt
+  - modified: src/backend/implementation/src/test/kotlin/io/pythia/rest/EndpointAuthorizationIT.kt

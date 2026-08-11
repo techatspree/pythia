@@ -26,13 +26,13 @@ description: |
   been refreshed for that layout. Four consequences bind this task:
 
     1. **Where the files live.** The bucket files go in the `:domain:method-bucketsampled`
-       module — `src/domain/method-bucketsampled/src/main/kotlin/io/github/theestimator/method/bucketsampled/`
+       module — `src/domain/method-bucketsampled/src/main/kotlin/io/pythia/method/bucketsampled/`
        and its `src/test/kotlin/…` twin. The PACKAGE name is unchanged. Do not
        recreate `src/domain/src/main/kotlin/…/method/bucketsampled/` in the
        aggregator; a validation below fails if you do.
     2. **How it registers.** `EstimationMethodRegistry.installStandardMethods()`
        no longer exists — the registry does not self-populate. Register from
-       `io.github.theestimator.StandardMethods.installAll()` in the aggregator
+       `io.pythia.StandardMethods.installAll()` in the aggregator
        `:domain` (the only module that can see every method).
     3. **A method module cannot see the aggregator.** So
        `BucketSampledSessionSupportTest` CANNOT call `StandardMethods.installAll()`.
@@ -58,7 +58,7 @@ description: |
 
   ## Current state this task must extend
 
-  - **Domain.** `io.github.theestimator.method.bucketsampled` holds
+  - **Domain.** `io.pythia.method.bucketsampled` holds
     `BucketMethodModule`, `BucketedEstimationItem`, `computeBucketAverages.kt`
     (task-102). The per-bucket mean reducer already exists — this task feeds
     averaged samples into it, it does not reimplement it.
@@ -80,7 +80,7 @@ description: |
 
   ## Frozen decisions (from task-096, reconciled with the shipped code)
 
-  - **Package.** `io.github.theestimator.method.bucketsampled`.
+  - **Package.** `io.pythia.method.bucketsampled`.
   - **Bucket assignment reduction.** Last-write-wins per
     (item, estimator) — keep the most recent write per estimator
     for each item; then across estimators, pick the most recent
@@ -159,14 +159,14 @@ steps:
     extends.
   - |
     Add
-    `src/domain/method-bucketsampled/src/main/kotlin/io/github/theestimator/method/bucketsampled/BucketSampledSessionTypes.kt`
+    `src/domain/method-bucketsampled/src/main/kotlin/io/pythia/method/bucketsampled/BucketSampledSessionTypes.kt`
     with `EstimatorBucketAssignment`, `AssignmentResult`,
     `BucketSampledSessionResult`, and the SPI subtypes (`BucketVoteInput :
     SessionVoteInput`, `BucketSampledReduction : SessionReduction`). Use
     `kotlinx.datetime.Instant`.
   - |
     Add
-    `src/domain/method-bucketsampled/src/main/kotlin/io/github/theestimator/method/bucketsampled/reduceBucketSampledSession.kt`
+    `src/domain/method-bucketsampled/src/main/kotlin/io/pythia/method/bucketsampled/reduceBucketSampledSession.kt`
     with `reduceBucketSampledSession(inputs)`. Split into two
     private helpers: `resolveAssignmentLWW(inputs)` and
     `averageSamplePert(inputs)`. Feed the averaged samples into task-102's
@@ -174,12 +174,12 @@ steps:
     equal timestamps on `estimatorId`. Add the `logger.debug { … }` lines.
   - |
     Add
-    `src/domain/method-bucketsampled/src/main/kotlin/io/github/theestimator/method/bucketsampled/BucketSampledSessionSupport.kt`
+    `src/domain/method-bucketsampled/src/main/kotlin/io/pythia/method/bucketsampled/BucketSampledSessionSupport.kt`
     implementing `EstimationMethodSessionSupport`, delegating to the reducer
     and `error(...)`-ing on a foreign input type.
   - |
     Register the new session support in `StandardMethods.installAll()`
-    (`src/domain/src/main/kotlin/io/github/theestimator/StandardMethods.kt`), and
+    (`src/domain/src/main/kotlin/io/pythia/StandardMethods.kt`), and
     promote `kotlinx-datetime` from `implementation` to `api` in
     `src/domain/method-bucketsampled/build.gradle.kts` and
     `src/domain/build.gradle.kts` so the backend can see
@@ -187,8 +187,8 @@ steps:
   - |
     Domain unit tests in the JVM `src/test` source set (JUnit 5,
     `org.junit.jupiter.api` — the `:domain` module has NO `commonTest`):
-      src/domain/method-bucketsampled/src/test/kotlin/io/github/theestimator/method/bucketsampled/BucketSampledSessionSupportTest.kt
-      src/domain/method-bucketsampled/src/test/kotlin/io/github/theestimator/method/bucketsampled/ReduceBucketSampledSessionTest.kt
+      src/domain/method-bucketsampled/src/test/kotlin/io/pythia/method/bucketsampled/BucketSampledSessionSupportTest.kt
+      src/domain/method-bucketsampled/src/test/kotlin/io/pythia/method/bucketsampled/ReduceBucketSampledSessionTest.kt
     Cover: LWW selects most recent estimator; conflict list populated when
     others also wrote; equal-timestamp tie-break is deterministic; sample PT
     element-wise average with 3+ estimators; two-bucket case; foreign input
@@ -212,7 +212,7 @@ steps:
     rejected bucket vote.
   - |
     Backend `@QuarkusTest` at
-    `src/backend/implementation/src/test/kotlin/io/github/theestimator/rest/BucketSessionResourceIT.kt`:
+    `src/backend/implementation/src/test/kotlin/io/pythia/rest/BucketSessionResourceIT.kt`:
     full bucket+sampled session round-trip with 3 estimators, 2 buckets,
     mixed sample and non-sample items — the summary shows bucket-derived
     effort on non-sample items and lists conflicts on the item where two
@@ -239,26 +239,26 @@ validation:
   - |
     Domain module + reducer + SPI subtypes + tests exist, in the JVM test
     source set (there is no commonTest):
-      test -f src/domain/method-bucketsampled/src/main/kotlin/io/github/theestimator/method/bucketsampled/BucketSampledSessionSupport.kt
-      test -f src/domain/method-bucketsampled/src/main/kotlin/io/github/theestimator/method/bucketsampled/reduceBucketSampledSession.kt
-      test -f src/domain/method-bucketsampled/src/main/kotlin/io/github/theestimator/method/bucketsampled/BucketSampledSessionTypes.kt
-      test -f src/domain/method-bucketsampled/src/test/kotlin/io/github/theestimator/method/bucketsampled/ReduceBucketSampledSessionTest.kt
-      test -f src/domain/method-bucketsampled/src/test/kotlin/io/github/theestimator/method/bucketsampled/BucketSampledSessionSupportTest.kt
+      test -f src/domain/method-bucketsampled/src/main/kotlin/io/pythia/method/bucketsampled/BucketSampledSessionSupport.kt
+      test -f src/domain/method-bucketsampled/src/main/kotlin/io/pythia/method/bucketsampled/reduceBucketSampledSession.kt
+      test -f src/domain/method-bucketsampled/src/main/kotlin/io/pythia/method/bucketsampled/BucketSampledSessionTypes.kt
+      test -f src/domain/method-bucketsampled/src/test/kotlin/io/pythia/method/bucketsampled/ReduceBucketSampledSessionTest.kt
+      test -f src/domain/method-bucketsampled/src/test/kotlin/io/pythia/method/bucketsampled/BucketSampledSessionSupportTest.kt
       ! test -d src/domain/src/commonTest
       # The files must land in the METHOD MODULE, not be recreated in the
       # aggregator — otherwise every check above still passes while silently
       # defeating task-143's compiler-enforced boundary.
-      ! test -e src/domain/src/main/kotlin/io/github/theestimator/method/bucketsampled
+      ! test -e src/domain/src/main/kotlin/io/pythia/method/bucketsampled
   - |
     KMP-safe Instant (java.time would pass jvmTest then fail the JS compile):
-      grep -q "kotlinx.datetime.Instant" src/domain/method-bucketsampled/src/main/kotlin/io/github/theestimator/method/bucketsampled/BucketSampledSessionTypes.kt
+      grep -q "kotlinx.datetime.Instant" src/domain/method-bucketsampled/src/main/kotlin/io/pythia/method/bucketsampled/BucketSampledSessionTypes.kt
       # Match IMPORTS, not prose: the KDoc deliberately names java.time to
       # explain why it must not be used, so a bare `grep java.time` is a false
       # positive on correct code.
-      ! grep -rqE "^import java\.time" src/domain/method-bucketsampled/src/main/kotlin/io/github/theestimator/method/bucketsampled/
+      ! grep -rqE "^import java\.time" src/domain/method-bucketsampled/src/main/kotlin/io/pythia/method/bucketsampled/
   - |
     Reuses task-102's per-bucket reducer rather than reimplementing it:
-      grep -q "computeBucketAverages" src/domain/method-bucketsampled/src/main/kotlin/io/github/theestimator/method/bucketsampled/reduceBucketSampledSession.kt
+      grep -q "computeBucketAverages" src/domain/method-bucketsampled/src/main/kotlin/io/pythia/method/bucketsampled/reduceBucketSampledSession.kt
   - |
     Registration is wired into standard-method installation. Deliberately
     layout-agnostic: pre-143 that call sits in `EstimationMethodRegistry
@@ -266,7 +266,7 @@ validation:
     `StandardMethods.installAll()` — this passes either way and does not go
     stale when task-143 moves it:
       grep -rq "registerSessionSupport(BucketSampledSessionSupport()" src/domain/
-      grep -q "BucketSampledSessionSupport" src/domain/src/main/kotlin/io/github/theestimator/StandardMethods.kt
+      grep -q "BucketSampledSessionSupport" src/domain/src/main/kotlin/io/pythia/StandardMethods.kt
   - |
     kotlinx-datetime is exposed as `api` so the backend can construct the
     kotlinx Instant it maps into (implementation-scoped would not reach a
@@ -275,26 +275,26 @@ validation:
       grep -q 'api("org.jetbrains.kotlinx:kotlinx-datetime' src/domain/build.gradle.kts
   - |
     Domain logging idiom used (lambda form):
-      grep -q "logger.debug {" src/domain/method-bucketsampled/src/main/kotlin/io/github/theestimator/method/bucketsampled/reduceBucketSampledSession.kt
+      grep -q "logger.debug {" src/domain/method-bucketsampled/src/main/kotlin/io/pythia/method/bucketsampled/reduceBucketSampledSession.kt
   - |
     Migration exists and the entity mirrors it (V15 lesson — %test/%dev build
     the schema from Hibernate, so an entity-less constraint is untested):
       test -f src/backend/implementation/src/main/resources/db/migration/V17__session_bucket_votes.sql
-      grep -qi "bucket" src/backend/implementation/src/main/kotlin/io/github/theestimator/domain/session/SessionVote.kt
+      grep -qi "bucket" src/backend/implementation/src/main/kotlin/io/pythia/domain/session/SessionVote.kt
   - |
     Backend exposes the bucket vote and surfaces conflicts on the wire:
-      grep -q "conflictingAssignments" src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/dto/SessionDtos.kt
-      grep -q "votes/bucket" src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/SessionResource.kt
-      grep -qE "Log\.(info|warn)" src/backend/implementation/src/main/kotlin/io/github/theestimator/service/EstimationSessionService.kt
+      grep -q "conflictingAssignments" src/backend/implementation/src/main/kotlin/io/pythia/rest/dto/SessionDtos.kt
+      grep -q "votes/bucket" src/backend/implementation/src/main/kotlin/io/pythia/rest/SessionResource.kt
+      grep -qE "Log\.(info|warn)" src/backend/implementation/src/main/kotlin/io/pythia/service/EstimationSessionService.kt
   - |
     Backend round-trip IT exists and passes:
-      test -f src/backend/implementation/src/test/kotlin/io/github/theestimator/rest/BucketSessionResourceIT.kt
-      ./gradlew :backend:implementation:test --tests "io.github.theestimator.rest.BucketSessionResourceIT"
+      test -f src/backend/implementation/src/test/kotlin/io/pythia/rest/BucketSessionResourceIT.kt
+      ./gradlew :backend:implementation:test --tests "io.pythia.rest.BucketSessionResourceIT"
   - |
     PERT parity is preserved — the existing session round-trip still passes
     with its write-back assertion intact:
-      grep -q "roots\[0\].minEffort" src/backend/implementation/src/test/kotlin/io/github/theestimator/rest/SessionResourceIT.kt
-      ./gradlew :backend:implementation:test --tests "io.github.theestimator.rest.SessionResourceIT"
+      grep -q "roots\[0\].minEffort" src/backend/implementation/src/test/kotlin/io/pythia/rest/SessionResourceIT.kt
+      ./gradlew :backend:implementation:test --tests "io.pythia.rest.SessionResourceIT"
   - |
     Frontend consumes the conflict field and obeys the house rules:
       grep -rq "conflictingAssignments" src/frontend/src/lib/session/
@@ -308,20 +308,20 @@ validation:
       ./gradlew build
 
 outputs:
-  - created: src/domain/method-bucketsampled/src/main/kotlin/io/github/theestimator/method/bucketsampled/BucketSampledSessionSupport.kt
-  - created: src/domain/method-bucketsampled/src/main/kotlin/io/github/theestimator/method/bucketsampled/BucketSampledSessionTypes.kt
-  - created: src/domain/method-bucketsampled/src/main/kotlin/io/github/theestimator/method/bucketsampled/reduceBucketSampledSession.kt
-  - created: src/domain/method-bucketsampled/src/test/kotlin/io/github/theestimator/method/bucketsampled/BucketSampledSessionSupportTest.kt
-  - created: src/domain/method-bucketsampled/src/test/kotlin/io/github/theestimator/method/bucketsampled/ReduceBucketSampledSessionTest.kt
+  - created: src/domain/method-bucketsampled/src/main/kotlin/io/pythia/method/bucketsampled/BucketSampledSessionSupport.kt
+  - created: src/domain/method-bucketsampled/src/main/kotlin/io/pythia/method/bucketsampled/BucketSampledSessionTypes.kt
+  - created: src/domain/method-bucketsampled/src/main/kotlin/io/pythia/method/bucketsampled/reduceBucketSampledSession.kt
+  - created: src/domain/method-bucketsampled/src/test/kotlin/io/pythia/method/bucketsampled/BucketSampledSessionSupportTest.kt
+  - created: src/domain/method-bucketsampled/src/test/kotlin/io/pythia/method/bucketsampled/ReduceBucketSampledSessionTest.kt
   - created: src/backend/implementation/src/main/resources/db/migration/V17__session_bucket_votes.sql
-  - created: src/backend/implementation/src/test/kotlin/io/github/theestimator/rest/BucketSessionResourceIT.kt
-  - modified: src/domain/src/main/kotlin/io/github/theestimator/StandardMethods.kt
+  - created: src/backend/implementation/src/test/kotlin/io/pythia/rest/BucketSessionResourceIT.kt
+  - modified: src/domain/src/main/kotlin/io/pythia/StandardMethods.kt
   - modified: src/domain/method-bucketsampled/build.gradle.kts
   - modified: src/domain/build.gradle.kts
-  - modified: src/backend/implementation/src/main/kotlin/io/github/theestimator/domain/session/SessionVote.kt
-  - modified: src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/dto/SessionDtos.kt
-  - modified: src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/SessionResource.kt
-  - modified: src/backend/implementation/src/main/kotlin/io/github/theestimator/service/EstimationSessionService.kt
+  - modified: src/backend/implementation/src/main/kotlin/io/pythia/domain/session/SessionVote.kt
+  - modified: src/backend/implementation/src/main/kotlin/io/pythia/rest/dto/SessionDtos.kt
+  - modified: src/backend/implementation/src/main/kotlin/io/pythia/rest/SessionResource.kt
+  - modified: src/backend/implementation/src/main/kotlin/io/pythia/service/EstimationSessionService.kt
   - created: src/frontend/src/lib/session/ConflictBadge.svelte
   - modified: src/frontend/src/lib/session/PhaseTwoPanel.svelte
   - modified: src/frontend/src/lib/session/SessionSummary.svelte

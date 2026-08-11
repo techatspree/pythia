@@ -240,9 +240,9 @@ validation:
   - |
     SubmittedEstimationVersion exposes roots, not itemGroups:
       grep -q "var roots: MutableList<SubmittedEstimationNode>" \
-            src/backend/implementation/src/main/kotlin/io/github/theestimator/domain/submitted/SubmittedEstimationVersion.kt
+            src/backend/implementation/src/main/kotlin/io/pythia/domain/submitted/SubmittedEstimationVersion.kt
       ! grep -q "itemGroups" \
-            src/backend/implementation/src/main/kotlin/io/github/theestimator/domain/submitted/SubmittedEstimationVersion.kt
+            src/backend/implementation/src/main/kotlin/io/pythia/domain/submitted/SubmittedEstimationVersion.kt
   - |
     No Kotlin file under src/backend reads `.itemGroups` anywhere — both
     sides are now tree-shaped. (Replaces task-050's per-file scoping.):
@@ -259,17 +259,17 @@ validation:
 
 outputs:
   - created: src/backend/implementation/src/main/resources/db/migration/V7__submitted_tree.sql
-  - created: src/backend/implementation/src/main/kotlin/io/github/theestimator/domain/submitted/SubmittedEstimationNode.kt
-  - deleted: src/backend/implementation/src/main/kotlin/io/github/theestimator/domain/submitted/SubmittedEstimationItemGroup.kt
-  - deleted: src/backend/implementation/src/main/kotlin/io/github/theestimator/domain/submitted/SubmittedEstimationItem.kt
-  - deleted: src/backend/implementation/src/main/kotlin/io/github/theestimator/domain/submitted/SubmittedFixedEstimationItem.kt
-  - deleted: src/backend/implementation/src/main/kotlin/io/github/theestimator/domain/submitted/SubmittedTimeRelativeEstimationItem.kt
-  - modified: src/backend/implementation/src/main/kotlin/io/github/theestimator/domain/submitted/SubmittedEstimationVersion.kt
-  - modified: src/backend/implementation/src/main/kotlin/io/github/theestimator/service/EstimationVersionService.kt
-  - modified: src/backend/implementation/src/main/kotlin/io/github/theestimator/service/VersionComparisonService.kt
-  - modified: src/backend/implementation/src/main/kotlin/io/github/theestimator/service/ExcelExporter.kt
-  - modified: src/backend/implementation/src/main/kotlin/io/github/theestimator/service/CsvExporter.kt
-  - modified: src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/dto/EstimationVersionMapper.kt
-  - created: src/backend/implementation/src/test/kotlin/io/github/theestimator/rest/SubmissionTreeIT.kt
-  - modified: src/backend/implementation/src/test/kotlin/io/github/theestimator/rest/EstimationVersionResourceIT.kt
+  - created: src/backend/implementation/src/main/kotlin/io/pythia/domain/submitted/SubmittedEstimationNode.kt
+  - deleted: src/backend/implementation/src/main/kotlin/io/pythia/domain/submitted/SubmittedEstimationItemGroup.kt
+  - deleted: src/backend/implementation/src/main/kotlin/io/pythia/domain/submitted/SubmittedEstimationItem.kt
+  - deleted: src/backend/implementation/src/main/kotlin/io/pythia/domain/submitted/SubmittedFixedEstimationItem.kt
+  - deleted: src/backend/implementation/src/main/kotlin/io/pythia/domain/submitted/SubmittedTimeRelativeEstimationItem.kt
+  - modified: src/backend/implementation/src/main/kotlin/io/pythia/domain/submitted/SubmittedEstimationVersion.kt
+  - modified: src/backend/implementation/src/main/kotlin/io/pythia/service/EstimationVersionService.kt
+  - modified: src/backend/implementation/src/main/kotlin/io/pythia/service/VersionComparisonService.kt
+  - modified: src/backend/implementation/src/main/kotlin/io/pythia/service/ExcelExporter.kt
+  - modified: src/backend/implementation/src/main/kotlin/io/pythia/service/CsvExporter.kt
+  - modified: src/backend/implementation/src/main/kotlin/io/pythia/rest/dto/EstimationVersionMapper.kt
+  - created: src/backend/implementation/src/test/kotlin/io/pythia/rest/SubmissionTreeIT.kt
+  - modified: src/backend/implementation/src/test/kotlin/io/pythia/rest/EstimationVersionResourceIT.kt
   - modified: CLAUDE.md

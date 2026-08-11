@@ -1,0 +1,250 @@
+id: task-151
+phase: phase-17
+title: Session setup — polish the form selects and item picker
+depends_on: [task-148, task-149]
+description: |
+  The session setup page (`src/frontend/src/routes/sessions/+page.svelte`) is
+  the entry point to a collaborative estimation, and its two main controls look
+  unfinished next to the rest of the app.
+
+  **1. The project / offer dropdowns.** Both are bare native `<select>`s wearing
+  the app's text-input classes (`w-full border rounded px-3 py-2 text-sm`).
+  A native select ignores most of that: the browser paints its own OS-default
+  arrow and control height, so beside a real `<input>` with identical classes it
+  reads as a different, heavier control — and differently again per platform.
+  Nothing marks the "Projekt wählen…" placeholder as an empty state either.
+
+  **2. The selectable-items list.** A plain `border rounded divide-y` box of
+  `<label>` rows. Its problems are not only cosmetic:
+
+    - **No height cap.** Every leaf of the draft renders. A real estimation has
+      dozens, which pushes the session-title field, the moderator checkbox and
+      the "Sitzung starten" button far below the fold — the form appears to have
+      no submit at all.
+    - **No selected count.** The page default-selects only the not-yet-estimated
+      leaves (task-128) and `canStart` needs at least one, so "how many of how
+      many" is load-bearing information the user cannot see.
+    - **No context per row.** `collectLeaves` flattens the group tree away, so
+      two leaves called "Backend" under different groups are indistinguishable.
+      The tree structure is real information the picker discards.
+    - Select-all / deselect-all are two bare text links in the corner, and
+      "bereits geschätzt" is flat grey text where the app elsewhere uses a chip.
+
+  ## Design direction — consistency, not a new identity
+
+  This is a mature design system: brand-green tokens in `@theme`, the bordered
+  card idiom, `$lib/ui` primitives (task-149). **Do not introduce a new palette,
+  typeface or decorative treatment for one page.** The improvement is hierarchy,
+  density and honest feedback, built from what already exists — the chip pattern
+  `px-2 py-0.5 text-xs rounded-full` (6 existing uses), the `Card`/`Button`
+  primitives, and the established focus-ring
+  `focus:ring-1 focus:ring-brand-green/40`.
+
+  ## Scope decision — which selects, and why not all of them
+
+  The app has **9** `<select>` elements in **3 genuinely different roles**, and
+  only one role is in scope:
+
+    - **Form selects (3, IN SCOPE):** `sessions/+page.svelte` ×2 and
+      `CreateEstimationDialog.svelte` — `w-full border rounded px-3 py-2 text-sm`,
+      a labelled field in a form.
+    - **In-cell editors (5, OUT OF SCOPE):** `EstimationGrid` ×2,
+      `AdditionalCostsPanel` ×2, bucket `EditorModule` — deliberately
+      `bg-transparent` and borderless with `px-1 py-0.5`, because they sit
+      inside a grid cell where a bordered box would be wrong. **Do not unify
+      these with the form treatment.**
+    - **Menu chrome (1, OUT OF SCOPE):** `UserMenu.svelte`'s language switcher.
+
+  Fixing only this page's two selects would leave `CreateEstimationDialog`'s
+  identical form select looking different — precisely the drift task-149 exists
+  to prevent — so the primitive is adopted at all three form sites and nowhere
+  else.
+
+  ## Target state
+
+  A `$lib/ui/Select.svelte` primitive gives form selects a consistent,
+  platform-independent appearance (suppressed native arrow, own chevron, the
+  app's focus ring). The item picker gains a scroll cap, a live selected count,
+  the group path per row, a chip for the already-estimated marker, and copy that
+  says what to do when nothing can be selected.
+
+  This also delivers part of the `Field` primitive that task-149 explicitly
+  deferred — narrowed to the control that actually looks wrong. Text inputs stay
+  as they are; unifying those remains the open follow-up.
+
+steps:
+  - |
+    Create `src/frontend/src/lib/ui/Select.svelte`, following `Button.svelte`'s
+    shape from task-149 (Svelte 5 runes, `HTMLSelectAttributes`, `{...rest}`
+    forwarding so `id`, `bind:value`, `onchange`, `disabled` and `aria-*` reach
+    the real element):
+
+      - wrapper `relative` so the chevron can be positioned;
+      - the `<select>` keeps the app's field classes
+        (`w-full border rounded px-3 py-2 text-sm`) plus `appearance-none`,
+        room for the chevron (`pr-9`), and the established focus ring
+        `focus:outline-none focus:ring-1 focus:ring-brand-green/40`;
+      - an inline SVG chevron, `absolute right-3 inset-y-0 my-auto`,
+        `pointer-events-none` (or the click swallows the select), and
+        `aria-hidden="true"` — it is decoration, the select is already announced;
+      - `text-gray-400` on the select while its value is `''`, so the
+        "…wählen…" placeholder reads as empty rather than as a chosen value.
+        Restore the normal colour once a value is set.
+
+    Accept `children` for the `<option>`s so call sites keep writing them
+    inline. No new i18n strings — the placeholder option stays the caller's.
+
+  - |
+    Adopt `Select` at the three FORM sites, replacing the raw `<select>` and its
+    class string, keeping every attribute and the `<option>` markup:
+
+      src/frontend/src/routes/sessions/+page.svelte      (project, ~line 208)
+      src/frontend/src/routes/sessions/+page.svelte      (offer,   ~line 224)
+      src/frontend/src/lib/components/CreateEstimationDialog.svelte (~line 106)
+
+    Leave the five in-cell selects and `UserMenu`'s untouched — see the scope
+    note. Verify `e2e/create-estimation.spec.ts` still passes: it drives that
+    dialog's method dropdown by label.
+
+  - |
+    Give the item picker its group context. In
+    `src/frontend/src/routes/sessions/+page.svelte`, extend the `Leaf` type with
+    `path: string` and change `collectLeaves(nodes, out)` to carry the ancestor
+    titles down (`collectLeaves(children, out, [...ancestors, n.title])`),
+    joining them with `' / '` — the same separator the Merlin WBS path uses.
+    A root-level leaf gets an empty path.
+
+    Render it under the description as `text-xs text-gray-400`, and only when
+    non-empty, so a flat draft gains no empty line.
+
+  - |
+    Restyle the picker itself:
+
+      - **Cap the height**: `max-h-72 overflow-y-auto` on the list box, so the
+        title field, the moderator checkbox and the start button stay reachable
+        no matter how large the draft is. This is the substantive fix.
+      - Move the header into a strip above the list
+        (`px-3 py-2 bg-gray-50/40 border-b`, the app's sub-section idiom) holding
+        the label, the live count, and the two select-all/deselect-all controls.
+      - Rows: keep the `<label>` + checkbox structure (it is already correctly
+        clickable and keyboard-reachable) but give the selected row a subtle
+        `bg-brand-green/5`, and keep `hover:bg-gray-50`.
+      - Replace the flat "bereits geschätzt" text with the app's chip idiom —
+        `px-2 py-0.5 text-xs rounded-full`, in NEUTRAL grey
+        (`bg-gray-100 text-gray-500`), NOT brand-green: the six existing
+        brand-green chips all mean "current/active", and this marker means
+        "already done, probably skip".
+
+    While here, tidy the stray blank lines inside the `<Button>` at ~line 283
+    and the inconsistent indentation of the `max-w-2xl` block (both leftovers
+    from task-148/149's mechanical edits).
+
+  - |
+    Add the feedback and empty-state copy. New keys in BOTH
+    `src/frontend/src/lib/i18n/de.json` and `en.json`, under `session.setup`:
+
+      selectedCount — "{selected} von {total} ausgewählt" /
+                      "{selected} of {total} selected"
+      noneSelected  — "Mindestens ein Eintrag muss ausgewählt sein." /
+                      "Select at least one item to start."
+
+    Render `selectedCount` in the header strip, and `noneSelected` as a
+    `text-xs text-gray-500` hint beside the disabled start button when
+    `selected.size === 0` — today the button is simply dead with no reason
+    given. Use the `$_('key', { values: { … } })` form; `panel.phases.leafCount`
+    is the precedent for interpolated keys.
+
+    Keep both catalogs key-for-key identical (the i18n rule in CLAUDE.md).
+
+  - |
+    Run the frontend gate — it includes the task-149 design-token gate, which
+    fails the build on any arbitrary colour value, so use tokens only:
+
+      ./gradlew :frontend:check
+
+  - |
+    Extend `src/frontend/e2e/session.test.ts` (or add a focused spec) to pin the
+    two behavioural claims, not the styling:
+
+      - with a draft of many leaves, the "Sitzung starten" button is still
+        reachable — assert it is in the viewport after the picker renders
+        (`toBeInViewport()`), which is the regression the height cap fixes;
+      - the selected count reflects toggling a row.
+
+    Do not assert on class strings; they are implementation detail.
+
+  - |
+    Run the full e2e suite against a running dev stack (`./scripts/dev.sh`,
+    Docker up, backend :8090, Vite :5173) — the `Select` swap touches the
+    estimation-creation dialog, which several specs drive:
+
+      cd src/frontend && npm run test:e2e
+
+  - |
+    Update `src/frontend/CLAUDE.md`: add `Select` to the `## UI primitives`
+    section — what it is for, that `{...rest}` forwarding is load-bearing as it
+    is for `Button`, and **which selects deliberately do NOT use it** (the five
+    borderless in-cell editors and `UserMenu`'s chrome select), so the next
+    reader does not "finish the job" wrongly.
+
+  - |
+    Run the full build:
+
+      ./gradlew build
+
+validation:
+  - |
+    test -f src/frontend/src/lib/ui/Select.svelte
+  - |
+    grep -q 'appearance-none' src/frontend/src/lib/ui/Select.svelte \
+      && grep -q '\.\.\.rest' src/frontend/src/lib/ui/Select.svelte \
+      && grep -q 'pointer-events-none' src/frontend/src/lib/ui/Select.svelte
+  - |
+    [ "$(grep -rl "from '\$lib/ui/Select.svelte'" src/frontend/src | wc -l | tr -d ' ')" = "2" ]
+  - |
+    ! grep -q 'class="w-full border rounded px-3 py-2 text-sm"' \
+        src/frontend/src/routes/sessions/+page.svelte
+  - |
+    # The five in-cell selects stay borderless — a blanket unification is wrong.
+    [ "$(grep -rc 'bg-transparent' src/frontend/src/lib/components/EstimationGrid.svelte \
+        | tr -d ' ')" -ge 2 ] \
+      && ! grep -q 'ui/Select.svelte' src/frontend/src/lib/components/EstimationGrid.svelte \
+      && ! grep -q 'ui/Select.svelte' src/frontend/src/lib/components/UserMenu.svelte
+  - |
+    grep -q 'max-h-' src/frontend/src/routes/sessions/+page.svelte \
+      && grep -q 'overflow-y-auto' src/frontend/src/routes/sessions/+page.svelte
+  - |
+    grep -q 'path' src/frontend/src/routes/sessions/+page.svelte \
+      && grep -q "' / '" src/frontend/src/routes/sessions/+page.svelte
+  - |
+    for k in selectedCount noneSelected; do \
+      jq -e ".session.setup.$k" src/frontend/src/lib/i18n/de.json > /dev/null || exit 1; \
+      jq -e ".session.setup.$k" src/frontend/src/lib/i18n/en.json > /dev/null || exit 1; \
+    done
+  - |
+    [ "$(jq -r '.session.setup | keys | length' src/frontend/src/lib/i18n/de.json)" \
+      = "$(jq -r '.session.setup | keys | length' src/frontend/src/lib/i18n/en.json)" ]
+  - |
+    grep -q 'rounded-full' src/frontend/src/routes/sessions/+page.svelte \
+      && ! grep -q 'bg-brand-green/20 text-brand-green">{\$_(.session.setup.estimated' \
+           src/frontend/src/routes/sessions/+page.svelte
+  - |
+    grep -q 'log\.' src/frontend/src/routes/sessions/+page.svelte \
+      && ! grep -rqE '(^|[^.a-zA-Z])console\.' src/frontend/src/routes/sessions/ src/frontend/src/lib/ui/
+  - |
+    grep -q 'Select' src/frontend/CLAUDE.md
+  - |
+    ./gradlew :frontend:check
+  - |
+    ./gradlew build
+  - |
+    cd src/frontend && npx playwright test e2e/session.test.ts e2e/create-estimation.spec.ts
+
+outputs:
+  - created: src/frontend/src/lib/ui/Select.svelte
+  - modified: src/frontend/src/routes/sessions/+page.svelte
+  - modified: src/frontend/src/lib/components/CreateEstimationDialog.svelte
+  - modified: src/frontend/src/lib/i18n/de.json
+  - modified: src/frontend/src/lib/i18n/en.json
+  - modified: src/frontend/CLAUDE.md
+  - modified: src/frontend/e2e/session.test.ts

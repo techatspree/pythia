@@ -15,13 +15,13 @@ description: |
   already in place, so the "locate the reducer" work is a read, not a
   search. The three concrete call sites are:
 
-    * `src/backend/implementation/src/main/kotlin/io/github/theestimator/service/EstimationSessionService.kt`
+    * `src/backend/implementation/src/main/kotlin/io/pythia/service/EstimationSessionService.kt`
       **~line 258** (`finalizeCurrent`) — reduces the effective votes and
       writes `meanMin/meanExpected/meanMax` back onto the `SessionItem`.
     * the same file, **~line 406**, inside `private fun itemDto(item,
       descriptions, participantNames)` (declared ~line 386) — reduces again
       to populate `SessionItemDto.aggregate` once the item is revealed.
-    * `src/domain/src/main/kotlin/io/github/theestimator/model/DomainFactory.kt`
+    * `src/domain/src/main/kotlin/io/pythia/model/DomainFactory.kt`
       **~line 88** — `aggregateVotes(votes: Array<EstimatorVote>)`, the
       `@JsExport`ed bridge the frontend `PhaseTwoPanel.svelte` calls.
 
@@ -48,7 +48,7 @@ description: |
   ## Frozen decisions (from task-096, reconciled with the shipped code)
 
   - **Where the SPI lives.** In `:domain`, package
-    `io.github.theestimator.method` (same package as
+    `io.pythia.method` (same package as
     `EstimationMethodModule` and the registry — session support
     is a second SPI at the same level, NOT a nested type inside
     `EstimationMethodModule`). Rationale: session support and
@@ -58,7 +58,7 @@ description: |
   - **Interface shape — REUSE the existing vote types, do not invent
     parallel ones.** task-096 sketched new `EstimatorInput` /
     `SessionResult` common types. Do **not** create them: task-062 already
-    shipped `io.github.theestimator.model.EstimatorVote` and `VoteAggregate`,
+    shipped `io.pythia.model.EstimatorVote` and `VoteAggregate`,
     they are `@JsExport`ed, and they are load-bearing in four places —
     `EstimationSessionService` (both call sites), `rest/dto/SessionDtos.kt`
     (`VoteAggregate.toDto()`), `PhaseTwoPanel.svelte` (via
@@ -82,10 +82,10 @@ description: |
     `installStandardMethods()` registers PERT's session support alongside
     its module; the existing test-only `clear()` must clear the new map too.
   - **PERT parity.** `VoteAggregation.aggregate` in
-    `io.github.theestimator.model` IS the pure reduction already. Keep it
+    `io.pythia.model` IS the pure reduction already. Keep it
     where it is (the frontend and `VoteAggregationTest` reference it) and
     have `ThreePointSessionSupport.reduce` in
-    `io.github.theestimator.method.threepoint` **delegate** to it. This task
+    `io.pythia.method.threepoint` **delegate** to it. This task
     adds a dispatch seam; it does not move or rewrite the math. The rest of
     the session flow (persistence, websocket push, UI) stays untouched.
   - **Backend routing.** Both `EstimationSessionService` call sites go
@@ -115,14 +115,14 @@ description: |
 steps:
   - |
     Read the three call sites named in "Current state" above:
-      src/backend/implementation/src/main/kotlin/io/github/theestimator/service/EstimationSessionService.kt
-      src/domain/src/main/kotlin/io/github/theestimator/model/VoteAggregation.kt
+      src/backend/implementation/src/main/kotlin/io/pythia/service/EstimationSessionService.kt
+      src/domain/src/main/kotlin/io/pythia/model/VoteAggregation.kt
     Confirm the reduction is `VoteAggregation.aggregate(List<EstimatorVote>) -> VoteAggregate`.
   - |
     Add
-    `src/domain/src/main/kotlin/io/github/theestimator/method/EstimationMethodSessionSupport.kt`
+    `src/domain/src/main/kotlin/io/pythia/method/EstimationMethodSessionSupport.kt`
     with the interface exactly as frozen above. It imports
-    `EstimatorVote` / `VoteAggregate` from `io.github.theestimator.model` —
+    `EstimatorVote` / `VoteAggregate` from `io.pythia.model` —
     do NOT declare new `EstimatorInput` / `SessionResult` types. Keep the
     interface domain-internal (no `@JsExport`).
   - |
@@ -135,7 +135,7 @@ steps:
       * the existing internal `clear()` clears the session map too
   - |
     Add
-    `src/domain/src/main/kotlin/io/github/theestimator/method/threepoint/ThreePointSessionSupport.kt`
+    `src/domain/src/main/kotlin/io/pythia/method/threepoint/ThreePointSessionSupport.kt`
     implementing the SPI. `reduce` delegates to
     `VoteAggregation.aggregate(votes)`. Add a `KotlinLogging.logger {}`
     lambda-form debug line naming the method and vote count (the math's own
@@ -158,7 +158,7 @@ steps:
     Add domain unit tests in the JVM `src/test` source set (JUnit 5,
     `org.junit.jupiter.api` — the `:domain` module has NO `commonTest`),
     at
-    `src/domain/src/test/kotlin/io/github/theestimator/method/threepoint/ThreePointSessionSupportTest.kt`,
+    `src/domain/src/test/kotlin/io/pythia/method/threepoint/ThreePointSessionSupportTest.kt`,
     mirroring `ThreePointMethodModuleTest`. Assert `reduce` is byte-identical
     to `VoteAggregation.aggregate` for the same input, and that
     `EstimationMethodRegistry.requireSession(THREE_POINT_PERT)` resolves.
@@ -171,7 +171,7 @@ steps:
     installStandardMethods() }` — or not call `clear()` at all.
   - |
     Parity check — do NOT write a new round-trip IT. The existing
-    `src/backend/implementation/src/test/kotlin/io/github/theestimator/rest/SessionResourceIT.kt`
+    `src/backend/implementation/src/test/kotlin/io/pythia/rest/SessionResourceIT.kt`
     already covers it: `full happy path — create, vote, reveal, revise,
     finalize writes back and advances` asserts the finalized mean triple
     (2/4/6) reaches the draft leaf. Confirm it passes **unchanged** and do
@@ -200,33 +200,33 @@ steps:
 validation:
   - |
     Session SPI + PERT support module exist:
-      test -f src/domain/src/main/kotlin/io/github/theestimator/method/EstimationMethodSessionSupport.kt
-      test -f src/domain/src/main/kotlin/io/github/theestimator/method/threepoint/ThreePointSessionSupport.kt
+      test -f src/domain/src/main/kotlin/io/pythia/method/EstimationMethodSessionSupport.kt
+      test -f src/domain/src/main/kotlin/io/pythia/method/threepoint/ThreePointSessionSupport.kt
   - |
     The SPI reuses the shipped vote types instead of inventing new ones:
-      grep -q "EstimatorVote" src/domain/src/main/kotlin/io/github/theestimator/method/EstimationMethodSessionSupport.kt
-      grep -q "VoteAggregate" src/domain/src/main/kotlin/io/github/theestimator/method/EstimationMethodSessionSupport.kt
-      ! grep -rq "EstimatorInput\|SessionResult" src/domain/src/main/kotlin/io/github/theestimator/method/
+      grep -q "EstimatorVote" src/domain/src/main/kotlin/io/pythia/method/EstimationMethodSessionSupport.kt
+      grep -q "VoteAggregate" src/domain/src/main/kotlin/io/pythia/method/EstimationMethodSessionSupport.kt
+      ! grep -rq "EstimatorInput\|SessionResult" src/domain/src/main/kotlin/io/pythia/method/
   - |
     Registry exposes all three new session accessors:
-      grep -q "registerSessionSupport" src/domain/src/main/kotlin/io/github/theestimator/method/EstimationMethodRegistry.kt
-      grep -q "getSession" src/domain/src/main/kotlin/io/github/theestimator/method/EstimationMethodRegistry.kt
-      grep -q "requireSession" src/domain/src/main/kotlin/io/github/theestimator/method/EstimationMethodRegistry.kt
+      grep -q "registerSessionSupport" src/domain/src/main/kotlin/io/pythia/method/EstimationMethodRegistry.kt
+      grep -q "getSession" src/domain/src/main/kotlin/io/pythia/method/EstimationMethodRegistry.kt
+      grep -q "requireSession" src/domain/src/main/kotlin/io/pythia/method/EstimationMethodRegistry.kt
   - |
     The backend reduction routes through the registry and the direct domain
     call is gone from the service. (-ge 1, not 2: factoring both sites onto
     one private helper is a legitimate implementation; the second assertion
     is what proves BOTH sites moved off the direct call.)
-      test "$(grep -c 'requireSession' src/backend/implementation/src/main/kotlin/io/github/theestimator/service/EstimationSessionService.kt)" -ge 1
-      ! grep -q "VoteAggregation.aggregate" src/backend/implementation/src/main/kotlin/io/github/theestimator/service/EstimationSessionService.kt
+      test "$(grep -c 'requireSession' src/backend/implementation/src/main/kotlin/io/pythia/service/EstimationSessionService.kt)" -ge 1
+      ! grep -q "VoteAggregation.aggregate" src/backend/implementation/src/main/kotlin/io/pythia/service/EstimationSessionService.kt
   - |
     Session start logs the method at INFO. Window match, because this file
     writes multi-line Log.info calls (see lines 66-69) and a single-line
     regex would fail on correct code:
-      grep -A3 'Started session' src/backend/implementation/src/main/kotlin/io/github/theestimator/service/EstimationSessionService.kt | grep -qi method
+      grep -A3 'Started session' src/backend/implementation/src/main/kotlin/io/pythia/service/EstimationSessionService.kt | grep -qi method
   - |
     Stale forward references to this task are cleared:
-      ! grep -q "task-105" src/backend/implementation/src/main/kotlin/io/github/theestimator/service/EstimationSessionService.kt
+      ! grep -q "task-105" src/backend/implementation/src/main/kotlin/io/pythia/service/EstimationSessionService.kt
       ! grep -q "task-105 will reroute" CLAUDE.md
   - |
     Frontend dispatch is deferred to task-106 — PhaseTwoPanel still calls
@@ -236,24 +236,24 @@ validation:
   - |
     Kotlin/JS pitfall: no super-property usages in the NEW session files.
     (Scope this to the two new files — a repo-wide grep over
-    io/github/theestimator/method/ false-positives on the warning COMMENT in
+    io/pythia/method/ false-positives on the warning COMMENT in
     threepoint/TimeRelativeEstimationItem.kt that names `super.mean`.)
       ! grep -E "super\\.mean|super\\.variance|super\\.offerPT" \
-          src/domain/src/main/kotlin/io/github/theestimator/method/EstimationMethodSessionSupport.kt \
-          src/domain/src/main/kotlin/io/github/theestimator/method/threepoint/ThreePointSessionSupport.kt
+          src/domain/src/main/kotlin/io/pythia/method/EstimationMethodSessionSupport.kt \
+          src/domain/src/main/kotlin/io/pythia/method/threepoint/ThreePointSessionSupport.kt
   - |
     The existing PERT session round-trip still passes, with its write-back
     assertion intact (2/4/6 reaching the draft leaf):
-      grep -q "roots\[0\].minEffort" src/backend/implementation/src/test/kotlin/io/github/theestimator/rest/SessionResourceIT.kt
-      ./gradlew :backend:implementation:test --tests "io.github.theestimator.rest.SessionResourceIT"
+      grep -q "roots\[0\].minEffort" src/backend/implementation/src/test/kotlin/io/pythia/rest/SessionResourceIT.kt
+      ./gradlew :backend:implementation:test --tests "io.pythia.rest.SessionResourceIT"
   - |
     Full-stack build is green:
       ./gradlew build
 
 outputs:
-  - created: src/domain/src/main/kotlin/io/github/theestimator/method/EstimationMethodSessionSupport.kt
-  - created: src/domain/src/main/kotlin/io/github/theestimator/method/threepoint/ThreePointSessionSupport.kt
-  - created: src/domain/src/test/kotlin/io/github/theestimator/method/threepoint/ThreePointSessionSupportTest.kt
-  - modified: src/domain/src/main/kotlin/io/github/theestimator/method/EstimationMethodRegistry.kt
-  - modified: src/backend/implementation/src/main/kotlin/io/github/theestimator/service/EstimationSessionService.kt
+  - created: src/domain/src/main/kotlin/io/pythia/method/EstimationMethodSessionSupport.kt
+  - created: src/domain/src/main/kotlin/io/pythia/method/threepoint/ThreePointSessionSupport.kt
+  - created: src/domain/src/test/kotlin/io/pythia/method/threepoint/ThreePointSessionSupportTest.kt
+  - modified: src/domain/src/main/kotlin/io/pythia/method/EstimationMethodRegistry.kt
+  - modified: src/backend/implementation/src/main/kotlin/io/pythia/service/EstimationSessionService.kt
   - modified: CLAUDE.md

@@ -49,7 +49,7 @@ description: |
 steps:
   - |
     Locate the current export code path. It should be under
-    `src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/`
+    `src/backend/implementation/src/main/kotlin/io/pythia/rest/`
     (`EstimationVersionResource.export`) plus a writer under
     `.../service/export/` or a similar folder. Grep:
       grep -rn "export" src/backend/implementation/src/main/kotlin | grep -i "xlsx\|csv" | head
@@ -89,18 +89,18 @@ validation:
     (i.e. the writer is method-agnostic; PERT column strings
     live only in the PERT module):
       ! grep -rE "\"Optimistic\"|\"Likely\"|\"Pessimistic\"" \
-          src/backend/implementation/src/main/kotlin/io/github/theestimator/service/export/ 2>/dev/null \
+          src/backend/implementation/src/main/kotlin/io/pythia/service/export/ 2>/dev/null \
           || echo "expected: only NEUTRAL headers hard-coded in the writer"
   - |
     Writer uses the registry:
-      grep -rq "EstimationMethodRegistry" src/backend/implementation/src/main/kotlin/io/github/theestimator/
+      grep -rq "EstimationMethodRegistry" src/backend/implementation/src/main/kotlin/io/pythia/
   - |
     Logging in place:
-      grep -rq "Log.info" src/backend/implementation/src/main/kotlin/io/github/theestimator/ | head
+      grep -rq "Log.info" src/backend/implementation/src/main/kotlin/io/pythia/ | head
   - |
     New export test class or additions exist and pass:
       grep -rq "exportColumnHeaders\|BUCKET_HEADERS\|PERT_HEADERS\|export.*xlsx\|export.*csv" \
-        src/backend/implementation/src/test/kotlin/io/github/theestimator/
+        src/backend/implementation/src/test/kotlin/io/pythia/
   - |
     CLAUDE.md documents the dispatch behaviour:
       grep -q "export" CLAUDE.md
@@ -109,6 +109,6 @@ validation:
       ./gradlew build
 
 outputs:
-  - modified: src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/EstimationVersionResource.kt
-  - modified: src/backend/implementation/src/test/kotlin/io/github/theestimator/rest/EstimationVersionResourceIT.kt
+  - modified: src/backend/implementation/src/main/kotlin/io/pythia/rest/EstimationVersionResource.kt
+  - modified: src/backend/implementation/src/test/kotlin/io/pythia/rest/EstimationVersionResourceIT.kt
   - modified: CLAUDE.md

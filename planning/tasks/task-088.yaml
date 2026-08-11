@@ -56,7 +56,7 @@ steps:
 
   - |
     Create `DraftUpdateApplier.kt` under
-    src/backend/implementation/src/main/kotlin/io/github/theestimator/service/
+    src/backend/implementation/src/main/kotlin/io/pythia/service/
     as an `@ApplicationScoped class DraftUpdateApplier` with a public
     `fun apply(draft: DraftEstimationVersion, update: DraftUpdateDto)` whose
     body is exactly today's `updateDraft` mutation block:
@@ -105,7 +105,7 @@ steps:
 
   - |
     Add `DraftSnapshotRoundTripIT.kt` under
-    src/backend/implementation/src/test/kotlin/io/github/theestimator/service/:
+    src/backend/implementation/src/test/kotlin/io/pythia/service/:
     persist a draft with a multi-level tree (a group containing a fixed
     item and a nested group with a time-relative item), plus parameters /
     a phase / an additional cost. Capture `snapshot = draft.toUpdateDto()`
@@ -129,15 +129,15 @@ steps:
 validation:
   - |
     New files exist with the expected surface:
-      test -f src/backend/implementation/src/main/kotlin/io/github/theestimator/service/DraftUpdateApplier.kt
-      test -f src/backend/implementation/src/main/kotlin/io/github/theestimator/service/DraftSnapshotMapper.kt
-      grep -q "class DraftUpdateApplier" src/backend/implementation/src/main/kotlin/io/github/theestimator/service/DraftUpdateApplier.kt
-      grep -q "fun apply" src/backend/implementation/src/main/kotlin/io/github/theestimator/service/DraftUpdateApplier.kt
-      grep -q "fun DraftEstimationVersion.toUpdateDto" src/backend/implementation/src/main/kotlin/io/github/theestimator/service/DraftSnapshotMapper.kt
+      test -f src/backend/implementation/src/main/kotlin/io/pythia/service/DraftUpdateApplier.kt
+      test -f src/backend/implementation/src/main/kotlin/io/pythia/service/DraftSnapshotMapper.kt
+      grep -q "class DraftUpdateApplier" src/backend/implementation/src/main/kotlin/io/pythia/service/DraftUpdateApplier.kt
+      grep -q "fun apply" src/backend/implementation/src/main/kotlin/io/pythia/service/DraftUpdateApplier.kt
+      grep -q "fun DraftEstimationVersion.toUpdateDto" src/backend/implementation/src/main/kotlin/io/pythia/service/DraftSnapshotMapper.kt
   - |
     The resource now delegates and no longer defines the apply helpers:
-      grep -q "draftUpdateApplier.apply" src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/EstimationVersionResource.kt
-      ! grep -q "private fun applyParameters" src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/EstimationVersionResource.kt
+      grep -q "draftUpdateApplier.apply" src/backend/implementation/src/main/kotlin/io/pythia/rest/EstimationVersionResource.kt
+      ! grep -q "private fun applyParameters" src/backend/implementation/src/main/kotlin/io/pythia/rest/EstimationVersionResource.kt
   - |
     CLAUDE.md documents the shared applier:
       grep -q "DraftUpdateApplier" CLAUDE.md
@@ -146,8 +146,8 @@ validation:
       ./gradlew :backend:implementation:test
 
 outputs:
-  - created: src/backend/implementation/src/main/kotlin/io/github/theestimator/service/DraftUpdateApplier.kt
-  - created: src/backend/implementation/src/main/kotlin/io/github/theestimator/service/DraftSnapshotMapper.kt
-  - modified: src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/EstimationVersionResource.kt
+  - created: src/backend/implementation/src/main/kotlin/io/pythia/service/DraftUpdateApplier.kt
+  - created: src/backend/implementation/src/main/kotlin/io/pythia/service/DraftSnapshotMapper.kt
+  - modified: src/backend/implementation/src/main/kotlin/io/pythia/rest/EstimationVersionResource.kt
   - modified: CLAUDE.md
-  - created: src/backend/implementation/src/test/kotlin/io/github/theestimator/service/DraftSnapshotRoundTripIT.kt
+  - created: src/backend/implementation/src/test/kotlin/io/pythia/service/DraftSnapshotRoundTripIT.kt

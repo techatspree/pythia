@@ -157,7 +157,7 @@ steps:
       src/frontend/src/lib/api/errors.ts
       src/frontend/src/lib/api/schema.d.ts   (confirm CurrentUserDto is present)
       src/frontend/src/lib/log.ts
-      src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/MeResource.kt (reference only — no change)
+      src/backend/implementation/src/main/kotlin/io/pythia/rest/MeResource.kt (reference only — no change)
   - |
     Extend the SPI. In
     `src/frontend/src/lib/auth/AuthProvider.ts` add to the

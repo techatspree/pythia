@@ -135,7 +135,7 @@ description: |
       OpenAPI store still lands where `npm run gen:api` expects
       (`gen:api` reads the committed `src/lib/api/openapi.json`; do not
       change that contract).
-    - This task assumes the CURRENT coordinates (`io.github.theestimator`,
+    - This task assumes the CURRENT coordinates (`io.pythia`,
       artifact `the-estimator`/`domain`/`implementation`, image
       `estimation-backend`). If a product rename lands first, carry its
       new group/artifact/image names into the Gradle scripts instead.

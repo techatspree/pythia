@@ -113,7 +113,7 @@ description: |
 steps:
   - |
     Add `UndoConflictException.kt` and `DraftMutationJackson.kt` under
-    src/backend/implementation/src/main/kotlin/io/github/theestimator/service/.
+    src/backend/implementation/src/main/kotlin/io/pythia/service/.
     `DraftMutationJackson.kt` defines `StoredMutation(kind: String,
     before: DraftUpdateDto, after: DraftUpdateDto)` and small `toJson` /
     `fromJson` helpers over the injected Quarkus `ObjectMapper` (plain
@@ -169,7 +169,7 @@ steps:
 
   - |
     Unit + integration tests under
-    src/backend/implementation/src/test/kotlin/io/github/theestimator/service/:
+    src/backend/implementation/src/test/kotlin/io/pythia/service/:
       - UndoServiceIT: persist a `User`, then drive recording by calling
         `undoService.recordMutation(...)` directly with that user and
         captured before/after snapshots (no REST/request context needed);
@@ -198,33 +198,33 @@ steps:
 validation:
   - |
     Service and exception files exist:
-      test -f src/backend/implementation/src/main/kotlin/io/github/theestimator/service/UndoService.kt
-      test -f src/backend/implementation/src/main/kotlin/io/github/theestimator/service/UndoConflictException.kt
-      test -f src/backend/implementation/src/main/kotlin/io/github/theestimator/service/DraftMutationJackson.kt
-      grep -q "fun undoLastForUser" src/backend/implementation/src/main/kotlin/io/github/theestimator/service/UndoService.kt
-      grep -q "fun redoLastForUser" src/backend/implementation/src/main/kotlin/io/github/theestimator/service/UndoService.kt
-      grep -q "fun recordMutation" src/backend/implementation/src/main/kotlin/io/github/theestimator/service/UndoService.kt
+      test -f src/backend/implementation/src/main/kotlin/io/pythia/service/UndoService.kt
+      test -f src/backend/implementation/src/main/kotlin/io/pythia/service/UndoConflictException.kt
+      test -f src/backend/implementation/src/main/kotlin/io/pythia/service/DraftMutationJackson.kt
+      grep -q "fun undoLastForUser" src/backend/implementation/src/main/kotlin/io/pythia/service/UndoService.kt
+      grep -q "fun redoLastForUser" src/backend/implementation/src/main/kotlin/io/pythia/service/UndoService.kt
+      grep -q "fun recordMutation" src/backend/implementation/src/main/kotlin/io/pythia/service/UndoService.kt
   - |
     Recording is wired into the update flow (in the REST resource), and
     the task-091 authorization annotation is preserved:
-      grep -q "recordMutation" src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/EstimationVersionResource.kt
-      grep -q "@RolesAllowed(\"ESTIMATOR\")" src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/EstimationVersionResource.kt
+      grep -q "recordMutation" src/backend/implementation/src/main/kotlin/io/pythia/rest/EstimationVersionResource.kt
+      grep -q "@RolesAllowed(\"ESTIMATOR\")" src/backend/implementation/src/main/kotlin/io/pythia/rest/EstimationVersionResource.kt
   - |
     UndoService logs via the Quarkus Log API, and the history finder exists:
-      grep -q "Log\." src/backend/implementation/src/main/kotlin/io/github/theestimator/service/UndoService.kt
-      grep -q "findAllByDraftIdOrderBySequence" src/backend/implementation/src/main/kotlin/io/github/theestimator/repository/DraftMutationLogRepository.kt
+      grep -q "Log\." src/backend/implementation/src/main/kotlin/io/pythia/service/UndoService.kt
+      grep -q "findAllByDraftIdOrderBySequence" src/backend/implementation/src/main/kotlin/io/pythia/repository/DraftMutationLogRepository.kt
       grep -q "UndoService" CLAUDE.md
   - |
     Tests pass:
       ./gradlew :backend:implementation:test
 
 outputs:
-  - created: src/backend/implementation/src/main/kotlin/io/github/theestimator/service/UndoService.kt
-  - created: src/backend/implementation/src/main/kotlin/io/github/theestimator/service/UndoConflictException.kt
-  - created: src/backend/implementation/src/main/kotlin/io/github/theestimator/service/DraftMutationJackson.kt
-  - modified: src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/EstimationVersionResource.kt
-  - modified: src/backend/implementation/src/main/kotlin/io/github/theestimator/repository/DraftMutationLogRepository.kt
+  - created: src/backend/implementation/src/main/kotlin/io/pythia/service/UndoService.kt
+  - created: src/backend/implementation/src/main/kotlin/io/pythia/service/UndoConflictException.kt
+  - created: src/backend/implementation/src/main/kotlin/io/pythia/service/DraftMutationJackson.kt
+  - modified: src/backend/implementation/src/main/kotlin/io/pythia/rest/EstimationVersionResource.kt
+  - modified: src/backend/implementation/src/main/kotlin/io/pythia/repository/DraftMutationLogRepository.kt
   - modified: CLAUDE.md
-  - created: src/backend/implementation/src/test/kotlin/io/github/theestimator/service/UndoServiceIT.kt
-  - created: src/backend/implementation/src/test/kotlin/io/github/theestimator/service/UndoConflictIT.kt
-  - created: src/backend/implementation/src/test/kotlin/io/github/theestimator/service/UndoServiceSubmitClearsLogIT.kt
+  - created: src/backend/implementation/src/test/kotlin/io/pythia/service/UndoServiceIT.kt
+  - created: src/backend/implementation/src/test/kotlin/io/pythia/service/UndoConflictIT.kt
+  - created: src/backend/implementation/src/test/kotlin/io/pythia/service/UndoServiceSubmitClearsLogIT.kt

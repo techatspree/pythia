@@ -11,7 +11,7 @@ description: |
   - Apache POI is ALREADY a backend dependency:
     src/backend/implementation/pom.xml declares org.apache.poi:poi-ooxml:5.4.1.
   - The xlsx writer ALREADY exists: ExcelExporter (@ApplicationScoped) in
-    io.github.theestimator.service, with
+    io.pythia.service, with
       fun export(version: SubmittedEstimationVersion, output: OutputStream)
     It writes five sheets (Projektstrukturplan, Zusatzkosten, Pakete,
     Parameter, Aufwandstreiber). Do not reimplement or modify it.
@@ -32,7 +32,7 @@ description: |
 
 steps:
   - |
-    Create src/backend/implementation/src/main/kotlin/io/github/theestimator/service/CsvExporter.kt.
+    Create src/backend/implementation/src/main/kotlin/io/pythia/service/CsvExporter.kt.
 
     A single flat sheet mirroring the numeric columns of ExcelExporter's
     "Projektstrukturplan", so the totals are cross-checkable. RFC4180
@@ -41,9 +41,9 @@ steps:
     last cell is version.totalEffort (the same number the UI shows as
     "Effort: {totalEffort} PT").
 
-      package io.github.theestimator.service
+      package io.pythia.service
 
-      import io.github.theestimator.domain.submitted.SubmittedEstimationVersion
+      import io.pythia.domain.submitted.SubmittedEstimationVersion
       import jakarta.enterprise.context.ApplicationScoped
       import java.io.OutputStream
 
@@ -266,12 +266,12 @@ validation:
   - |
     CSV exporter exists:
       grep -n "class CsvExporter" \
-        src/backend/implementation/src/main/kotlin/io/github/theestimator/service/CsvExporter.kt
+        src/backend/implementation/src/main/kotlin/io/pythia/service/CsvExporter.kt
     Must return a match.
   - |
     Export endpoint is wired (method + both exporter injections):
       grep -n "exportVersion\|ExcelExporter\|CsvExporter" \
-        src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/EstimationVersionResource.kt
+        src/backend/implementation/src/main/kotlin/io/pythia/rest/EstimationVersionResource.kt
     Must show the constructor injections and the exportVersion method.
   - |
     Frontend export control exists:
@@ -281,7 +281,7 @@ validation:
   - |
     Export tests exist in EstimationVersionResourceIT:
       grep -c "xlsx export returns a valid spreadsheet\|csv export total matches\|export defaults to xlsx\|rejects an unknown format\|404 for a non-existent version\|draft can be exported without submitting" \
-        src/backend/implementation/src/test/kotlin/io/github/theestimator/rest/EstimationVersionResourceIT.kt
+        src/backend/implementation/src/test/kotlin/io/pythia/rest/EstimationVersionResourceIT.kt
     Must return 6.
   - |
     Sums in the file match the UI: the CSV "Total" cell and the xlsx
@@ -295,7 +295,7 @@ validation:
     cd src/frontend && npm run check passes with zero errors.
 
 outputs:
-  - added:    src/backend/implementation/src/main/kotlin/io/github/theestimator/service/CsvExporter.kt
-  - modified: src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/EstimationVersionResource.kt
-  - modified: src/backend/implementation/src/test/kotlin/io/github/theestimator/rest/EstimationVersionResourceIT.kt
+  - added:    src/backend/implementation/src/main/kotlin/io/pythia/service/CsvExporter.kt
+  - modified: src/backend/implementation/src/main/kotlin/io/pythia/rest/EstimationVersionResource.kt
+  - modified: src/backend/implementation/src/test/kotlin/io/pythia/rest/EstimationVersionResourceIT.kt
   - modified: src/frontend/src/routes/estimations/[id]/versions/[versionNumber]/+page.svelte

@@ -39,7 +39,7 @@ description: |
 
 steps:
   - |
-    Create src/backend/implementation/src/main/kotlin/io/github/theestimator/testdata/TestDataSeeder.kt.
+    Create src/backend/implementation/src/main/kotlin/io/pythia/testdata/TestDataSeeder.kt.
     Annotate with @ApplicationScoped and @IfBuildProfile(anyOf = ["dev", "dev-local"])
     (import io.quarkus.arc.profile.IfBuildProfile).
 
@@ -309,13 +309,13 @@ validation:
       find src/backend/implementation/src/main/kotlin -name "TestDataSeeder.kt" returns one file
   - |
     The seeder is gated with @IfBuildProfile:
-      grep "@IfBuildProfile" src/backend/implementation/src/main/kotlin/io/github/theestimator/testdata/TestDataSeeder.kt
+      grep "@IfBuildProfile" src/backend/implementation/src/main/kotlin/io/pythia/testdata/TestDataSeeder.kt
       must contain anyOf = ["dev", "dev-local"] (or equivalent)
   - |
     The seeder never sets mean, variance, riskSurcharge, driverSurcharge, offerPT, cost,
     or offerPrice on any item entity — those fields are absent from item construction code:
       grep -E "\.mean|\.variance|riskSurcharge|driverSurcharge|offerPT|\.cost|offerPrice" \
-        src/backend/implementation/src/main/kotlin/io/github/theestimator/testdata/TestDataSeeder.kt
+        src/backend/implementation/src/main/kotlin/io/pythia/testdata/TestDataSeeder.kt
       must return zero lines
   - |
     ./mvnw test -pl src/backend/implementation passes with zero failures
@@ -326,5 +326,5 @@ validation:
     values on items — proving the domain calculation ran via submitDraft.
 
 outputs:
-  - added:   src/backend/implementation/src/main/kotlin/io/github/theestimator/testdata/TestDataSeeder.kt
+  - added:   src/backend/implementation/src/main/kotlin/io/pythia/testdata/TestDataSeeder.kt
   - deleted: src/backend/implementation/src/main/resources/import.sql

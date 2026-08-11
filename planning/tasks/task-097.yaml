@@ -10,9 +10,9 @@ description: |
   ## Frozen decisions (from task-096)
 
   - **Package.** The SPI itself lives in
-    `io.github.theestimator.method` (interface + registry + enum). Each
+    `io.pythia.method` (interface + registry + enum). Each
     concrete method module lives in its own package under
-    `io.github.theestimator.method.<method>` — the concrete modules
+    `io.pythia.method.<method>` — the concrete modules
     land in task-098 (PERT) and task-102 (bucket+sampled). Cross-
     references between method packages are forbidden; every
     interaction goes through this SPI.
@@ -59,11 +59,11 @@ description: |
 
   ## What ships in this task
 
-  - `io/github/theestimator/method/EstimationMethod.kt` — enum
+  - `io/pythia/method/EstimationMethod.kt` — enum
     `EstimationMethod { THREE_POINT_PERT, BUCKET_SAMPLED_PERT }`,
     `@JsExport`-annotated with the `@file:OptIn(ExperimentalJsExport::class)`
     header (mirror `EstimationVersionStatus.kt`).
-  - `io/github/theestimator/method/EstimationMethodModule.kt` —
+  - `io/pythia/method/EstimationMethodModule.kt` —
     interface with:
       * `val method: EstimationMethod`
       * `fun calculate(item, params): EstimationItem` — takes a
@@ -77,7 +77,7 @@ description: |
       The interface deliberately does not yet include a
       session-support hook — that arrives in task-105 as a
       separate `EstimationMethodSessionSupport` interface.
-  - `io/github/theestimator/method/EstimationMethodRegistry.kt` —
+  - `io/pythia/method/EstimationMethodRegistry.kt` —
     object with:
       * `fun register(module: EstimationMethodModule)`
       * `fun get(method: EstimationMethod): EstimationMethodModule?`
@@ -85,7 +85,7 @@ description: |
         (throws `IllegalStateException` when missing)
       * `fun all(): List<EstimationMethodModule>`
   - JUnit 5 unit test in
-    `src/domain/src/test/kotlin/io/github/theestimator/method/EstimationMethodRegistryTest.kt`
+    `src/domain/src/test/kotlin/io/pythia/method/EstimationMethodRegistryTest.kt`
     covering register / get / require / all, and the "unknown
     method throws" case. Uses a tiny in-file fake module. NOTE: the
     `:domain` module's tests live in the JVM `src/test/kotlin` source
@@ -104,15 +104,15 @@ steps:
   - |
     Read the current domain layout so the SPI files sit next to
     the sealed hierarchy:
-      src/domain/src/main/kotlin/io/github/theestimator/model/
-      src/domain/src/main/kotlin/io/github/theestimator/
+      src/domain/src/main/kotlin/io/pythia/model/
+      src/domain/src/main/kotlin/io/pythia/
     Create the new package
-      src/domain/src/main/kotlin/io/github/theestimator/method/
+      src/domain/src/main/kotlin/io/pythia/method/
   - |
     Add `EstimationMethod.kt` with the enum, using the exact export
     header from `EstimationVersionStatus.kt`:
       @file:OptIn(ExperimentalJsExport::class)
-      package io.github.theestimator.method
+      package io.pythia.method
       import kotlin.js.ExperimentalJsExport
       import kotlin.js.JsExport
       @JsExport
@@ -132,7 +132,7 @@ steps:
     kotlin-logging idiom) — one `private val logger =
     KotlinLogging.logger {}` at file scope.
   - |
-    Add `src/domain/src/test/kotlin/io/github/theestimator/method/EstimationMethodRegistryTest.kt`
+    Add `src/domain/src/test/kotlin/io/pythia/method/EstimationMethodRegistryTest.kt`
     (JVM `src/test` source set, JUnit 5 — NOT `commonTest`/kotlin.test)
     with tests: register+get round-trip, require throws for
     unknown, `all()` reflects order-independent membership.
@@ -161,21 +161,21 @@ steps:
 validation:
   - |
     SPI files exist:
-      test -f src/domain/src/main/kotlin/io/github/theestimator/method/EstimationMethod.kt
-      test -f src/domain/src/main/kotlin/io/github/theestimator/method/EstimationMethodModule.kt
-      test -f src/domain/src/main/kotlin/io/github/theestimator/method/EstimationMethodRegistry.kt
+      test -f src/domain/src/main/kotlin/io/pythia/method/EstimationMethod.kt
+      test -f src/domain/src/main/kotlin/io/pythia/method/EstimationMethodModule.kt
+      test -f src/domain/src/main/kotlin/io/pythia/method/EstimationMethodRegistry.kt
   - |
     Enum has both values and is `@JsExport`-annotated:
-      grep -q "THREE_POINT_PERT" src/domain/src/main/kotlin/io/github/theestimator/method/EstimationMethod.kt
-      grep -q "BUCKET_SAMPLED_PERT" src/domain/src/main/kotlin/io/github/theestimator/method/EstimationMethod.kt
-      grep -q "@JsExport" src/domain/src/main/kotlin/io/github/theestimator/method/EstimationMethod.kt
+      grep -q "THREE_POINT_PERT" src/domain/src/main/kotlin/io/pythia/method/EstimationMethod.kt
+      grep -q "BUCKET_SAMPLED_PERT" src/domain/src/main/kotlin/io/pythia/method/EstimationMethod.kt
+      grep -q "@JsExport" src/domain/src/main/kotlin/io/pythia/method/EstimationMethod.kt
   - |
     Registry test exists (JVM src/test source set) and the registry uses
     the kotlin-logging idiom:
-      test -f src/domain/src/test/kotlin/io/github/theestimator/method/EstimationMethodRegistryTest.kt
-      grep -q "org.junit.jupiter.api" src/domain/src/test/kotlin/io/github/theestimator/method/EstimationMethodRegistryTest.kt
-      grep -q "KotlinLogging.logger" src/domain/src/main/kotlin/io/github/theestimator/method/EstimationMethodRegistry.kt
-      grep -q "logger.debug" src/domain/src/main/kotlin/io/github/theestimator/method/EstimationMethodRegistry.kt
+      test -f src/domain/src/test/kotlin/io/pythia/method/EstimationMethodRegistryTest.kt
+      grep -q "org.junit.jupiter.api" src/domain/src/test/kotlin/io/pythia/method/EstimationMethodRegistryTest.kt
+      grep -q "KotlinLogging.logger" src/domain/src/main/kotlin/io/pythia/method/EstimationMethodRegistry.kt
+      grep -q "logger.debug" src/domain/src/main/kotlin/io/pythia/method/EstimationMethodRegistry.kt
   - |
     CLAUDE.md was updated to introduce the SPI:
       grep -q "EstimationMethod" CLAUDE.md
@@ -185,8 +185,8 @@ validation:
       ./gradlew :domain:build
 
 outputs:
-  - created: src/domain/src/main/kotlin/io/github/theestimator/method/EstimationMethod.kt
-  - created: src/domain/src/main/kotlin/io/github/theestimator/method/EstimationMethodModule.kt
-  - created: src/domain/src/main/kotlin/io/github/theestimator/method/EstimationMethodRegistry.kt
-  - created: src/domain/src/test/kotlin/io/github/theestimator/method/EstimationMethodRegistryTest.kt
+  - created: src/domain/src/main/kotlin/io/pythia/method/EstimationMethod.kt
+  - created: src/domain/src/main/kotlin/io/pythia/method/EstimationMethodModule.kt
+  - created: src/domain/src/main/kotlin/io/pythia/method/EstimationMethodRegistry.kt
+  - created: src/domain/src/test/kotlin/io/pythia/method/EstimationMethodRegistryTest.kt
   - modified: CLAUDE.md

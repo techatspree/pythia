@@ -66,7 +66,7 @@ description: |
 
 steps:
   - |
-    Backend: add `src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/PingResource.kt`
+    Backend: add `src/backend/implementation/src/main/kotlin/io/pythia/rest/PingResource.kt`
     — `@Path("/api/ping") @Produces(MediaType.APPLICATION_JSON) @ApplicationScoped`
     with a single `@GET @PermitAll fun ping(): Response` returning
     `Response.ok(mapOf("status" to "ok")).build()`. It is a liveness heartbeat, so
@@ -122,7 +122,7 @@ steps:
     (explains the last action is lost), `reconnecting`, `acknowledge`.
   - |
     Backend test
-    `src/backend/implementation/src/test/kotlin/io/github/theestimator/rest/PingResourceIT.kt`
+    `src/backend/implementation/src/test/kotlin/io/pythia/rest/PingResourceIT.kt`
     (@QuarkusTest): an ANONYMOUS `GET /api/ping` (no `Authorization` header)
     returns 200 with body `status = "ok"` — proves `@PermitAll` reachability.
   - |
@@ -150,9 +150,9 @@ steps:
 validation:
   - |
     Backend ping endpoint exists and is unauthenticated:
-      test -f src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/PingResource.kt
-      grep -q "/api/ping" src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/PingResource.kt
-      grep -q "PermitAll" src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/PingResource.kt
+      test -f src/backend/implementation/src/main/kotlin/io/pythia/rest/PingResource.kt
+      grep -q "/api/ping" src/backend/implementation/src/main/kotlin/io/pythia/rest/PingResource.kt
+      grep -q "PermitAll" src/backend/implementation/src/main/kotlin/io/pythia/rest/PingResource.kt
   - |
     The connection store + blocking dialog exist and are wired into the seam + layout:
       test -f src/frontend/src/lib/stores/connection.svelte.ts
@@ -173,7 +173,7 @@ validation:
       cd src/frontend && node -e "const d=require('./src/lib/i18n/de.json'),e=require('./src/lib/i18n/en.json');const f=(o,p='')=>Object.entries(o).flatMap(([k,v])=>typeof v==='object'&&v?f(v,p+k+'.'):[p+k]);const a=f(d).sort(),b=f(e).sort();if(JSON.stringify(a)!==JSON.stringify(b))throw new Error('key sets differ');console.log('ok',a.length)"
   - |
     Tests exist:
-      test -f src/backend/implementation/src/test/kotlin/io/github/theestimator/rest/PingResourceIT.kt
+      test -f src/backend/implementation/src/test/kotlin/io/pythia/rest/PingResourceIT.kt
       test -f src/frontend/e2e/connection-lost.test.ts
   - |
     CLAUDE.md documents the blocking behaviour:
@@ -183,8 +183,8 @@ validation:
       ./gradlew build
 
 outputs:
-  - created: src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/PingResource.kt
-  - created: src/backend/implementation/src/test/kotlin/io/github/theestimator/rest/PingResourceIT.kt
+  - created: src/backend/implementation/src/main/kotlin/io/pythia/rest/PingResource.kt
+  - created: src/backend/implementation/src/test/kotlin/io/pythia/rest/PingResourceIT.kt
   - created: src/frontend/src/lib/stores/connection.svelte.ts
   - created: src/frontend/src/lib/components/ConnectionLostDialog.svelte
   - created: src/frontend/e2e/connection-lost.test.ts

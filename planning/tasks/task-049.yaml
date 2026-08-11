@@ -11,7 +11,7 @@ description: |
   with an arbitrarily deep tree.
 
   Target model (lives next to the existing types in
-  src/domain/src/main/kotlin/io/github/theestimator/model/). The base
+  src/domain/src/main/kotlin/io/pythia/model/). The base
   carries ONLY logicalId and the accumulation contract — leaves have a
   description (already), groups have a title (added below); a shared
   `title` on the base is intentionally rejected as ill-fitting.
@@ -164,7 +164,7 @@ description: |
 
 steps:
   - |
-    Create src/domain/src/main/kotlin/io/github/theestimator/model/EstimationNode.kt
+    Create src/domain/src/main/kotlin/io/pythia/model/EstimationNode.kt
     with the @JsExport @DomainEntity sealed base shown in the description,
     and the top-level `EstimationNode.leaves()` extension function. Mark
     the file with @file:OptIn(ExperimentalJsExport::class) like its
@@ -208,7 +208,7 @@ steps:
         it until task-054).
 
   - |
-    Update src/domain/src/main/kotlin/io/github/theestimator/model/DomainFactory.kt
+    Update src/domain/src/main/kotlin/io/pythia/model/DomainFactory.kt
     so createVersion keeps its `itemGroups: Array<EstimationItemGroup>`
     parameter (the frontend calls it that way and is not rewritten until
     task-054) but internally converts each EstimationItemGroup to an
@@ -216,7 +216,7 @@ steps:
     createFixedItem, and createTimeRelativeItem stay unchanged.
 
   - |
-    Update src/domain/src/main/kotlin/io/github/theestimator/service/EstimationCalculator.kt
+    Update src/domain/src/main/kotlin/io/pythia/service/EstimationCalculator.kt
     so validateInvariants walks the tree via `version.roots.flatMap
     { it.leaves().toList() }`. Update the wording of the two invariants
     that change meaning (lines 44 and 62 — see the description for the
@@ -224,7 +224,7 @@ steps:
     verbatim; only their summation source changes.
 
   - |
-    Add tests to src/domain/src/test/kotlin/io/github/theestimator/model/
+    Add tests to src/domain/src/test/kotlin/io/pythia/model/
     covering:
       - EstimationNodeTest:
           * Group(Item, Item).mean == sum of leaf means
@@ -268,24 +268,24 @@ steps:
 validation:
   - |
     EstimationNode.kt and EstimationGroup.kt exist:
-      test -f src/domain/src/main/kotlin/io/github/theestimator/model/EstimationNode.kt
-      test -f src/domain/src/main/kotlin/io/github/theestimator/model/EstimationGroup.kt
+      test -f src/domain/src/main/kotlin/io/pythia/model/EstimationNode.kt
+      test -f src/domain/src/main/kotlin/io/pythia/model/EstimationGroup.kt
   - |
     EstimationItem now extends EstimationNode:
-      grep -q "sealed class EstimationItem" src/domain/src/main/kotlin/io/github/theestimator/model/EstimationItem.kt
-      grep -q ": EstimationNode" src/domain/src/main/kotlin/io/github/theestimator/model/EstimationItem.kt
+      grep -q "sealed class EstimationItem" src/domain/src/main/kotlin/io/pythia/model/EstimationItem.kt
+      grep -q ": EstimationNode" src/domain/src/main/kotlin/io/pythia/model/EstimationItem.kt
   - |
     EstimationVersion exposes roots and the deprecated itemGroups shim:
-      grep -q "val roots: List<EstimationNode>" src/domain/src/main/kotlin/io/github/theestimator/model/EstimationVersion.kt
-      grep -q "@Deprecated" src/domain/src/main/kotlin/io/github/theestimator/model/EstimationVersion.kt
+      grep -q "val roots: List<EstimationNode>" src/domain/src/main/kotlin/io/pythia/model/EstimationVersion.kt
+      grep -q "@Deprecated" src/domain/src/main/kotlin/io/pythia/model/EstimationVersion.kt
       # The shim MUST stay JS-visible (no @JsExport.Ignore) so adapter.ts
       # keeps working until task-054:
-      ! grep -q "JsExport.Ignore" src/domain/src/main/kotlin/io/github/theestimator/model/EstimationVersion.kt
+      ! grep -q "JsExport.Ignore" src/domain/src/main/kotlin/io/pythia/model/EstimationVersion.kt
   - |
     DomainFactory.createVersion still accepts itemGroups (frontend compat)
     and now converts internally to roots:
-      grep -q "itemGroups: Array<EstimationItemGroup>" src/domain/src/main/kotlin/io/github/theestimator/model/DomainFactory.kt
-      grep -q "roots = itemGroups" src/domain/src/main/kotlin/io/github/theestimator/model/DomainFactory.kt
+      grep -q "itemGroups: Array<EstimationItemGroup>" src/domain/src/main/kotlin/io/pythia/model/DomainFactory.kt
+      grep -q "roots = itemGroups" src/domain/src/main/kotlin/io/pythia/model/DomainFactory.kt
   - |
     Domain tests pass:
       ./mvnw -pl src/domain -am test
@@ -298,12 +298,12 @@ validation:
       cd src/frontend && npm run check
 
 outputs:
-  - created: src/domain/src/main/kotlin/io/github/theestimator/model/EstimationNode.kt
-  - created: src/domain/src/main/kotlin/io/github/theestimator/model/EstimationGroup.kt
-  - modified: src/domain/src/main/kotlin/io/github/theestimator/model/EstimationItem.kt
-  - modified: src/domain/src/main/kotlin/io/github/theestimator/model/EstimationVersion.kt
-  - modified: src/domain/src/main/kotlin/io/github/theestimator/model/DomainFactory.kt
-  - modified: src/domain/src/main/kotlin/io/github/theestimator/service/EstimationCalculator.kt
-  - created: src/domain/src/test/kotlin/io/github/theestimator/model/EstimationNodeTest.kt
-  - created: src/domain/src/test/kotlin/io/github/theestimator/model/EstimationVersionTreeTest.kt
-  - created: src/domain/src/test/kotlin/io/github/theestimator/model/EstimationCalculatorInvariantsTest.kt
+  - created: src/domain/src/main/kotlin/io/pythia/model/EstimationNode.kt
+  - created: src/domain/src/main/kotlin/io/pythia/model/EstimationGroup.kt
+  - modified: src/domain/src/main/kotlin/io/pythia/model/EstimationItem.kt
+  - modified: src/domain/src/main/kotlin/io/pythia/model/EstimationVersion.kt
+  - modified: src/domain/src/main/kotlin/io/pythia/model/DomainFactory.kt
+  - modified: src/domain/src/main/kotlin/io/pythia/service/EstimationCalculator.kt
+  - created: src/domain/src/test/kotlin/io/pythia/model/EstimationNodeTest.kt
+  - created: src/domain/src/test/kotlin/io/pythia/model/EstimationVersionTreeTest.kt
+  - created: src/domain/src/test/kotlin/io/pythia/model/EstimationCalculatorInvariantsTest.kt

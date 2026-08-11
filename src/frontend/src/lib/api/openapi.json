@@ -3307,7 +3307,7 @@
     }
   },
   "info" : {
-    "title" : "TheEstimator API",
+    "title" : "Pythia API",
     "version" : "1.0.0-SNAPSHOT"
   },
   "servers" : [ {

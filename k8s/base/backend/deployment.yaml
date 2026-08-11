@@ -16,7 +16,7 @@ spec:
     spec:
       containers:
         - name: backend
-          image: theestimator/estimation-backend:1.0.0-SNAPSHOT
+          image: pythia/pythia-backend:1.0.0-SNAPSHOT
           imagePullPolicy: Never
           ports:
             - containerPort: 8080

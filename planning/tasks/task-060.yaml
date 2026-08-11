@@ -147,7 +147,7 @@ description: |
 steps:
   - |
     Backend Keycloak module: create files under
-    src/backend/implementation/src/main/kotlin/io/github/theestimator/auth/keycloak/:
+    src/backend/implementation/src/main/kotlin/io/pythia/auth/keycloak/:
       - KeycloakAuthModule.kt — `@ApplicationScoped`, gated.
       - KeycloakSecurityIdentityAugmentor.kt — claim mapping +
         role translation as described.
@@ -223,8 +223,8 @@ steps:
 validation:
   - |
     Backend Keycloak module files exist:
-      test -f src/backend/implementation/src/main/kotlin/io/github/theestimator/auth/keycloak/KeycloakAuthModule.kt
-      test -f src/backend/implementation/src/main/kotlin/io/github/theestimator/auth/keycloak/KeycloakSecurityIdentityAugmentor.kt
+      test -f src/backend/implementation/src/main/kotlin/io/pythia/auth/keycloak/KeycloakAuthModule.kt
+      test -f src/backend/implementation/src/main/kotlin/io/pythia/auth/keycloak/KeycloakSecurityIdentityAugmentor.kt
   - |
     application.properties has a Keycloak block:
       grep -q "Keycloak" src/backend/implementation/src/main/resources/application.properties
@@ -262,8 +262,8 @@ validation:
       cd src/frontend && npx playwright test
 
 outputs:
-  - created: src/backend/implementation/src/main/kotlin/io/github/theestimator/auth/keycloak/KeycloakAuthModule.kt
-  - created: src/backend/implementation/src/main/kotlin/io/github/theestimator/auth/keycloak/KeycloakSecurityIdentityAugmentor.kt
+  - created: src/backend/implementation/src/main/kotlin/io/pythia/auth/keycloak/KeycloakAuthModule.kt
+  - created: src/backend/implementation/src/main/kotlin/io/pythia/auth/keycloak/KeycloakSecurityIdentityAugmentor.kt
   - modified: src/backend/implementation/src/main/resources/application.properties
   - created: src/frontend/src/lib/auth/KeycloakAuthProvider.ts
   - modified: src/frontend/src/lib/auth/index.ts

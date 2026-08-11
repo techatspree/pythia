@@ -64,7 +64,7 @@ steps:
   - |
     Add authorization to `ProjectResource`, `EstimationResource`, and
     `EstimationVersionResource` under
-    src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/:
+    src/backend/implementation/src/main/kotlin/io/pythia/rest/:
       - class-level `@RolesAllowed("VIEWER")` on ALL three (import
         `jakarta.annotation.security.RolesAllowed`, mirroring
         `AdminPingResource`). This is the baseline for every read/GET.
@@ -88,7 +88,7 @@ steps:
 
   - |
     Add backend IT
-    `src/backend/implementation/src/test/kotlin/io/github/theestimator/rest/EndpointAuthorizationIT.kt`
+    `src/backend/implementation/src/test/kotlin/io/pythia/rest/EndpointAuthorizationIT.kt`
     (a `@QuarkusTest`; do NOT use the `DevAdminAuth` extension so each
     request controls its own header via
     `given().header("Authorization", "Dev <subject>")`):
@@ -144,16 +144,16 @@ steps:
 validation:
   - |
     Authorization annotations are present on the three resources:
-      grep -q "@RolesAllowed" src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/ProjectResource.kt
-      grep -q "@RolesAllowed" src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/EstimationResource.kt
-      grep -q "@RolesAllowed" src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/EstimationVersionResource.kt
-      grep -q "ESTIMATOR" src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/EstimationVersionResource.kt
+      grep -q "@RolesAllowed" src/backend/implementation/src/main/kotlin/io/pythia/rest/ProjectResource.kt
+      grep -q "@RolesAllowed" src/backend/implementation/src/main/kotlin/io/pythia/rest/EstimationResource.kt
+      grep -q "@RolesAllowed" src/backend/implementation/src/main/kotlin/io/pythia/rest/EstimationVersionResource.kt
+      grep -q "ESTIMATOR" src/backend/implementation/src/main/kotlin/io/pythia/rest/EstimationVersionResource.kt
   - |
     The authorization tests exist:
-      test -f src/backend/implementation/src/test/kotlin/io/github/theestimator/rest/EndpointAuthorizationIT.kt
+      test -f src/backend/implementation/src/test/kotlin/io/pythia/rest/EndpointAuthorizationIT.kt
       test -f src/frontend/e2e/endpoint-authorization.test.ts
-      grep -q "401" src/backend/implementation/src/test/kotlin/io/github/theestimator/rest/EndpointAuthorizationIT.kt
-      grep -q "403" src/backend/implementation/src/test/kotlin/io/github/theestimator/rest/EndpointAuthorizationIT.kt
+      grep -q "401" src/backend/implementation/src/test/kotlin/io/pythia/rest/EndpointAuthorizationIT.kt
+      grep -q "403" src/backend/implementation/src/test/kotlin/io/pythia/rest/EndpointAuthorizationIT.kt
   - |
     Docs updated:
       grep -qi "role-protected\|RolesAllowed\|VIEWER" docs/authentication.md
@@ -163,10 +163,10 @@ validation:
       ./gradlew :backend:implementation:test
 
 outputs:
-  - modified: src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/ProjectResource.kt
-  - modified: src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/EstimationResource.kt
-  - modified: src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/EstimationVersionResource.kt
-  - created: src/backend/implementation/src/test/kotlin/io/github/theestimator/rest/EndpointAuthorizationIT.kt
+  - modified: src/backend/implementation/src/main/kotlin/io/pythia/rest/ProjectResource.kt
+  - modified: src/backend/implementation/src/main/kotlin/io/pythia/rest/EstimationResource.kt
+  - modified: src/backend/implementation/src/main/kotlin/io/pythia/rest/EstimationVersionResource.kt
+  - created: src/backend/implementation/src/test/kotlin/io/pythia/rest/EndpointAuthorizationIT.kt
   - created: src/frontend/e2e/endpoint-authorization.test.ts
   - modified: src/frontend/e2e/ (existing specs that render data pages — e.g. smoke.test.ts, user-menu.test.ts, the tree-table specs — updated with loginAsDev where they now hit protected endpoints)
   - modified: docs/authentication.md

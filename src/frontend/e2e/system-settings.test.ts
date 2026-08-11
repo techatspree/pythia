@@ -49,7 +49,7 @@ test.describe('system settings', () => {
 			await reset(page.request);
 
 			await page.goto('/projects');
-			await expect(page.getByTestId('brand-name')).toHaveText('The Estimator');
+			await expect(page.getByTestId('brand-name')).toHaveText('Pythia');
 
 			await page.goto('/admin/system');
 			// The form only renders once the settings have loaded, so its presence
@@ -70,7 +70,7 @@ test.describe('system settings', () => {
 			await page.getByTestId('system-save-name').click();
 			await expect(page.getByTestId('system-notice')).toBeVisible();
 			await page.reload();
-			await expect(page.getByTestId('brand-name')).toHaveText('The Estimator');
+			await expect(page.getByTestId('brand-name')).toHaveText('Pythia');
 		} finally {
 			await ctx.close();
 		}

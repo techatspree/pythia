@@ -41,7 +41,7 @@ description: |
      for the "find latest undoable for this user on this draft" query.
 
   3. New JPA entity in
-     `src/backend/implementation/src/main/kotlin/io/github/theestimator/domain/draft/`:
+     `src/backend/implementation/src/main/kotlin/io/pythia/domain/draft/`:
      `DraftMutationLogEntry` (BaseEntity-derived), enum
      `DraftMutationStatus { ACTIVE, UNDONE }`. There is no JSONB
      precedent in the codebase, so map the two JSONB columns as `String`
@@ -100,7 +100,7 @@ steps:
 
   - |
     Edit `DraftEstimationVersion.kt` (under
-    src/backend/implementation/src/main/kotlin/io/github/theestimator/domain/draft/)
+    src/backend/implementation/src/main/kotlin/io/pythia/domain/draft/)
     to add the three new fields with matching JPA annotations.
 
   - |
@@ -112,7 +112,7 @@ steps:
 
   - |
     Add `DraftMutationLogRepository.kt` under
-    src/backend/implementation/src/main/kotlin/io/github/theestimator/repository/
+    src/backend/implementation/src/main/kotlin/io/pythia/repository/
     with the five finder methods listed in the description, as an
     `@ApplicationScoped class DraftMutationLogRepository :
     PanacheRepositoryBase<DraftMutationLogEntry, UUID>` with member
@@ -121,7 +121,7 @@ steps:
 
   - |
     Repository smoke IT under
-    src/backend/implementation/src/test/kotlin/io/github/theestimator/repository/DraftMutationLogRepositoryIT.kt:
+    src/backend/implementation/src/test/kotlin/io/pythia/repository/DraftMutationLogRepositoryIT.kt:
       - persist a draft + two log entries (sequence 1 ACTIVE, sequence 2 ACTIVE)
       - assert nextSequenceNumber == 3
       - assert findLatestActiveForDraft == sequence 2
@@ -147,19 +147,19 @@ validation:
       grep -q "updated_at TIMESTAMP" src/backend/implementation/src/main/resources/db/migration/V8__undo_log.sql
       ! grep -qi "timestamptz" src/backend/implementation/src/main/resources/db/migration/V8__undo_log.sql
       grep -q "draft_mutation_log" CLAUDE.md
-      test -f src/backend/implementation/src/main/kotlin/io/github/theestimator/domain/draft/DraftMutationLogEntry.kt
-      test -f src/backend/implementation/src/main/kotlin/io/github/theestimator/domain/draft/DraftMutationStatus.kt
-      test -f src/backend/implementation/src/main/kotlin/io/github/theestimator/repository/DraftMutationLogRepository.kt
-      grep -q "var revision" src/backend/implementation/src/main/kotlin/io/github/theestimator/domain/draft/DraftEstimationVersion.kt
+      test -f src/backend/implementation/src/main/kotlin/io/pythia/domain/draft/DraftMutationLogEntry.kt
+      test -f src/backend/implementation/src/main/kotlin/io/pythia/domain/draft/DraftMutationStatus.kt
+      test -f src/backend/implementation/src/main/kotlin/io/pythia/repository/DraftMutationLogRepository.kt
+      grep -q "var revision" src/backend/implementation/src/main/kotlin/io/pythia/domain/draft/DraftEstimationVersion.kt
   - |
     Tests pass (uses Testcontainers PostgreSQL; Docker must be running):
       ./gradlew :backend:implementation:test
 
 outputs:
   - created: src/backend/implementation/src/main/resources/db/migration/V8__undo_log.sql
-  - created: src/backend/implementation/src/main/kotlin/io/github/theestimator/domain/draft/DraftMutationLogEntry.kt
-  - created: src/backend/implementation/src/main/kotlin/io/github/theestimator/domain/draft/DraftMutationStatus.kt
-  - created: src/backend/implementation/src/main/kotlin/io/github/theestimator/repository/DraftMutationLogRepository.kt
-  - created: src/backend/implementation/src/test/kotlin/io/github/theestimator/repository/DraftMutationLogRepositoryIT.kt
-  - modified: src/backend/implementation/src/main/kotlin/io/github/theestimator/domain/draft/DraftEstimationVersion.kt
+  - created: src/backend/implementation/src/main/kotlin/io/pythia/domain/draft/DraftMutationLogEntry.kt
+  - created: src/backend/implementation/src/main/kotlin/io/pythia/domain/draft/DraftMutationStatus.kt
+  - created: src/backend/implementation/src/main/kotlin/io/pythia/repository/DraftMutationLogRepository.kt
+  - created: src/backend/implementation/src/test/kotlin/io/pythia/repository/DraftMutationLogRepositoryIT.kt
+  - modified: src/backend/implementation/src/main/kotlin/io/pythia/domain/draft/DraftEstimationVersion.kt
   - modified: CLAUDE.md

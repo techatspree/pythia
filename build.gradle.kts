@@ -18,7 +18,7 @@ plugins {
 }
 
 allprojects {
-    group = "io.github.theestimator"
+    group = "io.pythia"
     version = "1.0.0-SNAPSHOT"
 
     // Stamp the licence onto every produced jar manifest. These are constants —

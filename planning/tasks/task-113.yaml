@@ -6,11 +6,11 @@ description: |
   Structural refactor that makes each estimation method fully
   self-contained by opening the leaf-item hierarchy. Prerequisite for
   task-102 (which needs to put `BucketedEstimationItem` in its own
-  `io.github.theestimator.method.bucketsampled` package).
+  `io.pythia.method.bucketsampled` package).
 
   ## Current state
 
-  `EstimationItem` is a `sealed class` in `io.github.theestimator.model`;
+  `EstimationItem` is a `sealed class` in `io.pythia.model`;
   Kotlin therefore forces its subclasses (`FixedEstimationItem`,
   `TimeRelativeEstimationItem`) into the SAME package. task-098 kept the
   PERT leaves in `model` for exactly this reason, and CLAUDE.md documents
@@ -20,10 +20,10 @@ description: |
   ## Target state
 
   - `EstimationItem` becomes `abstract` (not `sealed`), still `@JsExport`
-    `@DomainEntity`, still in `io.github.theestimator.model`. Its abstract
+    `@DomainEntity`, still in `io.pythia.model`. Its abstract
     members and the underscore-forwarding constructor are unchanged.
   - `FixedEstimationItem` and `TimeRelativeEstimationItem` MOVE from
-    `io.github.theestimator.model` to `io.github.theestimator.method.threepoint`
+    `io.pythia.model` to `io.pythia.method.threepoint`
     (alongside `ThreePointMethodModule`). Their internals do not change.
   - Every import site updates to the new package.
   - Behaviour is byte-identical — this is a pure move + open, no logic
@@ -32,7 +32,7 @@ description: |
   ## Key design decisions
 
   - **`EstimationNode` STAYS sealed.** Its two direct subclasses
-    (`EstimationGroup`, `EstimationItem`) remain in `io.github.theestimator.model`,
+    (`EstimationGroup`, `EstimationItem`) remain in `io.pythia.model`,
     so the sealed rule is satisfied and `EstimationNode.leaves()`
     (`when (this) { is EstimationItem -> …; is EstimationGroup -> … }`)
     stays exhaustive and unchanged. Only `EstimationItem` opens.
@@ -45,14 +45,14 @@ description: |
     exhaustiveness we give up). `DraftVersionMapper.toDomain` already has
     an `else -> error(...)`; it only needs its two leaf imports repointed.
   - **DomainFactory stays in `model`** but imports the two leaf classes
-    from `io.github.theestimator.method.threepoint`. A `model → method.threepoint`
+    from `io.pythia.method.threepoint`. A `model → method.threepoint`
     reference from this cross-method convenience factory is acceptable
     (Kotlin allows package cycles; `method.threepoint` already depends on
     `model` for `EstimationItem`). This is NOT a method-package-to-
     method-package reference, so the SPI isolation rule is preserved.
   - **`ThreePointMethodModule` loses its leaf imports** — once the leaves
     are in `method.threepoint`, they are same-package, so drop
-    `import io.github.theestimator.model.FixedEstimationItem` /
+    `import io.pythia.model.FixedEstimationItem` /
     `TimeRelativeEstimationItem` there.
   - **KMP export.** The leaf classes stay `@JsExport`; moving package
     regenerates `domain.d.mts` / `domain.mjs`. The frontend does not
@@ -65,7 +65,7 @@ description: |
 steps:
   - |
     Change `EstimationItem` in
-    `src/domain/src/main/kotlin/io/github/theestimator/model/EstimationItem.kt`
+    `src/domain/src/main/kotlin/io/pythia/model/EstimationItem.kt`
     from `sealed class` to `abstract class`. Leave `@JsExport`,
     `@DomainEntity`, the constructor, the computed getters and the
     `abstract override fun withCalculationParameters(...)` exactly as they
@@ -73,56 +73,56 @@ steps:
   - |
     Move the two PERT leaf files into the threepoint package, changing
     ONLY their `package` line (internals unchanged):
-      git mv src/domain/src/main/kotlin/io/github/theestimator/model/FixedEstimationItem.kt \
-             src/domain/src/main/kotlin/io/github/theestimator/method/threepoint/FixedEstimationItem.kt
-      git mv src/domain/src/main/kotlin/io/github/theestimator/model/TimeRelativeEstimationItem.kt \
-             src/domain/src/main/kotlin/io/github/theestimator/method/threepoint/TimeRelativeEstimationItem.kt
-    In each moved file set `package io.github.theestimator.method.threepoint`
+      git mv src/domain/src/main/kotlin/io/pythia/model/FixedEstimationItem.kt \
+             src/domain/src/main/kotlin/io/pythia/method/threepoint/FixedEstimationItem.kt
+      git mv src/domain/src/main/kotlin/io/pythia/model/TimeRelativeEstimationItem.kt \
+             src/domain/src/main/kotlin/io/pythia/method/threepoint/TimeRelativeEstimationItem.kt
+    In each moved file set `package io.pythia.method.threepoint`
     and add EXPLICIT imports (NOT a wildcard — detekt's `WildcardImport`
     is active and the existing files use explicit imports) from
-    `io.github.theestimator.model` for whatever the class references:
+    `io.pythia.model` for whatever the class references:
     `EstimationItem`, `CalculationParameters`, `ProjectPhase`,
     `DomainEntity`, `newId` (only those actually used — let the compiler
     tell you).
   - |
     Update `ThreePointMethodModule.kt` (same package now): remove the
-    `import io.github.theestimator.model.FixedEstimationItem` /
+    `import io.pythia.model.FixedEstimationItem` /
     `TimeRelativeEstimationItem` lines if present.
   - |
     Update `DomainFactory.kt`
-    (`src/domain/src/main/kotlin/io/github/theestimator/model/DomainFactory.kt`):
+    (`src/domain/src/main/kotlin/io/pythia/model/DomainFactory.kt`):
     import `FixedEstimationItem` / `TimeRelativeEstimationItem` from
-    `io.github.theestimator.method.threepoint`.
+    `io.pythia.method.threepoint`.
   - |
     Update the domain tests that import the leaf classes to the new
     package:
-      src/domain/src/test/kotlin/io/github/theestimator/model/EstimationVersionTreeTest.kt
-      src/domain/src/test/kotlin/io/github/theestimator/model/TimeRelativeEstimationItemTest.kt
-      src/domain/src/test/kotlin/io/github/theestimator/model/EstimationCalculatorInvariantsTest.kt
-      src/domain/src/test/kotlin/io/github/theestimator/model/EstimationNodeTest.kt
-      src/domain/src/test/kotlin/io/github/theestimator/method/threepoint/ThreePointMethodModuleTest.kt
-    (change the `import io.github.theestimator.model.FixedEstimationItem` /
+      src/domain/src/test/kotlin/io/pythia/model/EstimationVersionTreeTest.kt
+      src/domain/src/test/kotlin/io/pythia/model/TimeRelativeEstimationItemTest.kt
+      src/domain/src/test/kotlin/io/pythia/model/EstimationCalculatorInvariantsTest.kt
+      src/domain/src/test/kotlin/io/pythia/model/EstimationNodeTest.kt
+      src/domain/src/test/kotlin/io/pythia/method/threepoint/ThreePointMethodModuleTest.kt
+    (change the `import io.pythia.model.FixedEstimationItem` /
     `TimeRelativeEstimationItem` lines to
-    `io.github.theestimator.method.threepoint.…`; the
+    `io.pythia.method.threepoint.…`; the
     ThreePointMethodModuleTest is same-package so it can drop the import).
   - |
     Update the backend import sites and add the else branch:
       * `EstimationVersionService.kt` — repoint the two leaf imports to
-        `io.github.theestimator.method.threepoint`, and add
+        `io.pythia.method.threepoint`, and add
         `else -> error("Unknown estimation node type: \${domainNode::class.simpleName}")`
         to the `when (domainNode)` domain→submitted mapper.
       * `DraftVersionMapper.kt` — repoint the two leaf imports.
-      * `src/backend/implementation/src/test/kotlin/io/github/theestimator/service/DraftVersionMapperTest.kt`
+      * `src/backend/implementation/src/test/kotlin/io/pythia/service/DraftVersionMapperTest.kt`
         — repoint the two leaf imports.
   - |
     Update CLAUDE.md "Pluggable estimation methods (SPI)" subsection:
     replace the whole "**The sealed leaf types … stay in
-    `io.github.theestimator.model`** … (the same applies to task-102's
+    `io.pythia.model`** … (the same applies to task-102's
     `BucketedEstimationItem`)" sentence — BOTH the "stay in model" claim
     and the trailing task-102 clause are now false. State the new rule:
     `EstimationItem` is `abstract` (`EstimationNode` stays `sealed`, so
     `leaves()` stays exhaustive), and each method owns its leaf type in
-    its own `io.github.theestimator.method.<method>` package (PERT's
+    its own `io.pythia.method.<method>` package (PERT's
     `FixedEstimationItem` / `TimeRelativeEstimationItem` live in
     `method.threepoint`; task-102's `BucketedEstimationItem` will live in
     `method.bucketsampled`).
@@ -139,19 +139,19 @@ steps:
 validation:
   - |
     EstimationItem is now abstract; EstimationNode stays sealed:
-      grep -q "abstract class EstimationItem" src/domain/src/main/kotlin/io/github/theestimator/model/EstimationItem.kt
-      ! grep -q "sealed class EstimationItem" src/domain/src/main/kotlin/io/github/theestimator/model/EstimationItem.kt
-      grep -q "sealed class EstimationNode" src/domain/src/main/kotlin/io/github/theestimator/model/EstimationNode.kt
+      grep -q "abstract class EstimationItem" src/domain/src/main/kotlin/io/pythia/model/EstimationItem.kt
+      ! grep -q "sealed class EstimationItem" src/domain/src/main/kotlin/io/pythia/model/EstimationItem.kt
+      grep -q "sealed class EstimationNode" src/domain/src/main/kotlin/io/pythia/model/EstimationNode.kt
   - |
     Leaf types moved to method.threepoint (not in model):
-      test -f src/domain/src/main/kotlin/io/github/theestimator/method/threepoint/FixedEstimationItem.kt
-      test -f src/domain/src/main/kotlin/io/github/theestimator/method/threepoint/TimeRelativeEstimationItem.kt
-      ! test -f src/domain/src/main/kotlin/io/github/theestimator/model/FixedEstimationItem.kt
-      ! test -f src/domain/src/main/kotlin/io/github/theestimator/model/TimeRelativeEstimationItem.kt
-      grep -q "package io.github.theestimator.method.threepoint" src/domain/src/main/kotlin/io/github/theestimator/method/threepoint/FixedEstimationItem.kt
+      test -f src/domain/src/main/kotlin/io/pythia/method/threepoint/FixedEstimationItem.kt
+      test -f src/domain/src/main/kotlin/io/pythia/method/threepoint/TimeRelativeEstimationItem.kt
+      ! test -f src/domain/src/main/kotlin/io/pythia/model/FixedEstimationItem.kt
+      ! test -f src/domain/src/main/kotlin/io/pythia/model/TimeRelativeEstimationItem.kt
+      grep -q "package io.pythia.method.threepoint" src/domain/src/main/kotlin/io/pythia/method/threepoint/FixedEstimationItem.kt
   - |
     Backend domain→submitted mapper has the loud else branch:
-      grep -q "else -> error" src/backend/implementation/src/main/kotlin/io/github/theestimator/service/EstimationVersionService.kt
+      grep -q "else -> error" src/backend/implementation/src/main/kotlin/io/pythia/service/EstimationVersionService.kt
   - |
     No leftover imports of the leaves from the old model package:
       ! grep -rE "import io\\.github\\.theestimator\\.model\\.(Fixed|TimeRelative)EstimationItem" src/domain/src src/backend/implementation/src
@@ -164,19 +164,19 @@ validation:
       ./gradlew build
 
 outputs:
-  - modified: src/domain/src/main/kotlin/io/github/theestimator/model/EstimationItem.kt
-  - created: src/domain/src/main/kotlin/io/github/theestimator/method/threepoint/FixedEstimationItem.kt
-  - created: src/domain/src/main/kotlin/io/github/theestimator/method/threepoint/TimeRelativeEstimationItem.kt
-  - deleted: src/domain/src/main/kotlin/io/github/theestimator/model/FixedEstimationItem.kt
-  - deleted: src/domain/src/main/kotlin/io/github/theestimator/model/TimeRelativeEstimationItem.kt
-  - modified: src/domain/src/main/kotlin/io/github/theestimator/method/threepoint/ThreePointMethodModule.kt
-  - modified: src/domain/src/main/kotlin/io/github/theestimator/model/DomainFactory.kt
-  - modified: src/domain/src/test/kotlin/io/github/theestimator/model/EstimationVersionTreeTest.kt
-  - modified: src/domain/src/test/kotlin/io/github/theestimator/model/TimeRelativeEstimationItemTest.kt
-  - modified: src/domain/src/test/kotlin/io/github/theestimator/model/EstimationCalculatorInvariantsTest.kt
-  - modified: src/domain/src/test/kotlin/io/github/theestimator/model/EstimationNodeTest.kt
-  - modified: src/domain/src/test/kotlin/io/github/theestimator/method/threepoint/ThreePointMethodModuleTest.kt
-  - modified: src/backend/implementation/src/main/kotlin/io/github/theestimator/service/EstimationVersionService.kt
-  - modified: src/backend/implementation/src/main/kotlin/io/github/theestimator/service/DraftVersionMapper.kt
-  - modified: src/backend/implementation/src/test/kotlin/io/github/theestimator/service/DraftVersionMapperTest.kt
+  - modified: src/domain/src/main/kotlin/io/pythia/model/EstimationItem.kt
+  - created: src/domain/src/main/kotlin/io/pythia/method/threepoint/FixedEstimationItem.kt
+  - created: src/domain/src/main/kotlin/io/pythia/method/threepoint/TimeRelativeEstimationItem.kt
+  - deleted: src/domain/src/main/kotlin/io/pythia/model/FixedEstimationItem.kt
+  - deleted: src/domain/src/main/kotlin/io/pythia/model/TimeRelativeEstimationItem.kt
+  - modified: src/domain/src/main/kotlin/io/pythia/method/threepoint/ThreePointMethodModule.kt
+  - modified: src/domain/src/main/kotlin/io/pythia/model/DomainFactory.kt
+  - modified: src/domain/src/test/kotlin/io/pythia/model/EstimationVersionTreeTest.kt
+  - modified: src/domain/src/test/kotlin/io/pythia/model/TimeRelativeEstimationItemTest.kt
+  - modified: src/domain/src/test/kotlin/io/pythia/model/EstimationCalculatorInvariantsTest.kt
+  - modified: src/domain/src/test/kotlin/io/pythia/model/EstimationNodeTest.kt
+  - modified: src/domain/src/test/kotlin/io/pythia/method/threepoint/ThreePointMethodModuleTest.kt
+  - modified: src/backend/implementation/src/main/kotlin/io/pythia/service/EstimationVersionService.kt
+  - modified: src/backend/implementation/src/main/kotlin/io/pythia/service/DraftVersionMapper.kt
+  - modified: src/backend/implementation/src/test/kotlin/io/pythia/service/DraftVersionMapperTest.kt
   - modified: CLAUDE.md

@@ -20,12 +20,12 @@ description: |
 
   Top-level pom.xml:
     - Reactor pom with modules: src/frontend, src/backend (order matters for reactor)
-    - groupId: io.github.theestimator, artifactId: the-estimator, version: 1.0.0-SNAPSHOT
+    - groupId: io.pythia, artifactId: the-estimator, version: 1.0.0-SNAPSHOT
     - Profiles dev-local and dev-minikube defined here, propagated to submodules via properties
     - No parent inheritance — submodules remain independent (backend keeps Quarkus BOM)
 
   src/frontend/pom.xml:
-    - groupId: io.github.theestimator, artifactId: frontend, packaging: pom
+    - groupId: io.pythia, artifactId: frontend, packaging: pom
     - frontend-maven-plugin (com.github.eirslett:frontend-maven-plugin:1.15.1):
       - install-node-and-npm (phase: initialize) — Node 22.14.0, npm 10.9.2
       - npm install (phase: initialize)

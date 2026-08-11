@@ -68,7 +68,7 @@ with Kustomize: a `base/` plus overlays (`overlays/minikube` for local,
 `overlays/production` which adds Backend OIDC config and a TLS Ingress). The
 Backend scales via a HorizontalPodAutoscaler; the Database keeps a persistent
 volume. The Backend and Frontend container images
-(`theestimator/estimation-backend`, `theestimator/estimation-frontend`) are produced by
+(`pythia/pythia-backend`, `pythia/pythia-frontend`) are produced by
 the Gradle build (Jib for the Backend) and deployed locally with
 `./scripts/minikube-deploy.sh`.
 

@@ -42,7 +42,7 @@ description: |
 
   Impact on the implementation module: MINIMAL. The only import from the
   domain module in the entire implementation module is:
-    EstimationCalculator.kt: import io.github.theestimator.model.PertCalculation
+    EstimationCalculator.kt: import io.pythia.model.PertCalculation
   PertCalculation has no JVM-specific types and needs no changes. The JVM
   jar produced by the Gradle build is structurally identical to what Maven
   produced; the implementation module's <dependency> continues to resolve.
@@ -63,7 +63,7 @@ description: |
 
   build.gradle.kts skeleton:
     plugins { kotlin("multiplatform") version "2.x"; id("maven-publish") }
-    group = "io.github.theestimator"; version = "1.0.0-SNAPSHOT"
+    group = "io.pythia"; version = "1.0.0-SNAPSHOT"
     kotlin {
       jvm()
       js(IR) {
@@ -160,7 +160,7 @@ steps:
     binaries.library() } targets. Add kotlinx-datetime to commonMain
     dependencies. Add JUnit Jupiter to jvmTest. Retain the all-open compiler
     plugin on the jvm compilation (annotated with @DomainEntity). Configure
-    maven-publish to publish with group=io.github.theestimator, artifactId=domain,
+    maven-publish to publish with group=io.pythia, artifactId=domain,
     version=1.0.0-SNAPSHOT. Add a Gradle task named packageTypescript that zips
     the files in build/js/packages/domain/kotlin/ (domain*.js and domain*.d.ts)
     and a publishTypescript task that installs that zip to Maven local repo with

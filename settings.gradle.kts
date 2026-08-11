@@ -1,4 +1,4 @@
-rootProject.name = "the-estimator"
+rootProject.name = "pythia"
 
 pluginManagement {
     repositories {

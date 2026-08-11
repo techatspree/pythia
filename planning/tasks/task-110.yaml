@@ -11,14 +11,14 @@ description: |
 
   Every draft PUT records a `DraftMutationLogEntry` with
   `kind = "REPLACE_WHOLE_DRAFT"` (see
-  `src/domain/src/main/kotlin/io/github/theestimator/model/mutation/DraftMutation.kt`:
+  `src/domain/src/main/kotlin/io/pythia/model/mutation/DraftMutation.kt`:
   `ReplaceWholeDraft.kind`). `EstimationVersion.diff(other)`
   (`.../mutation/Diff.kt`) currently returns exactly one variant —
   `ReplaceWholeDraft(before, after)` — carrying the whole before /
   after `EstimationVersion` snapshots.
 
   The wire DTO
-  `src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/dto/MutationLogEntryDto.kt`
+  `src/backend/implementation/src/main/kotlin/io/pythia/rest/dto/MutationLogEntryDto.kt`
   exposes only `kind`, `userDisplayName`, `createdAt`, `status`,
   the technical `sequenceNumber`/`revisionBefore`/`revisionAfter`,
   and `undoneAt`.
@@ -46,7 +46,7 @@ description: |
   ## Frozen decisions
 
   - **Where the diff logic lives.** In `:domain`, package
-    `io.github.theestimator.model.mutation`, next to the existing
+    `io.pythia.model.mutation`, next to the existing
     `diff()` function. Add a pure function
     `EstimationVersion.diffSummary(other): List<ChangeDescription>`
     that walks the two versions and returns a closed set of
@@ -174,19 +174,19 @@ description: |
 steps:
   - |
     Read the current bits so nothing gets missed:
-      src/domain/src/main/kotlin/io/github/theestimator/model/mutation/DraftMutation.kt
-      src/domain/src/main/kotlin/io/github/theestimator/model/mutation/Diff.kt
-      src/domain/src/main/kotlin/io/github/theestimator/model/EstimationVersion.kt
-      src/domain/src/main/kotlin/io/github/theestimator/model/EstimationNode.kt
-      src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/dto/MutationLogEntryDto.kt
-      src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/dto/MutationLogMapper.kt
-      src/backend/implementation/src/main/kotlin/io/github/theestimator/service/DraftMutationJackson.kt
-      src/backend/implementation/src/main/kotlin/io/github/theestimator/service/UndoService.kt   (payload shape only)
+      src/domain/src/main/kotlin/io/pythia/model/mutation/DraftMutation.kt
+      src/domain/src/main/kotlin/io/pythia/model/mutation/Diff.kt
+      src/domain/src/main/kotlin/io/pythia/model/EstimationVersion.kt
+      src/domain/src/main/kotlin/io/pythia/model/EstimationNode.kt
+      src/backend/implementation/src/main/kotlin/io/pythia/rest/dto/MutationLogEntryDto.kt
+      src/backend/implementation/src/main/kotlin/io/pythia/rest/dto/MutationLogMapper.kt
+      src/backend/implementation/src/main/kotlin/io/pythia/service/DraftMutationJackson.kt
+      src/backend/implementation/src/main/kotlin/io/pythia/service/UndoService.kt   (payload shape only)
       src/frontend/src/lib/components/UndoHistoryPanel.svelte
       src/frontend/src/lib/api/schema.d.ts    (to confirm the generated MutationLogEntryDto)
   - |
     Add
-    `src/domain/src/main/kotlin/io/github/theestimator/model/mutation/ChangeDescription.kt`
+    `src/domain/src/main/kotlin/io/pythia/model/mutation/ChangeDescription.kt`
     with the sealed hierarchy above. Follow the DraftMutation
     idiom: `@file:OptIn(ExperimentalJsExport::class)`,
     `@JsExport @DomainEntity sealed class ChangeDescription { …
@@ -195,7 +195,7 @@ steps:
     to know the underlying type.
   - |
     Add
-    `src/domain/src/main/kotlin/io/github/theestimator/model/mutation/DiffSummary.kt`
+    `src/domain/src/main/kotlin/io/pythia/model/mutation/DiffSummary.kt`
     with:
       fun EstimationVersion.diffSummary(other: EstimationVersion):
           List<ChangeDescription>
@@ -212,7 +212,7 @@ steps:
     (cap 25)" }` (lambda form) at the end.
   - |
     Add domain tests in
-    `src/domain/src/test/kotlin/io/github/theestimator/model/mutation/DiffSummaryTest.kt`
+    `src/domain/src/test/kotlin/io/pythia/model/mutation/DiffSummaryTest.kt`
     (JVM `src/test`, JUnit 5, per the existing pattern):
       * Two identical versions → empty list.
       * Change `dailyRate` → single `ParameterChanged("dailyRate",
@@ -226,13 +226,13 @@ steps:
       * Whole-tree replace produces a bounded list.
   - |
     Extend the wire DTO. Add
-    `src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/dto/ChangeSummaryDto.kt`
+    `src/backend/implementation/src/main/kotlin/io/pythia/rest/dto/ChangeSummaryDto.kt`
     with the flat DTO shape above. Extend
     `MutationLogEntryDto` with `summary: List<ChangeSummaryDto>`.
     Keep the existing fields untouched.
   - |
     Update
-    `src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/dto/MutationLogMapper.kt`
+    `src/backend/implementation/src/main/kotlin/io/pythia/rest/dto/MutationLogMapper.kt`
     (which currently has `DraftMutationLogEntry.toLogDto()`):
       * Inject `DraftMutationJackson` (or thread it through the
         caller) so the mapper can deserialise `payload` back into
@@ -315,26 +315,26 @@ steps:
 validation:
   - |
     Domain diff-summary function and its tests exist:
-      test -f src/domain/src/main/kotlin/io/github/theestimator/model/mutation/ChangeDescription.kt
-      test -f src/domain/src/main/kotlin/io/github/theestimator/model/mutation/DiffSummary.kt
-      test -f src/domain/src/test/kotlin/io/github/theestimator/model/mutation/DiffSummaryTest.kt
-      grep -q "fun EstimationVersion.diffSummary" src/domain/src/main/kotlin/io/github/theestimator/model/mutation/DiffSummary.kt
-      grep -q "sealed class ChangeDescription" src/domain/src/main/kotlin/io/github/theestimator/model/mutation/ChangeDescription.kt
+      test -f src/domain/src/main/kotlin/io/pythia/model/mutation/ChangeDescription.kt
+      test -f src/domain/src/main/kotlin/io/pythia/model/mutation/DiffSummary.kt
+      test -f src/domain/src/test/kotlin/io/pythia/model/mutation/DiffSummaryTest.kt
+      grep -q "fun EstimationVersion.diffSummary" src/domain/src/main/kotlin/io/pythia/model/mutation/DiffSummary.kt
+      grep -q "sealed class ChangeDescription" src/domain/src/main/kotlin/io/pythia/model/mutation/ChangeDescription.kt
   - |
     Kotlin/JS export idiom present and no super-property pitfall:
-      grep -q "@file:OptIn(ExperimentalJsExport::class)" src/domain/src/main/kotlin/io/github/theestimator/model/mutation/ChangeDescription.kt
-      grep -q "@JsExport" src/domain/src/main/kotlin/io/github/theestimator/model/mutation/ChangeDescription.kt
-      ! grep -rE "super\\.mean|super\\.variance|super\\.offerPT" src/domain/src/main/kotlin/io/github/theestimator/model/mutation/
+      grep -q "@file:OptIn(ExperimentalJsExport::class)" src/domain/src/main/kotlin/io/pythia/model/mutation/ChangeDescription.kt
+      grep -q "@JsExport" src/domain/src/main/kotlin/io/pythia/model/mutation/ChangeDescription.kt
+      ! grep -rE "super\\.mean|super\\.variance|super\\.offerPT" src/domain/src/main/kotlin/io/pythia/model/mutation/
   - |
     Domain logging idiom used:
-      grep -q "KotlinLogging.logger" src/domain/src/main/kotlin/io/github/theestimator/model/mutation/DiffSummary.kt
-      grep -q "logger.debug" src/domain/src/main/kotlin/io/github/theestimator/model/mutation/DiffSummary.kt
+      grep -q "KotlinLogging.logger" src/domain/src/main/kotlin/io/pythia/model/mutation/DiffSummary.kt
+      grep -q "logger.debug" src/domain/src/main/kotlin/io/pythia/model/mutation/DiffSummary.kt
   - |
     Backend wire DTO extended and mapper populates the summary:
-      test -f src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/dto/ChangeSummaryDto.kt
-      grep -q "summary" src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/dto/MutationLogEntryDto.kt
-      grep -q "diffSummary" src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/dto/MutationLogMapper.kt
-      grep -q "Log.debug\|Log.warn" src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/dto/MutationLogMapper.kt
+      test -f src/backend/implementation/src/main/kotlin/io/pythia/rest/dto/ChangeSummaryDto.kt
+      grep -q "summary" src/backend/implementation/src/main/kotlin/io/pythia/rest/dto/MutationLogEntryDto.kt
+      grep -q "diffSummary" src/backend/implementation/src/main/kotlin/io/pythia/rest/dto/MutationLogMapper.kt
+      grep -q "Log.debug\|Log.warn" src/backend/implementation/src/main/kotlin/io/pythia/rest/dto/MutationLogMapper.kt
   - |
     Generated frontend schema includes the new summary field:
       grep -q "summary" src/frontend/src/lib/api/schema.d.ts
@@ -359,13 +359,13 @@ validation:
       ./gradlew build
 
 outputs:
-  - created: src/domain/src/main/kotlin/io/github/theestimator/model/mutation/ChangeDescription.kt
-  - created: src/domain/src/main/kotlin/io/github/theestimator/model/mutation/DiffSummary.kt
-  - created: src/domain/src/test/kotlin/io/github/theestimator/model/mutation/DiffSummaryTest.kt
-  - created: src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/dto/ChangeSummaryDto.kt
-  - modified: src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/dto/MutationLogEntryDto.kt
-  - modified: src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/dto/MutationLogMapper.kt
-  - modified: src/backend/implementation/src/test/kotlin/io/github/theestimator/rest/EstimationVersionResourceIT.kt
+  - created: src/domain/src/main/kotlin/io/pythia/model/mutation/ChangeDescription.kt
+  - created: src/domain/src/main/kotlin/io/pythia/model/mutation/DiffSummary.kt
+  - created: src/domain/src/test/kotlin/io/pythia/model/mutation/DiffSummaryTest.kt
+  - created: src/backend/implementation/src/main/kotlin/io/pythia/rest/dto/ChangeSummaryDto.kt
+  - modified: src/backend/implementation/src/main/kotlin/io/pythia/rest/dto/MutationLogEntryDto.kt
+  - modified: src/backend/implementation/src/main/kotlin/io/pythia/rest/dto/MutationLogMapper.kt
+  - modified: src/backend/implementation/src/test/kotlin/io/pythia/rest/EstimationVersionResourceIT.kt
   - modified: src/frontend/src/lib/api/openapi.json
   - modified: src/frontend/src/lib/api/schema.d.ts
   - modified: src/frontend/src/lib/components/UndoHistoryPanel.svelte

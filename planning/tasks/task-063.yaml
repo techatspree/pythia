@@ -29,7 +29,7 @@ description: |
       **V13**. Mirror id/timestamp/FK conventions from a RECENT
       migration (e.g. V10/V12), not V1–V7.
     - Entities live under
-      src/backend/implementation/src/main/kotlin/io/github/theestimator/domain/
+      src/backend/implementation/src/main/kotlin/io/pythia/domain/
       (JPA Panache) and extend `BaseEntity` (uuid `id` +
       `created_at`/`updated_at`); repositories under …/repository/
       (PanacheRepository).
@@ -96,7 +96,7 @@ steps:
 
   - |
     Add the JPA Panache entities under
-    src/backend/implementation/src/main/kotlin/io/github/theestimator/domain/session/:
+    src/backend/implementation/src/main/kotlin/io/pythia/domain/session/:
     EstimationSession.kt, SessionItem.kt, SessionParticipant.kt,
     SessionVote.kt — each extending `BaseEntity` (use the all-open/no-arg
     Kotlin plugins already configured; map enums as
@@ -106,7 +106,7 @@ steps:
 
   - |
     Add repositories under
-    src/backend/implementation/src/main/kotlin/io/github/theestimator/repository/:
+    src/backend/implementation/src/main/kotlin/io/pythia/repository/:
     EstimationSessionRepository.kt and SessionVoteRepository.kt (implement
     `PanacheRepository<T>`) with the finder extension methods listed in the
     description.
@@ -129,8 +129,8 @@ validation:
   - |
     Migration and entities exist:
       test -f src/backend/implementation/src/main/resources/db/migration/V13__estimation_sessions.sql
-      test -f src/backend/implementation/src/main/kotlin/io/github/theestimator/domain/session/EstimationSession.kt
-      test -f src/backend/implementation/src/main/kotlin/io/github/theestimator/domain/session/SessionVote.kt
+      test -f src/backend/implementation/src/main/kotlin/io/pythia/domain/session/EstimationSession.kt
+      test -f src/backend/implementation/src/main/kotlin/io/pythia/domain/session/SessionVote.kt
   - |
     The four tables are declared in V13:
       grep -q "estimation_sessions" src/backend/implementation/src/main/resources/db/migration/V13__estimation_sessions.sql
@@ -139,22 +139,22 @@ validation:
       grep -q "session_votes" src/backend/implementation/src/main/resources/db/migration/V13__estimation_sessions.sql
   - |
     Repositories exist:
-      test -f src/backend/implementation/src/main/kotlin/io/github/theestimator/repository/EstimationSessionRepository.kt
-      test -f src/backend/implementation/src/main/kotlin/io/github/theestimator/repository/SessionVoteRepository.kt
+      test -f src/backend/implementation/src/main/kotlin/io/pythia/repository/EstimationSessionRepository.kt
+      test -f src/backend/implementation/src/main/kotlin/io/pythia/repository/SessionVoteRepository.kt
   - |
     Backend builds, V13 migration applies, entities map:
       ./gradlew :backend:implementation:test
 
 outputs:
   - created: src/backend/implementation/src/main/resources/db/migration/V13__estimation_sessions.sql
-  - created: src/backend/implementation/src/main/kotlin/io/github/theestimator/domain/session/EstimationSession.kt
-  - created: src/backend/implementation/src/main/kotlin/io/github/theestimator/domain/session/SessionItem.kt
-  - created: src/backend/implementation/src/main/kotlin/io/github/theestimator/domain/session/SessionParticipant.kt
-  - created: src/backend/implementation/src/main/kotlin/io/github/theestimator/domain/session/SessionVote.kt
-  - created: src/backend/implementation/src/main/kotlin/io/github/theestimator/domain/session/SessionStatus.kt
-  - created: src/backend/implementation/src/main/kotlin/io/github/theestimator/domain/session/SessionItemStatus.kt
-  - created: src/backend/implementation/src/main/kotlin/io/github/theestimator/domain/session/SessionPhase.kt
-  - created: src/backend/implementation/src/main/kotlin/io/github/theestimator/domain/session/ParticipantRole.kt
-  - created: src/backend/implementation/src/main/kotlin/io/github/theestimator/repository/EstimationSessionRepository.kt
-  - created: src/backend/implementation/src/main/kotlin/io/github/theestimator/repository/SessionVoteRepository.kt
+  - created: src/backend/implementation/src/main/kotlin/io/pythia/domain/session/EstimationSession.kt
+  - created: src/backend/implementation/src/main/kotlin/io/pythia/domain/session/SessionItem.kt
+  - created: src/backend/implementation/src/main/kotlin/io/pythia/domain/session/SessionParticipant.kt
+  - created: src/backend/implementation/src/main/kotlin/io/pythia/domain/session/SessionVote.kt
+  - created: src/backend/implementation/src/main/kotlin/io/pythia/domain/session/SessionStatus.kt
+  - created: src/backend/implementation/src/main/kotlin/io/pythia/domain/session/SessionItemStatus.kt
+  - created: src/backend/implementation/src/main/kotlin/io/pythia/domain/session/SessionPhase.kt
+  - created: src/backend/implementation/src/main/kotlin/io/pythia/domain/session/ParticipantRole.kt
+  - created: src/backend/implementation/src/main/kotlin/io/pythia/repository/EstimationSessionRepository.kt
+  - created: src/backend/implementation/src/main/kotlin/io/pythia/repository/SessionVoteRepository.kt
   - modified: CLAUDE.md

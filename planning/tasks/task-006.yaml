@@ -225,7 +225,7 @@ description: |
 steps:
   - |
     Create the dev backend module under
-    src/backend/implementation/src/main/kotlin/io/github/theestimator/auth/dev/:
+    src/backend/implementation/src/main/kotlin/io/pythia/auth/dev/:
       - DevUser.kt — `data class DevUser(...)` + `val DEV_USERS = ...`.
       - DevAuthModule.kt — `@ApplicationScoped` implementing
         AuthModule, gated by `AuthConfig.activeProvider == "dev"`.
@@ -356,20 +356,20 @@ steps:
 validation:
   - |
     Backend dev-module files exist:
-      test -f src/backend/implementation/src/main/kotlin/io/github/theestimator/auth/dev/DevUser.kt
-      test -f src/backend/implementation/src/main/kotlin/io/github/theestimator/auth/dev/DevAuthModule.kt
-      test -f src/backend/implementation/src/main/kotlin/io/github/theestimator/auth/dev/DevAuthFilter.kt
-      test -f src/backend/implementation/src/main/kotlin/io/github/theestimator/auth/dev/DevSecurityIdentityAugmentor.kt
+      test -f src/backend/implementation/src/main/kotlin/io/pythia/auth/dev/DevUser.kt
+      test -f src/backend/implementation/src/main/kotlin/io/pythia/auth/dev/DevAuthModule.kt
+      test -f src/backend/implementation/src/main/kotlin/io/pythia/auth/dev/DevAuthFilter.kt
+      test -f src/backend/implementation/src/main/kotlin/io/pythia/auth/dev/DevSecurityIdentityAugmentor.kt
   - |
     The three hard-wired users are present with the documented
     role assignments:
-      grep -q "dev-viewer" src/backend/implementation/src/main/kotlin/io/github/theestimator/auth/dev/DevUser.kt
-      grep -q "dev-estimator" src/backend/implementation/src/main/kotlin/io/github/theestimator/auth/dev/DevUser.kt
-      grep -q "dev-admin" src/backend/implementation/src/main/kotlin/io/github/theestimator/auth/dev/DevUser.kt
+      grep -q "dev-viewer" src/backend/implementation/src/main/kotlin/io/pythia/auth/dev/DevUser.kt
+      grep -q "dev-estimator" src/backend/implementation/src/main/kotlin/io/pythia/auth/dev/DevUser.kt
+      grep -q "dev-admin" src/backend/implementation/src/main/kotlin/io/pythia/auth/dev/DevUser.kt
   - |
     The dev filter only registers when the dev provider is active:
-      grep -q "@IfBuildProperty" src/backend/implementation/src/main/kotlin/io/github/theestimator/auth/dev/DevAuthFilter.kt
-      grep -q "app.auth.provider" src/backend/implementation/src/main/kotlin/io/github/theestimator/auth/dev/DevAuthFilter.kt
+      grep -q "@IfBuildProperty" src/backend/implementation/src/main/kotlin/io/pythia/auth/dev/DevAuthFilter.kt
+      grep -q "app.auth.provider" src/backend/implementation/src/main/kotlin/io/pythia/auth/dev/DevAuthFilter.kt
   - |
     Frontend dev provider + UI exist:
       test -f src/frontend/src/lib/auth/DevAuthProvider.ts
@@ -432,10 +432,10 @@ validation:
       cd src/frontend && npx playwright test
 
 outputs:
-  - created: src/backend/implementation/src/main/kotlin/io/github/theestimator/auth/dev/DevUser.kt
-  - created: src/backend/implementation/src/main/kotlin/io/github/theestimator/auth/dev/DevAuthModule.kt
-  - created: src/backend/implementation/src/main/kotlin/io/github/theestimator/auth/dev/DevAuthFilter.kt
-  - created: src/backend/implementation/src/main/kotlin/io/github/theestimator/auth/dev/DevSecurityIdentityAugmentor.kt
+  - created: src/backend/implementation/src/main/kotlin/io/pythia/auth/dev/DevUser.kt
+  - created: src/backend/implementation/src/main/kotlin/io/pythia/auth/dev/DevAuthModule.kt
+  - created: src/backend/implementation/src/main/kotlin/io/pythia/auth/dev/DevAuthFilter.kt
+  - created: src/backend/implementation/src/main/kotlin/io/pythia/auth/dev/DevSecurityIdentityAugmentor.kt
   - modified: src/backend/implementation/src/main/resources/application.properties
   - created: src/frontend/src/lib/auth/DevAuthProvider.ts
   - created: src/frontend/src/lib/components/DevLoginDialog.svelte

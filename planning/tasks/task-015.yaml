@@ -112,10 +112,10 @@ validation:
 
 outputs:
   - src/backend/implementation/src/main/resources/db/migration/V2__add_logical_id.sql
-  - src/backend/implementation/src/main/kotlin/io/github/theestimator/service/VersionComparisonService.kt
-  - src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/dto/VersionComparisonDtos.kt
-  - src/backend/implementation/src/test/kotlin/io/github/theestimator/service/VersionComparisonServiceTest.kt
-  - src/backend/implementation/src/test/kotlin/io/github/theestimator/rest/VersionComparisonResourceIT.kt
+  - src/backend/implementation/src/main/kotlin/io/pythia/service/VersionComparisonService.kt
+  - src/backend/implementation/src/main/kotlin/io/pythia/rest/dto/VersionComparisonDtos.kt
+  - src/backend/implementation/src/test/kotlin/io/pythia/service/VersionComparisonServiceTest.kt
+  - src/backend/implementation/src/test/kotlin/io/pythia/rest/VersionComparisonResourceIT.kt
   - modified: src/domain EstimationItem.kt, EstimationItemGroup.kt, FixedEstimationItem.kt, TimeRelativeEstimationItem.kt
   - modified: src/backend EstimationItem.kt, EstimationItemGroup.kt (JPA logicalId column)
   - modified: EstimationVersionService.kt (preserve logicalId in deepClone)

@@ -198,7 +198,7 @@ steps:
 
   - |
     Remove the deprecated `itemGroups` shim from
-    src/domain/src/main/kotlin/io/github/theestimator/model/EstimationVersion.kt
+    src/domain/src/main/kotlin/io/pythia/model/EstimationVersion.kt
     — both the @Deprecated `val itemGroups` getter AND the @JsName
     secondary constructor added in task-049. Update DomainFactory:
       - createVersion: parameter renamed itemGroups → roots, type
@@ -307,16 +307,16 @@ validation:
       ! grep -q "EstimationItemGroup" src/frontend/src/lib/domain/domain.d.ts
   - |
     Kotlin/JS shim is gone from the domain:
-      ! grep -q "@Deprecated" src/domain/src/main/kotlin/io/github/theestimator/model/EstimationVersion.kt
-      ! grep -q "createFromItemGroups" src/domain/src/main/kotlin/io/github/theestimator/model/EstimationVersion.kt
+      ! grep -q "@Deprecated" src/domain/src/main/kotlin/io/pythia/model/EstimationVersion.kt
+      ! grep -q "createFromItemGroups" src/domain/src/main/kotlin/io/pythia/model/EstimationVersion.kt
   - |
     Backend REST compat shim is gone:
       ! grep -qE "LegacyItemGroupDto|LegacyItemUpdateDto|LegacyItemDto|LegacyItemGroupUpdateDto" \
-            src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/dto/EstimationVersionDtos.kt
+            src/backend/implementation/src/main/kotlin/io/pythia/rest/dto/EstimationVersionDtos.kt
       ! grep -q "effectiveRoots" \
-            src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/EstimationVersionResource.kt
+            src/backend/implementation/src/main/kotlin/io/pythia/rest/EstimationVersionResource.kt
       ! grep -qE "legacyItemGroups|collectLegacyItems" \
-            src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/dto/EstimationVersionMapper.kt
+            src/backend/implementation/src/main/kotlin/io/pythia/rest/dto/EstimationVersionMapper.kt
   - |
     e2e populateDraft uses the canonical roots shape:
       ! grep -q "itemGroups:" src/frontend/e2e/smoke.test.ts
@@ -337,9 +337,9 @@ outputs:
   - modified: src/frontend/src/lib/components/PhasesPanel.svelte
   - modified: src/frontend/src/routes/estimations/[id]/versions/[versionNumber]/+page.svelte
   - modified: src/frontend/e2e/smoke.test.ts
-  - modified: src/domain/src/main/kotlin/io/github/theestimator/model/EstimationVersion.kt
-  - modified: src/domain/src/main/kotlin/io/github/theestimator/model/DomainFactory.kt
-  - modified: src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/dto/EstimationVersionDtos.kt
-  - modified: src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/dto/EstimationVersionMapper.kt
-  - modified: src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/EstimationVersionResource.kt
+  - modified: src/domain/src/main/kotlin/io/pythia/model/EstimationVersion.kt
+  - modified: src/domain/src/main/kotlin/io/pythia/model/DomainFactory.kt
+  - modified: src/backend/implementation/src/main/kotlin/io/pythia/rest/dto/EstimationVersionDtos.kt
+  - modified: src/backend/implementation/src/main/kotlin/io/pythia/rest/dto/EstimationVersionMapper.kt
+  - modified: src/backend/implementation/src/main/kotlin/io/pythia/rest/EstimationVersionResource.kt
   - modified: CLAUDE.md

@@ -25,7 +25,7 @@ description: |
     `estimation-detail.method`, using
     `formatMethodLabel(m)` (`src/lib/methods/labels.ts`) —
     label only, no descriptive text.
-  - `io.github.theestimator.method.EstimationMethodModule`
+  - `io.pythia.method.EstimationMethodModule`
     (`src/domain/src/main/kotlin/…/EstimationMethodModule.kt`,
     task-097) carries `method`, `calculate*`, and export
     hooks — no `description` field.
@@ -148,12 +148,12 @@ description: |
 steps:
   - |
     Read the current bits (parallel):
-      src/domain/src/main/kotlin/io/github/theestimator/method/EstimationMethodModule.kt (task-097)
-      src/domain/src/main/kotlin/io/github/theestimator/method/threepoint/ThreePointMethodModule.kt (task-098)
-      src/domain/src/main/kotlin/io/github/theestimator/method/bucketsampled/BucketMethodModule.kt (task-102)
-      src/domain/src/main/kotlin/io/github/theestimator/method/EstimationMethodRegistry.kt
-      src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/dto/ProjectDtos.kt
-      src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/dto/ProjectMapper.kt
+      src/domain/src/main/kotlin/io/pythia/method/EstimationMethodModule.kt (task-097)
+      src/domain/src/main/kotlin/io/pythia/method/threepoint/ThreePointMethodModule.kt (task-098)
+      src/domain/src/main/kotlin/io/pythia/method/bucketsampled/BucketMethodModule.kt (task-102)
+      src/domain/src/main/kotlin/io/pythia/method/EstimationMethodRegistry.kt
+      src/backend/implementation/src/main/kotlin/io/pythia/rest/dto/ProjectDtos.kt
+      src/backend/implementation/src/main/kotlin/io/pythia/rest/dto/ProjectMapper.kt
       src/frontend/src/lib/methods/labels.ts       (task-118)
       src/frontend/src/lib/components/EstimationDetail.svelte  (task-118)
       src/frontend/src/lib/api/types.ts             (extend ApiEstimationDetail with methodDescription)
@@ -161,7 +161,7 @@ steps:
       src/frontend/src/lib/log.ts
   - |
     Extend the SPI. In
-    `src/domain/src/main/kotlin/io/github/theestimator/method/EstimationMethodModule.kt`:
+    `src/domain/src/main/kotlin/io/pythia/method/EstimationMethodModule.kt`:
       * Add `val description: String` to the interface (or
         abstract member if it is abstract — mirror the
         shape of `method`).
@@ -183,17 +183,17 @@ steps:
         in the same bucket. Group totals accumulate from the
         leaves as usual."`
     Add JUnit 5 unit tests (JVM `src/test` source set) in
-    `src/domain/src/test/kotlin/io/github/theestimator/method/EstimationMethodModuleDescriptionTest.kt`
+    `src/domain/src/test/kotlin/io/pythia/method/EstimationMethodModuleDescriptionTest.kt`
     asserting both concrete modules ship a non-blank
     description.
   - |
     Wire the description onto the wire. In
-    `src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/dto/ProjectDtos.kt`:
+    `src/backend/implementation/src/main/kotlin/io/pythia/rest/dto/ProjectDtos.kt`:
       * Add `val methodDescription: String` to
         `EstimationDetailDto` (place it right after
         `method`).
     In
-    `src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/dto/ProjectMapper.kt`
+    `src/backend/implementation/src/main/kotlin/io/pythia/rest/dto/ProjectMapper.kt`
     (`Estimation.toEstimationDetailDto`):
       * Populate the new field via
         `EstimationMethodRegistry.require(this.method).description`.
@@ -270,18 +270,18 @@ validation:
     an awk range so multi-line Kotlin string initialisers
     match; the length contract (>=20 non-blank chars) is
     enforced at runtime by EstimationMethodModuleDescriptionTest.
-      grep -q "val description" src/domain/src/main/kotlin/io/github/theestimator/method/EstimationMethodModule.kt
-      awk '/override val description/,/^\s*$/' src/domain/src/main/kotlin/io/github/theestimator/method/threepoint/ThreePointMethodModule.kt | grep -qE '"[^"]{20,}'
-      awk '/override val description/,/^\s*$/' src/domain/src/main/kotlin/io/github/theestimator/method/bucketsampled/BucketMethodModule.kt | grep -qE '"[^"]{20,}'
-      test -f src/domain/src/test/kotlin/io/github/theestimator/method/EstimationMethodModuleDescriptionTest.kt
+      grep -q "val description" src/domain/src/main/kotlin/io/pythia/method/EstimationMethodModule.kt
+      awk '/override val description/,/^\s*$/' src/domain/src/main/kotlin/io/pythia/method/threepoint/ThreePointMethodModule.kt | grep -qE '"[^"]{20,}'
+      awk '/override val description/,/^\s*$/' src/domain/src/main/kotlin/io/pythia/method/bucketsampled/BucketMethodModule.kt | grep -qE '"[^"]{20,}'
+      test -f src/domain/src/test/kotlin/io/pythia/method/EstimationMethodModuleDescriptionTest.kt
   - |
     Backend DTO + mapper populate the wire field:
-      grep -q "methodDescription" src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/dto/ProjectDtos.kt
-      grep -q "EstimationMethodRegistry.require" src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/dto/ProjectMapper.kt
-      grep -q "methodDescription" src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/dto/ProjectMapper.kt
+      grep -q "methodDescription" src/backend/implementation/src/main/kotlin/io/pythia/rest/dto/ProjectDtos.kt
+      grep -q "EstimationMethodRegistry.require" src/backend/implementation/src/main/kotlin/io/pythia/rest/dto/ProjectMapper.kt
+      grep -q "methodDescription" src/backend/implementation/src/main/kotlin/io/pythia/rest/dto/ProjectMapper.kt
   - |
     Backend IT asserts the field ships:
-      grep -rqE "methodDescription" src/backend/implementation/src/test/kotlin/io/github/theestimator/rest/
+      grep -rqE "methodDescription" src/backend/implementation/src/test/kotlin/io/pythia/rest/
   - |
     Frontend types and schema carry the field; popover
     component exists and follows conventions:
@@ -305,13 +305,13 @@ validation:
       ./gradlew build
 
 outputs:
-  - modified: src/domain/src/main/kotlin/io/github/theestimator/method/EstimationMethodModule.kt
-  - modified: src/domain/src/main/kotlin/io/github/theestimator/method/threepoint/ThreePointMethodModule.kt
-  - modified: src/domain/src/main/kotlin/io/github/theestimator/method/bucketsampled/BucketMethodModule.kt
-  - created: src/domain/src/test/kotlin/io/github/theestimator/method/EstimationMethodModuleDescriptionTest.kt
-  - modified: src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/dto/ProjectDtos.kt
-  - modified: src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/dto/ProjectMapper.kt
-  - modified: src/backend/implementation/src/test/kotlin/io/github/theestimator/rest/ProjectResourceIT.kt
+  - modified: src/domain/src/main/kotlin/io/pythia/method/EstimationMethodModule.kt
+  - modified: src/domain/src/main/kotlin/io/pythia/method/threepoint/ThreePointMethodModule.kt
+  - modified: src/domain/src/main/kotlin/io/pythia/method/bucketsampled/BucketMethodModule.kt
+  - created: src/domain/src/test/kotlin/io/pythia/method/EstimationMethodModuleDescriptionTest.kt
+  - modified: src/backend/implementation/src/main/kotlin/io/pythia/rest/dto/ProjectDtos.kt
+  - modified: src/backend/implementation/src/main/kotlin/io/pythia/rest/dto/ProjectMapper.kt
+  - modified: src/backend/implementation/src/test/kotlin/io/pythia/rest/ProjectResourceIT.kt
   - modified: src/frontend/src/lib/api/openapi.json
   - modified: src/frontend/src/lib/api/schema.d.ts
   - modified: src/frontend/src/lib/api/types.ts

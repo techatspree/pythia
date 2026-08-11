@@ -78,12 +78,12 @@ description: |
 steps:
   - |
     Read the current entities, DTOs, service, and resource:
-      src/backend/implementation/src/main/kotlin/io/github/theestimator/domain/Estimation.kt (JPA entity — package `domain`, NOT `model`)
-      src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/ProjectResource.kt (has createEstimation)
-      src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/EstimationResource.kt (has getEstimation only)
-      src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/dto/ProjectDtos.kt (EstimationCreateDto / EstimationSummaryDto / EstimationDetailDto)
-      src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/dto/ProjectMapper.kt (Estimation.toSummaryDto / toEstimationDetailDto)
-      src/backend/implementation/src/main/kotlin/io/github/theestimator/service/EstimationService.kt (create(offer, project, description))
+      src/backend/implementation/src/main/kotlin/io/pythia/domain/Estimation.kt (JPA entity — package `domain`, NOT `model`)
+      src/backend/implementation/src/main/kotlin/io/pythia/rest/ProjectResource.kt (has createEstimation)
+      src/backend/implementation/src/main/kotlin/io/pythia/rest/EstimationResource.kt (has getEstimation only)
+      src/backend/implementation/src/main/kotlin/io/pythia/rest/dto/ProjectDtos.kt (EstimationCreateDto / EstimationSummaryDto / EstimationDetailDto)
+      src/backend/implementation/src/main/kotlin/io/pythia/rest/dto/ProjectMapper.kt (Estimation.toSummaryDto / toEstimationDetailDto)
+      src/backend/implementation/src/main/kotlin/io/pythia/service/EstimationService.kt (create(offer, project, description))
     Locate the Flyway migrations directory (latest is V8, so V9 is next):
       src/backend/implementation/src/main/resources/db/migration/
   - |
@@ -97,7 +97,7 @@ steps:
     match the existing enum columns and the entity's enum mapping.
   - |
     Add the JPA field on the `Estimation` entity
-    (`io.github.theestimator.domain.Estimation`). Match the entity's
+    (`io.pythia.domain.Estimation`). Match the entity's
     style — a defaulted non-null `var`, NOT `lateinit` (lateinit on a
     JPA enum read before assignment throws; a default also mirrors the
     SQL `DEFAULT` and satisfies the NOT NULL column):
@@ -105,7 +105,7 @@ steps:
       @Column(name = "method", nullable = false)
       var method: EstimationMethod = EstimationMethod.THREE_POINT_PERT
     Import the domain enum
-    `io.github.theestimator.method.EstimationMethod`.
+    `io.pythia.method.EstimationMethod`.
   - |
     Extend the estimation DTOs in `rest/dto/ProjectDtos.kt` with
     `method: EstimationMethod`:
@@ -160,12 +160,12 @@ validation:
   - |
     JPA entity (package `domain`) has the method field, and the DTOs
     carry it:
-      grep -q "var method: EstimationMethod" src/backend/implementation/src/main/kotlin/io/github/theestimator/domain/Estimation.kt
-      grep -q "method: EstimationMethod" src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/dto/ProjectDtos.kt
+      grep -q "var method: EstimationMethod" src/backend/implementation/src/main/kotlin/io/pythia/domain/Estimation.kt
+      grep -q "method: EstimationMethod" src/backend/implementation/src/main/kotlin/io/pythia/rest/dto/ProjectDtos.kt
   - |
     Create path threads the method through the service and logs INFO:
-      grep -q "method: EstimationMethod" src/backend/implementation/src/main/kotlin/io/github/theestimator/service/EstimationService.kt
-      grep -q "Log.info" src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/ProjectResource.kt
+      grep -q "method: EstimationMethod" src/backend/implementation/src/main/kotlin/io/pythia/service/EstimationService.kt
+      grep -q "Log.info" src/backend/implementation/src/main/kotlin/io/pythia/rest/ProjectResource.kt
   - |
     CLAUDE.md documents the new column (use a distinctive phrase like
     "method column" so this is checkable):
@@ -176,11 +176,11 @@ validation:
 
 outputs:
   - created: src/backend/implementation/src/main/resources/db/migration/V9__estimation_method.sql
-  - modified: src/backend/implementation/src/main/kotlin/io/github/theestimator/domain/Estimation.kt
-  - modified: src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/ProjectResource.kt
-  - modified: src/backend/implementation/src/main/kotlin/io/github/theestimator/service/EstimationService.kt
-  - modified: src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/dto/ProjectDtos.kt
-  - modified: src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/dto/ProjectMapper.kt
-  - modified: src/backend/implementation/src/test/kotlin/io/github/theestimator/rest/ProjectResourceIT.kt
-  - modified: src/backend/implementation/src/test/kotlin/io/github/theestimator/rest/EstimationResourceIT.kt
+  - modified: src/backend/implementation/src/main/kotlin/io/pythia/domain/Estimation.kt
+  - modified: src/backend/implementation/src/main/kotlin/io/pythia/rest/ProjectResource.kt
+  - modified: src/backend/implementation/src/main/kotlin/io/pythia/service/EstimationService.kt
+  - modified: src/backend/implementation/src/main/kotlin/io/pythia/rest/dto/ProjectDtos.kt
+  - modified: src/backend/implementation/src/main/kotlin/io/pythia/rest/dto/ProjectMapper.kt
+  - modified: src/backend/implementation/src/test/kotlin/io/pythia/rest/ProjectResourceIT.kt
+  - modified: src/backend/implementation/src/test/kotlin/io/pythia/rest/EstimationResourceIT.kt
   - modified: CLAUDE.md

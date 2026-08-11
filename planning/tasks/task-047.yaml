@@ -14,13 +14,13 @@ description: |
   that a future frontend panel can persist changes.
 
   Relevant files:
-    - src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/dto/EstimationVersionDtos.kt
+    - src/backend/implementation/src/main/kotlin/io/pythia/rest/dto/EstimationVersionDtos.kt
         → DraftUpdateDto (add additionalCosts field)
-    - src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/EstimationVersionResource.kt
+    - src/backend/implementation/src/main/kotlin/io/pythia/rest/EstimationVersionResource.kt
         → updateDraft() (handle the new field)
-    - src/backend/implementation/src/main/kotlin/io/github/theestimator/domain/draft/DraftAdditionalCost.kt
+    - src/backend/implementation/src/main/kotlin/io/pythia/domain/draft/DraftAdditionalCost.kt
         → the entity to populate (description, amount, type, amountPerWeek, phase, version)
-    - src/backend/implementation/src/main/kotlin/io/github/theestimator/domain/AdditionalCostType.kt
+    - src/backend/implementation/src/main/kotlin/io/pythia/domain/AdditionalCostType.kt
         → the backend-side enum (ONE_TIME, RECURRING)
 
   Spreadsheet context (the reference additional-costs spreadsheet,
@@ -68,8 +68,8 @@ steps:
     The existing draft imports are alphabetically sorted, so DraftAdditionalCost
     becomes the FIRST entry (before DraftEffortDriver):
 
-      import io.github.theestimator.domain.draft.DraftAdditionalCost
-      import io.github.theestimator.domain.draft.DraftEffortDriver
+      import io.pythia.domain.draft.DraftAdditionalCost
+      import io.pythia.domain.draft.DraftEffortDriver
       ...
 
     Then in updateDraft(), after the update.itemGroups?.let { ... } block and
@@ -92,7 +92,7 @@ steps:
           }
       }
 
-    Note: `dto.type` is already a `io.github.theestimator.domain.AdditionalCostType`
+    Note: `dto.type` is already a `io.pythia.domain.AdditionalCostType`
     (the same enum used by the entity field — `AdditionalCostType` is imported
     on line 3 of EstimationVersionDtos.kt). Assign it directly; do NOT go
     through `AdditionalCostType.valueOf(dto.type.name)` — that's a no-op
@@ -101,7 +101,7 @@ steps:
 
   - |
     Add an integration test in
-    src/backend/implementation/src/test/kotlin/io/github/theestimator/rest/EstimationVersionResourceIT.kt
+    src/backend/implementation/src/test/kotlin/io/pythia/rest/EstimationVersionResourceIT.kt
     (just before the final closing `}` of the class — last test ends around
     line 673). The PUT endpoint has 15+ existing tests for parameters,
     effortDrivers, phases, and itemGroups, but nothing for additionalCosts;
@@ -169,23 +169,23 @@ validation:
     The DraftUpdateDto in EstimationVersionDtos.kt has the additionalCosts field
     and the new AdditionalCostUpdateDto class exists:
       grep -q "additionalCosts: List<AdditionalCostUpdateDto>" \
-        src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/dto/EstimationVersionDtos.kt
+        src/backend/implementation/src/main/kotlin/io/pythia/rest/dto/EstimationVersionDtos.kt
       grep -q "data class AdditionalCostUpdateDto" \
-        src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/dto/EstimationVersionDtos.kt
+        src/backend/implementation/src/main/kotlin/io/pythia/rest/dto/EstimationVersionDtos.kt
   - |
     The updateDraft() handler clears and repopulates additionalCosts, and
     assigns the enum directly (no valueOf round-trip):
       grep -q "draft.additionalCosts.clear()" \
-        src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/EstimationVersionResource.kt
+        src/backend/implementation/src/main/kotlin/io/pythia/rest/EstimationVersionResource.kt
       ! grep -q "AdditionalCostType.valueOf" \
-        src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/EstimationVersionResource.kt
+        src/backend/implementation/src/main/kotlin/io/pythia/rest/EstimationVersionResource.kt
   - |
     The integration test for additionalCosts is present and gets exercised
     by the build:
       grep -q "update draft additional costs persists and replaces them" \
-        src/backend/implementation/src/test/kotlin/io/github/theestimator/rest/EstimationVersionResourceIT.kt
+        src/backend/implementation/src/test/kotlin/io/pythia/rest/EstimationVersionResourceIT.kt
 
 outputs:
-  - modified: src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/dto/EstimationVersionDtos.kt
-  - modified: src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/EstimationVersionResource.kt
-  - modified: src/backend/implementation/src/test/kotlin/io/github/theestimator/rest/EstimationVersionResourceIT.kt
+  - modified: src/backend/implementation/src/main/kotlin/io/pythia/rest/dto/EstimationVersionDtos.kt
+  - modified: src/backend/implementation/src/main/kotlin/io/pythia/rest/EstimationVersionResource.kt
+  - modified: src/backend/implementation/src/test/kotlin/io/pythia/rest/EstimationVersionResourceIT.kt

@@ -105,17 +105,17 @@ steps:
   - |
     Backend — joinable-session listing:
       - Add `findJoinable()` to
-        `src/backend/implementation/src/main/kotlin/io/github/theestimator/repository/EstimationSessionRepository.kt`
+        `src/backend/implementation/src/main/kotlin/io/pythia/repository/EstimationSessionRepository.kt`
         returning sessions with status in (CREATED, RUNNING). Use the
         Panache query
         `list("status in ?1", listOf(SessionStatus.CREATED, SessionStatus.RUNNING))`
         (enum params bind directly).
       - Add `listJoinableSessions(): List<SessionDto>` to
-        `src/backend/implementation/src/main/kotlin/io/github/theestimator/service/EstimationSessionService.kt`
+        `src/backend/implementation/src/main/kotlin/io/pythia/service/EstimationSessionService.kt`
         (`@Transactional`, maps via the existing `buildDto`); `Log.info`
         the count.
       - Change `SessionResource.list` in
-        `src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/SessionResource.kt`
+        `src/backend/implementation/src/main/kotlin/io/pythia/rest/SessionResource.kt`
         to `@QueryParam("estimationId") estimationId: UUID?`: null →
         `listJoinableSessions()`, non-null → `listSessions(estimationId)`.
         Keep it `@RolesAllowed("ESTIMATOR")`. Update its OpenAPI
@@ -124,7 +124,7 @@ steps:
   - |
     Backend — seeder: add an "U05: Noch zu schätzen" group of `fixedLeaf`
     entries with 0.0/0.0/0.0 triples to the Webshop `draft2` root list in
-    `src/backend/implementation/src/main/kotlin/io/github/theestimator/testdata/TestDataSeeder.kt`
+    `src/backend/implementation/src/main/kotlin/io/pythia/testdata/TestDataSeeder.kt`
     (draft2 remains a draft, so its leaves are session-eligible). 3–4
     leaves with realistic German descriptions.
 
@@ -189,7 +189,7 @@ steps:
 
   - |
     Backend test: extend
-    `src/backend/implementation/src/test/kotlin/io/github/theestimator/rest/SessionResourceIT.kt`
+    `src/backend/implementation/src/test/kotlin/io/pythia/rest/SessionResourceIT.kt`
     with a case that creates a session, then `GET /api/sessions` with NO
     `estimationId` query param and asserts the created (CREATED/RUNNING)
     session appears in the returned list — locking in the optional-param
@@ -203,13 +203,13 @@ steps:
 validation:
   - |
     Backend joinable listing exists and the endpoint param is optional:
-      grep -q "findJoinable" src/backend/implementation/src/main/kotlin/io/github/theestimator/repository/EstimationSessionRepository.kt
-      grep -q "listJoinableSessions" src/backend/implementation/src/main/kotlin/io/github/theestimator/service/EstimationSessionService.kt
-      grep -q "estimationId: UUID?" src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/SessionResource.kt
-      grep -q "Log\." src/backend/implementation/src/main/kotlin/io/github/theestimator/service/EstimationSessionService.kt
+      grep -q "findJoinable" src/backend/implementation/src/main/kotlin/io/pythia/repository/EstimationSessionRepository.kt
+      grep -q "listJoinableSessions" src/backend/implementation/src/main/kotlin/io/pythia/service/EstimationSessionService.kt
+      grep -q "estimationId: UUID?" src/backend/implementation/src/main/kotlin/io/pythia/rest/SessionResource.kt
+      grep -q "Log\." src/backend/implementation/src/main/kotlin/io/pythia/service/EstimationSessionService.kt
   - |
     Seeder produces unestimated leaves (a group of 0.0/0.0/0.0 fixed leaves):
-      grep -q "Noch zu schätzen" src/backend/implementation/src/main/kotlin/io/github/theestimator/testdata/TestDataSeeder.kt
+      grep -q "Noch zu schätzen" src/backend/implementation/src/main/kotlin/io/pythia/testdata/TestDataSeeder.kt
   - |
     Frontend: start-from-offer button, joinable wrapper, unestimated
     preselect, and select-all are present:
@@ -238,11 +238,11 @@ validation:
       ./gradlew :frontend:check
 
 outputs:
-  - modified: src/backend/implementation/src/main/kotlin/io/github/theestimator/repository/EstimationSessionRepository.kt
-  - modified: src/backend/implementation/src/main/kotlin/io/github/theestimator/service/EstimationSessionService.kt
-  - modified: src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/SessionResource.kt
-  - modified: src/backend/implementation/src/main/kotlin/io/github/theestimator/testdata/TestDataSeeder.kt
-  - modified: src/backend/implementation/src/test/kotlin/io/github/theestimator/rest/SessionResourceIT.kt
+  - modified: src/backend/implementation/src/main/kotlin/io/pythia/repository/EstimationSessionRepository.kt
+  - modified: src/backend/implementation/src/main/kotlin/io/pythia/service/EstimationSessionService.kt
+  - modified: src/backend/implementation/src/main/kotlin/io/pythia/rest/SessionResource.kt
+  - modified: src/backend/implementation/src/main/kotlin/io/pythia/testdata/TestDataSeeder.kt
+  - modified: src/backend/implementation/src/test/kotlin/io/pythia/rest/SessionResourceIT.kt
   - modified: src/frontend/src/lib/api/openapi.json
   - modified: src/frontend/src/lib/api/schema.d.ts
   - modified: src/frontend/src/lib/session/api.ts

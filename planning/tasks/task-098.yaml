@@ -12,16 +12,16 @@ description: |
 
   - **Package (revised — sealed-class constraint).** The PERT method
     module `ThreePointMethodModule` lives in
-    `io.github.theestimator.method.threepoint`. The existing leaf types
+    `io.pythia.method.threepoint`. The existing leaf types
     `FixedEstimationItem` and `TimeRelativeEstimationItem` **STAY in
-    `io.github.theestimator.model`** — they are subclasses of the
+    `io.pythia.model`** — they are subclasses of the
     `sealed class EstimationItem`, and Kotlin requires all subclasses of
     a sealed class to be in the SAME package and module as the sealed
     root. Moving them to `method.threepoint` would not compile. So the
     "one package per method" rule applies to the METHOD MODULE class, not
     to the sealed leaf types (which are pinned to `model` by the sealed
     hierarchy). `ThreePointMethodModule` simply imports the existing
-    `io.github.theestimator.model.FixedEstimationItem` /
+    `io.pythia.model.FixedEstimationItem` /
     `TimeRelativeEstimationItem`. No leaf-type move, and therefore NO
     import-site churn across `:domain` / `:backend` / `:frontend`.
     (This supersedes the task-096 "move the leaf types" note; the same
@@ -49,7 +49,7 @@ description: |
     for eager self-registration (leave a one-line comment saying so).
   - **Export writer.** The backend export writers are
     `ExcelExporter.kt` and `CsvExporter.kt` in
-    `io.github.theestimator.service`. Move only the PERT COLUMN DATA — the
+    `io.pythia.service`. Move only the PERT COLUMN DATA — the
     method-specific header names and the per-leaf string cells — into
     `ThreePointMethodModule.exportColumnHeaders` / `.exportRow` (both
     return `List<String>`, KMP-safe). The actual file writing (Apache
@@ -68,15 +68,15 @@ description: |
   - **CLAUDE.md.** No new architectural invariant beyond
     task-097's SPI note. Add a one-line pointer in the "Domain
     model" section that the PERT method lives in the
-    `io.github.theestimator.method.threepoint` package now.
+    `io.pythia.method.threepoint` package now.
 
   ## What ships in this task
 
-  - `io/github/theestimator/method/threepoint/ThreePointMethodModule.kt`
+  - `io/pythia/method/threepoint/ThreePointMethodModule.kt`
     implementing `EstimationMethodModule` with `method =
     EstimationMethod.THREE_POINT_PERT`; delegates to the existing
     per-leaf calculation (`EstimationItem.withCalculationParameters`).
-    It imports the existing `io.github.theestimator.model.FixedEstimationItem`
+    It imports the existing `io.pythia.model.FixedEstimationItem`
     / `TimeRelativeEstimationItem` — the leaf types are NOT moved (they
     are sealed subclasses pinned to `model`).
   - `installStandardMethods()` added to `EstimationMethodRegistry`, called
@@ -87,7 +87,7 @@ description: |
     EstimationMethod.THREE_POINT_PERT)`. POI/CSV formatting stays in the
     backend writers.
   - JUnit 5 unit test at
-    `src/domain/src/test/kotlin/io/github/theestimator/method/threepoint/ThreePointMethodModuleTest.kt`
+    `src/domain/src/test/kotlin/io/pythia/method/threepoint/ThreePointMethodModuleTest.kt`
     (JVM `src/test` source set — there is no `commonTest`) for the
     module's calculate + export methods (round-trip on a fixed /
     time-relative sample, and `exportColumnHeaders().size ==
@@ -104,21 +104,21 @@ steps:
   - |
     Read the current PERT hierarchy (nothing here moves — the leaf
     types are sealed subclasses pinned to `model`):
-      src/domain/src/main/kotlin/io/github/theestimator/model/
+      src/domain/src/main/kotlin/io/pythia/model/
         EstimationItem.kt (sealed root — stays)
         FixedEstimationItem.kt (stays)
         TimeRelativeEstimationItem.kt (stays)
         EstimationGroup.kt (stays)
         EstimationVersion.kt (stays)
     Read the current backend export writers
-    `src/backend/implementation/src/main/kotlin/io/github/theestimator/service/ExcelExporter.kt`
+    `src/backend/implementation/src/main/kotlin/io/pythia/service/ExcelExporter.kt`
     and `.../service/CsvExporter.kt` (and their tree tests
     `ExcelExporterTreeTest.kt` / `CsvExporterTreeTest.kt`) to identify
     the PERT-specific columns (header names + per-leaf string cells)
     whose data-shaping will move into the module.
   - |
     Create the package
-      src/domain/src/main/kotlin/io/github/theestimator/method/threepoint/
+      src/domain/src/main/kotlin/io/pythia/method/threepoint/
     Add `ThreePointMethodModule.kt` implementing the SPI:
       class ThreePointMethodModule : EstimationMethodModule {
         override val method = EstimationMethod.THREE_POINT_PERT
@@ -151,7 +151,7 @@ steps:
     unchanged (byte-identical output).
   - |
     Add a JUnit 5 unit test at
-    `src/domain/src/test/kotlin/io/github/theestimator/method/threepoint/ThreePointMethodModuleTest.kt`
+    `src/domain/src/test/kotlin/io/pythia/method/threepoint/ThreePointMethodModuleTest.kt`
     (JVM `src/test` source set, `org.junit.jupiter.api` — NOT
     `commonTest`/kotlin.test), resetting the registry with
     `EstimationMethodRegistry.clear()` in `@BeforeEach`/`@AfterEach`:
@@ -167,10 +167,10 @@ steps:
     Update `CLAUDE.md` "Domain model: trees, not flat groups"
     section (the SPI subsection added in task-097) with a one-line note
     that the PERT method module lives in
-    `io.github.theestimator.method.threepoint` and is registered by
+    `io.pythia.method.threepoint` and is registered by
     `EstimationMethodRegistry.installStandardMethods()` — and that the
     sealed leaf types `FixedEstimationItem` / `TimeRelativeEstimationItem`
-    stay in `io.github.theestimator.model` (the sealed-class package rule
+    stay in `io.pythia.model` (the sealed-class package rule
     means per-method leaf types cannot move out of the sealed root's
     package).
   - |
@@ -184,38 +184,38 @@ steps:
 validation:
   - |
     The PERT method module and its JUnit 5 test exist:
-      test -f src/domain/src/main/kotlin/io/github/theestimator/method/threepoint/ThreePointMethodModule.kt
-      test -f src/domain/src/test/kotlin/io/github/theestimator/method/threepoint/ThreePointMethodModuleTest.kt
-      grep -q "org.junit.jupiter.api" src/domain/src/test/kotlin/io/github/theestimator/method/threepoint/ThreePointMethodModuleTest.kt
+      test -f src/domain/src/main/kotlin/io/pythia/method/threepoint/ThreePointMethodModule.kt
+      test -f src/domain/src/test/kotlin/io/pythia/method/threepoint/ThreePointMethodModuleTest.kt
+      grep -q "org.junit.jupiter.api" src/domain/src/test/kotlin/io/pythia/method/threepoint/ThreePointMethodModuleTest.kt
   - |
     The sealed leaf types STAYED in `model` (not moved — sealed-class
     package rule), and the module references them from there:
-      test -f src/domain/src/main/kotlin/io/github/theestimator/model/FixedEstimationItem.kt
-      test -f src/domain/src/main/kotlin/io/github/theestimator/model/TimeRelativeEstimationItem.kt
-      ! test -f src/domain/src/main/kotlin/io/github/theestimator/method/threepoint/FixedEstimationItem.kt
-      ! test -f src/domain/src/main/kotlin/io/github/theestimator/method/threepoint/TimeRelativeEstimationItem.kt
+      test -f src/domain/src/main/kotlin/io/pythia/model/FixedEstimationItem.kt
+      test -f src/domain/src/main/kotlin/io/pythia/model/TimeRelativeEstimationItem.kt
+      ! test -f src/domain/src/main/kotlin/io/pythia/method/threepoint/FixedEstimationItem.kt
+      ! test -f src/domain/src/main/kotlin/io/pythia/method/threepoint/TimeRelativeEstimationItem.kt
   - |
     PERT module registers itself and logs at INFO:
-      grep -q "EstimationMethodRegistry.register" src/domain/src/main/kotlin/io/github/theestimator/method/threepoint/ThreePointMethodModule.kt \
-        || grep -q "installStandardMethods" src/domain/src/main/kotlin/io/github/theestimator/method/EstimationMethodRegistry.kt
-      grep -q "logger.info" src/domain/src/main/kotlin/io/github/theestimator/method/threepoint/ThreePointMethodModule.kt \
-        || grep -q "logger.info" src/domain/src/main/kotlin/io/github/theestimator/method/EstimationMethodRegistry.kt
+      grep -q "EstimationMethodRegistry.register" src/domain/src/main/kotlin/io/pythia/method/threepoint/ThreePointMethodModule.kt \
+        || grep -q "installStandardMethods" src/domain/src/main/kotlin/io/pythia/method/EstimationMethodRegistry.kt
+      grep -q "logger.info" src/domain/src/main/kotlin/io/pythia/method/threepoint/ThreePointMethodModule.kt \
+        || grep -q "logger.info" src/domain/src/main/kotlin/io/pythia/method/EstimationMethodRegistry.kt
   - |
     Kotlin/JS super-property pitfall: no accidental
     `super.<computed prop>` reintroduced:
       ! grep -rE 'super\.mean|super\.variance|super\.offerPT' \
-          src/domain/src/main/kotlin/io/github/theestimator/method/threepoint/
+          src/domain/src/main/kotlin/io/pythia/method/threepoint/
   - |
     CLAUDE.md points at the new package:
-      grep -q "io.github.theestimator.method.threepoint" CLAUDE.md
+      grep -q "io.pythia.method.threepoint" CLAUDE.md
   - |
     Full-stack build is green (behaviour parity):
       ./gradlew build
 
 outputs:
-  - created: src/domain/src/main/kotlin/io/github/theestimator/method/threepoint/ThreePointMethodModule.kt
-  - created: src/domain/src/test/kotlin/io/github/theestimator/method/threepoint/ThreePointMethodModuleTest.kt
-  - modified: src/domain/src/main/kotlin/io/github/theestimator/method/EstimationMethodRegistry.kt
-  - modified: src/backend/implementation/src/main/kotlin/io/github/theestimator/service/ExcelExporter.kt
-  - modified: src/backend/implementation/src/main/kotlin/io/github/theestimator/service/CsvExporter.kt
+  - created: src/domain/src/main/kotlin/io/pythia/method/threepoint/ThreePointMethodModule.kt
+  - created: src/domain/src/test/kotlin/io/pythia/method/threepoint/ThreePointMethodModuleTest.kt
+  - modified: src/domain/src/main/kotlin/io/pythia/method/EstimationMethodRegistry.kt
+  - modified: src/backend/implementation/src/main/kotlin/io/pythia/service/ExcelExporter.kt
+  - modified: src/backend/implementation/src/main/kotlin/io/pythia/service/CsvExporter.kt
   - modified: CLAUDE.md

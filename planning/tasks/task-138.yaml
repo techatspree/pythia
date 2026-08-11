@@ -106,7 +106,7 @@ description: |
 
 steps:
   - |
-    Domain first. In `src/domain/src/main/kotlin/io/github/theestimator/model/`:
+    Domain first. In `src/domain/src/main/kotlin/io/pythia/model/`:
       - add `dailyRate`, `stdDevFactor`, `salesSurcharge` (`Double`, defaulted
         from `EstimationDefaults`) to `EstimationVersion`; delete the
         `parameters` property and `parameterValue(name)`.
@@ -188,15 +188,15 @@ steps:
 validation:
   - |
     The generic parameter model is gone from the domain:
-      ! test -f src/domain/src/main/kotlin/io/github/theestimator/model/EstimationParameter.kt
-      ! grep -q "parameterValue" src/domain/src/main/kotlin/io/github/theestimator/model/EstimationVersion.kt
-      ! grep -q '"dailyRate"' src/domain/src/main/kotlin/io/github/theestimator/model/EstimationVersion.kt
+      ! test -f src/domain/src/main/kotlin/io/pythia/model/EstimationParameter.kt
+      ! grep -q "parameterValue" src/domain/src/main/kotlin/io/pythia/model/EstimationVersion.kt
+      ! grep -q '"dailyRate"' src/domain/src/main/kotlin/io/pythia/model/EstimationVersion.kt
       # NOTE: assert the CONSTRUCTOR PROPERTY (typed), not a bare `val dailyRate`
       # — today `calculate()` declares local vals with those exact names, so the
       # untyped form matches before any change is made.
-      grep -qE "val dailyRate: Double" src/domain/src/main/kotlin/io/github/theestimator/model/EstimationVersion.kt
-      grep -qE "val stdDevFactor: Double" src/domain/src/main/kotlin/io/github/theestimator/model/EstimationVersion.kt
-      grep -qE "val salesSurcharge: Double" src/domain/src/main/kotlin/io/github/theestimator/model/EstimationVersion.kt
+      grep -qE "val dailyRate: Double" src/domain/src/main/kotlin/io/pythia/model/EstimationVersion.kt
+      grep -qE "val stdDevFactor: Double" src/domain/src/main/kotlin/io/pythia/model/EstimationVersion.kt
+      grep -qE "val salesSurcharge: Double" src/domain/src/main/kotlin/io/pythia/model/EstimationVersion.kt
   - |
     The migration exists, backfills from the real value column, drops the old
     tables, and does NOT reintroduce the German aliases:
@@ -209,8 +209,8 @@ validation:
   - |
     The columns are ALSO on the entities (dev/test build their schema from
     Hibernate, so a migration-only change would not exist where tests run):
-      grep -q "daily_rate" src/backend/implementation/src/main/kotlin/io/github/theestimator/domain/draft/DraftEstimationVersion.kt
-      grep -q "daily_rate" src/backend/implementation/src/main/kotlin/io/github/theestimator/domain/submitted/SubmittedEstimationVersion.kt
+      grep -q "daily_rate" src/backend/implementation/src/main/kotlin/io/pythia/domain/draft/DraftEstimationVersion.kt
+      grep -q "daily_rate" src/backend/implementation/src/main/kotlin/io/pythia/domain/submitted/SubmittedEstimationVersion.kt
   - |
     The GUI can no longer rename a parameter, and the labels are i18n keys:
       ! grep -q "update(i, 'name'" src/frontend/src/lib/components/ParametersPanel.svelte
@@ -229,7 +229,7 @@ validation:
   - |
     A test proves a non-default value round-trips through the new column
     (rather than being silently replaced by the 800 default):
-      grep -rq "1234" src/backend/implementation/src/test/kotlin/io/github/theestimator/rest/EstimationVersionResourceIT.kt
+      grep -rq "1234" src/backend/implementation/src/test/kotlin/io/pythia/rest/EstimationVersionResourceIT.kt
   - |
     Domain, full build and the e2e suite are green:
       ./gradlew :domain:build
@@ -241,38 +241,38 @@ validation:
       grep -qiE "typed field|hardwired" CLAUDE.md
 
 outputs:
-  - modified: src/domain/src/main/kotlin/io/github/theestimator/model/EstimationVersion.kt
-  - deleted: src/domain/src/main/kotlin/io/github/theestimator/model/EstimationParameter.kt
-  - modified: src/domain/src/main/kotlin/io/github/theestimator/model/EstimationDefaults.kt
-  - modified: src/domain/src/main/kotlin/io/github/theestimator/service/EstimationCalculator.kt
-  - modified: src/domain/src/main/kotlin/io/github/theestimator/model/DomainFactory.kt
+  - modified: src/domain/src/main/kotlin/io/pythia/model/EstimationVersion.kt
+  - deleted: src/domain/src/main/kotlin/io/pythia/model/EstimationParameter.kt
+  - modified: src/domain/src/main/kotlin/io/pythia/model/EstimationDefaults.kt
+  - modified: src/domain/src/main/kotlin/io/pythia/service/EstimationCalculator.kt
+  - modified: src/domain/src/main/kotlin/io/pythia/model/DomainFactory.kt
   - created: src/backend/implementation/src/main/resources/db/migration/V16__hardwire_estimation_parameters.sql
-  - modified: src/backend/implementation/src/main/kotlin/io/github/theestimator/domain/draft/DraftEstimationVersion.kt
-  - modified: src/backend/implementation/src/main/kotlin/io/github/theestimator/domain/submitted/SubmittedEstimationVersion.kt
-  - modified: src/backend/implementation/src/main/kotlin/io/github/theestimator/service/DraftUpdateApplier.kt
-  - modified: src/backend/implementation/src/main/kotlin/io/github/theestimator/service/DraftVersionMapper.kt
-  - modified: src/backend/implementation/src/main/kotlin/io/github/theestimator/service/DraftSnapshotMapper.kt
-  - modified: src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/dto/EstimationVersionMapper.kt
-  - modified: src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/dto/EstimationVersionDtos.kt
-  - deleted: src/backend/implementation/src/main/kotlin/io/github/theestimator/domain/draft/DraftEstimationParameter.kt
-  - deleted: src/backend/implementation/src/main/kotlin/io/github/theestimator/domain/submitted/SubmittedEstimationParameter.kt
-  - modified: src/backend/implementation/src/main/kotlin/io/github/theestimator/service/ExcelExporter.kt
-  - modified: src/backend/implementation/src/main/kotlin/io/github/theestimator/service/ExcelImporter.kt
-  - modified: src/backend/implementation/src/main/kotlin/io/github/theestimator/service/ExcelGermanLabels.kt
-  - modified: src/backend/implementation/src/main/kotlin/io/github/theestimator/service/VersionComparisonService.kt
-  - modified: src/backend/implementation/src/main/kotlin/io/github/theestimator/service/EstimationVersionService.kt
-  - modified: src/backend/implementation/src/main/kotlin/io/github/theestimator/testdata/TestDataSeeder.kt
-  - modified: src/backend/implementation/src/test/kotlin/io/github/theestimator/rest/EstimationVersionResourceIT.kt
-  - modified: src/backend/implementation/src/test/kotlin/io/github/theestimator/rest/SubmissionTreeIT.kt
-  - modified: src/backend/implementation/src/test/kotlin/io/github/theestimator/service/DraftSnapshotRoundTripIT.kt
-  - modified: src/backend/implementation/src/test/kotlin/io/github/theestimator/service/UndoServiceIT.kt
-  - modified: src/domain/src/test/kotlin/io/github/theestimator/model/EstimationVersionTreeTest.kt
-  - modified: src/domain/src/test/kotlin/io/github/theestimator/model/EstimationCalculatorInvariantsTest.kt
-  - modified: src/domain/src/test/kotlin/io/github/theestimator/model/EstimationNodeTest.kt
-  - modified: src/domain/src/test/kotlin/io/github/theestimator/model/TimeRelativeEstimationItemTest.kt
-  - modified: src/domain/src/test/kotlin/io/github/theestimator/method/threepoint/ThreePointMethodModuleTest.kt
-  - modified: src/domain/src/test/kotlin/io/github/theestimator/method/bucketsampled/BucketMethodModuleTest.kt
-  - modified: src/domain/src/test/kotlin/io/github/theestimator/method/bucketsampled/BucketedEstimationItemTest.kt
+  - modified: src/backend/implementation/src/main/kotlin/io/pythia/domain/draft/DraftEstimationVersion.kt
+  - modified: src/backend/implementation/src/main/kotlin/io/pythia/domain/submitted/SubmittedEstimationVersion.kt
+  - modified: src/backend/implementation/src/main/kotlin/io/pythia/service/DraftUpdateApplier.kt
+  - modified: src/backend/implementation/src/main/kotlin/io/pythia/service/DraftVersionMapper.kt
+  - modified: src/backend/implementation/src/main/kotlin/io/pythia/service/DraftSnapshotMapper.kt
+  - modified: src/backend/implementation/src/main/kotlin/io/pythia/rest/dto/EstimationVersionMapper.kt
+  - modified: src/backend/implementation/src/main/kotlin/io/pythia/rest/dto/EstimationVersionDtos.kt
+  - deleted: src/backend/implementation/src/main/kotlin/io/pythia/domain/draft/DraftEstimationParameter.kt
+  - deleted: src/backend/implementation/src/main/kotlin/io/pythia/domain/submitted/SubmittedEstimationParameter.kt
+  - modified: src/backend/implementation/src/main/kotlin/io/pythia/service/ExcelExporter.kt
+  - modified: src/backend/implementation/src/main/kotlin/io/pythia/service/ExcelImporter.kt
+  - modified: src/backend/implementation/src/main/kotlin/io/pythia/service/ExcelGermanLabels.kt
+  - modified: src/backend/implementation/src/main/kotlin/io/pythia/service/VersionComparisonService.kt
+  - modified: src/backend/implementation/src/main/kotlin/io/pythia/service/EstimationVersionService.kt
+  - modified: src/backend/implementation/src/main/kotlin/io/pythia/testdata/TestDataSeeder.kt
+  - modified: src/backend/implementation/src/test/kotlin/io/pythia/rest/EstimationVersionResourceIT.kt
+  - modified: src/backend/implementation/src/test/kotlin/io/pythia/rest/SubmissionTreeIT.kt
+  - modified: src/backend/implementation/src/test/kotlin/io/pythia/service/DraftSnapshotRoundTripIT.kt
+  - modified: src/backend/implementation/src/test/kotlin/io/pythia/service/UndoServiceIT.kt
+  - modified: src/domain/src/test/kotlin/io/pythia/model/EstimationVersionTreeTest.kt
+  - modified: src/domain/src/test/kotlin/io/pythia/model/EstimationCalculatorInvariantsTest.kt
+  - modified: src/domain/src/test/kotlin/io/pythia/model/EstimationNodeTest.kt
+  - modified: src/domain/src/test/kotlin/io/pythia/model/TimeRelativeEstimationItemTest.kt
+  - modified: src/domain/src/test/kotlin/io/pythia/method/threepoint/ThreePointMethodModuleTest.kt
+  - modified: src/domain/src/test/kotlin/io/pythia/method/bucketsampled/BucketMethodModuleTest.kt
+  - modified: src/domain/src/test/kotlin/io/pythia/method/bucketsampled/BucketedEstimationItemTest.kt
   - modified: src/frontend/src/lib/components/ParametersPanel.svelte
   - modified: src/frontend/src/routes/estimations/[id]/versions/[versionNumber]/+page.svelte
   - modified: src/frontend/src/lib/adapter.ts

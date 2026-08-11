@@ -43,7 +43,7 @@ description: |
 
 steps:
   - |
-    Add `src/backend/implementation/src/main/kotlin/io/github/theestimator/observability/CorrelationIdFilter.kt`:
+    Add `src/backend/implementation/src/main/kotlin/io/pythia/observability/CorrelationIdFilter.kt`:
     a `@Provider @ApplicationScoped` class implementing both
     `jakarta.ws.rs.container.ContainerRequestFilter` and
     `ContainerResponseFilter`. In the request filter, resolve the correlation id
@@ -63,7 +63,7 @@ steps:
     catalogs are not appropriate for a boundary — prefer i18n).
   - |
     Add a `@QuarkusTest`
-    `src/backend/implementation/src/test/kotlin/io/github/theestimator/observability/CorrelationIdFilterIT.kt`
+    `src/backend/implementation/src/test/kotlin/io/pythia/observability/CorrelationIdFilterIT.kt`
     (RestAssured, `DevAdminAuth`) asserting: (a) a request WITH
     `X-Correlation-ID: test-corr-123` to a real endpoint (e.g. `/api/auth/me`)
     gets the SAME value back in the response header; (b) a request WITHOUT the
@@ -83,10 +83,10 @@ steps:
 validation:
   - |
     The correlation-id filter exists, sets the header + MDC, and logs via the Quarkus Log API:
-      test -f src/backend/implementation/src/main/kotlin/io/github/theestimator/observability/CorrelationIdFilter.kt
-      grep -q "X-Correlation-ID" src/backend/implementation/src/main/kotlin/io/github/theestimator/observability/CorrelationIdFilter.kt
-      grep -qE "MDC" src/backend/implementation/src/main/kotlin/io/github/theestimator/observability/CorrelationIdFilter.kt
-      grep -q "Log\." src/backend/implementation/src/main/kotlin/io/github/theestimator/observability/CorrelationIdFilter.kt
+      test -f src/backend/implementation/src/main/kotlin/io/pythia/observability/CorrelationIdFilter.kt
+      grep -q "X-Correlation-ID" src/backend/implementation/src/main/kotlin/io/pythia/observability/CorrelationIdFilter.kt
+      grep -qE "MDC" src/backend/implementation/src/main/kotlin/io/pythia/observability/CorrelationIdFilter.kt
+      grep -q "Log\." src/backend/implementation/src/main/kotlin/io/pythia/observability/CorrelationIdFilter.kt
   - |
     The frontend error boundary exists and logs via $lib/log (never console.*):
       test -f src/frontend/src/routes/+error.svelte
@@ -94,9 +94,9 @@ validation:
       ! grep -q "console\." src/frontend/src/routes/+error.svelte
   - |
     The integration test asserts the correlation-id round-trip AND the metrics endpoint:
-      test -f src/backend/implementation/src/test/kotlin/io/github/theestimator/observability/CorrelationIdFilterIT.kt
-      grep -q "X-Correlation-ID" src/backend/implementation/src/test/kotlin/io/github/theestimator/observability/CorrelationIdFilterIT.kt
-      grep -q "http_server_requests_seconds_count" src/backend/implementation/src/test/kotlin/io/github/theestimator/observability/CorrelationIdFilterIT.kt
+      test -f src/backend/implementation/src/test/kotlin/io/pythia/observability/CorrelationIdFilterIT.kt
+      grep -q "X-Correlation-ID" src/backend/implementation/src/test/kotlin/io/pythia/observability/CorrelationIdFilterIT.kt
+      grep -q "http_server_requests_seconds_count" src/backend/implementation/src/test/kotlin/io/pythia/observability/CorrelationIdFilterIT.kt
   - |
     CLAUDE.md documents the correlation id:
       grep -qi "correlationId\|X-Correlation-ID" CLAUDE.md
@@ -106,8 +106,8 @@ validation:
       ./gradlew :frontend:check
 
 outputs:
-  - created: src/backend/implementation/src/main/kotlin/io/github/theestimator/observability/CorrelationIdFilter.kt
-  - created: src/backend/implementation/src/test/kotlin/io/github/theestimator/observability/CorrelationIdFilterIT.kt
+  - created: src/backend/implementation/src/main/kotlin/io/pythia/observability/CorrelationIdFilter.kt
+  - created: src/backend/implementation/src/test/kotlin/io/pythia/observability/CorrelationIdFilterIT.kt
   - created: src/frontend/src/routes/+error.svelte
   - modified: src/frontend/src/lib/i18n/de.json
   - modified: src/frontend/src/lib/i18n/en.json

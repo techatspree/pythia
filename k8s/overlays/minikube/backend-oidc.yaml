@@ -6,7 +6,7 @@ data:
   # Run the dedicated dev-minikube profile (not the default prod). It carries the
   # Entra auth + PostgreSQL + plain-text/DEBUG logging config in
   # application.properties. QUARKUS_PROFILE is a dot-free env var that maps
-  # cleanly (unlike quarkus.log.category."io.github.theestimator".level, whose dots
+  # cleanly (unlike quarkus.log.category."io.pythia".level, whose dots
   # can't survive env-var mapping — hence the log level lives in the profile).
   QUARKUS_PROFILE: "dev-minikube"
   # Minikube runs the Entra (OIDC) auth module. The ${ENTRA_*} placeholders are

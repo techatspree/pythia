@@ -55,7 +55,7 @@ kotlin {
 // The concrete leaves are @DomainEntity data classes; without allOpen here they
 // would silently be final in this module while open everywhere else.
 allOpen {
-    annotation("io.github.theestimator.model.DomainEntity")
+    annotation("io.pythia.model.DomainEntity")
 }
 
 detekt {

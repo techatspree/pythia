@@ -143,7 +143,7 @@ description: |
     `EstimationMethod`-style pattern (a `SupportedLanguage`
     enum with `DE`, `EN`).
   - **Where the SupportedLanguage enum lives.** In `:domain`,
-    package `io.github.theestimator.i18n`, `@JsExport`-annotated
+    package `io.pythia.i18n`, `@JsExport`-annotated
     following the `EstimationVersionStatus.kt` idiom (file-
     level `@file:OptIn(ExperimentalJsExport::class)`). The
     domain has no other i18n knowledge; the enum just gives
@@ -196,7 +196,7 @@ description: |
     `UserProvisioningFilter` to seed language from
     `Accept-Language` on first sighting. INFO-log on
     language update. Also introduces the
-    `io.github.theestimator.i18n.SupportedLanguage` `@JsExport`
+    `io.pythia.i18n.SupportedLanguage` `@JsExport`
     enum in `:domain`.
     `depends_on: [task-122]`.
 

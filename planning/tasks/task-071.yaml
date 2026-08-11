@@ -33,7 +33,7 @@ description: |
      - Log via the Quarkus static `io.quarkus.logging.Log` API
        (Log.info/debug/warn/error) — no per-class logger field needed.
      - Configure levels per profile in application.properties:
-       app code (`io.github.theestimator`) at DEBUG in `%dev`/`%test`,
+       app code (`io.pythia`) at DEBUG in `%dev`/`%test`,
        INFO in `%prod`; root stays at the Quarkus default. Enable the
        JSON formatter only under `%prod`
        (`%prod.quarkus.log.console.json=true`, gated by the
@@ -106,14 +106,14 @@ steps:
       - Add <dependency> io.quarkus:quarkus-logging-json to
         src/backend/implementation/pom.xml.
       - In src/backend/implementation/src/main/resources/application.properties
-        add: `quarkus.log.category."io.github.theestimator".level=INFO`,
-        `%dev.quarkus.log.category."io.github.theestimator".level=DEBUG`,
-        `%test.quarkus.log.category."io.github.theestimator".level=DEBUG`,
+        add: `quarkus.log.category."io.pythia".level=INFO`,
+        `%dev.quarkus.log.category."io.pythia".level=DEBUG`,
+        `%test.quarkus.log.category."io.pythia".level=DEBUG`,
         and `%prod.quarkus.log.console.json=true`.
 
   - |
     Backend demonstrative logging: in
-    src/backend/implementation/src/main/kotlin/io/github/theestimator/service/EstimationVersionService.kt
+    src/backend/implementation/src/main/kotlin/io/pythia/service/EstimationVersionService.kt
     import `io.quarkus.logging.Log` and add INFO logs on the
     create / submit / draft-update operations (include the estimation
     id), a DEBUG log with finer detail, and an ERROR log on any caught
@@ -127,7 +127,7 @@ steps:
 
   - |
     Domain demonstrative logging: in
-    src/domain/src/main/kotlin/io/github/theestimator/model/EstimationVersion.kt
+    src/domain/src/main/kotlin/io/pythia/model/EstimationVersion.kt
     add `private val logger = io.github.oshai.kotlinlogging.KotlinLogging.logger {}`
     and a `logger.debug { … }` inside calculate() reporting e.g. the leaf
     count and total effort. Use the lambda form. Do not alter the
@@ -188,12 +188,12 @@ validation:
   - |
     Backend logging is wired:
       grep -q "quarkus-logging-json" src/backend/implementation/pom.xml
-      grep -q "io.github.theestimator\".level" src/backend/implementation/src/main/resources/application.properties
-      grep -q "io.quarkus.logging.Log" src/backend/implementation/src/main/kotlin/io/github/theestimator/service/EstimationVersionService.kt
+      grep -q "io.pythia\".level" src/backend/implementation/src/main/resources/application.properties
+      grep -q "io.quarkus.logging.Log" src/backend/implementation/src/main/kotlin/io/pythia/service/EstimationVersionService.kt
   - |
     Domain logging facade is added and used:
       grep -q "kotlin-logging" src/domain/build.gradle.kts
-      grep -q "KotlinLogging.logger" src/domain/src/main/kotlin/io/github/theestimator/model/EstimationVersion.kt
+      grep -q "KotlinLogging.logger" src/domain/src/main/kotlin/io/pythia/model/EstimationVersion.kt
   - |
     Frontend logger exists, is used, and no bare console.error remains at
     the two former sites:
@@ -215,9 +215,9 @@ validation:
 outputs:
   - modified: src/backend/implementation/pom.xml
   - modified: src/backend/implementation/src/main/resources/application.properties
-  - modified: src/backend/implementation/src/main/kotlin/io/github/theestimator/service/EstimationVersionService.kt
+  - modified: src/backend/implementation/src/main/kotlin/io/pythia/service/EstimationVersionService.kt
   - modified: src/domain/build.gradle.kts
-  - modified: src/domain/src/main/kotlin/io/github/theestimator/model/EstimationVersion.kt
+  - modified: src/domain/src/main/kotlin/io/pythia/model/EstimationVersion.kt
   - created: src/frontend/src/lib/log.ts
   - modified: src/frontend/package.json
   - modified: src/frontend/package-lock.json

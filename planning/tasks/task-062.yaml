@@ -13,7 +13,7 @@ description: |
   ## This is the THREE-POINT-PERT reduction, NOT a universal vote model
 
   The architecture changed after this feature was first planned:
-  estimation methods are now pluggable (phase-15 — `io.github.theestimator.method`
+  estimation methods are now pluggable (phase-15 — `io.pythia.method`
   SPI, one package per method). A collaborative session has two layers:
 
     - **Central / method-agnostic** (shared by every method): the whole
@@ -29,7 +29,7 @@ description: |
 
   This task deliberately builds the pure PERT reduction now; **task-105
   (Session SPI) later extracts this exact core into
-  `io.github.theestimator.method.threepoint.ThreePointSessionSupport.reduce`
+  `io.pythia.method.threepoint.ThreePointSessionSupport.reduce`
   behind the `EstimationMethodSessionSupport` SPI** (task-105 already names
   task-062 as that pure-function core), and task-106 adds the divergent
   bucket-method reduction. Keep the code PURE and self-contained so that
@@ -52,7 +52,7 @@ description: |
       is nothing about multi-estimator aggregation.
 
   Target state — add to
-  src/domain/src/main/kotlin/io/github/theestimator/model/ (placement stays
+  src/domain/src/main/kotlin/io/pythia/model/ (placement stays
   in `model` for this task; task-105 relocates the reduction core into
   the PERT method package `method.threepoint` when it introduces the
   session SPI — do NOT pre-move it here):
@@ -109,7 +109,7 @@ description: |
 
 steps:
   - |
-    Add src/domain/src/main/kotlin/io/github/theestimator/model/EstimatorVote.kt
+    Add src/domain/src/main/kotlin/io/pythia/model/EstimatorVote.kt
     with a plain `@JsExport data class EstimatorVote(
     val minEffort: Double, val expectedEffort: Double,
     val maxEffort: Double)` (value object — no BaseDomain, no
@@ -117,7 +117,7 @@ steps:
     like the other model files).
 
   - |
-    Add src/domain/src/main/kotlin/io/github/theestimator/model/VoteAggregation.kt
+    Add src/domain/src/main/kotlin/io/pythia/model/VoteAggregation.kt
     containing the `@JsExport data class VoteAggregate` (fields listed
     in the description, incl. `pertMean`), the
     `DIVERGENCE_CV_THRESHOLD` constant, and the `@JsExport object
@@ -130,7 +130,7 @@ steps:
 
   - |
     Add unit tests
-    src/domain/src/test/kotlin/io/github/theestimator/model/VoteAggregationTest.kt
+    src/domain/src/test/kotlin/io/pythia/model/VoteAggregationTest.kt
     covering: empty list → zeroed/voterCount 0/diverged false; single
     vote → that vote, CV 0, not diverged; several close votes → not
     diverged; a clear outlier pushing CV above 0.20 → diverged true;
@@ -149,16 +149,16 @@ steps:
 validation:
   - |
     The two source files and the test exist:
-      test -f src/domain/src/main/kotlin/io/github/theestimator/model/EstimatorVote.kt
-      test -f src/domain/src/main/kotlin/io/github/theestimator/model/VoteAggregation.kt
-      test -f src/domain/src/test/kotlin/io/github/theestimator/model/VoteAggregationTest.kt
+      test -f src/domain/src/main/kotlin/io/pythia/model/EstimatorVote.kt
+      test -f src/domain/src/main/kotlin/io/pythia/model/VoteAggregation.kt
+      test -f src/domain/src/test/kotlin/io/pythia/model/VoteAggregationTest.kt
   - |
     The aggregation and threshold are present and everything is exported:
-      grep -q "object VoteAggregation" src/domain/src/main/kotlin/io/github/theestimator/model/VoteAggregation.kt
-      grep -q "DIVERGENCE_CV_THRESHOLD" src/domain/src/main/kotlin/io/github/theestimator/model/VoteAggregation.kt
-      grep -q "@JsExport" src/domain/src/main/kotlin/io/github/theestimator/model/EstimatorVote.kt
-      test "$(grep -c '@JsExport' src/domain/src/main/kotlin/io/github/theestimator/model/VoteAggregation.kt)" -ge 2
-      grep -q "logger.debug" src/domain/src/main/kotlin/io/github/theestimator/model/VoteAggregation.kt
+      grep -q "object VoteAggregation" src/domain/src/main/kotlin/io/pythia/model/VoteAggregation.kt
+      grep -q "DIVERGENCE_CV_THRESHOLD" src/domain/src/main/kotlin/io/pythia/model/VoteAggregation.kt
+      grep -q "@JsExport" src/domain/src/main/kotlin/io/pythia/model/EstimatorVote.kt
+      test "$(grep -c '@JsExport' src/domain/src/main/kotlin/io/pythia/model/VoteAggregation.kt)" -ge 2
+      grep -q "logger.debug" src/domain/src/main/kotlin/io/pythia/model/VoteAggregation.kt
   - |
     Domain tests pass and the new @JsExport symbols regenerate + round-trip
     to the frontend (the Gradle build unpacks the domain typescriptDist and
@@ -167,6 +167,6 @@ validation:
       ./gradlew build
 
 outputs:
-  - created: src/domain/src/main/kotlin/io/github/theestimator/model/EstimatorVote.kt
-  - created: src/domain/src/main/kotlin/io/github/theestimator/model/VoteAggregation.kt
-  - created: src/domain/src/test/kotlin/io/github/theestimator/model/VoteAggregationTest.kt
+  - created: src/domain/src/main/kotlin/io/pythia/model/EstimatorVote.kt
+  - created: src/domain/src/main/kotlin/io/pythia/model/VoteAggregation.kt
+  - created: src/domain/src/test/kotlin/io/pythia/model/VoteAggregationTest.kt

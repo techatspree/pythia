@@ -246,8 +246,8 @@ The DEBUG level lives in `application.properties`, not in a k8s env var, and it
 takes **two** properties:
 
 ```properties
-%dev-minikube.quarkus.log.category."io.github.theestimator".level=DEBUG
-quarkus.log.category."io.github.theestimator".min-level=DEBUG   # unprofiled — see below
+%dev-minikube.quarkus.log.category."io.pythia".level=DEBUG
+quarkus.log.category."io.pythia".min-level=DEBUG   # unprofiled — see below
 ```
 
 **Why `min-level` too?** `.level` is a runtime property, but `min-level` is the
@@ -260,10 +260,10 @@ the same profile — but the packaged `dev-minikube` image did not). Keeping
 `min-level` unprofiled lowers the floor at build time; `prod` still logs at INFO
 because its `.level` stays INFO.
 
-**Why not an env var?** `quarkus.log.category."io.github.theestimator".level` has
+**Why not an env var?** `quarkus.log.category."io.pythia".level` has
 dots inside the quoted category name, and an environment variable turns every
-dot into `_` — Quarkus then can't tell `io.github.theestimator` from
-`io_github_theestimator`, so `QUARKUS_LOG_CATEGORY__IO_GITHUB_THEESTIMATOR__LEVEL` is
+dot into `_` — Quarkus then can't tell `io.pythia` from
+`io_pythia`, so `QUARKUS_LOG_CATEGORY__IO_PYTHIA__LEVEL` is
 silently ignored. (Simple keys like `QUARKUS_LOG_CONSOLE_JSON_ENABLED` map fine.)
 Selecting the profile via the dot-free `QUARKUS_PROFILE` env var and keeping the
 dotted category level in `application.properties` sidesteps the limitation.

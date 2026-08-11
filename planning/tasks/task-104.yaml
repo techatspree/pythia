@@ -17,7 +17,7 @@ description: |
   `createBucketedItem`**. To compute the calc map for bucketed leaves
   the adapter must construct a `BucketedEstimationItem`, so this task
   adds a `createBucketedItem` `@JsExport` factory to
-  `src/domain/src/main/kotlin/io/github/theestimator/model/DomainFactory.kt`,
+  `src/domain/src/main/kotlin/io/pythia/model/DomainFactory.kt`,
   rebuilds the KMP domain, and re-consumes the regenerated
   `domain.mjs`/`domain.d.mts` in the frontend (the `./gradlew build`
   pipeline regenerates + unpacks `src/lib/domain`).
@@ -120,9 +120,9 @@ description: |
 steps:
   - |
     Add `createBucketedItem` to
-    `src/domain/src/main/kotlin/io/github/theestimator/model/DomainFactory.kt`
+    `src/domain/src/main/kotlin/io/pythia/model/DomainFactory.kt`
     (`@JsExport`, imports `BucketedEstimationItem` from
-    `io.github.theestimator.method.bucketsampled`):
+    `io.pythia.method.bucketsampled`):
       createBucketedItem(description, bucketId, isSample = false,
         optimistic = 0.0, likely = 0.0, pessimistic = 0.0,
         logicalId = newId()) → BucketedEstimationItem(bucketId, isSample,
@@ -185,7 +185,7 @@ steps:
 validation:
   - |
     Domain factory for bucketed leaves exists:
-      grep -q "fun createBucketedItem" src/domain/src/main/kotlin/io/github/theestimator/model/DomainFactory.kt
+      grep -q "fun createBucketedItem" src/domain/src/main/kotlin/io/pythia/model/DomainFactory.kt
   - |
     Adapter constructs bucketed leaves (no frontend re-derivation):
       grep -q "createBucketedItem" src/frontend/src/lib/adapter.ts
@@ -213,7 +213,7 @@ validation:
       ./gradlew build
 
 outputs:
-  - modified: src/domain/src/main/kotlin/io/github/theestimator/model/DomainFactory.kt
+  - modified: src/domain/src/main/kotlin/io/pythia/model/DomainFactory.kt
   - modified: src/frontend/src/lib/estimationNodes.ts
   - modified: src/frontend/src/lib/adapter.ts
   - modified: src/frontend/src/routes/estimations/[id]/versions/[versionNumber]/+page.svelte

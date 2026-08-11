@@ -206,7 +206,7 @@ validation:
     # `BUCKET_SAMPLED_PERT` both already appear elsewhere in this file (the PERT
     # seeds), so an unscoped grep proves nothing.
     sed -n '/BUCKET_SAMPLED_PERT/,$p' \
-      src/backend/implementation/src/main/kotlin/io/github/theestimator/testdata/TestDataSeeder.kt \
+      src/backend/implementation/src/main/kotlin/io/pythia/testdata/TestDataSeeder.kt \
       | grep -q 'group('
   - |
     grep -q 'addGroupRow\|root-level' src/frontend/CLAUDE.md
@@ -223,4 +223,4 @@ outputs:
   - modified: src/frontend/src/lib/i18n/en.json
   - modified: src/frontend/e2e/bucket-hierarchy.test.ts
   - modified: src/frontend/CLAUDE.md
-  - modified: src/backend/implementation/src/main/kotlin/io/github/theestimator/testdata/TestDataSeeder.kt
+  - modified: src/backend/implementation/src/main/kotlin/io/pythia/testdata/TestDataSeeder.kt

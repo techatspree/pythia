@@ -13,20 +13,20 @@ description: |
   ## Frozen decisions (from task-096)
 
   - **Package.** All bucket+sampled code lives in
-    `io.github.theestimator.method.bucketsampled`. NO cross-
+    `io.pythia.method.bucketsampled`. NO cross-
     reference from this package into
-    `io.github.theestimator.method.threepoint` — the two methods
+    `io.pythia.method.threepoint` — the two methods
     interact only via the SPI in
-    `io.github.theestimator.method`.
+    `io.pythia.method`.
   - **Leaf item shape.** New subclass
     `BucketedEstimationItem : EstimationItem` living in
-    `io.github.theestimator.method.bucketsampled` — this is now legal
+    `io.pythia.method.bucketsampled` — this is now legal
     because task-113 opened `EstimationItem` from `sealed` to
     `abstract`, so leaf types may live in their own method package (a
     hard dependency: task-102 CANNOT compile without task-113).
     Follow the SAME underscore-forwarding constructor + `@JsExport
     @DomainEntity` pattern as `FixedEstimationItem` (which now lives in
-    `io.github.theestimator.method.threepoint`): private `_`-prefixed
+    `io.pythia.method.threepoint`): private `_`-prefixed
     constructor params forwarded to `EstimationItem(...)`, PLUS the
     bucket-specific fields. `EstimationItem` has `description` (no
     `title` — that is `EstimationGroup`), so do NOT add a `title` field.
@@ -120,14 +120,14 @@ description: |
 steps:
   - |
     Extend the SPI in
-    `src/domain/src/main/kotlin/io/github/theestimator/method/EstimationMethodModule.kt`
+    `src/domain/src/main/kotlin/io/pythia/method/EstimationMethodModule.kt`
     with a `calculateAll(items, params): List<EstimationItem>`
     default that calls `calculate(item, params)` per leaf. Add a
     one-line inline comment explaining why the extension exists
     ("bucket methods need per-bucket batch context").
   - |
     Create package
-      src/domain/src/main/kotlin/io/github/theestimator/method/bucketsampled/
+      src/domain/src/main/kotlin/io/pythia/method/bucketsampled/
     Add `BucketedEstimationItem.kt` following the EXACT underscore-
     forwarding pattern of `FixedEstimationItem` (there is NO `title`, no
     `override val id`, and no no-arg `EstimationItem()` constructor —
@@ -197,7 +197,7 @@ steps:
     task-098) to also register `BucketMethodModule`.
   - |
     Wire the reducer into
-    `src/domain/src/main/kotlin/io/github/theestimator/model/EstimationVersion.kt`:
+    `src/domain/src/main/kotlin/io/pythia/model/EstimationVersion.kt`:
     in `calculate()`, replace the per-leaf
     `roots.map { it.withCalculationParameters(params) }` with a batch
     dispatch — detect the method from the flattened leaf types (any
@@ -213,7 +213,7 @@ steps:
   - |
     Add JUnit 5 unit tests (JVM `src/test` source set,
     `org.junit.jupiter.api` — the `:domain` module has NO `commonTest`)
-    in `src/domain/src/test/kotlin/io/github/theestimator/method/bucketsampled/`,
+    in `src/domain/src/test/kotlin/io/pythia/method/bucketsampled/`,
     resetting the registry with `EstimationMethodRegistry.clear()` in
     `@BeforeEach`/`@AfterEach` where the registry is used:
       * `BucketedEstimationItemTest.kt` — construction; sample
@@ -232,7 +232,7 @@ steps:
   - |
     Update CLAUDE.md "Pluggable estimation methods (SPI)" subsection:
     add bucket+sampled as method #2 (`BucketMethodModule` /
-    `BucketedEstimationItem` in `io.github.theestimator.method.bucketsampled`),
+    `BucketedEstimationItem` in `io.pythia.method.bucketsampled`),
     and note the SPI now has a `calculateAll(items, params)` batch hook
     (default = per-leaf `calculate`) that `EstimationVersion.calculate()`
     dispatches through so batch methods get per-bucket context.
@@ -245,30 +245,30 @@ steps:
 validation:
   - |
     Bucket method files exist:
-      test -f src/domain/src/main/kotlin/io/github/theestimator/method/bucketsampled/BucketedEstimationItem.kt
-      test -f src/domain/src/main/kotlin/io/github/theestimator/method/bucketsampled/computeBucketAverages.kt
-      test -f src/domain/src/main/kotlin/io/github/theestimator/method/bucketsampled/BucketMethodModule.kt
+      test -f src/domain/src/main/kotlin/io/pythia/method/bucketsampled/BucketedEstimationItem.kt
+      test -f src/domain/src/main/kotlin/io/pythia/method/bucketsampled/computeBucketAverages.kt
+      test -f src/domain/src/main/kotlin/io/pythia/method/bucketsampled/BucketMethodModule.kt
   - |
     No cross-references from the bucket package into the
     threepoint package (the two methods must not know each other):
       ! grep -rE "io\\.github\\.theestimator\\.method\\.threepoint" \
-          src/domain/src/main/kotlin/io/github/theestimator/method/bucketsampled/
+          src/domain/src/main/kotlin/io/pythia/method/bucketsampled/
   - |
     Kotlin/JS super-property pitfall: no `super.<computed prop>`
     references:
       ! grep -rE "super\\.mean|super\\.variance|super\\.offerPT" \
-          src/domain/src/main/kotlin/io/github/theestimator/method/bucketsampled/
+          src/domain/src/main/kotlin/io/pythia/method/bucketsampled/
   - |
     Bucket module logs on registration:
-      grep -q "logger.info" src/domain/src/main/kotlin/io/github/theestimator/method/bucketsampled/BucketMethodModule.kt
+      grep -q "logger.info" src/domain/src/main/kotlin/io/pythia/method/bucketsampled/BucketMethodModule.kt
   - |
     Bucket unit tests exist in the JVM src/test source set (not commonTest):
-      test -f src/domain/src/test/kotlin/io/github/theestimator/method/bucketsampled/ComputeBucketAveragesTest.kt
-      test -f src/domain/src/test/kotlin/io/github/theestimator/method/bucketsampled/BucketMethodModuleTest.kt
-      grep -q "org.junit.jupiter.api" src/domain/src/test/kotlin/io/github/theestimator/method/bucketsampled/BucketMethodModuleTest.kt
+      test -f src/domain/src/test/kotlin/io/pythia/method/bucketsampled/ComputeBucketAveragesTest.kt
+      test -f src/domain/src/test/kotlin/io/pythia/method/bucketsampled/BucketMethodModuleTest.kt
+      grep -q "org.junit.jupiter.api" src/domain/src/test/kotlin/io/pythia/method/bucketsampled/BucketMethodModuleTest.kt
   - |
     calculate() dispatches through the SPI batch hook:
-      grep -q "calculateAll" src/domain/src/main/kotlin/io/github/theestimator/model/EstimationVersion.kt
+      grep -q "calculateAll" src/domain/src/main/kotlin/io/pythia/model/EstimationVersion.kt
   - |
     CLAUDE.md documents method #2:
       grep -q "bucketsampled" CLAUDE.md
@@ -277,13 +277,13 @@ validation:
       ./gradlew build
 
 outputs:
-  - modified: src/domain/src/main/kotlin/io/github/theestimator/method/EstimationMethodModule.kt
-  - modified: src/domain/src/main/kotlin/io/github/theestimator/method/EstimationMethodRegistry.kt
-  - modified: src/domain/src/main/kotlin/io/github/theestimator/model/EstimationVersion.kt
-  - created: src/domain/src/main/kotlin/io/github/theestimator/method/bucketsampled/BucketedEstimationItem.kt
-  - created: src/domain/src/main/kotlin/io/github/theestimator/method/bucketsampled/computeBucketAverages.kt
-  - created: src/domain/src/main/kotlin/io/github/theestimator/method/bucketsampled/BucketMethodModule.kt
-  - created: src/domain/src/test/kotlin/io/github/theestimator/method/bucketsampled/BucketedEstimationItemTest.kt
-  - created: src/domain/src/test/kotlin/io/github/theestimator/method/bucketsampled/ComputeBucketAveragesTest.kt
-  - created: src/domain/src/test/kotlin/io/github/theestimator/method/bucketsampled/BucketMethodModuleTest.kt
+  - modified: src/domain/src/main/kotlin/io/pythia/method/EstimationMethodModule.kt
+  - modified: src/domain/src/main/kotlin/io/pythia/method/EstimationMethodRegistry.kt
+  - modified: src/domain/src/main/kotlin/io/pythia/model/EstimationVersion.kt
+  - created: src/domain/src/main/kotlin/io/pythia/method/bucketsampled/BucketedEstimationItem.kt
+  - created: src/domain/src/main/kotlin/io/pythia/method/bucketsampled/computeBucketAverages.kt
+  - created: src/domain/src/main/kotlin/io/pythia/method/bucketsampled/BucketMethodModule.kt
+  - created: src/domain/src/test/kotlin/io/pythia/method/bucketsampled/BucketedEstimationItemTest.kt
+  - created: src/domain/src/test/kotlin/io/pythia/method/bucketsampled/ComputeBucketAveragesTest.kt
+  - created: src/domain/src/test/kotlin/io/pythia/method/bucketsampled/BucketMethodModuleTest.kt
   - modified: CLAUDE.md

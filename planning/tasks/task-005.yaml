@@ -47,7 +47,7 @@ description: |
             %dev-minikube → entra
           Drives which authentication beans get installed.
         * SPI interface
-          `io.github.theestimator.auth.AuthModule` (Kotlin, in
+          `io.pythia.auth.AuthModule` (Kotlin, in
           `src/backend/implementation/.../auth/`):
             interface AuthModule {
                 fun name(): String          // "dev" / "entra" / "keycloak"
@@ -57,7 +57,7 @@ description: |
           and produce CDI beans that contribute Quarkus security
           configuration (filters, augmentors, role mappers).
         * Provider-agnostic principal accessor
-          `io.github.theestimator.auth.CurrentUser` exposing:
+          `io.pythia.auth.CurrentUser` exposing:
             data class CurrentUser(
                 val subjectId: String,        // provider-issued globally-unique id
                 val email: String?,
@@ -70,7 +70,7 @@ description: |
           this; REST resources call it instead of touching
           `SecurityIdentity` directly.
         * Role taxonomy as a Kotlin enum
-          `io.github.theestimator.auth.Role` with values `VIEWER`,
+          `io.pythia.auth.Role` with values `VIEWER`,
           `ESTIMATOR`, `ADMIN`. Mappers in each concrete module
           translate provider-specific role claims/groups into this
           enum.
@@ -157,12 +157,12 @@ steps:
           %prod.app.auth.provider=entra
           %dev-minikube.app.auth.provider=entra
       - Add a Kotlin enum-like config holder
-        `io.github.theestimator.auth.AuthConfig` exposing
+        `io.pythia.auth.AuthConfig` exposing
         `@ConfigProperty(name="app.auth.provider") activeProvider: String`.
 
   - |
     Create the SPI interface and request-scoped accessor in
-    src/backend/implementation/src/main/kotlin/io/github/theestimator/auth/:
+    src/backend/implementation/src/main/kotlin/io/pythia/auth/:
       - AuthModule.kt — `interface AuthModule { fun name(): String;
         fun isActive(): Boolean }`.
       - Role.kt — `enum class Role { VIEWER, ESTIMATOR, ADMIN }`.
@@ -303,7 +303,7 @@ steps:
     the existing "Conventions" or "Architecture" section naming
     the new modular auth SPI. One paragraph is enough — name the
     package
-    `src/backend/implementation/src/main/kotlin/io/github/theestimator/auth/`,
+    `src/backend/implementation/src/main/kotlin/io/pythia/auth/`,
     name the frontend folder `src/frontend/src/lib/auth/`, list
     the three roles (`VIEWER` / `ESTIMATOR` / `ADMIN`), state the
     config switch (`app.auth.provider` / `VITE_AUTH_PROVIDER` —
@@ -323,22 +323,22 @@ steps:
 validation:
   - |
     Backend SPI files exist and compile:
-      test -f src/backend/implementation/src/main/kotlin/io/github/theestimator/auth/AuthModule.kt
-      test -f src/backend/implementation/src/main/kotlin/io/github/theestimator/auth/Role.kt
-      test -f src/backend/implementation/src/main/kotlin/io/github/theestimator/auth/CurrentUser.kt
-      test -f src/backend/implementation/src/main/kotlin/io/github/theestimator/auth/CurrentUserProvider.kt
-      test -f src/backend/implementation/src/main/kotlin/io/github/theestimator/auth/AuthConfig.kt
+      test -f src/backend/implementation/src/main/kotlin/io/pythia/auth/AuthModule.kt
+      test -f src/backend/implementation/src/main/kotlin/io/pythia/auth/Role.kt
+      test -f src/backend/implementation/src/main/kotlin/io/pythia/auth/CurrentUser.kt
+      test -f src/backend/implementation/src/main/kotlin/io/pythia/auth/CurrentUserProvider.kt
+      test -f src/backend/implementation/src/main/kotlin/io/pythia/auth/AuthConfig.kt
   - |
     The /api/auth/me endpoint is wired (allow either a single
     literal `@Path("/auth/me")` or the typical class+method split
     `@Path("/auth")` + `@Path("/me")`):
-      grep -q "auth" src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/MeResource.kt
-      grep -q "\"/me\"\\|\"/auth/me\"" src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/MeResource.kt
+      grep -q "auth" src/backend/implementation/src/main/kotlin/io/pythia/rest/MeResource.kt
+      grep -q "\"/me\"\\|\"/auth/me\"" src/backend/implementation/src/main/kotlin/io/pythia/rest/MeResource.kt
   - |
     The role enum has the three documented values:
-      grep -q "VIEWER" src/backend/implementation/src/main/kotlin/io/github/theestimator/auth/Role.kt
-      grep -q "ESTIMATOR" src/backend/implementation/src/main/kotlin/io/github/theestimator/auth/Role.kt
-      grep -q "ADMIN" src/backend/implementation/src/main/kotlin/io/github/theestimator/auth/Role.kt
+      grep -q "VIEWER" src/backend/implementation/src/main/kotlin/io/pythia/auth/Role.kt
+      grep -q "ESTIMATOR" src/backend/implementation/src/main/kotlin/io/pythia/auth/Role.kt
+      grep -q "ADMIN" src/backend/implementation/src/main/kotlin/io/pythia/auth/Role.kt
   - |
     application.properties exposes the provider switch with the
     documented per-profile defaults — using the project's CUSTOM
@@ -380,12 +380,12 @@ validation:
       cd src/frontend && npm run check
 
 outputs:
-  - created: src/backend/implementation/src/main/kotlin/io/github/theestimator/auth/AuthModule.kt
-  - created: src/backend/implementation/src/main/kotlin/io/github/theestimator/auth/Role.kt
-  - created: src/backend/implementation/src/main/kotlin/io/github/theestimator/auth/CurrentUser.kt
-  - created: src/backend/implementation/src/main/kotlin/io/github/theestimator/auth/CurrentUserProvider.kt
-  - created: src/backend/implementation/src/main/kotlin/io/github/theestimator/auth/AuthConfig.kt
-  - created: src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/MeResource.kt
+  - created: src/backend/implementation/src/main/kotlin/io/pythia/auth/AuthModule.kt
+  - created: src/backend/implementation/src/main/kotlin/io/pythia/auth/Role.kt
+  - created: src/backend/implementation/src/main/kotlin/io/pythia/auth/CurrentUser.kt
+  - created: src/backend/implementation/src/main/kotlin/io/pythia/auth/CurrentUserProvider.kt
+  - created: src/backend/implementation/src/main/kotlin/io/pythia/auth/AuthConfig.kt
+  - created: src/backend/implementation/src/main/kotlin/io/pythia/rest/MeResource.kt
   - modified: src/backend/implementation/src/main/resources/application.properties
   - created: src/frontend/src/lib/auth/AuthProvider.ts
   - created: src/frontend/src/lib/auth/index.ts

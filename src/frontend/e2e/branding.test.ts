@@ -3,7 +3,7 @@ import { test, expect } from '@playwright/test';
 // The product mark replaced an earlier third-party corporate logo (task-130).
 // These assertions pin the swap: the mark is the canonical SVG asset and the
 // wordmark renders beside it.
-test('the header shows The Estimator mark and wordmark', async ({ page }) => {
+test('the header shows Pythia mark and wordmark', async ({ page }) => {
 	await page.goto('/projects');
 
 	const mark = page.locator('[data-testid="brand-logo"]');
@@ -15,6 +15,6 @@ test('the header shows The Estimator mark and wordmark', async ({ page }) => {
 	const src = await mark.getAttribute('src');
 	expect(src).toMatch(/(^data:image\/svg\+xml)|(\.svg)/);
 
-	await expect(page.locator('header')).toContainText('The Estimator');
-	await expect(page).toHaveTitle('The Estimator');
+	await expect(page.locator('header')).toContainText('Pythia');
+	await expect(page).toHaveTitle('Pythia');
 });

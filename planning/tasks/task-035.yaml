@@ -14,7 +14,7 @@ description: |
 
   Architecture:
     src/domain/                 — new Kotlin-only subproject (no JPA, no Quarkus)
-      src/main/kotlin/io/github/theestimator/domain/
+      src/main/kotlin/io/pythia/domain/
         - Pure domain classes (data classes / open classes): Project, Estimation,
           EstimationVersion, EstimationItem, FixedEstimationItem, TimeRelativeEstimationItem,
           EstimationItemGroup, EstimationParameter, EffortDriver, ProjectPhase,
@@ -84,7 +84,7 @@ steps:
   - run full reactor build from project root
 validation:
   - `mvn clean install` from root succeeds (domain → frontend → backend all build)
-  - domain artifact installed in local Maven repo (~/.m2/repository/io/github/theestimator/domain/)
+  - domain artifact installed in local Maven repo (~/.m2/repository/io/pythia/domain/)
   - domain-*-typescript.zip artifact installed alongside jar
   - frontend unpacks TypeScript types from Maven artifact during build
   - backend JPA entities correctly use domain base classes
@@ -95,8 +95,8 @@ validation:
   - no hardcoded cross-module file paths — everything flows through Maven dependency resolution
 outputs:
   - src/domain/pom.xml (with typescript-generator + assembly/build-helper)
-  - src/domain/src/main/kotlin/io/github/theestimator/domain/*.kt (pure domain classes)
-  - src/domain/src/main/kotlin/io/github/theestimator/service/EstimationCalculator.kt
+  - src/domain/src/main/kotlin/io/pythia/domain/*.kt (pure domain classes)
+  - src/domain/src/main/kotlin/io/pythia/service/EstimationCalculator.kt
   - modified: src/frontend/pom.xml (dependency on domain:typescript + unpack)
   - modified: src/backend/implementation/pom.xml (dependency on domain jar)
   - modified: src/backend/implementation JPA entities (now extend domain classes)

@@ -39,11 +39,11 @@ description: |
   ## Current state (verified)
 
   - Three German keys are looked up via `parameterValue("…")` in:
-      * `src/domain/src/main/kotlin/io/github/theestimator/model/EstimationVersion.kt`
+      * `src/domain/src/main/kotlin/io/pythia/model/EstimationVersion.kt`
         (lines ~36–38: all three).
-      * `src/domain/src/main/kotlin/io/github/theestimator/service/EstimationCalculator.kt`
+      * `src/domain/src/main/kotlin/io/pythia/service/EstimationCalculator.kt`
         (`Standardabweichungsfaktor`, `Tagessatz`).
-      * `src/backend/implementation/src/main/kotlin/io/github/theestimator/service/ExcelExporter.kt`
+      * `src/backend/implementation/src/main/kotlin/io/pythia/service/ExcelExporter.kt`
         (lines 166–167: `Vertriebszuschlag`, `Tagessatz`).
   - `EstimationDefaults.kt` doc comments name the German keys.
   - `EstimationCalculator` embeds German `InvariantResult.description`
@@ -96,11 +96,11 @@ description: |
 steps:
   - |
     Read the current bits:
-      src/domain/src/main/kotlin/io/github/theestimator/model/EstimationVersion.kt
-      src/domain/src/main/kotlin/io/github/theestimator/model/EstimationDefaults.kt
-      src/domain/src/main/kotlin/io/github/theestimator/service/EstimationCalculator.kt
-      src/backend/implementation/src/main/kotlin/io/github/theestimator/service/ExcelExporter.kt
-      src/backend/implementation/src/main/kotlin/io/github/theestimator/testdata/TestDataSeeder.kt
+      src/domain/src/main/kotlin/io/pythia/model/EstimationVersion.kt
+      src/domain/src/main/kotlin/io/pythia/model/EstimationDefaults.kt
+      src/domain/src/main/kotlin/io/pythia/service/EstimationCalculator.kt
+      src/backend/implementation/src/main/kotlin/io/pythia/service/ExcelExporter.kt
+      src/backend/implementation/src/main/kotlin/io/pythia/testdata/TestDataSeeder.kt
       ls src/backend/implementation/src/main/resources/db/migration/   (highest V-number; V10 at drafting → V11 next)
       grep -rn "Tagessatz\|Standardabweichungsfaktor\|Vertriebszuschlag" src/domain/src src/backend/implementation/src
   - |
@@ -137,12 +137,12 @@ steps:
   - |
     Update `TestDataSeeder.kt` to seed the three English keys, and
     update every test that seeds/asserts the old German keys:
-      src/domain/src/test/kotlin/io/github/theestimator/model/EstimationVersionTreeTest.kt
-      src/domain/src/test/kotlin/io/github/theestimator/model/TimeRelativeEstimationItemTest.kt
-      src/domain/src/test/kotlin/io/github/theestimator/model/EstimationCalculatorInvariantsTest.kt
-      src/domain/src/test/kotlin/io/github/theestimator/method/bucketsampled/BucketMethodModuleTest.kt
-      src/backend/implementation/src/test/kotlin/io/github/theestimator/rest/SubmissionTreeIT.kt
-      src/backend/implementation/src/test/kotlin/io/github/theestimator/rest/EstimationVersionResourceIT.kt
+      src/domain/src/test/kotlin/io/pythia/model/EstimationVersionTreeTest.kt
+      src/domain/src/test/kotlin/io/pythia/model/TimeRelativeEstimationItemTest.kt
+      src/domain/src/test/kotlin/io/pythia/model/EstimationCalculatorInvariantsTest.kt
+      src/domain/src/test/kotlin/io/pythia/method/bucketsampled/BucketMethodModuleTest.kt
+      src/backend/implementation/src/test/kotlin/io/pythia/rest/SubmissionTreeIT.kt
+      src/backend/implementation/src/test/kotlin/io/pythia/rest/EstimationVersionResourceIT.kt
     (An `EstimationCalculatorInvariantsTest` asserting a German
     `InvariantResult.description` also needs its expected string
     updated to the new English one.)
@@ -183,32 +183,32 @@ validation:
       ! ( grep -rnE "Tagessatz|Standardabweichungsfaktor|Vertriebszuschlag" src/frontend/src src/frontend/e2e | grep -v "lib/domain/domain" )
   - |
     The English keys are present at the domain lookup sites:
-      grep -q "dailyRate" src/domain/src/main/kotlin/io/github/theestimator/model/EstimationVersion.kt
-      grep -q "stdDevFactor" src/domain/src/main/kotlin/io/github/theestimator/model/EstimationVersion.kt
-      grep -q "salesSurcharge" src/domain/src/main/kotlin/io/github/theestimator/model/EstimationVersion.kt
+      grep -q "dailyRate" src/domain/src/main/kotlin/io/pythia/model/EstimationVersion.kt
+      grep -q "stdDevFactor" src/domain/src/main/kotlin/io/pythia/model/EstimationVersion.kt
+      grep -q "salesSurcharge" src/domain/src/main/kotlin/io/pythia/model/EstimationVersion.kt
   - |
     The Flyway migration renames all three keys in both tables:
       ls src/backend/implementation/src/main/resources/db/migration/ | grep -qi "anglicise_parameter_keys"
       f=$(ls src/backend/implementation/src/main/resources/db/migration/*anglicise_parameter_keys.sql); grep -q "dailyRate" "$f" && grep -q "stdDevFactor" "$f" && grep -q "salesSurcharge" "$f" && grep -q "submitted_estimation_parameters" "$f" && grep -q "draft_estimation_parameters" "$f"
   - |
     No German descriptor prose remains in the calculator, and domain logging stays on the lambda form (no bare prints):
-      ! grep -rnE "Gesamtaufwand|Summe aller|Akkumulation|Paketübersicht|Wurzel" src/domain/src/main/kotlin/io/github/theestimator/service/EstimationCalculator.kt
+      ! grep -rnE "Gesamtaufwand|Summe aller|Akkumulation|Paketübersicht|Wurzel" src/domain/src/main/kotlin/io/pythia/service/EstimationCalculator.kt
       ! grep -rnE "println\(" src/domain/src/main/kotlin
   - |
     Full build is green (domain + backend + frontend, all tests):
       ./gradlew build
 outputs:
-  - modified: src/domain/src/main/kotlin/io/github/theestimator/model/EstimationVersion.kt
-  - modified: src/domain/src/main/kotlin/io/github/theestimator/model/EstimationDefaults.kt
-  - modified: src/domain/src/main/kotlin/io/github/theestimator/service/EstimationCalculator.kt
-  - modified: src/backend/implementation/src/main/kotlin/io/github/theestimator/service/ExcelExporter.kt
-  - modified: src/backend/implementation/src/main/kotlin/io/github/theestimator/testdata/TestDataSeeder.kt
-  - modified: src/domain/src/test/kotlin/io/github/theestimator/model/EstimationVersionTreeTest.kt
-  - modified: src/domain/src/test/kotlin/io/github/theestimator/model/TimeRelativeEstimationItemTest.kt
-  - modified: src/domain/src/test/kotlin/io/github/theestimator/model/EstimationCalculatorInvariantsTest.kt
-  - modified: src/domain/src/test/kotlin/io/github/theestimator/method/bucketsampled/BucketMethodModuleTest.kt
-  - modified: src/backend/implementation/src/test/kotlin/io/github/theestimator/rest/SubmissionTreeIT.kt
-  - modified: src/backend/implementation/src/test/kotlin/io/github/theestimator/rest/EstimationVersionResourceIT.kt
+  - modified: src/domain/src/main/kotlin/io/pythia/model/EstimationVersion.kt
+  - modified: src/domain/src/main/kotlin/io/pythia/model/EstimationDefaults.kt
+  - modified: src/domain/src/main/kotlin/io/pythia/service/EstimationCalculator.kt
+  - modified: src/backend/implementation/src/main/kotlin/io/pythia/service/ExcelExporter.kt
+  - modified: src/backend/implementation/src/main/kotlin/io/pythia/testdata/TestDataSeeder.kt
+  - modified: src/domain/src/test/kotlin/io/pythia/model/EstimationVersionTreeTest.kt
+  - modified: src/domain/src/test/kotlin/io/pythia/model/TimeRelativeEstimationItemTest.kt
+  - modified: src/domain/src/test/kotlin/io/pythia/model/EstimationCalculatorInvariantsTest.kt
+  - modified: src/domain/src/test/kotlin/io/pythia/method/bucketsampled/BucketMethodModuleTest.kt
+  - modified: src/backend/implementation/src/test/kotlin/io/pythia/rest/SubmissionTreeIT.kt
+  - modified: src/backend/implementation/src/test/kotlin/io/pythia/rest/EstimationVersionResourceIT.kt
   - created: src/backend/implementation/src/main/resources/db/migration/V<next>__anglicise_parameter_keys.sql
   - modified: src/frontend/src/lib/components/ParametersPanel.svelte
   - modified: src/frontend/e2e/smoke.test.ts

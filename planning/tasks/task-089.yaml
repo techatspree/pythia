@@ -46,7 +46,7 @@ steps:
 
   - |
     Add `CurrentUserService.kt` under
-    src/backend/implementation/src/main/kotlin/io/github/theestimator/service/
+    src/backend/implementation/src/main/kotlin/io/pythia/service/
     as an `@ApplicationScoped class CurrentUserService(private val userRepository: UserRepository)`
     with:
       @Transactional
@@ -68,7 +68,7 @@ steps:
 
   - |
     Add `CurrentUserProvisioningIT.kt` under
-    src/backend/implementation/src/test/kotlin/io/github/theestimator/service/
+    src/backend/implementation/src/test/kotlin/io/pythia/service/
     (a `@QuarkusTest @Transactional` service-level IT, mirroring
     `ProjectServiceIT`, so the Panache reads/writes run in a session —
     pass a `CurrentUser` directly, no request context needed):
@@ -96,12 +96,12 @@ steps:
 validation:
   - |
     Service exists with the provisioning method:
-      test -f src/backend/implementation/src/main/kotlin/io/github/theestimator/service/CurrentUserService.kt
-      grep -q "fun ensureUser" src/backend/implementation/src/main/kotlin/io/github/theestimator/service/CurrentUserService.kt
-      grep -q "Log\." src/backend/implementation/src/main/kotlin/io/github/theestimator/service/CurrentUserService.kt
+      test -f src/backend/implementation/src/main/kotlin/io/pythia/service/CurrentUserService.kt
+      grep -q "fun ensureUser" src/backend/implementation/src/main/kotlin/io/pythia/service/CurrentUserService.kt
+      grep -q "Log\." src/backend/implementation/src/main/kotlin/io/pythia/service/CurrentUserService.kt
   - |
     Login provisions the user:
-      grep -q "ensureUser" src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/MeResource.kt
+      grep -q "ensureUser" src/backend/implementation/src/main/kotlin/io/pythia/rest/MeResource.kt
   - |
     The provisioning invariant is documented:
       grep -q "CurrentUserService" docs/architecture.md
@@ -111,8 +111,8 @@ validation:
       ./gradlew :backend:implementation:test
 
 outputs:
-  - created: src/backend/implementation/src/main/kotlin/io/github/theestimator/service/CurrentUserService.kt
-  - modified: src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/MeResource.kt
+  - created: src/backend/implementation/src/main/kotlin/io/pythia/service/CurrentUserService.kt
+  - modified: src/backend/implementation/src/main/kotlin/io/pythia/rest/MeResource.kt
   - modified: docs/architecture.md
   - modified: CLAUDE.md
-  - created: src/backend/implementation/src/test/kotlin/io/github/theestimator/service/CurrentUserProvisioningIT.kt
+  - created: src/backend/implementation/src/test/kotlin/io/pythia/service/CurrentUserProvisioningIT.kt

@@ -9,12 +9,12 @@ description: |
 
   ## Actual code layout (verified 2026-07-15)
 
-  - Persistence entities live under `io.github.theestimator.domain`
+  - Persistence entities live under `io.pythia.domain`
     (NOT `.model`): `domain/Estimation.kt`,
     `domain/draft/DraftEstimationNode.kt` (abstract + `DraftGroupNode`
     / `DraftFixedItemNode` / `DraftTimeRelativeItemNode`),
     `domain/submitted/SubmittedEstimationNode.kt` (mirror).
-    Panache repos live under `io.github.theestimator.repository`.
+    Panache repos live under `io.pythia.repository`.
   - There is NO `SubmittedVersionMapper`. The domain→submitted-entity
     snapshot is built by `service/EstimationVersionService.kt`
     (`buildSubmittedNode`, a `when(domainNode)` with an
@@ -134,17 +134,17 @@ description: |
 steps:
   - |
     Read the current entities and mappers:
-      src/backend/implementation/src/main/kotlin/io/github/theestimator/domain/draft/DraftEstimationNode.kt
-      src/backend/implementation/src/main/kotlin/io/github/theestimator/domain/submitted/SubmittedEstimationNode.kt
-      src/backend/implementation/src/main/kotlin/io/github/theestimator/domain/Estimation.kt
-      src/backend/implementation/src/main/kotlin/io/github/theestimator/service/DraftVersionMapper.kt
-      src/backend/implementation/src/main/kotlin/io/github/theestimator/service/EstimationVersionService.kt
-      src/backend/implementation/src/main/kotlin/io/github/theestimator/service/DraftUpdateApplier.kt
-      src/backend/implementation/src/main/kotlin/io/github/theestimator/service/DraftSnapshotMapper.kt
-      src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/dto/EstimationVersionMapper.kt
-      src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/dto/EstimationVersionDtos.kt
-      src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/dto/ProjectDtos.kt
-      src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/dto/ProjectMapper.kt
+      src/backend/implementation/src/main/kotlin/io/pythia/domain/draft/DraftEstimationNode.kt
+      src/backend/implementation/src/main/kotlin/io/pythia/domain/submitted/SubmittedEstimationNode.kt
+      src/backend/implementation/src/main/kotlin/io/pythia/domain/Estimation.kt
+      src/backend/implementation/src/main/kotlin/io/pythia/service/DraftVersionMapper.kt
+      src/backend/implementation/src/main/kotlin/io/pythia/service/EstimationVersionService.kt
+      src/backend/implementation/src/main/kotlin/io/pythia/service/DraftUpdateApplier.kt
+      src/backend/implementation/src/main/kotlin/io/pythia/service/DraftSnapshotMapper.kt
+      src/backend/implementation/src/main/kotlin/io/pythia/rest/dto/EstimationVersionMapper.kt
+      src/backend/implementation/src/main/kotlin/io/pythia/rest/dto/EstimationVersionDtos.kt
+      src/backend/implementation/src/main/kotlin/io/pythia/rest/dto/ProjectDtos.kt
+      src/backend/implementation/src/main/kotlin/io/pythia/rest/dto/ProjectMapper.kt
     Read migrations V6/V7/V9 for the pattern to follow.
   - |
     Create Flyway
@@ -196,7 +196,7 @@ steps:
     `ProjectMapper.toEstimationDetailDto`.
   - |
     Add `@QuarkusTest`s in
-    `src/backend/implementation/src/test/kotlin/io/github/theestimator/rest/EstimationVersionResourceIT.kt`:
+    `src/backend/implementation/src/test/kotlin/io/pythia/rest/EstimationVersionResourceIT.kt`:
       * Create an estimation with `method = BUCKET_SAMPLED_PERT`, PUT a
         draft with 2 buckets and 4 leaves (2 samples, 2 non-samples).
         GET the draft returns calculated values with the per-bucket
@@ -223,18 +223,18 @@ validation:
       grep -q "is_sample" src/backend/implementation/src/main/resources/db/migration/V10__bucket_sampled_method.sql
   - |
     JPA BUCKETED subclasses exist on both draft and submitted sides:
-      grep -q "DiscriminatorValue(\"BUCKETED\")" src/backend/implementation/src/main/kotlin/io/github/theestimator/domain/draft/DraftEstimationNode.kt
-      grep -q "DiscriminatorValue(\"BUCKETED\")" src/backend/implementation/src/main/kotlin/io/github/theestimator/domain/submitted/SubmittedEstimationNode.kt
+      grep -q "DiscriminatorValue(\"BUCKETED\")" src/backend/implementation/src/main/kotlin/io/pythia/domain/draft/DraftEstimationNode.kt
+      grep -q "DiscriminatorValue(\"BUCKETED\")" src/backend/implementation/src/main/kotlin/io/pythia/domain/submitted/SubmittedEstimationNode.kt
   - |
     EstimationBucket entity + repository exist:
-      test -f src/backend/implementation/src/main/kotlin/io/github/theestimator/domain/EstimationBucket.kt
-      test -f src/backend/implementation/src/main/kotlin/io/github/theestimator/repository/EstimationBucketRepository.kt
+      test -f src/backend/implementation/src/main/kotlin/io/pythia/domain/EstimationBucket.kt
+      test -f src/backend/implementation/src/main/kotlin/io/pythia/repository/EstimationBucketRepository.kt
   - |
     Applier logs + method-gates BUCKETED, and the submit path handles
     the bucketed leaf:
-      grep -q "Log.warn" src/backend/implementation/src/main/kotlin/io/github/theestimator/service/DraftUpdateApplier.kt
-      grep -q "BUCKET_SAMPLED_PERT" src/backend/implementation/src/main/kotlin/io/github/theestimator/service/DraftUpdateApplier.kt
-      grep -q "BucketedEstimationItem" src/backend/implementation/src/main/kotlin/io/github/theestimator/service/EstimationVersionService.kt
+      grep -q "Log.warn" src/backend/implementation/src/main/kotlin/io/pythia/service/DraftUpdateApplier.kt
+      grep -q "BUCKET_SAMPLED_PERT" src/backend/implementation/src/main/kotlin/io/pythia/service/DraftUpdateApplier.kt
+      grep -q "BucketedEstimationItem" src/backend/implementation/src/main/kotlin/io/pythia/service/EstimationVersionService.kt
   - |
     CLAUDE.md documents the new persistence:
       grep -q "estimation_buckets" CLAUDE.md
@@ -244,18 +244,18 @@ validation:
 
 outputs:
   - created: src/backend/implementation/src/main/resources/db/migration/V10__bucket_sampled_method.sql
-  - created: src/backend/implementation/src/main/kotlin/io/github/theestimator/domain/EstimationBucket.kt
-  - created: src/backend/implementation/src/main/kotlin/io/github/theestimator/repository/EstimationBucketRepository.kt
-  - modified: src/backend/implementation/src/main/kotlin/io/github/theestimator/domain/draft/DraftEstimationNode.kt
-  - modified: src/backend/implementation/src/main/kotlin/io/github/theestimator/domain/submitted/SubmittedEstimationNode.kt
-  - modified: src/backend/implementation/src/main/kotlin/io/github/theestimator/domain/Estimation.kt
-  - modified: src/backend/implementation/src/main/kotlin/io/github/theestimator/service/DraftUpdateApplier.kt
-  - modified: src/backend/implementation/src/main/kotlin/io/github/theestimator/service/DraftVersionMapper.kt
-  - modified: src/backend/implementation/src/main/kotlin/io/github/theestimator/service/EstimationVersionService.kt
-  - modified: src/backend/implementation/src/main/kotlin/io/github/theestimator/service/DraftSnapshotMapper.kt
-  - modified: src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/dto/EstimationVersionMapper.kt
-  - modified: src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/dto/EstimationVersionDtos.kt
-  - modified: src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/dto/ProjectDtos.kt
-  - modified: src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/dto/ProjectMapper.kt
-  - modified: src/backend/implementation/src/test/kotlin/io/github/theestimator/rest/EstimationVersionResourceIT.kt
+  - created: src/backend/implementation/src/main/kotlin/io/pythia/domain/EstimationBucket.kt
+  - created: src/backend/implementation/src/main/kotlin/io/pythia/repository/EstimationBucketRepository.kt
+  - modified: src/backend/implementation/src/main/kotlin/io/pythia/domain/draft/DraftEstimationNode.kt
+  - modified: src/backend/implementation/src/main/kotlin/io/pythia/domain/submitted/SubmittedEstimationNode.kt
+  - modified: src/backend/implementation/src/main/kotlin/io/pythia/domain/Estimation.kt
+  - modified: src/backend/implementation/src/main/kotlin/io/pythia/service/DraftUpdateApplier.kt
+  - modified: src/backend/implementation/src/main/kotlin/io/pythia/service/DraftVersionMapper.kt
+  - modified: src/backend/implementation/src/main/kotlin/io/pythia/service/EstimationVersionService.kt
+  - modified: src/backend/implementation/src/main/kotlin/io/pythia/service/DraftSnapshotMapper.kt
+  - modified: src/backend/implementation/src/main/kotlin/io/pythia/rest/dto/EstimationVersionMapper.kt
+  - modified: src/backend/implementation/src/main/kotlin/io/pythia/rest/dto/EstimationVersionDtos.kt
+  - modified: src/backend/implementation/src/main/kotlin/io/pythia/rest/dto/ProjectDtos.kt
+  - modified: src/backend/implementation/src/main/kotlin/io/pythia/rest/dto/ProjectMapper.kt
+  - modified: src/backend/implementation/src/test/kotlin/io/pythia/rest/EstimationVersionResourceIT.kt
   - modified: CLAUDE.md

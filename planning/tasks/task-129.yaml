@@ -85,10 +85,10 @@ steps:
 
   - |
     Entity: add `@Column(name = "moderator_estimates", nullable = false) var moderatorEstimates: Boolean = true`
-    to `src/backend/implementation/src/main/kotlin/io/github/theestimator/domain/session/EstimationSession.kt`.
+    to `src/backend/implementation/src/main/kotlin/io/pythia/domain/session/EstimationSession.kt`.
 
   - |
-    DTOs in `src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/dto/SessionDtos.kt`:
+    DTOs in `src/backend/implementation/src/main/kotlin/io/pythia/rest/dto/SessionDtos.kt`:
       - add `val moderatorEstimates: Boolean` to `SessionDto`.
       - add `val moderatorEstimates: Boolean = true` to `CreateSessionRequest`.
 
@@ -164,7 +164,7 @@ steps:
 
   - |
     Backend tests in
-    `src/backend/implementation/src/test/kotlin/io/github/theestimator/rest/SessionResourceIT.kt`:
+    `src/backend/implementation/src/test/kotlin/io/pythia/rest/SessionResourceIT.kt`:
       - moderate-only session (`moderatorEstimates:false`): a moderator vote
         POST returns `409`.
       - finalize write-back: set the current item's notes, finalize, then
@@ -197,13 +197,13 @@ validation:
     Migration, column, and DTO field exist:
       test -f src/backend/implementation/src/main/resources/db/migration/V14__session_moderator_estimates.sql
       grep -q "moderator_estimates" src/backend/implementation/src/main/resources/db/migration/V14__session_moderator_estimates.sql
-      grep -q "moderatorEstimates" src/backend/implementation/src/main/kotlin/io/github/theestimator/domain/session/EstimationSession.kt
-      grep -q "moderatorEstimates" src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/dto/SessionDtos.kt
+      grep -q "moderatorEstimates" src/backend/implementation/src/main/kotlin/io/pythia/domain/session/EstimationSession.kt
+      grep -q "moderatorEstimates" src/backend/implementation/src/main/kotlin/io/pythia/rest/dto/SessionDtos.kt
   - |
     Service enforces moderate-only and persists notes into assumptions:
-      grep -q "moderatorEstimates" src/backend/implementation/src/main/kotlin/io/github/theestimator/service/EstimationSessionService.kt
-      grep -q "assumptions" src/backend/implementation/src/main/kotlin/io/github/theestimator/service/EstimationSessionService.kt
-      grep -q "Log\." src/backend/implementation/src/main/kotlin/io/github/theestimator/service/EstimationSessionService.kt
+      grep -q "moderatorEstimates" src/backend/implementation/src/main/kotlin/io/pythia/service/EstimationSessionService.kt
+      grep -q "assumptions" src/backend/implementation/src/main/kotlin/io/pythia/service/EstimationSessionService.kt
+      grep -q "Log\." src/backend/implementation/src/main/kotlin/io/pythia/service/EstimationSessionService.kt
   - |
     Regenerated client carries the new field:
       grep -q "moderatorEstimates" src/frontend/src/lib/api/schema.d.ts
@@ -219,8 +219,8 @@ validation:
       ! grep -q "console\." src/frontend/src/lib/session/PhaseOnePanel.svelte
   - |
     Backend tests assert moderate-only reject + notes→assumptions write-back:
-      grep -q "moderatorEstimates" src/backend/implementation/src/test/kotlin/io/github/theestimator/rest/SessionResourceIT.kt
-      grep -qi "assumptions" src/backend/implementation/src/test/kotlin/io/github/theestimator/rest/SessionResourceIT.kt
+      grep -q "moderatorEstimates" src/backend/implementation/src/test/kotlin/io/pythia/rest/SessionResourceIT.kt
+      grep -qi "assumptions" src/backend/implementation/src/test/kotlin/io/pythia/rest/SessionResourceIT.kt
   - |
     de/en i18n catalogs keep equal key sets:
       cd src/frontend && node -e "const d=require('./src/lib/i18n/de.json'),e=require('./src/lib/i18n/en.json');const f=(o,p='')=>Object.entries(o).flatMap(([k,v])=>typeof v==='object'&&v?f(v,p+k+'.'):[p+k]);const a=f(d).sort(),b=f(e).sort();if(JSON.stringify(a)!==JSON.stringify(b))throw new Error('key sets differ');console.log('ok',a.length)"
@@ -235,11 +235,11 @@ validation:
 
 outputs:
   - created: src/backend/implementation/src/main/resources/db/migration/V14__session_moderator_estimates.sql
-  - modified: src/backend/implementation/src/main/kotlin/io/github/theestimator/domain/session/EstimationSession.kt
-  - modified: src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/dto/SessionDtos.kt
-  - modified: src/backend/implementation/src/main/kotlin/io/github/theestimator/service/EstimationSessionService.kt
-  - modified: src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/SessionResource.kt
-  - modified: src/backend/implementation/src/test/kotlin/io/github/theestimator/rest/SessionResourceIT.kt
+  - modified: src/backend/implementation/src/main/kotlin/io/pythia/domain/session/EstimationSession.kt
+  - modified: src/backend/implementation/src/main/kotlin/io/pythia/rest/dto/SessionDtos.kt
+  - modified: src/backend/implementation/src/main/kotlin/io/pythia/service/EstimationSessionService.kt
+  - modified: src/backend/implementation/src/main/kotlin/io/pythia/rest/SessionResource.kt
+  - modified: src/backend/implementation/src/test/kotlin/io/pythia/rest/SessionResourceIT.kt
   - modified: src/frontend/src/lib/api/openapi.json
   - modified: src/frontend/src/lib/api/schema.d.ts
   - modified: src/frontend/src/lib/session/store.svelte.ts

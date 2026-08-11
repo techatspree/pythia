@@ -32,7 +32,7 @@ description: |
 
   All services are @ApplicationScoped, use @Transactional where appropriate.
 steps:
-  - create repository package: io.github.theestimator.repository
+  - create repository package: io.pythia.repository
   - implement UserRepository, ProjectRepository, EstimationRepository, EstimationVersionRepository, AuditLogRepository
   - create ProjectService with CRUD + archive/activate
   - create EstimationService with create + findByProject
@@ -46,9 +46,9 @@ validation:
   - app starts with dev-local profile
   - all 17 existing tests still pass
 outputs:
-  - src/backend/implementation/src/main/kotlin/io/github/theestimator/repository/*.kt
-  - src/backend/implementation/src/main/kotlin/io/github/theestimator/service/ProjectService.kt
-  - src/backend/implementation/src/main/kotlin/io/github/theestimator/service/EstimationService.kt
-  - src/backend/implementation/src/main/kotlin/io/github/theestimator/service/EstimationVersionService.kt
-  - src/backend/implementation/src/main/kotlin/io/github/theestimator/service/AuditLogService.kt
-  - src/backend/implementation/src/test/kotlin/io/github/theestimator/service/EstimationVersionServiceTest.kt
+  - src/backend/implementation/src/main/kotlin/io/pythia/repository/*.kt
+  - src/backend/implementation/src/main/kotlin/io/pythia/service/ProjectService.kt
+  - src/backend/implementation/src/main/kotlin/io/pythia/service/EstimationService.kt
+  - src/backend/implementation/src/main/kotlin/io/pythia/service/EstimationVersionService.kt
+  - src/backend/implementation/src/main/kotlin/io/pythia/service/AuditLogService.kt
+  - src/backend/implementation/src/test/kotlin/io/pythia/service/EstimationVersionServiceTest.kt

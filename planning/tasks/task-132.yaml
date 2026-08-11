@@ -207,7 +207,7 @@ steps:
   - |
     Backend test — prove the nested shape round-trips. Add a test method
     **named `bucketedLeavesSurviveInsideAGroup`** to
-    `src/backend/implementation/src/test/kotlin/io/github/theestimator/rest/EstimationVersionResourceIT.kt`
+    `src/backend/implementation/src/test/kotlin/io/pythia/rest/EstimationVersionResourceIT.kt`
     (the class that already covers task-103's BUCKETED persistence — do not
     create a new IT class): PUT a
     draft for a `BUCKET_SAMPLED_PERT` estimation whose `roots` contain a
@@ -285,8 +285,8 @@ validation:
     The backend proves a GROUP of BUCKETED leaves round-trips. Assert the
     NEW test method by name — `GROUP`/`BUCKETED` already appear in this
     class, so grepping for those alone would pass without any change:
-      grep -q "bucketedLeavesSurviveInsideAGroup" src/backend/implementation/src/test/kotlin/io/github/theestimator/rest/EstimationVersionResourceIT.kt
-      ./gradlew :backend:implementation:test --tests "io.github.theestimator.rest.EstimationVersionResourceIT"
+      grep -q "bucketedLeavesSurviveInsideAGroup" src/backend/implementation/src/test/kotlin/io/pythia/rest/EstimationVersionResourceIT.kt
+      ./gradlew :backend:implementation:test --tests "io.pythia.rest.EstimationVersionResourceIT"
   - |
     The e2e covers both views and the cross-bucket drag:
       test -f src/frontend/e2e/bucket-views.test.ts
@@ -309,5 +309,5 @@ outputs:
   - modified: src/frontend/src/lib/i18n/de.json
   - modified: src/frontend/src/lib/i18n/en.json
   - created: src/frontend/e2e/bucket-views.test.ts
-  - modified: src/backend/implementation/src/test/kotlin/io/github/theestimator/rest/EstimationVersionResourceIT.kt
+  - modified: src/backend/implementation/src/test/kotlin/io/pythia/rest/EstimationVersionResourceIT.kt
   - modified: CLAUDE.md

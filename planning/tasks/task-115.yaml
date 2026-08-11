@@ -4,7 +4,7 @@ title: Dev seed — add a bucket + sampled estimation
 depends_on: [task-103]
 description: |
   The dev-only `TestDataSeeder`
-  (`src/backend/implementation/src/main/kotlin/io/github/theestimator/testdata/TestDataSeeder.kt`,
+  (`src/backend/implementation/src/main/kotlin/io/pythia/testdata/TestDataSeeder.kt`,
   `@IfBuildProfile("dev")`, runs on `StartupEvent` when the DB is
   empty) currently seeds two estimations — "Webshop Redesign" and
   "Mobile App MVP" — BOTH created via `estimationService.create(offer,
@@ -29,14 +29,14 @@ description: |
     method = EstimationMethod.THREE_POINT_PERT)` already accepts a
     `method` argument — pass `EstimationMethod.BUCKET_SAMPLED_PERT`.
   - task-103 persistence: `EstimationBucket`
-    (`io.github.theestimator.domain.EstimationBucket`; client-assignable
+    (`io.pythia.domain.EstimationBucket`; client-assignable
     `id`, `@ManyToOne estimation`, `position: Int`, `label: String`;
     `@PrePersist` assigns a random `id` when null) is owned by the
     `Estimation` via `Estimation.buckets`
     (`@OneToMany(mappedBy="estimation", cascade=ALL, orphanRemoval=true)`,
     ordered by `position`). The bucketed leaf entity is
     `DraftBucketedItemNode`
-    (`io.github.theestimator.domain.draft`, `@DiscriminatorValue("BUCKETED")`)
+    (`io.pythia.domain.draft`, `@DiscriminatorValue("BUCKETED")`)
     with `@ManyToOne bucket` + `isSample: Boolean?`, and it REUSES the
     inherited `minEffort`/`expectedEffort`/`maxEffort` columns for a
     sample's optimistic/likely/pessimistic triple (non-samples leave
@@ -120,9 +120,9 @@ description: |
 steps:
   - |
     In `TestDataSeeder.kt`, add imports for
-    `io.github.theestimator.domain.EstimationBucket`,
-    `io.github.theestimator.domain.draft.DraftBucketedItemNode`,
-    `io.github.theestimator.method.EstimationMethod`, and `java.util.UUID`.
+    `io.pythia.domain.EstimationBucket`,
+    `io.pythia.domain.draft.DraftBucketedItemNode`,
+    `io.pythia.method.EstimationMethod`, and `java.util.UUID`.
   - |
     Add leaf/bucket builder helpers alongside `fixedLeaf` /
     `timeRelativeLeaf`:
@@ -165,14 +165,14 @@ validation:
   - |
     The seeder gains a bucket + sampled seed method and uses the
     bucket entities + method:
-      grep -q "seedDataPlatform" src/backend/implementation/src/main/kotlin/io/github/theestimator/testdata/TestDataSeeder.kt
-      grep -q "BUCKET_SAMPLED_PERT" src/backend/implementation/src/main/kotlin/io/github/theestimator/testdata/TestDataSeeder.kt
-      grep -q "DraftBucketedItemNode" src/backend/implementation/src/main/kotlin/io/github/theestimator/testdata/TestDataSeeder.kt
-      grep -q "EstimationBucket" src/backend/implementation/src/main/kotlin/io/github/theestimator/testdata/TestDataSeeder.kt
+      grep -q "seedDataPlatform" src/backend/implementation/src/main/kotlin/io/pythia/testdata/TestDataSeeder.kt
+      grep -q "BUCKET_SAMPLED_PERT" src/backend/implementation/src/main/kotlin/io/pythia/testdata/TestDataSeeder.kt
+      grep -q "DraftBucketedItemNode" src/backend/implementation/src/main/kotlin/io/pythia/testdata/TestDataSeeder.kt
+      grep -q "EstimationBucket" src/backend/implementation/src/main/kotlin/io/pythia/testdata/TestDataSeeder.kt
   - |
     The new seed is wired into startup and logs:
-      grep -q "seedDataPlatform()" src/backend/implementation/src/main/kotlin/io/github/theestimator/testdata/TestDataSeeder.kt
-      grep -q "Log.info" src/backend/implementation/src/main/kotlin/io/github/theestimator/testdata/TestDataSeeder.kt
+      grep -q "seedDataPlatform()" src/backend/implementation/src/main/kotlin/io/pythia/testdata/TestDataSeeder.kt
+      grep -q "Log.info" src/backend/implementation/src/main/kotlin/io/pythia/testdata/TestDataSeeder.kt
   - |
     Backend compiles and its tests pass:
       ./gradlew :backend:implementation:test
@@ -185,4 +185,4 @@ validation:
     bucket's sample mean (S→2.0, M→5.17, L→8.33).
 
 outputs:
-  - modified: src/backend/implementation/src/main/kotlin/io/github/theestimator/testdata/TestDataSeeder.kt
+  - modified: src/backend/implementation/src/main/kotlin/io/pythia/testdata/TestDataSeeder.kt

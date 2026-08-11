@@ -82,8 +82,8 @@ steps:
   - |
     Read the current DTOs and the applier (note the real file — the
     node DTOs are flat data classes in `EstimationVersionDtos.kt`):
-      src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/dto/EstimationVersionDtos.kt (EstimationNodeDto, EstimationNodeUpdateDto — both flat, `type: String`)
-      src/backend/implementation/src/main/kotlin/io/github/theestimator/service/DraftUpdateApplier.kt (branches on `when (dto.type)`)
+      src/backend/implementation/src/main/kotlin/io/pythia/rest/dto/EstimationVersionDtos.kt (EstimationNodeDto, EstimationNodeUpdateDto — both flat, `type: String`)
+      src/backend/implementation/src/main/kotlin/io/pythia/service/DraftUpdateApplier.kt (branches on `when (dto.type)`)
   - |
     In `rest/dto/EstimationVersionDtos.kt`, extend BOTH
     `EstimationNodeDto` and `EstimationNodeUpdateDto`:
@@ -135,14 +135,14 @@ steps:
 validation:
   - |
     The flat leaf DTOs reserve BUCKETED (enumeration + fields):
-      grep -q "BUCKETED" src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/dto/EstimationVersionDtos.kt
-      grep -q "bucketId" src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/dto/EstimationVersionDtos.kt
-      grep -q "isSample" src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/dto/EstimationVersionDtos.kt
+      grep -q "BUCKETED" src/backend/implementation/src/main/kotlin/io/pythia/rest/dto/EstimationVersionDtos.kt
+      grep -q "bucketId" src/backend/implementation/src/main/kotlin/io/pythia/rest/dto/EstimationVersionDtos.kt
+      grep -q "isSample" src/backend/implementation/src/main/kotlin/io/pythia/rest/dto/EstimationVersionDtos.kt
   - |
     DraftUpdateApplier rejects BUCKETED with 400 and logs WARN:
-      grep -q "BUCKETED" src/backend/implementation/src/main/kotlin/io/github/theestimator/service/DraftUpdateApplier.kt
-      grep -q "BadRequestException\|Response.Status.BAD_REQUEST" src/backend/implementation/src/main/kotlin/io/github/theestimator/service/DraftUpdateApplier.kt
-      grep -q "Log.warn" src/backend/implementation/src/main/kotlin/io/github/theestimator/service/DraftUpdateApplier.kt
+      grep -q "BUCKETED" src/backend/implementation/src/main/kotlin/io/pythia/service/DraftUpdateApplier.kt
+      grep -q "BadRequestException\|Response.Status.BAD_REQUEST" src/backend/implementation/src/main/kotlin/io/pythia/service/DraftUpdateApplier.kt
+      grep -q "Log.warn" src/backend/implementation/src/main/kotlin/io/pythia/service/DraftUpdateApplier.kt
   - |
     Regenerated frontend schema includes the reserved value:
       grep -q "BUCKETED" src/frontend/src/lib/api/schema.d.ts
@@ -155,9 +155,9 @@ validation:
       ./gradlew build
 
 outputs:
-  - modified: src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/dto/EstimationVersionDtos.kt
-  - modified: src/backend/implementation/src/main/kotlin/io/github/theestimator/service/DraftUpdateApplier.kt
-  - modified: src/backend/implementation/src/test/kotlin/io/github/theestimator/rest/EstimationVersionResourceIT.kt
+  - modified: src/backend/implementation/src/main/kotlin/io/pythia/rest/dto/EstimationVersionDtos.kt
+  - modified: src/backend/implementation/src/main/kotlin/io/pythia/service/DraftUpdateApplier.kt
+  - modified: src/backend/implementation/src/test/kotlin/io/pythia/rest/EstimationVersionResourceIT.kt
   - modified: src/frontend/src/lib/api/openapi.json
   - modified: src/frontend/src/lib/api/schema.d.ts
   - modified: CLAUDE.md

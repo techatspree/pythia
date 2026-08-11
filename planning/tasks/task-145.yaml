@@ -32,7 +32,7 @@ description: |
   metadata only. The canonical 201-line licence text was taken verbatim from
   a pristine copy already vendored in `node_modules`, not retyped.
 
-  **Namespace: `io.github.theestimator`.** The former package prefix was the
+  **Namespace: `io.pythia`.** The former package prefix was the
   originating company's reverse-DNS and therefore counted as corporate
   identity. The replacement is a flat three-segment prefix, so
   `…/model/EstimationNode.kt` kept its position below the prefix and no
@@ -115,7 +115,7 @@ steps:
        `"version"`. Keep `"private": true`.
 
     b) Root `build.gradle.kts` — in the existing `allprojects { … }` block,
-       set `group = "io.github.theestimator"` and stamp the licence onto
+       set `group = "io.pythia"` and stamp the licence onto
        every jar manifest:
 
          tasks.withType<Jar>().configureEach {
@@ -142,7 +142,7 @@ steps:
 
     There are ten (`src/{main,test}/kotlin` in five projects);
     `src/backend/end2end` has none. For each, `mkdir -p …/kotlin/io/github`,
-    `git mv` the prefix directory to `…/kotlin/io/github/theestimator`, then
+    `git mv` the prefix directory to `…/kotlin/io/pythia`, then
     remove the emptied parent.
 
     NOTE: iterate with `while IFS= read -r`, not `for d in $DIRS` — the shell
@@ -284,21 +284,21 @@ validation:
     grep -q '"license": "Apache-2.0"' src/frontend/package.json
   - |
     grep -q 'SPDX-License-Identifier' build.gradle.kts \
-      && grep -q 'group = "io.github.theestimator"' build.gradle.kts
+      && grep -q 'group = "io.pythia"' build.gradle.kts
   - |
     grep -q "Apache License 2.0" README.md
   - |
-    test -d src/domain/src/main/kotlin/io/github/theestimator \
-      && test -d src/domain/core/src/main/kotlin/io/github/theestimator \
-      && test -d src/domain/method-threepoint/src/main/kotlin/io/github/theestimator \
-      && test -d src/domain/method-bucketsampled/src/main/kotlin/io/github/theestimator \
-      && test -d src/backend/implementation/src/main/kotlin/io/github/theestimator \
-      && test -d src/backend/implementation/src/test/kotlin/io/github/theestimator
+    test -d src/domain/src/main/kotlin/io/pythia \
+      && test -d src/domain/core/src/main/kotlin/io/pythia \
+      && test -d src/domain/method-threepoint/src/main/kotlin/io/pythia \
+      && test -d src/domain/method-bucketsampled/src/main/kotlin/io/pythia \
+      && test -d src/backend/implementation/src/main/kotlin/io/pythia \
+      && test -d src/backend/implementation/src/test/kotlin/io/pythia
   - |
-    [ "$(find src -type d -path '*/kotlin/io/github/theestimator' \
+    [ "$(find src -type d -path '*/kotlin/io/pythia' \
         -not -path '*/build/*' -not -path '*/target/*' | wc -l | tr -d ' ')" = "10" ]
   - |
-    grep -q 'quarkus.log.category."io.github.theestimator"' \
+    grep -q 'quarkus.log.category."io.pythia"' \
       src/backend/implementation/src/main/resources/application.properties \
       && grep -q 'quarkus.container-image.group=theestimator' \
         src/backend/implementation/gradle.properties
@@ -370,5 +370,5 @@ outputs:
   - deleted: planning/tasks/task-037.yaml
   - deleted: planning/tasks/task-078.yaml
   - deleted: planning/inputdata/ (the corporate design manual + two proprietary spreadsheets)
-  - moved: the ten src/{main,test}/kotlin package directories -> io/github/theestimator
+  - moved: the ten src/{main,test}/kotlin package directories -> io/pythia
   - rewritten: git history (all 214 commits — blobs, paths, commit messages and author/committer identities)

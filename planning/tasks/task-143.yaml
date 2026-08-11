@@ -7,7 +7,7 @@ description: |
   method its own Gradle module, instead of relying on the convention that
   CLAUDE.md states today ("One Kotlin package per method — cross-package
   references between methods are forbidden"). Nothing enforces that rule now;
-  a stray `import io.github.theestimator.method.threepoint.…` from the bucket
+  a stray `import io.pythia.method.threepoint.…` from the bucket
   package compiles fine. After this task it does not.
 
   This is an intermediate step **before task-106**: that task adds a second
@@ -63,7 +63,7 @@ description: |
 
   **The aggregator MUST depend on all three children with `api(...)`, never
   `implementation(...)`.** `:backend:implementation` declares
-  `implementation(project(":domain"))` and imports `io.github.theestimator.model.*`
+  `implementation(project(":domain"))` and imports `io.pythia.model.*`
   in ~13 files; `implementation` dependencies do not reach the consumer's
   compile classpath, so an `implementation(project(":domain:core"))` in the
   aggregator would break the backend build with a wall of unresolved-reference
@@ -71,7 +71,7 @@ description: |
   throughout, `:backend:implementation` needs **no** build-file change at all.
 
   Package names do **not** change — only which Gradle project compiles them.
-  `io.github.theestimator.method.threepoint` simply now lives in
+  `io.pythia.method.threepoint` simply now lives in
   `src/domain/method-threepoint/src/main/kotlin/…`.
 
   ## The four inversions (this is the actual work)
@@ -89,8 +89,8 @@ description: |
     frontend history panel read them.
   - **Factories (2).** Keep `DomainFactory.kt` with the aggregator `:domain`
     (it stays at its current path — core's sources move out from under it), and
-    **change its package from `io.github.theestimator.model` to
-    `io.github.theestimator`**. Otherwise that package is split across two Gradle
+    **change its package from `io.pythia.model` to
+    `io.pythia`**. Otherwise that package is split across two Gradle
     modules, and any `internal` core declaration it touches becomes invisible
     across the module boundary. The rename is free for consumers: the generated
     `domain.d.mts` exports everything **flat at top level**, not nested by
@@ -102,7 +102,7 @@ description: |
     `adapter.ts`, which annotates `buildNode(node): EstimationNode`).
   - **Registration (1, 5).** `EstimationMethodRegistry` stays in core, but
     `installStandardMethods()` moves to the aggregator (e.g.
-    `io.github.theestimator.StandardMethods.installAll()`) because only the
+    `io.pythia.StandardMethods.installAll()`) because only the
     aggregator can see the concrete modules. **This removes the registry's
     self-population `init {}`, which is a behavioural change and the main risk
     in this task** — today `require(...)` works anywhere with zero setup.
@@ -171,8 +171,8 @@ steps:
   - |
     Confirm the starting assumption — no method package imports the other, so
     only the core→method direction needs inverting:
-      grep -rn "method.bucketsampled" src/domain/src/main/kotlin/io/github/theestimator/method/threepoint/
-      grep -rn "method.threepoint" src/domain/src/main/kotlin/io/github/theestimator/method/bucketsampled/
+      grep -rn "method.bucketsampled" src/domain/src/main/kotlin/io/pythia/method/threepoint/
+      grep -rn "method.threepoint" src/domain/src/main/kotlin/io/pythia/method/bucketsampled/
     Both must return nothing. If either hits, fix that cross-reference first.
   - |
     Invert method detection: add `abstract val method: EstimationMethod` to
@@ -196,7 +196,7 @@ steps:
     `kotlin.srcDir("src/test/kotlin")` mapping, same kotlinx-datetime +
     kotlin-logging deps, same detekt block, and — on every module, not just
     core — the `kotlin("plugin.allopen")` plugin with
-    `allOpen { annotation("io.github.theestimator.model.DomainEntity") }`. All
+    `allOpen { annotation("io.pythia.model.DomainEntity") }`. All
     three concrete leaves (`FixedEstimationItem`, `TimeRelativeEstimationItem`,
     `BucketedEstimationItem`) carry `@DomainEntity`, so omitting allOpen in a
     method module silently makes them final.
@@ -225,7 +225,7 @@ steps:
     ensure `StandardMethods.installAll()` has run (idempotent).
   - |
     Add the backend bootstrap: a Quarkus `@Observes StartupEvent` bean at
-    `src/backend/implementation/src/main/kotlin/io/github/theestimator/method/MethodRegistryBootstrap.kt`
+    `src/backend/implementation/src/main/kotlin/io/pythia/method/MethodRegistryBootstrap.kt`
     calling `StandardMethods.installAll()`, with `Log.info` naming the
     installed methods (mirrors `AuthProviderGuard`). Point
     `:backend:implementation` at the aggregator `:domain` as today — it should
@@ -287,15 +287,15 @@ validation:
       ./gradlew projects | grep -q "method-bucketsampled"
   - |
     Sources moved with package names intact:
-      test -f src/domain/method-threepoint/src/main/kotlin/io/github/theestimator/method/threepoint/ThreePointMethodModule.kt
-      test -f src/domain/method-bucketsampled/src/main/kotlin/io/github/theestimator/method/bucketsampled/BucketMethodModule.kt
-      test -f src/domain/core/src/main/kotlin/io/github/theestimator/method/EstimationMethodRegistry.kt
-      ! test -d src/domain/src/main/kotlin/io/github/theestimator/method/threepoint
+      test -f src/domain/method-threepoint/src/main/kotlin/io/pythia/method/threepoint/ThreePointMethodModule.kt
+      test -f src/domain/method-bucketsampled/src/main/kotlin/io/pythia/method/bucketsampled/BucketMethodModule.kt
+      test -f src/domain/core/src/main/kotlin/io/pythia/method/EstimationMethodRegistry.kt
+      ! test -d src/domain/src/main/kotlin/io/pythia/method/threepoint
   - |
     THE POINT OF THE TASK — core no longer reaches into any method package,
     and the methods do not reach into each other:
-      ! grep -rq "io.github.theestimator.method.threepoint" src/domain/core/src/main/kotlin/
-      ! grep -rq "io.github.theestimator.method.bucketsampled" src/domain/core/src/main/kotlin/
+      ! grep -rq "io.pythia.method.threepoint" src/domain/core/src/main/kotlin/
+      ! grep -rq "io.pythia.method.bucketsampled" src/domain/core/src/main/kotlin/
       ! grep -rq "method.bucketsampled" src/domain/method-threepoint/src/main/kotlin/
       ! grep -rq "method.threepoint" src/domain/method-bucketsampled/src/main/kotlin/
   - |
@@ -309,25 +309,25 @@ validation:
     the build fails, then remove it. The probe file MUST be deleted even if it
     unexpectedly compiles, or it gets committed:
       P=src/domain/method-bucketsampled/src/main/kotlin/CycleGuardProbe.kt
-      printf 'package io.github.theestimator.method.bucketsampled\nimport io.github.theestimator.method.threepoint.ThreePointMethodModule\nprivate val guard = ThreePointMethodModule()\n' > "$P"
+      printf 'package io.pythia.method.bucketsampled\nimport io.pythia.method.threepoint.ThreePointMethodModule\nprivate val guard = ThreePointMethodModule()\n' > "$P"
       ./gradlew :domain:method-bucketsampled:compileKotlinJvm -q; RC=$?
       rm -f "$P"
       test "$RC" -ne 0
       test ! -f "$P"
   - |
     Detection and diff labels were inverted onto the leaf, so core is clean:
-      grep -q "abstract val method" src/domain/core/src/main/kotlin/io/github/theestimator/model/EstimationItem.kt
-      grep -q "nodeTypeLabel" src/domain/core/src/main/kotlin/io/github/theestimator/model/EstimationItem.kt
-      ! grep -q "BucketedEstimationItem" src/domain/core/src/main/kotlin/io/github/theestimator/model/EstimationVersion.kt
-      ! grep -q "BucketedEstimationItem" src/domain/core/src/main/kotlin/io/github/theestimator/model/mutation/DiffSummary.kt
+      grep -q "abstract val method" src/domain/core/src/main/kotlin/io/pythia/model/EstimationItem.kt
+      grep -q "nodeTypeLabel" src/domain/core/src/main/kotlin/io/pythia/model/EstimationItem.kt
+      ! grep -q "BucketedEstimationItem" src/domain/core/src/main/kotlin/io/pythia/model/EstimationVersion.kt
+      ! grep -q "BucketedEstimationItem" src/domain/core/src/main/kotlin/io/pythia/model/mutation/DiffSummary.kt
   - |
     Registration moved to the aggregator and the backend bootstraps it
     (the registry no longer self-populates):
-      ! grep -q "installStandardMethods" src/domain/core/src/main/kotlin/io/github/theestimator/method/EstimationMethodRegistry.kt
+      ! grep -q "installStandardMethods" src/domain/core/src/main/kotlin/io/pythia/method/EstimationMethodRegistry.kt
       grep -rq "installAll" src/domain/src/main/kotlin/
-      test -f src/backend/implementation/src/main/kotlin/io/github/theestimator/method/MethodRegistryBootstrap.kt
-      grep -q "StartupEvent" src/backend/implementation/src/main/kotlin/io/github/theestimator/method/MethodRegistryBootstrap.kt
-      grep -q "Log.info" src/backend/implementation/src/main/kotlin/io/github/theestimator/method/MethodRegistryBootstrap.kt
+      test -f src/backend/implementation/src/main/kotlin/io/pythia/method/MethodRegistryBootstrap.kt
+      grep -q "StartupEvent" src/backend/implementation/src/main/kotlin/io/pythia/method/MethodRegistryBootstrap.kt
+      grep -q "Log.info" src/backend/implementation/src/main/kotlin/io/pythia/method/MethodRegistryBootstrap.kt
   - |
     The frontend-facing JS bundle is unchanged in name and surface, and the
     frontend itself was not edited. Grepping the factory NAMES alone is not
@@ -361,45 +361,45 @@ outputs:
   # plus their tests, into the three new module directories below. Package
   # names are unchanged, so those moves are not enumerated individually; the
   # representative touched files are listed instead.
-  - moved: src/domain/src/main/kotlin/io/github/theestimator/{model,i18n,service}/** -> src/domain/core/src/main/kotlin/io/github/theestimator/{model,i18n,service}/**
-  - moved: src/domain/src/main/kotlin/io/github/theestimator/method/*.kt (SPI + registry) -> src/domain/core/src/main/kotlin/io/github/theestimator/method/
-  - moved: src/domain/src/main/kotlin/io/github/theestimator/method/threepoint/** -> src/domain/method-threepoint/src/main/kotlin/io/github/theestimator/method/threepoint/
-  - moved: src/domain/src/main/kotlin/io/github/theestimator/method/bucketsampled/** -> src/domain/method-bucketsampled/src/main/kotlin/io/github/theestimator/method/bucketsampled/
+  - moved: src/domain/src/main/kotlin/io/pythia/{model,i18n,service}/** -> src/domain/core/src/main/kotlin/io/pythia/{model,i18n,service}/**
+  - moved: src/domain/src/main/kotlin/io/pythia/method/*.kt (SPI + registry) -> src/domain/core/src/main/kotlin/io/pythia/method/
+  - moved: src/domain/src/main/kotlin/io/pythia/method/threepoint/** -> src/domain/method-threepoint/src/main/kotlin/io/pythia/method/threepoint/
+  - moved: src/domain/src/main/kotlin/io/pythia/method/bucketsampled/** -> src/domain/method-bucketsampled/src/main/kotlin/io/pythia/method/bucketsampled/
   - moved: src/domain/src/test/kotlin/** -> the matching module's src/test/kotlin/**
   - created: src/domain/core/build.gradle.kts
   - created: src/domain/method-threepoint/build.gradle.kts
   - created: src/domain/method-bucketsampled/build.gradle.kts
-  - created: src/domain/src/main/kotlin/io/github/theestimator/StandardMethods.kt
-  - created: src/backend/implementation/src/main/kotlin/io/github/theestimator/method/MethodRegistryBootstrap.kt
-  - created: src/domain/core/src/main/kotlin/io/github/theestimator/model/LeafDiffField.kt
+  - created: src/domain/src/main/kotlin/io/pythia/StandardMethods.kt
+  - created: src/backend/implementation/src/main/kotlin/io/pythia/method/MethodRegistryBootstrap.kt
+  - created: src/domain/core/src/main/kotlin/io/pythia/model/LeafDiffField.kt
   - modified: settings.gradle.kts
   - modified: build.gradle.kts
   # Kotlin/JS granularity=whole-program — without it the split emits one .mjs
   # per Gradle module and the frontend bundle breaks (see the KMP notes above).
   - modified: gradle.properties
   - modified: src/domain/build.gradle.kts
-  - modified: src/domain/src/main/kotlin/io/github/theestimator/DomainFactory.kt
+  - modified: src/domain/src/main/kotlin/io/pythia/DomainFactory.kt
   # newId() and EstimationMethodRegistry.clear() had to go from `internal` to
   # public: `internal` is module-scoped, and their users now sit in siblings.
-  - modified: src/domain/core/src/main/kotlin/io/github/theestimator/model/DomainId.kt
+  - modified: src/domain/core/src/main/kotlin/io/pythia/model/DomainId.kt
   # Plain JUnit tests, so the StartupEvent bootstrap never fires — they install
   # the standard methods explicitly.
-  - modified: src/backend/implementation/src/test/kotlin/io/github/theestimator/service/CsvExporterTreeTest.kt
-  - modified: src/backend/implementation/src/test/kotlin/io/github/theestimator/service/ExcelExporterTreeTest.kt
-  - modified: src/backend/implementation/src/test/kotlin/io/github/theestimator/service/ExcelImporterTreeTest.kt
+  - modified: src/backend/implementation/src/test/kotlin/io/pythia/service/CsvExporterTreeTest.kt
+  - modified: src/backend/implementation/src/test/kotlin/io/pythia/service/ExcelExporterTreeTest.kt
+  - modified: src/backend/implementation/src/test/kotlin/io/pythia/service/ExcelImporterTreeTest.kt
   # Aggregator-suite tests that call calculate() and relied on self-population.
-  - modified: src/domain/src/test/kotlin/io/github/theestimator/model/EstimationCalculatorInvariantsTest.kt
-  - modified: src/domain/src/test/kotlin/io/github/theestimator/model/EstimationVersionTreeTest.kt
-  - modified: src/domain/src/test/kotlin/io/github/theestimator/model/EstimationTotalsTest.kt
-  - modified: src/domain/core/src/main/kotlin/io/github/theestimator/model/EstimationItem.kt
-  - modified: src/domain/core/src/main/kotlin/io/github/theestimator/model/EstimationVersion.kt
-  - modified: src/domain/core/src/main/kotlin/io/github/theestimator/model/mutation/DiffSummary.kt
-  - modified: src/domain/core/src/main/kotlin/io/github/theestimator/method/EstimationMethodRegistry.kt
-  - modified: src/domain/method-threepoint/src/main/kotlin/io/github/theestimator/method/threepoint/FixedEstimationItem.kt
-  - modified: src/domain/method-threepoint/src/main/kotlin/io/github/theestimator/method/threepoint/TimeRelativeEstimationItem.kt
-  - modified: src/domain/method-bucketsampled/src/main/kotlin/io/github/theestimator/method/bucketsampled/BucketedEstimationItem.kt
-  - modified: src/domain/method-threepoint/src/test/kotlin/io/github/theestimator/method/threepoint/ThreePointMethodModuleTest.kt
-  - modified: src/domain/method-threepoint/src/test/kotlin/io/github/theestimator/method/threepoint/ThreePointSessionSupportTest.kt
-  - modified: src/domain/method-bucketsampled/src/test/kotlin/io/github/theestimator/method/bucketsampled/BucketMethodModuleTest.kt
-  - modified: src/domain/core/src/test/kotlin/io/github/theestimator/method/EstimationMethodRegistryTest.kt
+  - modified: src/domain/src/test/kotlin/io/pythia/model/EstimationCalculatorInvariantsTest.kt
+  - modified: src/domain/src/test/kotlin/io/pythia/model/EstimationVersionTreeTest.kt
+  - modified: src/domain/src/test/kotlin/io/pythia/model/EstimationTotalsTest.kt
+  - modified: src/domain/core/src/main/kotlin/io/pythia/model/EstimationItem.kt
+  - modified: src/domain/core/src/main/kotlin/io/pythia/model/EstimationVersion.kt
+  - modified: src/domain/core/src/main/kotlin/io/pythia/model/mutation/DiffSummary.kt
+  - modified: src/domain/core/src/main/kotlin/io/pythia/method/EstimationMethodRegistry.kt
+  - modified: src/domain/method-threepoint/src/main/kotlin/io/pythia/method/threepoint/FixedEstimationItem.kt
+  - modified: src/domain/method-threepoint/src/main/kotlin/io/pythia/method/threepoint/TimeRelativeEstimationItem.kt
+  - modified: src/domain/method-bucketsampled/src/main/kotlin/io/pythia/method/bucketsampled/BucketedEstimationItem.kt
+  - modified: src/domain/method-threepoint/src/test/kotlin/io/pythia/method/threepoint/ThreePointMethodModuleTest.kt
+  - modified: src/domain/method-threepoint/src/test/kotlin/io/pythia/method/threepoint/ThreePointSessionSupportTest.kt
+  - modified: src/domain/method-bucketsampled/src/test/kotlin/io/pythia/method/bucketsampled/BucketMethodModuleTest.kt
+  - modified: src/domain/core/src/test/kotlin/io/pythia/method/EstimationMethodRegistryTest.kt
   - modified: CLAUDE.md

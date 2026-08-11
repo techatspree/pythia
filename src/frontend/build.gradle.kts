@@ -185,7 +185,7 @@ tasks.register<Exec>("dockerBuildImage") {
         "VITE_ENTRA_REDIRECT_URI"
     )
     val viteVars = viteVarNames.associateWith { providers.environmentVariable(it) }
-    val imageTag = "theestimator/estimation-frontend:${project.version}"
+    val imageTag = "pythia/pythia-frontend:${project.version}"
     doFirst {
         val buildArgs = viteVars.flatMap { (name, provider) ->
             val value = provider.getOrElse("")

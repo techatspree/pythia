@@ -68,10 +68,10 @@ validation:
   - mvn clean install succeeds
 
 outputs:
-  - src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/ProjectResource.kt
-  - src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/dto/ProjectDtos.kt
-  - src/backend/implementation/src/main/kotlin/io/github/theestimator/rest/dto/ProjectMapper.kt
-  - src/backend/implementation/src/test/kotlin/io/github/theestimator/rest/ProjectResourceIT.kt
+  - src/backend/implementation/src/main/kotlin/io/pythia/rest/ProjectResource.kt
+  - src/backend/implementation/src/main/kotlin/io/pythia/rest/dto/ProjectDtos.kt
+  - src/backend/implementation/src/main/kotlin/io/pythia/rest/dto/ProjectMapper.kt
+  - src/backend/implementation/src/test/kotlin/io/pythia/rest/ProjectResourceIT.kt
   - src/backend/implementation/src/main/resources/import.sql (dev-local test data)
   - src/frontend/src/routes/projects/+page.svelte
   - src/frontend/src/routes/projects/[id]/+page.svelte
