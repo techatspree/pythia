@@ -39,7 +39,7 @@
 		{#if open}
 			<div
 				data-testid="conflict-drawer"
-				class="absolute left-0 z-20 mt-1 w-72 rounded-md border border-gray-200 bg-white p-3 shadow-lg"
+				class="absolute left-0 z-20 mt-1 w-72 rounded-lg border border-gray-200 bg-white p-3 shadow-lg"
 			>
 				<p class="mb-2 text-xs text-gray-600">
 					{$_('session.conflict.explain', { values: { bucket: assignment?.bucketId ?? '' } })}

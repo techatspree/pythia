@@ -105,7 +105,10 @@ session channel" note in `CLAUDE.md` (task-065) for the server-side detail.
 
 - Route group `src/frontend/src/routes/sessions/`. Since task-141 it has NO
   chrome of its own — the shared `AppHeader` renders on `/sessions` like on
-  every other route, and the group layout is only the room background wrapper.
+  every other route — and since task-148 no background of its own either: the
+  group layout is a bare pass-through and the session pages use the same white
+  surface, full-width `p-6` wrapper and bordered-card idiom (brand-green header
+  strip + `p-4` body) as the project and estimation pages.
 - `sessions/+page.svelte` — moderator setup (pick project → offer, choose leaf
   items, name, create). It can be launched **directly from the active offer**:
   the estimation detail page's "Start estimation session" button links here with

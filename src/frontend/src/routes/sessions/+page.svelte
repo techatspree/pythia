@@ -174,32 +174,41 @@
 	}
 </script>
 
-<div class="p-6 max-w-2xl mx-auto">
+<div class="p-6">
 	<h1 class="text-2xl font-bold mb-4">{$_('session.setup.title')}</h1>
 
 	<ErrorBanner message={bannerMessage} ondismiss={() => (bannerMessage = null)} />
 
-	<div class="mb-6">
-		<h2 class="text-lg font-semibold mb-2">{$_('session.setup.openSessions')}</h2>
-		{#if openSessions.length > 0}
-			<ul class="space-y-2">
-				{#each openSessions as sess (sess.id)}
-					<li class="flex items-center gap-3 border rounded px-3 py-2 text-sm">
-						<span class="font-medium">{sess.title}</span>
-						<span class="text-xs text-gray-400">{$_(`session.status.${sess.status}`)}</span>
-						<a
-							href={resolve('/sessions/[id]', { id: sess.id })}
-							class="ml-auto text-brand-green hover:underline">{$_('session.setup.join')}</a
-						>
-					</li>
-				{/each}
-			</ul>
-		{:else}
-			<p class="text-sm text-gray-500">{$_('session.setup.noOpenSessions')}</p>
-		{/if}
+	<div class="border rounded-lg overflow-hidden mb-4 max-w-3xl">
+		<div
+			class="px-4 py-2 bg-brand-green/10 text-brand-green text-xs font-semibold uppercase tracking-wide"
+		>
+			{$_('session.setup.openSessions')}
+		</div>
+		<div class="p-4">
+			{#if openSessions.length > 0}
+				<ul class="space-y-2">
+					{#each openSessions as sess (sess.id)}
+						<li class="flex items-center gap-3 border rounded px-3 py-2 text-sm">
+							<span class="font-medium">{sess.title}</span>
+							<span class="text-xs text-gray-400">{$_(`session.status.${sess.status}`)}</span>
+							<a
+								href={resolve('/sessions/[id]', { id: sess.id })}
+								class="ml-auto text-brand-green hover:underline">{$_('session.setup.join')}</a
+							>
+						</li>
+					{/each}
+				</ul>
+			{:else}
+				<p class="text-sm text-gray-500">{$_('session.setup.noOpenSessions')}</p>
+			{/if}
+		</div>
 	</div>
 
-	<div class="mb-4">
+	<!-- The setup form is a single narrow column by nature: the page stays
+	     full width like every other route, the form constrains itself. -->
+	<div class="max-w-2xl">
+		<div class="mb-4">
 		<label class="block text-sm font-medium mb-1" for="project">{$_('session.setup.project')}</label>
 		<select
 			id="project"
@@ -287,22 +296,29 @@
 	{:else if estimationId && !noDraft}
 		<p class="text-sm text-gray-500 mb-4">{$_('session.setup.noItems')}</p>
 	{/if}
+	</div>
 
 	{#if existing.length > 0}
-		<div class="mt-8">
-			<h2 class="text-lg font-semibold mb-2">{$_('session.setup.existing')}</h2>
-			<ul class="space-y-2">
-				{#each existing as sess (sess.id)}
-					<li class="flex items-center gap-3 border rounded px-3 py-2 text-sm">
-						<span class="font-medium">{sess.title}</span>
-						<span class="text-xs text-gray-400">{$_(`session.status.${sess.status}`)}</span>
-						<a
-							href={resolve('/sessions/[id]', { id: sess.id })}
-							class="ml-auto text-brand-green hover:underline">{$_('session.setup.join')}</a
-						>
-					</li>
-				{/each}
-			</ul>
+		<div class="border rounded-lg overflow-hidden mt-8 max-w-3xl">
+			<div
+				class="px-4 py-2 bg-brand-green/10 text-brand-green text-xs font-semibold uppercase tracking-wide"
+			>
+				{$_('session.setup.existing')}
+			</div>
+			<div class="p-4">
+				<ul class="space-y-2">
+					{#each existing as sess (sess.id)}
+						<li class="flex items-center gap-3 border rounded px-3 py-2 text-sm">
+							<span class="font-medium">{sess.title}</span>
+							<span class="text-xs text-gray-400">{$_(`session.status.${sess.status}`)}</span>
+							<a
+								href={resolve('/sessions/[id]', { id: sess.id })}
+								class="ml-auto text-brand-green hover:underline">{$_('session.setup.join')}</a
+							>
+						</li>
+					{/each}
+				</ul>
+			</div>
 		</div>
 	{/if}
 </div>

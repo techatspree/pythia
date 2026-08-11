@@ -108,6 +108,18 @@ steps:
     session page past the fold and leaves a permanent scrollbar over dead
     space once the global header sits above it.
 
+    **Two landmines here, both already paid for once — do not re-detonate:**
+
+    - Do NOT make the root `<main>` (`src/frontend/src/routes/+layout.svelte`,
+      ~line 86) a flex container so a session wrapper can `flex-1`. That turns
+      EVERY page's root element into a flex item, whose automatic minimum size
+      stops the TreeTable's horizontal scroll wrapper from overflowing.
+      `e2e/treetable-responsive.test.ts` catches it. `h-full` does not resolve
+      there either.
+    - Do not chase full-viewport height at all. The grey ending with the
+      content was the accepted outcome; with the grey gone there is nothing
+      left to stretch.
+
   - |
     Make both session routes full-width, matching every other content route:
 
@@ -146,8 +158,10 @@ steps:
     Normalise the section headings. Any `<h2>` that titles a card becomes the
     header-strip text from the previous step. Any remaining standalone `<h2>`
     uses the app default `text-lg font-semibold mb-4`. Replace the lone
-    `text-xl font-bold` heading with that same class. The page `<h1>` in each
-    route stays `text-2xl font-bold`, matching `projects/+page.svelte`.
+    `text-xl font-bold` heading — it is in
+    `src/frontend/src/lib/session/SessionSummary.svelte` — with that same
+    class. The page `<h1>` in each route stays `text-2xl font-bold`, matching
+    `projects/+page.svelte`.
 
     Do not leave a bare
     `text-xs font-semibold uppercase tracking-wide text-gray-500` anywhere in
@@ -178,12 +192,25 @@ steps:
     text is asserted). Diff the before/after id sets rather than eyeballing.
 
   - |
-    Update `src/frontend/CLAUDE.md`. Its "Frontend session UI" material
-    currently documents `sessions/+layout.svelte` as "only the room background
-    wrapper (`bg-gray-50`, deliberately WITHOUT `min-h-screen`)". Rewrite that
-    to describe the new state: the session pages use the same full-width `p-6`
-    wrapper, white background and shared card idiom as every other route, and
-    the `min-h-screen` warning still stands for whatever the layout becomes.
+    Update the documentation. The session-layout invariant is NOT in any
+    `CLAUDE.md` — `src/frontend/CLAUDE.md` has no session section at all. It
+    lives in exactly two places, both of which go stale with this change:
+
+      - `.claude/skills/estimation-sessions/SKILL.md` (~line 48) — the long
+        sentence describing `sessions/+layout.svelte` as "**only** the room
+        background wrapper (`bg-gray-50`, deliberately WITHOUT `min-h-screen`
+        … the grey therefore ends with the content)".
+      - `docs/estimation-sessions.md` (~line 108) — "the group layout is only
+        the room background wrapper."
+
+    Rewrite both to describe the new state: the session pages use the same
+    full-width `p-6` wrapper, white background and shared bordered-card idiom
+    as every other route, so the group layout no longer paints a background.
+
+    **Keep the two landmine warnings** in the SKILL.md passage — the
+    `min-h-screen` prohibition and the root-`<main>`-must-not-be-flex
+    prohibition (with its `e2e/treetable-responsive.test.ts` reference). They
+    describe traps that still exist; only the `bg-gray-50` fact changes.
 
   - |
     Run the frontend gate:
@@ -214,7 +241,7 @@ validation:
   - |
     ! grep -rq 'border rounded-lg p-4 bg-white' src/frontend/src/routes/sessions src/frontend/src/lib/session
   - |
-    grep -rq 'bg-brand-green/10' src/frontend/src/routes/sessions
+    grep -rq 'bg-brand-green/10' src/frontend/src/routes/sessions src/frontend/src/lib/session
   - |
     ! grep -rq 'text-xs font-semibold uppercase tracking-wide text-gray-500' \
         src/frontend/src/routes/sessions src/frontend/src/lib/session
@@ -222,7 +249,7 @@ validation:
     ! grep -rq 'text-xl font-bold' src/frontend/src/routes/sessions src/frontend/src/lib/session
   - |
     [ "$(grep -rhoE 'data-testid="[^"]+"' src/frontend/src/routes/sessions src/frontend/src/lib/session \
-        | sort -u | wc -l | tr -d ' ')" = "13" ]
+        | sort -u | wc -l | tr -d ' ')" -ge 13 ]
   - |
     for t in aggregate aggregate-mean conflict-badge conflict-drawer diverged-banner participant \
              phase1-count revise-submit session-end-early session-ended-early session-resume \
@@ -235,8 +262,11 @@ validation:
   - |
     grep -rq 'ErrorBanner' src/frontend/src/routes/sessions
   - |
-    grep -q 'min-h-screen' src/frontend/CLAUDE.md \
-      && ! grep -q 'room background wrapper (`bg-gray-50`' src/frontend/CLAUDE.md
+    ! grep -q 'room background wrapper' .claude/skills/estimation-sessions/SKILL.md \
+      && ! grep -q 'room background wrapper' docs/estimation-sessions.md
+  - |
+    grep -q 'min-h-screen' .claude/skills/estimation-sessions/SKILL.md \
+      && grep -q 'treetable-responsive' .claude/skills/estimation-sessions/SKILL.md
   - |
     ./gradlew :frontend:check
   - |
@@ -250,4 +280,5 @@ outputs:
   - modified: src/frontend/src/lib/session/PhaseTwoPanel.svelte
   - modified: src/frontend/src/lib/session/SessionSummary.svelte
   - modified: src/frontend/src/lib/session/ConflictBadge.svelte
-  - modified: src/frontend/CLAUDE.md
+  - modified: .claude/skills/estimation-sessions/SKILL.md
+  - modified: docs/estimation-sessions.md

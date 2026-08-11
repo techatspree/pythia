@@ -16,7 +16,7 @@
 </script>
 
 <div class="space-y-5">
-	<h2 class="text-xl font-bold">{$_('session.summary.title')}</h2>
+	<h2 class="text-lg font-semibold">{$_('session.summary.title')}</h2>
 
 	<div class="overflow-x-auto">
 		<table class="w-full text-sm border rounded">

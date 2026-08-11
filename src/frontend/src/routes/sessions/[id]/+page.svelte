@@ -114,7 +114,7 @@
 	}
 </script>
 
-<div class="p-6 max-w-4xl mx-auto">
+<div class="p-6">
 	<ErrorBanner message={bannerMessage} ondismiss={() => (bannerMessage = null)} />
 
 	{#if store.session}
@@ -145,40 +145,44 @@
 			{store.isModerator ? $_('session.room.roleModerator') : $_('session.room.roleEstimator')}
 		</p>
 
-		<div class="mb-6 border rounded-lg p-4 bg-white">
-			<h2 class="text-xs font-semibold uppercase tracking-wide text-gray-500 mb-2">
+		<div class="border rounded-lg overflow-hidden mb-4">
+			<h2
+				class="px-4 py-2 bg-brand-green/10 text-brand-green text-xs font-semibold uppercase tracking-wide"
+			>
 				{$_('session.room.participants')}
 			</h2>
-			<ul class="flex flex-wrap gap-2">
-				{#each s.participants as p (p.subjectId)}
-					<li
-						data-testid="participant"
-						class="flex items-center gap-1.5 border rounded px-2 py-1 text-sm bg-gray-50"
-					>
-						<span>{p.displayName ?? p.subjectId}</span>
-						<span class="text-xs text-gray-400 uppercase tracking-wide">{$_(`session.role.${p.role}`)}</span>
-						{#if p.agreed}<span class="text-xs text-green-600">✓ {$_('session.room.agreed')}</span>{/if}
-					</li>
-				{/each}
-			</ul>
+			<div class="p-4">
+				<ul class="flex flex-wrap gap-2">
+					{#each s.participants as p (p.subjectId)}
+						<li
+							data-testid="participant"
+							class="flex items-center gap-1.5 border rounded px-2 py-1 text-sm bg-gray-50"
+						>
+							<span>{p.displayName ?? p.subjectId}</span>
+							<span class="text-xs text-gray-400 uppercase tracking-wide"
+								>{$_(`session.role.${p.role}`)}</span
+							>
+							{#if p.agreed}<span class="text-xs text-green-600">✓ {$_('session.room.agreed')}</span
+								>{/if}
+						</li>
+					{/each}
+				</ul>
+			</div>
 		</div>
 
 		{#if s.status === 'CANCELLED'}
-			<div class="border rounded-lg p-4 bg-white text-gray-600">
+			<div class="border rounded-lg p-4 text-gray-600">
 				{$_('session.room.cancelled')}
 			</div>
 		{:else if s.status === 'FINALIZED'}
 			<SessionSummary {store} />
 		{:else if s.status === 'ENDED_EARLY'}
-			<p
-				data-testid="session-ended-early"
-				class="mb-4 border rounded-lg p-4 bg-white text-sm text-gray-600"
-			>
+			<p data-testid="session-ended-early" class="mb-4 border rounded-lg p-4 text-sm text-gray-600">
 				{$_('session.room.endedEarly')}
 			</p>
 			<SessionSummary {store} />
 		{:else if s.status === 'SUSPENDED'}
-			<div data-testid="session-suspended" class="border rounded-lg p-4 bg-white">
+			<div data-testid="session-suspended" class="border rounded-lg p-4">
 				<p class="text-sm text-gray-600 mb-3">{$_('session.room.suspended')}</p>
 				{#if store.isModerator}
 					<div class="flex items-center gap-3">
@@ -202,7 +206,7 @@
 				{/if}
 			</div>
 		{:else if s.status === 'CREATED'}
-			<div class="border rounded-lg p-4 bg-white">
+			<div class="border rounded-lg p-4">
 				{#if store.isModerator}
 					<p class="text-sm text-gray-600 mb-3">{$_('session.room.startHint')}</p>
 					<div class="flex items-center gap-3">
@@ -227,31 +231,33 @@
 			</div>
 		{:else}
 			<!-- RUNNING -->
-			<div class="border rounded-lg p-4 bg-white">
-				<div class="flex items-center gap-3 mb-1">
-					<h2 class="text-xs font-semibold uppercase tracking-wide text-gray-500">
-						{$_('session.room.currentItem')}
-					</h2>
-					<span class="text-xs text-gray-400">
+			<div class="border rounded-lg overflow-hidden">
+				<div
+					class="flex items-center gap-3 px-4 py-2 bg-brand-green/10 text-brand-green text-xs font-semibold uppercase tracking-wide"
+				>
+					<h2>{$_('session.room.currentItem')}</h2>
+					<span class="font-normal normal-case tracking-normal text-brand-green/70">
 						{$_('session.room.itemPosition', {
 							values: { position: s.currentItemIndex + 1, total: s.items.length }
 						})}
 					</span>
-					<span class="ml-auto px-2 py-0.5 text-xs rounded-full bg-gray-100 text-gray-600">
+					<span class="ml-auto px-2 py-0.5 rounded-full bg-white/70 normal-case tracking-normal">
 						{$_(`session.phase.${s.currentPhase}`)}
 					</span>
 				</div>
-				{#if store.currentItem}
-					{@const item = store.currentItem}
-					<p class="font-medium mb-4">{item.description ?? item.nodeLogicalId}</p>
-					{#if s.currentPhase === 'PHASE1'}
-						<PhaseOnePanel {store} {sessionId} {onError} />
+				<div class="p-4">
+					{#if store.currentItem}
+						{@const item = store.currentItem}
+						<p class="font-medium mb-4">{item.description ?? item.nodeLogicalId}</p>
+						{#if s.currentPhase === 'PHASE1'}
+							<PhaseOnePanel {store} {sessionId} {onError} />
+						{:else}
+							<PhaseTwoPanel {store} {sessionId} {onError} />
+						{/if}
 					{:else}
-						<PhaseTwoPanel {store} {sessionId} {onError} />
+						<p class="text-gray-500">{$_('session.room.noCurrentItem')}</p>
 					{/if}
-				{:else}
-					<p class="text-gray-500">{$_('session.room.noCurrentItem')}</p>
-				{/if}
+				</div>
 			</div>
 			{#if store.isModerator}
 				<div class="flex items-center gap-3 mt-3">

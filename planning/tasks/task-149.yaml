@@ -1,0 +1,291 @@
+id: task-149
+phase: phase-17
+title: Design tokens + $lib/ui primitives + token lint gate
+depends_on: [task-146, task-148]
+description: |
+  The frontend has a **token layer but no component layer**, and that is the
+  root cause task-148 treated the symptom of.
+
+  `src/frontend/src/app.css` defines brand colours and fonts in Tailwind 4's
+  `@theme` block. But every recurring UI concept exists only as a literal
+  utility string that has to be retyped correctly at each site:
+
+      primary button   24 occurrences across 17 files   no single definition
+      #007a45 hover    38 arbitrary-value classes       no token at all
+      form input       14 occurrences                   no single definition
+      card shell       14 occurrences                   no single definition
+      secondary button 11 occurrences                   no single definition
+      card header strip 9 occurrences                   no single definition
+
+  There is currently **zero** component layer: no `@apply`, no `@utility`, no
+  shared primitives. Nothing enforces consistency, nothing breaks when a site
+  drifts, and a missing `disabled:opacity-50` is invisible in review. Drift is
+  not a risk in that arrangement — it is the default outcome, which is exactly
+  how the session UI diverged (task-148), and task-148's own fix re-typed the
+  strings rather than removing the cause.
+
+  The codebase already demonstrates the remedy: `ErrorBanner`, `TreeTable` and
+  `AppHeader` are real components and have **not** drifted. Divergence is
+  concentrated precisely where no component exists.
+
+  Note the asymmetry that makes the token gap concrete: `#009e5a` is a proper
+  token (`--color-brand-green`), but its hover shade `#007a45` is an unnamed
+  literal repeated 38 times in class attributes.
+
+  ## Why not a CSS preprocessor
+
+  A preprocessor (LESS/SCSS) was considered and **rejected**. Its value
+  proposition is already covered: variables live in `@theme` and as CSS custom
+  properties, nesting is native CSS, and scoping is Svelte's per-component CSS.
+  Adding one would mean a second styling system alongside Tailwind 4 (which is
+  deliberately CSS-first) for no capability gain — and crucially it would not
+  fix this defect at all, because nothing about a preprocessor stops the button
+  classes being typed inline a 25th time. The problem is the absence of a
+  single definition, not authoring ergonomics.
+
+  ## Why this is now a functional requirement, not aesthetics
+
+  task-146 shipped an **admin-uploadable stylesheet** that loads after
+  `app.css` and can override it. Today an admin wanting to restyle buttons must
+  write selectors against utility classes (`.bg-brand-green.text-white`), which
+  is brittle, matches unrelated elements, and breaks on any markup refactor.
+  A semantic surface plus more tokens is what makes that customisation feature
+  actually usable — right now its effective surface is a handful of CSS
+  variables.
+
+  ## Target state
+
+  - A `--color-brand-green-hover` token; **zero** arbitrary colour values in
+    class attributes.
+  - `$lib/ui/` primitives for the two highest-duplication concepts (button,
+    card), adopted at every existing site.
+  - A static-analysis gate that fails the check when a new arbitrary colour
+    value appears, so this class of drift cannot return.
+
+  ## Scope decisions (do not widen)
+
+  - **Button and Card only.** `Field` (14 input sites), `Badge` and a page
+    shell are deliberately deferred — they are lower-duplication and the task
+    must stay finishable. Note them as follow-up, do not build them here.
+  - **The token migration is all-or-nothing** (38 sites), because the lint gate
+    cannot be enabled while any arbitrary value remains. It is a pure textual
+    substitution with no behaviour change.
+  - **`src/lib/assets/logo.svg` keeps its 4 literal `#007a45` values.** SVG
+    `fill`/`stroke` cannot reference Tailwind classes, and the mark is a fixed
+    brand asset. The lint gate MUST exclude `*.svg`, and the validation greps
+    must scope to class attributes — otherwise the gate flags the logo forever
+    and an implementer "fixes" a file that is already correct.
+  - No new npm dependency. `eslint-plugin-tailwindcss` was considered and
+    rejected: it is a new dependency with uncertain Tailwind 4 support, and the
+    project has an established preference against adding dependencies for
+    build-time chores (cf. the icon generator's explicit "do NOT add sharp").
+    A regex gate wired into the existing `staticAnalysis` aggregator is
+    sufficient and dependency-free.
+
+  ## Hard constraint — the e2e contract
+
+  The 84-test Playwright suite selects heavily on `data-testid`, and many of
+  the 17 button sites carry one. `Button.svelte` MUST forward arbitrary rest
+  props (`{...rest}`) so `data-testid`, `type`, `disabled`, `onclick`,
+  `aria-*` and `title` all reach the real `<button>` element. A primitive that
+  drops rest props will pass `:frontend:check` and then fail e2e broadly.
+
+  ## Logging
+
+  Presentational refactor — no new service, domain operation or data flow, so
+  the CLAUDE.md logging conventions add nothing. Existing `log.*` calls and
+  `ErrorBanner` usage must survive unchanged; do not drop an error path while
+  swapping a button.
+
+steps:
+  - |
+    Add the missing token. In `src/frontend/src/app.css`, inside the existing
+    `@theme` block next to `--color-brand-green`:
+
+      --color-brand-green-hover: #007a45;
+
+    Then replace every arbitrary-value usage in class attributes across
+    `src/frontend/src`:
+
+      bg-[#007a45]    ->  bg-brand-green-hover      (24 sites)
+      text-[#007a45]  ->  text-brand-green-hover    (14 sites)
+
+    Do NOT touch `src/lib/assets/logo.svg` — its 4 literal `#007a45` values are
+    correct and must stay.
+
+    Verify: `grep -rE '(bg|text)-\[#' src/frontend/src` returns nothing.
+
+  - |
+    Create `src/frontend/src/lib/ui/Button.svelte` — a Svelte 5 runes component:
+
+      let {
+        variant = 'primary',   // 'primary' | 'secondary' | 'ghost'
+        type = 'button',
+        children,
+        ...rest
+      } = $props();
+
+    Class per variant, taken verbatim from what the app already uses so this is
+    a pure consolidation with no visual change:
+
+      primary:   px-4 py-2 text-sm bg-brand-green text-white rounded
+                 hover:bg-brand-green-hover disabled:opacity-50
+      secondary: px-4 py-2 text-sm border rounded hover:bg-gray-50
+                 disabled:opacity-50
+      ghost:     px-4 py-2 text-sm text-gray-500 hover:text-gray-700
+
+    (`ghost` covers the session room's cancel / suspend / end-early controls.)
+
+    Spread `{...rest}` onto the `<button>` so `data-testid`, `disabled`,
+    `onclick`, `aria-*` and `title` pass through, and render `{@render
+    children()}` inside. Allow a caller-supplied `class` to be appended rather
+    than replacing the variant class (several sites add `ml-auto` or `w-full`).
+
+  - |
+    Create `src/frontend/src/lib/ui/Card.svelte` — the bordered-card idiom the
+    four editor panels and (since task-148) the session pages share:
+
+      let { title = undefined, children, ...rest } = $props();
+
+    Shell: `border rounded-lg overflow-hidden`. When `title` is set, render a
+    header strip `px-4 py-2 bg-brand-green/10 text-brand-green text-xs
+    font-semibold uppercase tracking-wide` above a `p-4` body; when it is not,
+    render just the `p-4` body (the untitled status cards).
+
+    Expose an optional `header` snippet prop for the one non-trivial case — the
+    session room's current-item strip carries the title plus a position counter
+    and a phase badge on the same row. Do not special-case that in `Card`.
+
+  - |
+    Adopt `Button` at all 17 sites. They are:
+
+      lib/components/{AdditionalCostsPanel,CreateEstimationDialog,
+        CreateProjectDialog,EstimationGrid,PhasesPanel,ProjectDetail,
+        UndoConflictDialog,VersionList}.svelte
+      lib/methods/bucketSampled/EditorModule.svelte
+      lib/session/{PhaseOnePanel,PhaseTwoPanel}.svelte
+      routes/admin/system/+page.svelte
+      routes/estimations/[id]/+page.svelte
+      routes/estimations/[id]/versions/[versionNumber]/+page.svelte
+      routes/projects/+page.svelte
+      routes/sessions/+page.svelte
+      routes/sessions/[id]/+page.svelte
+
+    Preserve every `data-testid`, `disabled` binding and handler exactly. This
+    is a mechanical swap — if a site's classes differ from the variant in a way
+    that matters visually, prefer the variant and note the difference rather
+    than inventing a fourth variant.
+
+  - |
+    Adopt `Card` at the 9 header-strip sites (the four editor panels and the
+    session cards from task-148). The editor panels' strips are collapsible
+    `<button>`s, not static `<div>`s — keep that behaviour by passing the
+    `header` snippet rather than the `title` string for those four.
+
+  - |
+    Add the lint gate. Create a small Node script
+    `src/frontend/scripts/check-design-tokens.mjs` that scans
+    `src/frontend/src/**/*.{svelte,ts,html}` — **excluding `*.svg`** — for
+    arbitrary colour values matching `-\[#[0-9a-fA-F]{3,8}\]` and exits non-zero
+    with the offending file:line list.
+
+    Wire it as a Gradle task in `src/frontend/build.gradle.kts` (e.g.
+    `checkDesignTokens`, following the existing `npmCheck` / `npmLintReport`
+    task style), make `:frontend:check` depend on it, and add it to the
+    `staticAnalysis` aggregator's `dependsOn` list in the root
+    `build.gradle.kts` alongside `:frontend:npmCheck`.
+
+    Unlike detekt/ESLint (whose findings are informational), this gate must
+    FAIL the build — that is the whole point, and it is enforceable now only
+    because step 1 brought the count to zero.
+
+  - |
+    Update the documentation:
+
+      - `src/frontend/CLAUDE.md` — a short `## UI primitives` section: the
+        `$lib/ui/` components are the single definition of button and card;
+        never retype the utility strings; arbitrary colour values are
+        lint-banned (with the `logo.svg` exemption stated); `Field`/`Badge`
+        are deferred follow-ups.
+      - `CLAUDE.md` (root) — one line under the frontend hard rules pointing at
+        it, matching the existing terse bullet style.
+
+  - |
+    Run the frontend gate and the new token gate:
+
+      ./gradlew :frontend:check
+
+  - |
+    Run the full Playwright suite against a running dev stack — the button swap
+    touches 17 files across dialogs, the editor grid and the session room:
+
+      ./scripts/dev.sh          # Docker up; backend :8090, Vite :5173
+      cd src/frontend && npm run test:e2e
+
+    Then the full build:
+
+      ./gradlew build
+
+validation:
+  - |
+    grep -q 'color-brand-green-hover' src/frontend/src/app.css
+  - |
+    ! grep -rqE '(bg|text|border|from|to|via)-\[#[0-9a-fA-F]{3,8}\]' src/frontend/src
+  - |
+    [ "$(grep -rc '#007a45' src/frontend/src/lib/assets/logo.svg | tr -d ' ')" = "4" ]
+  - |
+    test -f src/frontend/src/lib/ui/Button.svelte && test -f src/frontend/src/lib/ui/Card.svelte
+  - |
+    grep -q '\.\.\.rest' src/frontend/src/lib/ui/Button.svelte \
+      && grep -q 'bg-brand-green-hover' src/frontend/src/lib/ui/Button.svelte
+  - |
+    grep -q 'bg-brand-green/10' src/frontend/src/lib/ui/Card.svelte \
+      && grep -q 'border rounded-lg overflow-hidden' src/frontend/src/lib/ui/Card.svelte
+  - |
+    ! grep -rq 'bg-brand-green text-white rounded' src/frontend/src --include='*.svelte' \
+        --exclude='Button.svelte'
+  - |
+    [ "$(grep -rl "from '\$lib/ui/Button.svelte'" src/frontend/src | wc -l | tr -d ' ')" -ge 15 ]
+  - |
+    test -f src/frontend/scripts/check-design-tokens.mjs \
+      && node src/frontend/scripts/check-design-tokens.mjs
+  - |
+    grep -q 'checkDesignTokens' src/frontend/build.gradle.kts \
+      && grep -q 'checkDesignTokens' build.gradle.kts
+  - |
+    grep -q 'UI primitives' src/frontend/CLAUDE.md
+  - |
+    ! grep -rqE '(^|[^.a-zA-Z])console\.' src/frontend/src/lib/ui
+  - |
+    ./gradlew :frontend:check
+  - |
+    ./gradlew build
+
+outputs:
+  - created: src/frontend/src/lib/ui/Button.svelte
+  - created: src/frontend/src/lib/ui/Card.svelte
+  - created: src/frontend/scripts/check-design-tokens.mjs
+  - modified: src/frontend/src/app.css
+  - modified: src/frontend/build.gradle.kts
+  - modified: build.gradle.kts
+  - modified: src/frontend/CLAUDE.md
+  - modified: CLAUDE.md
+  - modified: src/frontend/src/lib/components/AdditionalCostsPanel.svelte
+  - modified: src/frontend/src/lib/components/CreateEstimationDialog.svelte
+  - modified: src/frontend/src/lib/components/CreateProjectDialog.svelte
+  - modified: src/frontend/src/lib/components/EstimationGrid.svelte
+  - modified: src/frontend/src/lib/components/ParametersPanel.svelte
+  - modified: src/frontend/src/lib/components/EffortDriversPanel.svelte
+  - modified: src/frontend/src/lib/components/PhasesPanel.svelte
+  - modified: src/frontend/src/lib/components/ProjectDetail.svelte
+  - modified: src/frontend/src/lib/components/UndoConflictDialog.svelte
+  - modified: src/frontend/src/lib/components/VersionList.svelte
+  - modified: src/frontend/src/lib/methods/bucketSampled/EditorModule.svelte
+  - modified: src/frontend/src/lib/session/PhaseOnePanel.svelte
+  - modified: src/frontend/src/lib/session/PhaseTwoPanel.svelte
+  - modified: src/frontend/src/routes/admin/system/+page.svelte
+  - modified: src/frontend/src/routes/estimations/[id]/+page.svelte
+  - modified: src/frontend/src/routes/estimations/[id]/versions/[versionNumber]/+page.svelte
+  - modified: src/frontend/src/routes/projects/+page.svelte
+  - modified: src/frontend/src/routes/sessions/+page.svelte
+  - modified: src/frontend/src/routes/sessions/[id]/+page.svelte

@@ -124,8 +124,8 @@
 			></textarea>
 		</div>
 	{:else if store.currentItem?.discussionNotes}
-		<div class="border rounded p-3 bg-gray-50 text-sm">
-			<span class="block text-xs font-semibold uppercase tracking-wide text-gray-500 mb-1">
+		<div class="border rounded p-3 bg-gray-50/40 text-sm">
+			<span class="block text-sm font-medium mb-1">
 				{$_('session.phaseOne.notes')}
 			</span>
 			<p class="whitespace-pre-wrap">{store.currentItem.discussionNotes}</p>
@@ -170,7 +170,7 @@
 	</div>
 
 	{#if aggregate}
-		<div class="border rounded-lg p-4 bg-white" data-testid="aggregate">
+		<div class="border rounded-lg p-4" data-testid="aggregate">
 			<h3 class="text-sm font-semibold uppercase tracking-wide text-gray-500 mb-3">
 				{$_('session.phaseTwo.aggregate')}
 			</h3>
@@ -220,7 +220,7 @@
 					onclick={submitRevision}
 					disabled={busy}
 					data-testid="revise-submit"
-					class="px-4 py-2 text-sm border border-brand-green text-brand-green rounded hover:bg-brand-green/10 disabled:opacity-50"
+					class="px-4 py-2 text-sm border rounded hover:bg-gray-50 disabled:opacity-50"
 				>
 					{$_('session.phaseTwo.reviseSubmit')}
 				</button>

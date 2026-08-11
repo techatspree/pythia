@@ -75,8 +75,8 @@
 
 <div class="space-y-4">
 	{#if store.currentItem?.discussionNotes && !store.isModerator}
-		<div class="border rounded p-3 bg-gray-50 text-sm">
-			<span class="block text-xs font-semibold uppercase tracking-wide text-gray-500 mb-1">
+		<div class="border rounded p-3 bg-gray-50/40 text-sm">
+			<span class="block text-sm font-medium mb-1">
 				{$_('session.phaseOne.notes')}
 			</span>
 			<p class="whitespace-pre-wrap">{store.currentItem.discussionNotes}</p>
