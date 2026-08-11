@@ -1,0 +1,292 @@
+id: task-154
+phase: phase-17
+title: Design-system core — Page, Field, Badge; fix session GUI
+depends_on: [task-151]
+description: |
+  The session GUI still reads as unfinished, and the reasons are structural
+  rather than a matter of taste. `$lib/ui` currently holds only `Button`,
+  `Card` and `Select`; everything else — page width, form fields, chips — is
+  hand-rolled per site, so panels that should match do not. This task grows
+  `$lib/ui` into a real design-system core and fixes the three visible symptoms
+  with it.
+
+  ## The three reported symptoms, and their actual causes
+
+  **1. The "open sessions" and item-picker panels do not align.** They differ in
+  *three* ways at once on `routes/sessions/+page.svelte`:
+
+    - width: the Card is `max-w-3xl` (48rem), the form block wrapping the picker
+      is `max-w-2xl` (42rem) — a 6rem step visible as a ragged right edge;
+    - container: "open sessions" is a `<Card>`, the picker is a bare
+      `<div class="border rounded overflow-hidden">`;
+    - header: the Card has the brand-green strip, the picker a grey
+      `bg-gray-50/40` strip.
+
+    The root cause is that **content width has no single definition**: the app
+    uses 7 different `max-w-*` values across 17 sites, chosen per component.
+    Aligning these two by hand would fix the symptom and leave the cause.
+
+  **2. Pause / end-session do not read as buttons.** In the RUNNING state both
+  moderator controls are `<Button variant="ghost">`, which is
+  `px-4 py-2 text-sm text-gray-500 hover:text-gray-700` — no border, no
+  background, so they render as grey text. `ghost` (added in task-149 to absorb
+  the old inline text-buttons) is too weak for a primary moderator action, and
+  "Sitzung vorzeitig beenden" is *destructive*: it ends the session for
+  everyone. It currently has less visual weight than a link.
+
+  **3. "Still ugly" in general.** Two more primitives are missing and their
+  absence shows: **chips** are hand-rolled at 11 sites across 4 different class
+  strings, and **form fields** repeat a label (`block text-sm font-medium mb-1`,
+  14 sites) beside an input (8 sites) with no shared definition — the `Field`
+  primitive task-149 explicitly deferred.
+
+  ## Target state
+
+  `$lib/ui` gains three primitives that make the symptoms structurally
+  impossible rather than individually corrected:
+
+    - **`Page`** owns the page shell and content width, so panels inside one
+      page cannot disagree about their right edge.
+    - **`Field`** owns label + control + optional hint.
+    - **`Badge`** owns the chip.
+
+  Plus `Button` gains documented variant *semantics*, and the session controls
+  stop using `ghost` for actions that need affordance.
+
+  ## Design decisions (do not re-open)
+
+  - **No new palette, typeface or decorative treatment.** The tokens in
+    `@theme` and the existing idioms are the vocabulary; this task consolidates
+    them, it does not invent a new look. The task-149 design-token gate fails
+    the build on any arbitrary colour value.
+  - **`Page` owns the width; children own none.** After adoption the session
+    setup page has **zero** `max-w-*` on its children — the container supplies
+    the column. That is what makes recurrence impossible, so a child re-adding
+    its own `max-w` is a regression, not a tweak.
+  - **The item picker becomes a `Card`**, with the same brand-green header
+    strip as "open sessions". Its count and select-all/deselect-all controls
+    move into that strip via `Card`'s existing `header` snippet (added in
+    task-149 for exactly this case) rather than a second grey strip.
+  - **Variant semantics**, to be documented and applied:
+      `primary`   — the one affirmative action of a view (start, save, resume)
+      `secondary` — a real alternative action that still needs a hit target
+      `danger`    — destructive/irreversible (end session, delete, replace)
+      `ghost`     — only for low-stakes, repeated, in-context actions where a
+                    bordered control would create visual noise (row `+ Element`,
+                    a dialog's cancel beside a primary). **Never** for an action
+                    that ends or discards shared state.
+    Under this, RUNNING gets `secondary` for pause and `danger` for end-early;
+    SUSPENDED keeps `primary` resume and gets `danger` end-early.
+  - **`Field` adoption is scoped to the session setup page** (3 controls). The
+    other 11 label sites are a follow-up — task-149's precedent is that a new
+    primitive is adopted fully on the surface that motivated it and
+    opportunistically elsewhere.
+  - **`Badge` adoption IS app-wide** (11 sites): it is a mechanical swap of a
+    single class string, and leaving 8 hand-rolled chips beside a Badge
+    primitive recreates exactly the drift this task exists to remove.
+
+steps:
+  - |
+    Create `src/frontend/src/lib/ui/Page.svelte` — the page shell and the single
+    definition of content width. Follow `Card.svelte`'s prop style:
+
+      let { width = 'full', class: extraClass = '', children } = $props();
+
+    `width`:
+      'full'    -> `p-6` only (today's default for project/estimation/editor
+                   routes, which are deliberately full-bleed)
+      'form'    -> `p-6` plus an inner `max-w-3xl` column
+
+    Render `<div class="p-6 …"><div class="max-w-3xl">…</div></div>` for 'form'
+    and a single `<div class="p-6">` for 'full'. `max-w-3xl` is chosen because
+    it is what the two session Cards already use — the picker is the outlier.
+
+  - |
+    Create `src/frontend/src/lib/ui/Field.svelte` — label + control + hint:
+
+      let { label, id, hint = undefined, class: extraClass = '', children } = $props();
+
+    Render `<label class="block text-sm font-medium mb-1" for={id}>{label}</label>`,
+    then `{@render children?.()}`, then an optional
+    `<p class="text-xs text-gray-500 mt-1">{hint}</p>`. The caller passes the
+    control (an `<input>` or a `<Select>`) as children and is responsible for
+    giving it the matching `id` — do NOT try to inject the id into the child.
+
+  - |
+    Create `src/frontend/src/lib/ui/Badge.svelte` — the chip:
+
+      let { variant = 'neutral', class: extraClass = '', children, ...rest } = $props();
+
+    Base `px-2 py-0.5 text-xs rounded-full`, variants:
+      brand   -> `bg-brand-green/20 text-brand-green`   (5 existing uses:
+                 "current/active" — status, method, current version)
+      neutral -> `bg-gray-100 text-gray-500`            (already-done, counts)
+      muted   -> `bg-gray-200 text-gray-500`
+    Forward `{...rest}` so `data-testid` and `title` reach the element.
+
+  - |
+    Adopt `Badge` at all 11 chip sites — grep
+    `px-2 py-0.5 text-xs rounded-full` to find them. They are spread over
+    **8 files**, so do not stop at the obvious ones:
+
+      lib/components/EstimationDetail.svelte                     2
+      lib/components/ProjectDetail.svelte                        2
+      lib/components/UndoHistoryPanel.svelte                     2
+      lib/components/ProjectList.svelte                          1
+      lib/components/VersionList.svelte                          1
+      routes/estimations/[id]/versions/[versionNumber]/+page.svelte  1
+      routes/sessions/+page.svelte                               1
+      routes/sessions/[id]/+page.svelte                          1
+
+    One site is interactive (a chip that is also a button, with
+    `hover:bg-brand-green/30 focus:outline-none focus:ring-2`): leave that one
+    as-is or pass the extra classes through `class` — do not add a variant for
+    a single case.
+
+  - |
+    Restyle `src/frontend/src/routes/sessions/+page.svelte` with the new
+    primitives:
+
+      - wrap the page body in `<Page width="form">` and **delete every
+        `max-w-*`** from its children, including the `max-w-2xl` form block and
+        both Cards' `max-w-3xl`;
+      - turn the item picker into a `<Card>` using the `header` snippet, so its
+        count and select-all/deselect-all sit in the same brand-green strip the
+        other Cards use. Keep `max-h-72 overflow-y-auto` on the list — that cap
+        is task-151's fix and `e2e/session-setup.test.ts` pins it;
+      - put the project select, offer select and session-title input through
+        `Field`.
+
+  - |
+    Fix the session controls in `src/frontend/src/routes/sessions/[id]/+page.svelte`:
+
+      RUNNING:    pause -> `variant="secondary"`, end-early -> `variant="danger"`
+      SUSPENDED:  resume stays `primary`,          end-early -> `variant="danger"`
+      CREATED:    start stays `primary`, cancel -> `variant="secondary"`
+
+    Preserve every `data-testid` (`session-suspend`, `session-end-early`,
+    `session-resume`, `session-suspended`) — `e2e/session.test.ts` drives all of
+    them, and `session-ended-early` is asserted in two browser contexts.
+
+    While here, remove the stray blank lines inside the `<Button …>` tags on
+    this page and the setup page (leftovers from task-149's mechanical
+    transform).
+
+  - |
+    Wrap the room page in `<Page>` too (`width="full"` — the room is a working
+    surface like the editor and stays full-bleed), so both session routes get
+    their shell from the same component.
+
+  - |
+    Document the design-system core in `src/frontend/CLAUDE.md`'s
+    `## UI primitives` section: what `Page`, `Field` and `Badge` are for, the
+    **variant semantics table** for `Button` (including the rule that `ghost` is
+    never used for an action that ends or discards shared state), and the rule
+    that **a page's children never carry their own `max-w-*`** — the `Page`
+    container owns the column, which is what stops panels drifting apart.
+
+  - |
+    Extend `src/frontend/e2e/session-setup.test.ts` with an alignment
+    regression: assert the "open sessions" Card and the item-picker Card have
+    the **same `boundingBox().width`** (within 1px). That is the user-visible
+    symptom, and it is the assertion that fails if a child re-adds a `max-w`.
+
+    Add to `src/frontend/e2e/session.test.ts` (or the setup spec) an assertion
+    that the RUNNING-state pause and end-early controls are real buttons with a
+    visible boundary — e.g. their computed `border-width` is non-zero or their
+    background differs from the page — so "looks like a button" is pinned
+    rather than left to review.
+
+  - |
+    Run the frontend gate (it includes the design-token gate, which FAILS on
+    arbitrary colour values):
+
+      ./gradlew :frontend:check
+
+  - |
+    Run the full e2e suite against a running dev stack (`./scripts/dev.sh`,
+    Docker up, backend :8090, Vite :5173) — `Badge` adoption touches six files
+    outside the session pages:
+
+      cd src/frontend && npm run test:e2e
+
+  - |
+    Run the full build:
+
+      ./gradlew build
+
+validation:
+  - |
+    test -f src/frontend/src/lib/ui/Page.svelte \
+      && test -f src/frontend/src/lib/ui/Field.svelte \
+      && test -f src/frontend/src/lib/ui/Badge.svelte
+  - |
+    grep -q "max-w-3xl" src/frontend/src/lib/ui/Page.svelte \
+      && grep -q "p-6" src/frontend/src/lib/ui/Page.svelte
+  - |
+    grep -q 'block text-sm font-medium mb-1' src/frontend/src/lib/ui/Field.svelte
+  - |
+    grep -q 'px-2 py-0.5 text-xs rounded-full' src/frontend/src/lib/ui/Badge.svelte \
+      && grep -q '\.\.\.rest' src/frontend/src/lib/ui/Badge.svelte
+  - |
+    # The cause, not the symptom: no child of the session setup page carries its
+    # own width. This is the assertion that fails if someone "aligns" by hand.
+    ! grep -q 'max-w-' src/frontend/src/routes/sessions/+page.svelte
+  - |
+    grep -q 'ui/Page.svelte' src/frontend/src/routes/sessions/+page.svelte \
+      && grep -q 'ui/Page.svelte' 'src/frontend/src/routes/sessions/[id]/+page.svelte'
+  - |
+    grep -q 'ui/Field.svelte' src/frontend/src/routes/sessions/+page.svelte
+  - |
+    # Both panels are Cards now — same container, same header treatment.
+    [ "$(grep -c '<Card' src/frontend/src/routes/sessions/+page.svelte)" -ge 3 ]
+  - |
+    # The step converts ALL FOUR ghosts on this page (RUNNING suspend +
+    # end-early, SUSPENDED end-early, CREATED cancel), so assert the property
+    # directly rather than with `grep -B3` around a testid — that would depend
+    # on the attribute order the implementer happens to write.
+    ! grep -q 'variant="ghost"' 'src/frontend/src/routes/sessions/[id]/+page.svelte'
+  - |
+    # Exactly the two end-early controls are destructive.
+    [ "$(grep -c 'variant="danger"' \
+        'src/frontend/src/routes/sessions/[id]/+page.svelte' | tr -d ' ')" = "2" ]
+  - |
+    for t in session-suspend session-end-early session-resume session-suspended; do \
+      grep -q "data-testid=\"$t\"" 'src/frontend/src/routes/sessions/[id]/+page.svelte' || exit 1; \
+    done
+  - |
+    # Badge adopted app-wide: at most the one interactive chip keeps the raw string.
+    [ "$(grep -rho 'px-2 py-0.5 text-xs rounded-full' src/frontend/src --include='*.svelte' \
+        | wc -l | tr -d ' ')" -le 2 ]
+  - |
+    grep -q 'max-h-72' src/frontend/src/routes/sessions/+page.svelte \
+      && grep -q 'overflow-y-auto' src/frontend/src/routes/sessions/+page.svelte
+  - |
+    grep -q 'Page' src/frontend/CLAUDE.md && grep -q 'Badge' src/frontend/CLAUDE.md \
+      && grep -q 'ghost' src/frontend/CLAUDE.md
+  - |
+    ! grep -rqE '(^|[^.a-zA-Z])console\.' src/frontend/src/lib/ui/ src/frontend/src/routes/sessions/
+  - |
+    grep -q 'boundingBox' src/frontend/e2e/session-setup.test.ts
+  - |
+    ./gradlew :frontend:check
+  - |
+    ./gradlew build
+  - |
+    cd src/frontend && npx playwright test e2e/session-setup.test.ts e2e/session.test.ts
+
+outputs:
+  - created: src/frontend/src/lib/ui/Page.svelte
+  - created: src/frontend/src/lib/ui/Field.svelte
+  - created: src/frontend/src/lib/ui/Badge.svelte
+  - modified: src/frontend/src/routes/sessions/+page.svelte
+  - modified: src/frontend/src/routes/sessions/[id]/+page.svelte
+  - modified: src/frontend/src/lib/components/ProjectDetail.svelte
+  - modified: src/frontend/src/lib/components/EstimationDetail.svelte
+  - modified: src/frontend/src/lib/components/UndoHistoryPanel.svelte
+  - modified: src/frontend/src/lib/components/ProjectList.svelte
+  - modified: src/frontend/src/lib/components/VersionList.svelte
+  - modified: src/frontend/src/routes/estimations/[id]/versions/[versionNumber]/+page.svelte
+  - modified: src/frontend/CLAUDE.md
+  - modified: src/frontend/e2e/session-setup.test.ts
+  - modified: src/frontend/e2e/session.test.ts

@@ -111,7 +111,7 @@ phases:
   - id: phase-17
     name: Branding & Visual Identity
     duration_weeks: 1
-    tasks: [task-130, task-149, task-151]
+    tasks: [task-130, task-149, task-151, task-154]
   - id: phase-18
     name: Open Source Release
     duration_weeks: 1

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import Badge from '$lib/ui/Badge.svelte';
 	import Button from '$lib/ui/Button.svelte';
 	import { resolve } from '$app/paths';
 	import { _, locale } from 'svelte-i18n';
@@ -10,10 +11,6 @@
 
 	function statusLabel(version: ApiVersionSummary): string {
 		return version.isDraft ? $_('version.statusDraft') : $_('version.statusSubmitted');
-	}
-
-	function statusColor(version: ApiVersionSummary): string {
-		return version.isDraft ? 'bg-yellow-100 text-yellow-800' : 'bg-brand-green/20 text-brand-green';
 	}
 
 	const refOf = (v: ApiVersionSummary) => (v.isDraft ? 'draft' : String(v.versionNumber));
@@ -90,9 +87,9 @@
 						<div class="flex items-center justify-between">
 							<div class="flex items-center gap-3">
 								<span class="text-lg font-medium">v{version.versionNumber}</span>
-								<span class="px-2 py-0.5 text-xs rounded-full {statusColor(version)}">
+								<Badge variant={version.isDraft ? 'warn' : 'brand'}>
 									{statusLabel(version)}
-								</span>
+								</Badge>
 							</div>
 							<div class="flex items-center gap-3">
 								{#if version.isDraft}

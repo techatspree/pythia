@@ -1,4 +1,5 @@
 <script lang="ts">
+	import Badge from '$lib/ui/Badge.svelte';
 	import { _ } from 'svelte-i18n';
 	import type { ApiEstimationDetail } from '$lib/api/types.js';
 	import { formatMethodLabel } from '$lib/methods/labels';
@@ -12,9 +13,9 @@
 	<div class="flex items-center gap-3 mb-2">
 		<h1 class="text-2xl font-bold">{estimation.offer}</h1>
 		{#if estimation.latestVersionNumber}
-			<span class="px-2 py-0.5 text-xs rounded-full bg-brand-green/20 text-brand-green">
+			<Badge variant="brand">
 				{$_('estimation.detailLatest', { values: { n: estimation.latestVersionNumber } })}
-			</span>
+			</Badge>
 		{/if}
 		<div class="relative">
 			<button

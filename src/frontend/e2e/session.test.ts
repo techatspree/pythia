@@ -226,6 +226,19 @@ test('suspend parks the room, resume continues it, end-early keeps the results',
 		await mod.getByRole('button', { name: 'Eintrag abschließen' }).click();
 		await expect(mod.getByText('Eintrag 2 von 2')).toBeVisible();
 
+		// The moderator controls must READ as buttons (task-154). Both were
+		// `variant="ghost"` — grey text with no border or background — so
+		// "end session early", which ends it for everyone, carried less visual
+		// weight than a link. Assert the affordance, not the class string.
+		for (const id of ['session-suspend', 'session-end-early']) {
+			const style = await mod.getByTestId(id).evaluate((el) => {
+				const s = getComputedStyle(el);
+				return { border: parseFloat(s.borderTopWidth), bg: s.backgroundColor };
+			});
+			const hasBoundary = style.border > 0 || !['rgba(0, 0, 0, 0)', 'transparent'].includes(style.bg);
+			expect(hasBoundary, `${id} must have a visible boundary`).toBe(true);
+		}
+
 		// The clock runs out on item 2: the moderator parks the room. Both contexts
 		// see the paused panel (socket broadcast) and the estimator loses the form.
 		await mod.getByTestId('session-suspend').click();

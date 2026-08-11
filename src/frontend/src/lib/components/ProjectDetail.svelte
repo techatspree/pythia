@@ -1,4 +1,5 @@
 <script lang="ts">
+	import Badge from '$lib/ui/Badge.svelte';
 	import Button from '$lib/ui/Button.svelte';
 	import { resolve } from '$app/paths';
 	import { goto } from '$app/navigation';
@@ -33,9 +34,9 @@
 	<div class="mb-6">
 		<div class="flex items-center gap-3 mb-2">
 			<h1 class="text-2xl font-bold">{project.name}</h1>
-			<span class="px-2 py-0.5 text-xs rounded-full {project.status === 'ACTIVE' ? 'bg-brand-green/20 text-brand-green' : 'bg-gray-100 text-gray-600'}">
+			<Badge variant={project.status === 'ACTIVE' ? 'brand' : 'neutral'}>
 				{project.status}
-			</span>
+			</Badge>
 		</div>
 		{#if project.description}
 			<p class="text-gray-600 mb-1">{project.description}</p>
@@ -81,10 +82,10 @@
 							</td>
 							<td class="px-4 py-3 text-gray-600">{estimation.description || '—'}</td>
 							<td class="px-4 py-3">
-								<span
+								<Badge
 									data-testid="project-detail.estimation-method"
-									class="px-2 py-0.5 text-xs rounded-full bg-brand-green/20 text-brand-green"
-								>{formatMethodLabel(estimation.method)}</span>
+									variant="brand"
+								>{formatMethodLabel(estimation.method)}</Badge>
 							</td>
 							<td class="px-4 py-3">{estimation.versionCount}</td>
 							<td class="px-4 py-3">

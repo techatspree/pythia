@@ -1,4 +1,6 @@
 <script lang="ts">
+	import Badge from '$lib/ui/Badge.svelte';
+	import Page from '$lib/ui/Page.svelte';
 	import Card from '$lib/ui/Card.svelte';
 	import Button from '$lib/ui/Button.svelte';
 	import { onMount, onDestroy } from 'svelte';
@@ -116,7 +118,7 @@
 	}
 </script>
 
-<div class="p-6">
+<Page>
 	<ErrorBanner message={bannerMessage} ondismiss={() => (bannerMessage = null)} />
 
 	{#if store.session}
@@ -128,8 +130,8 @@
 		>
 		<div class="flex items-center gap-3 mb-4">
 			<h1 class="text-2xl font-bold">{s.title}</h1>
-			<span class="px-2 py-0.5 text-xs rounded-full bg-brand-green/20 text-brand-green"
-				>{$_(`session.status.${s.status}`)}</span
+			<Badge variant="brand"
+				>{$_(`session.status.${s.status}`)}</Badge
 			>
 			<span
 				data-testid="session-connection"
@@ -181,20 +183,10 @@
 				<p class="text-sm text-gray-600 mb-3">{$_('session.room.suspended')}</p>
 				{#if store.isModerator}
 					<div class="flex items-center gap-3">
-						<Button
-						
-							data-testid="session-resume"
-							onclick={continueSession}
-						
-						>
+						<Button data-testid="session-resume" onclick={continueSession}>
 							{$_('session.room.resume')}
 						</Button>
-						<Button variant="ghost"
-						
-							data-testid="session-end-early"
-							onclick={endEarly}
-						
-						>
+						<Button variant="danger" data-testid="session-end-early" onclick={endEarly}>
 							{$_('session.room.endEarly')}
 						</Button>
 					</div>
@@ -205,18 +197,10 @@
 				{#if store.isModerator}
 					<p class="text-sm text-gray-600 mb-3">{$_('session.room.startHint')}</p>
 					<div class="flex items-center gap-3">
-						<Button
-						
-							onclick={startSession}
-						
-						>
+						<Button onclick={startSession}>
 							{$_('session.room.start')}
 						</Button>
-						<Button variant="ghost"
-						
-							onclick={cancelSession}
-						
-						>
+						<Button variant="secondary" onclick={cancelSession}>
 							{$_('session.room.cancel')}
 						</Button>
 					</div>
@@ -256,20 +240,10 @@
 			</div>
 			{#if store.isModerator}
 				<div class="flex items-center gap-3 mt-3">
-					<Button variant="ghost"
-					
-						data-testid="session-suspend"
-						onclick={pauseSession}
-					
-					>
+					<Button variant="secondary" data-testid="session-suspend" onclick={pauseSession}>
 						{$_('session.room.suspend')}
 					</Button>
-					<Button variant="ghost"
-					
-						data-testid="session-end-early"
-						onclick={endEarly}
-					
-					>
+					<Button variant="danger" data-testid="session-end-early" onclick={endEarly}>
 						{$_('session.room.endEarly')}
 					</Button>
 				</div>
@@ -278,4 +252,4 @@
 	{:else}
 		<p class="text-gray-500">{$_('session.room.loading')}</p>
 	{/if}
-</div>
+</Page>

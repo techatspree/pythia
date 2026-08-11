@@ -1,4 +1,5 @@
 <script lang="ts">
+	import Badge from '$lib/ui/Badge.svelte';
 	import { resolve } from '$app/paths';
 	import { _, locale } from 'svelte-i18n';
 	import { formatDate, DEFAULT_LOCALE } from '$lib/format';
@@ -35,9 +36,9 @@
 						</td>
 						<td class="px-4 py-3">{project.client || '—'}</td>
 						<td class="px-4 py-3">
-							<span class="px-2 py-0.5 text-xs rounded-full {project.status === 'ACTIVE' ? 'bg-brand-green/20 text-brand-green' : 'bg-gray-100 text-gray-600'}">
+							<Badge variant={project.status === 'ACTIVE' ? 'brand' : 'neutral'}>
 								{project.status}
-							</span>
+							</Badge>
 						</td>
 						<td class="px-4 py-3 text-gray-500">
 							{project.createdAt ? formatDate(project.createdAt, $locale ?? DEFAULT_LOCALE) : '—'}

@@ -1,4 +1,7 @@
 <script lang="ts">
+	import Badge from '$lib/ui/Badge.svelte';
+	import Page from '$lib/ui/Page.svelte';
+	import Field from '$lib/ui/Field.svelte';
 	import Select from '$lib/ui/Select.svelte';
 	import Card from '$lib/ui/Card.svelte';
 	import Button from '$lib/ui/Button.svelte';
@@ -185,53 +188,48 @@
 	}
 </script>
 
-<div class="p-6">
+<Page width="form">
 	<h1 class="text-2xl font-bold mb-4">{$_('session.setup.title')}</h1>
 
 	<ErrorBanner message={bannerMessage} ondismiss={() => (bannerMessage = null)} />
 
-	<Card title={$_('session.setup.openSessions')} class="mb-4 max-w-3xl">
-			{#if openSessions.length > 0}
-				<ul class="space-y-2">
-					{#each openSessions as sess (sess.id)}
-						<li class="flex items-center gap-3 border rounded px-3 py-2 text-sm">
-							<span class="font-medium">{sess.title}</span>
-							<span class="text-xs text-gray-400">{$_(`session.status.${sess.status}`)}</span>
-							<a
-								href={resolve('/sessions/[id]', { id: sess.id })}
-								class="ml-auto text-brand-green hover:underline">{$_('session.setup.join')}</a
-							>
-						</li>
-					{/each}
-				</ul>
-			{:else}
-				<p class="text-sm text-gray-500">{$_('session.setup.noOpenSessions')}</p>
-			{/if}
+	<Card title={$_('session.setup.openSessions')} class="mb-4">
+		{#if openSessions.length > 0}
+			<ul class="space-y-2">
+				{#each openSessions as sess (sess.id)}
+					<li class="flex items-center gap-3 border rounded px-3 py-2 text-sm">
+						<span class="font-medium">{sess.title}</span>
+						<span class="text-xs text-gray-400">{$_(`session.status.${sess.status}`)}</span>
+						<a
+							href={resolve('/sessions/[id]', { id: sess.id })}
+							class="ml-auto text-brand-green hover:underline">{$_('session.setup.join')}</a
+						>
+					</li>
+				{/each}
+			</ul>
+		{:else}
+			<p class="text-sm text-gray-500">{$_('session.setup.noOpenSessions')}</p>
+		{/if}
 	</Card>
 
-	<!-- The setup form is a single narrow column by nature: the page stays
-	     full width like every other route, the form constrains itself. -->
-	<div class="max-w-2xl">
-		<div class="mb-4">
-		<label class="block text-sm font-medium mb-1" for="project">{$_('session.setup.project')}</label>
+	<Field label={$_('session.setup.project')} id="project">
 		<Select id="project" bind:value={projectId} onchange={onProjectChange}>
 			<option value="">{$_('session.setup.selectProject')}</option>
 			{#each projects as p (p.id)}
 				<option value={p.id}>{p.name}</option>
 			{/each}
 		</Select>
-	</div>
+	</Field>
 
 	{#if estimations.length > 0}
-		<div class="mb-4">
-			<label class="block text-sm font-medium mb-1" for="estimation">{$_('session.setup.estimation')}</label>
+		<Field label={$_('session.setup.estimation')} id="estimation">
 			<Select id="estimation" bind:value={estimationId} onchange={onEstimationChange}>
 				<option value="">{$_('session.setup.selectEstimation')}</option>
 				{#each estimations as e (e.id)}
 					<option value={e.id}>{e.offer}</option>
 				{/each}
 			</Select>
-		</div>
+		</Field>
 	{/if}
 
 	{#if noDraft}
@@ -239,67 +237,70 @@
 	{/if}
 
 	{#if leaves.length > 0}
-		<div class="mb-4">
-			<span class="block text-sm font-medium mb-1">{$_('session.setup.items')}</span>
-			<div class="border rounded overflow-hidden">
-				<!-- Header strip: the app's sub-section idiom, carrying the live count
-				     and the bulk controls. -->
-				<div class="flex items-center gap-3 px-3 py-2 bg-gray-50/40 border-b">
-					<span class="text-xs text-gray-500">
+		<!-- Same Card shell and brand strip as "open sessions", so the two panels
+		     cannot disagree; `padded={false}` because the scroll area is flush to
+		     the card edge rather than inset. -->
+		<Card padded={false} class="mb-4">
+			{#snippet header()}
+				<div
+					class="flex items-center gap-3 px-4 py-2 bg-brand-green/10 text-brand-green text-xs font-semibold uppercase tracking-wide"
+				>
+					<span>{$_('session.setup.items')}</span>
+					<span class="font-normal normal-case tracking-normal text-brand-green/70">
 						{$_('session.setup.selectedCount', {
 							values: { selected: selected.size, total: leaves.length }
 						})}
 					</span>
-					<div class="ml-auto flex items-center gap-3 text-xs">
-						<button type="button" onclick={selectAll} class="text-brand-green hover:underline"
+					<div
+						class="ml-auto flex items-center gap-3 font-normal normal-case tracking-normal"
+					>
+						<button type="button" onclick={selectAll} class="hover:underline"
 							>{$_('session.setup.selectAll')}</button
 						>
-						<button type="button" onclick={deselectAll} class="text-brand-green hover:underline"
+						<button type="button" onclick={deselectAll} class="hover:underline"
 							>{$_('session.setup.deselectAll')}</button
 						>
 					</div>
 				</div>
-				<!-- Capped and scrollable: a real draft has dozens of leaves, and an
-				     uncapped list pushed the title field, the moderator checkbox and
-				     the start button below the fold — the form looked submit-less. -->
-				<div class="max-h-72 overflow-y-auto divide-y">
-					{#each leaves as leaf (leaf.logicalId)}
-						{@const isSelected = selected.has(leaf.logicalId)}
-						<label
-							class="flex items-start gap-2 px-3 py-2 text-sm cursor-pointer hover:bg-gray-50 {isSelected
-								? 'bg-brand-green/5'
-								: ''}"
-						>
-							<input
-								type="checkbox"
-								class="accent-brand-green mt-0.5"
-								checked={isSelected}
-								onchange={() => toggle(leaf.logicalId)}
-							/>
-							<span class="min-w-0">
-								<span class="block">{leaf.description}</span>
-								{#if leaf.path}
-									<span class="block text-xs text-gray-400">{leaf.path}</span>
-								{/if}
-							</span>
-							{#if !isUnestimated(leaf)}
-								<!-- Neutral grey, NOT brand-green: every brand-green chip in this
-								     app means "current/active"; this means "already done". -->
-								<span
-									class="ml-auto shrink-0 px-2 py-0.5 text-xs rounded-full bg-gray-100 text-gray-500"
-									>{$_('session.setup.estimated')}</span
-								>
+			{/snippet}
+			<!-- Capped and scrollable (task-151): a real draft has dozens of leaves,
+			     and an uncapped list pushed the title field, the moderator checkbox
+			     and the start button below the fold. -->
+			<div class="max-h-72 overflow-y-auto divide-y">
+				{#each leaves as leaf (leaf.logicalId)}
+					{@const isSelected = selected.has(leaf.logicalId)}
+					<label
+						class="flex items-start gap-2 px-4 py-2 text-sm cursor-pointer hover:bg-gray-50 {isSelected
+							? 'bg-brand-green/5'
+							: ''}"
+					>
+						<input
+							type="checkbox"
+							class="accent-brand-green mt-0.5"
+							checked={isSelected}
+							onchange={() => toggle(leaf.logicalId)}
+						/>
+						<span class="min-w-0">
+							<span class="block">{leaf.description}</span>
+							{#if leaf.path}
+								<span class="block text-xs text-gray-400">{leaf.path}</span>
 							{/if}
-						</label>
-					{/each}
-				</div>
+						</span>
+						{#if !isUnestimated(leaf)}
+							<!-- Neutral, NOT brand: every brand chip in this app means
+							     "current/active"; this means "already done". -->
+							<Badge variant="neutral" class="ml-auto shrink-0"
+								>{$_('session.setup.estimated')}</Badge
+							>
+						{/if}
+					</label>
+				{/each}
 			</div>
-		</div>
+		</Card>
 
-		<div class="mb-4">
-			<label class="block text-sm font-medium mb-1" for="title">{$_('session.setup.sessionTitle')}</label>
+		<Field label={$_('session.setup.sessionTitle')} id="title">
 			<input id="title" bind:value={title} class="w-full border rounded px-3 py-2 text-sm" />
-		</div>
+		</Field>
 
 		<label class="flex items-center gap-2 mb-4 text-sm cursor-pointer">
 			<input type="checkbox" class="accent-brand-green" bind:checked={moderatorEstimates} />
@@ -318,22 +319,21 @@
 	{:else if estimationId && !noDraft}
 		<p class="text-sm text-gray-500 mb-4">{$_('session.setup.noItems')}</p>
 	{/if}
-	</div>
 
 	{#if existing.length > 0}
-		<Card title={$_('session.setup.existing')} class="mt-8 max-w-3xl">
-				<ul class="space-y-2">
-					{#each existing as sess (sess.id)}
-						<li class="flex items-center gap-3 border rounded px-3 py-2 text-sm">
-							<span class="font-medium">{sess.title}</span>
-							<span class="text-xs text-gray-400">{$_(`session.status.${sess.status}`)}</span>
-							<a
-								href={resolve('/sessions/[id]', { id: sess.id })}
-								class="ml-auto text-brand-green hover:underline">{$_('session.setup.join')}</a
-							>
-						</li>
-					{/each}
-				</ul>
+		<Card title={$_('session.setup.existing')} class="mt-8">
+			<ul class="space-y-2">
+				{#each existing as sess (sess.id)}
+					<li class="flex items-center gap-3 border rounded px-3 py-2 text-sm">
+						<span class="font-medium">{sess.title}</span>
+						<span class="text-xs text-gray-400">{$_(`session.status.${sess.status}`)}</span>
+						<a
+							href={resolve('/sessions/[id]', { id: sess.id })}
+							class="ml-auto text-brand-green hover:underline">{$_('session.setup.join')}</a
+						>
+					</li>
+				{/each}
+			</ul>
 		</Card>
 	{/if}
-</div>
+</Page>

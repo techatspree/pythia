@@ -18,7 +18,22 @@ SvelteKit 5 (runes) + TypeScript + Tailwind 4, Vite, adapter-static (SPA).
 
 **Only three selects use it, and the others must not.** The app's nine `<select>`s serve three different roles: the three FORM selects (`sessions/+page.svelte` ×2, `CreateEstimationDialog`), five **in-cell editors** (`EstimationGrid` ×2, `AdditionalCostsPanel` ×2, bucket `EditorModule`) that are deliberately `bg-transparent` and borderless because they sit inside a grid cell where a bordered box would be wrong, and one **chrome** select (`UserMenu`'s language switcher). Do not "finish the job" by converting the last six.
 
-`Field` (the remaining duplicated text inputs) and `Badge` are known follow-ups.
+`$lib/ui/Page.svelte` is the page shell **and the single definition of content width** (task-154). `width="full"` is `p-6` alone (full-bleed working surfaces: projects, estimations, the editor, the session room); `width="form"` adds an inner `max-w-3xl` column. **A page's children never carry their own `max-w-*`** — the container owns the column. Width used to be picked per component (7 different `max-w-*` values across 17 sites), which is exactly why the session setup page's Card (`max-w-3xl`) and its item-picker block (`max-w-2xl`) disagreed about their right edge. `e2e/session-setup.test.ts` asserts the two Cards have equal width, so a child re-adding a `max-w` fails the suite.
+
+`$lib/ui/Field.svelte` is label + control + optional hint. The caller passes the control as children **and gives it the matching `id`** — Svelte cannot inject an attribute into an arbitrary child, so a `Field` that pretended to wire the association would silently produce an unlabelled control.
+
+`$lib/ui/Badge.svelte` is the chip (11 sites before it existed). Variants carry meaning, not just colour: `brand` is the app's "current / active" signal (session status, chosen method, current version) — do not reach for it merely to make a chip stand out; `neutral` is already-done/counts, `muted` is de-emphasised, `warn` is draft/not-yet-final. The one chip that is also a `<button>` (the method popover trigger in `EstimationDetail`) keeps its own markup: `Badge` renders a `<span>`.
+
+**Button variant semantics** — pick by what the action *is*, not by how much it should stand out:
+
+| variant | use for |
+|---|---|
+| `primary` | the one affirmative action of a view (start, save, resume) |
+| `secondary` | a real alternative that still needs a hit target (pause, cancel) |
+| `danger` | destructive or irreversible (end session early, delete, replace draft) |
+| `ghost` | low-stakes, repeated, in-context actions where a bordered control would be noise |
+
+**`ghost` is never used for an action that ends or discards shared state.** Both session controls were `ghost` until task-154 and rendered as grey text, so "Sitzung vorzeitig beenden" — which ends the session for every participant — carried less visual weight than a link.
 
 ## Logging
 

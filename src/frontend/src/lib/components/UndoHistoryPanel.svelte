@@ -1,4 +1,5 @@
 <script module lang="ts">
+	import Badge from '$lib/ui/Badge.svelte';
 	import { get } from 'svelte/store';
 	import { _ } from 'svelte-i18n';
 
@@ -74,13 +75,13 @@
 							<span class="text-gray-400"> · {relativeTime(entry.createdAt)}</span>
 						</div>
 						{#if entry.status === 'ACTIVE'}
-							<span
-								class="shrink-0 ml-2 px-2 py-0.5 text-xs rounded-full bg-brand-green/20 text-brand-green"
-								>{$_('history.statusActive')}</span
+							<Badge
+								variant="brand" class="shrink-0 ml-2"
+								>{$_('history.statusActive')}</Badge
 							>
 						{:else}
-							<span class="shrink-0 ml-2 px-2 py-0.5 text-xs rounded-full bg-gray-200 text-gray-500"
-								>{$_('history.statusUndone')}</span
+							<Badge variant="muted" class="shrink-0 ml-2"
+								>{$_('history.statusUndone')}</Badge
 							>
 						{/if}
 					</div>

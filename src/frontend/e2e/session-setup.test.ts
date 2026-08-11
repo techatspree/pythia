@@ -110,6 +110,28 @@ test('the selected count tracks the checkboxes', async ({ page }) => {
 	await expect(count).toHaveText('40 von 40 ausgewählt');
 });
 
+test('the panels on the page share one width', async ({ page }) => {
+	const { projectId, estimationId } = await seedLargeDraft(page.request);
+	await page.goto(`/sessions?projectId=${projectId}&estimationId=${estimationId}`);
+	await page.waitForLoadState('networkidle');
+
+	// The reported symptom: "open sessions" sat at max-w-3xl while the item
+	// picker's block was max-w-2xl, a 6rem step visible as a ragged right edge.
+	// `Page` now owns the column and its children carry no width of their own,
+	// so this fails the moment someone re-adds a max-w to a child.
+	const cards = page.locator('.border.rounded-lg.overflow-hidden');
+	expect(await cards.count()).toBeGreaterThanOrEqual(2);
+
+	const widths: number[] = [];
+	for (let i = 0; i < (await cards.count()); i++) {
+		const box = await cards.nth(i).boundingBox();
+		if (box) widths.push(box.width);
+	}
+	const min = Math.min(...widths);
+	const max = Math.max(...widths);
+	expect(max - min).toBeLessThanOrEqual(1);
+});
+
 test('each item shows the group it sits in', async ({ page }) => {
 	const { projectId, estimationId } = await seedLargeDraft(page.request);
 	await page.goto(`/sessions?projectId=${projectId}&estimationId=${estimationId}`);
