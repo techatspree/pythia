@@ -145,6 +145,16 @@
 		roots = [...roots, makeBucketedLeaf()];
 	}
 
+	// Root-level group (task-150). Without this the hierarchy view was a dead
+	// end: `hierarchyActions` renders `+ Gruppe` / `+ Element` only on a GROUP
+	// row, so a flat draft could never grow its first group. Empty title (the
+	// input carries `bucket.groupTitlePlaceholder`) and empty children — unlike
+	// the PERT `addRootGroup`, a bucketed group seeds no child leaf.
+	function addRootGroup() {
+		roots = [...roots, { logicalId: newId(), type: 'GROUP', title: '', children: [] }];
+		log.debug('Bucket editor: root group added');
+	}
+
 	function addChildGroupAt(path: NodePath) {
 		const g = nodeAt(path) as Group;
 		g.children = [
@@ -584,11 +594,10 @@
 		<div class="p-10 text-center text-gray-400">
 			<p class="mb-4 text-sm">{$_('bucket.itemsEmpty')}</p>
 			{#if editable}
-				<Button
-				
-					onclick={addItem}
-				
-					>{$_('bucket.addItem')}</Button>
+				<div class="flex items-center justify-center gap-2">
+					<Button onclick={addItem}>{$_('bucket.addItem')}</Button>
+					<Button variant="secondary" onclick={addRootGroup}>{$_('bucket.addGroupRow')}</Button>
+				</div>
 			{/if}
 		</div>
 	{:else if view === 'hierarchy'}
@@ -614,9 +623,18 @@
 			actionsPlacement="treeColumn"
 		/>
 		{#if editable}
-			<div class="p-3 border-t bg-gray-50/40">
+			<!-- Both affordances belong here: the per-row `+ Gruppe` action only
+			     renders on a GROUP row, so without a ROOT-level add-group a flat
+			     draft can never grow its first group (task-150). -->
+			<div class="p-3 border-t bg-gray-50/40 flex items-center gap-4">
 				<button type="button" onclick={addItem} class="text-sm text-brand-green hover:text-brand-green-hover"
 					>{$_('bucket.addItemRow')}</button
+				>
+				<button
+					type="button"
+					onclick={addRootGroup}
+					class="text-sm text-brand-green hover:text-brand-green-hover"
+					>{$_('bucket.addGroupRow')}</button
 				>
 			</div>
 		{/if}

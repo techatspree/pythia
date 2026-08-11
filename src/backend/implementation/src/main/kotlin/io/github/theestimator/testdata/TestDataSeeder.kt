@@ -550,12 +550,34 @@ class TestDataSeeder(
 
         // Each bucket: one sample (three-point) + one non-sample that inherits the
         // bucket's sample mean via EstimationVersion.calculate().
+        //
+        // The roots are deliberately NOT flat (task-150): a bucket estimation
+        // legitimately contains GROUP nodes — the Merlin importer produces exactly
+        // this shape — and the hierarchy view is where they are edited. Seeding a
+        // group means that view is exercised in dev instead of always showing a
+        // flat list, which is how its missing add-group affordance went unnoticed.
+        // Note the mixed root list (a group AND leaves) needs `addRootLeaves`,
+        // which takes List<DraftEstimationNode>; `addRoots` is group-only.
         addRootLeaves(
             draft, listOf(
-                bucketedLeaf(draft, "Ingest connector A", bucketS, isSample = true, min = 1.0, exp = 2.0, max = 3.0),
-                bucketedLeaf(draft, "Ingest connector B", bucketS, isSample = false),
-                bucketedLeaf(draft, "Transform pipeline X", bucketM, isSample = true, min = 3.0, exp = 5.0, max = 8.0),
-                bucketedLeaf(draft, "Transform pipeline Y", bucketM, isSample = false),
+                group(
+                    draft, "Ingest", listOf(
+                        bucketedLeaf(
+                            draft, "Ingest connector A", bucketS,
+                            isSample = true, min = 1.0, exp = 2.0, max = 3.0
+                        ),
+                        bucketedLeaf(draft, "Ingest connector B", bucketS, isSample = false)
+                    )
+                ),
+                group(
+                    draft, "Transform", listOf(
+                        bucketedLeaf(
+                            draft, "Transform pipeline X", bucketM,
+                            isSample = true, min = 3.0, exp = 5.0, max = 8.0
+                        ),
+                        bucketedLeaf(draft, "Transform pipeline Y", bucketM, isSample = false)
+                    )
+                ),
                 bucketedLeaf(draft, "Reporting dashboard", bucketL, isSample = true, min = 5.0, exp = 8.0, max = 13.0),
                 bucketedLeaf(draft, "Data catalog", bucketL, isSample = false)
             )

@@ -310,7 +310,8 @@
     "phaseNone": "— keine —",
     "itemsEmpty": "Noch keine Einträge.",
     "addItem": "Element hinzufügen",
-    "addItemRow": "+ Element hinzufügen"
+    "addItemRow": "+ Element hinzufügen",
+    "addGroupRow": "+ Gruppe hinzufügen"
   },
   "language": {
     "label": "Sprache",

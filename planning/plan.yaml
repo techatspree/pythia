@@ -103,7 +103,7 @@ phases:
   - id: phase-15
     name: Pluggable Estimation Methods
     duration_weeks: 4
-    tasks: [task-096, task-097, task-098, task-099, task-100, task-101, task-102, task-103, task-104, task-105, task-106, task-107, task-108, task-113, task-115, task-116]
+    tasks: [task-096, task-097, task-098, task-099, task-100, task-101, task-102, task-103, task-104, task-105, task-106, task-107, task-108, task-113, task-115, task-116, task-150]
   - id: phase-16
     name: Internationalization
     duration_weeks: 2

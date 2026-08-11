@@ -1,0 +1,226 @@
+id: task-150
+phase: phase-15
+title: Bucket hierarchy view — make groups creatable
+depends_on: [task-134]
+description: |
+  The bucket + sampled editor's **hierarchy view can render a nested group tree
+  but cannot create one**. A user looking at a flat draft sees no way to build a
+  hierarchy at all, which reads as "the hierarchy view is broken".
+
+  It is a chicken-and-egg dead end in
+  `src/frontend/src/lib/methods/bucketSampled/EditorModule.svelte`:
+
+  - The footer under the hierarchy `TreeTable` (~line 618) offers only
+    `bucket.addItemRow` ("+ Element hinzufügen"). **There is no add-GROUP
+    affordance**, and no `bucket.addGroupRow` key exists in either catalog.
+  - The per-row `+ Gruppe` / `+ Element` buttons live in the `hierarchyActions`
+    snippet (~line 512) but are gated on `{#if node.type === 'GROUP'}`.
+  - The empty-state branch (`roots.length === 0`, ~line 583) likewise offers
+    only `bucket.addItem`.
+
+  So a group can only be created *inside an existing group*, and nothing can
+  create the first one — not even on an empty estimation.
+
+  The PERT editor does not have this problem: `EstimationGrid.svelte` has
+  `addRootGroup()` (line 58) behind a `grid.addGroupRow` footer button
+  (line 549). The bucket editor simply never grew the equivalent.
+
+  **Why nobody noticed:** `TestDataSeeder` seeds the bucket+sampled estimation
+  with `addRootLeaves(...)` — six leaves, zero groups — so in dev the hierarchy
+  view always shows a flat list. Groups DO reach this view in production: the
+  Merlin importer (task-131) creates `GROUP` nodes, which is what the view was
+  built for and why it renders them correctly.
+
+  ## Already proven by an existing spec
+
+  `src/frontend/e2e/bucket-hierarchy.test.ts` (added during the analysis, not by
+  a task) pins all three halves and must keep passing:
+
+  1. a seeded `GROUP > (GROUP > 2 leaves) + leaf` draft renders all three levels
+     in the hierarchy view — the rendering is fine;
+  2. a `GROUP` row does expose `+ Gruppe` / `+ Element`, and a leaf row does not;
+  3. **"a flat bucket draft offers SOME way to create the first group"** is
+     marked `test.fail()` and currently fails as expected.
+
+  When this task lands, test 3 starts passing and Playwright reports it as an
+  **unexpected pass**. That is the signal to delete the `test.fail()` marker —
+  do it as part of this task, or the suite goes red on success.
+
+  ## Target state
+
+  A root-level "+ Gruppe hinzufügen" button sits beside the existing
+  "+ Element hinzufügen" in the hierarchy view's footer AND in its empty state,
+  so a hierarchy can be built from nothing. The seeded bucket estimation
+  contains at least one group, so the view is exercised in dev.
+
+  ## Scope decisions (do not widen)
+
+  - **Hierarchy view only.** The bucket view's footer keeps offering only
+    "+ Element": its rows are synthetic bucket rows, not domain groups, and a
+    group has no meaning in that projection. Do not add the button there.
+  - **No new domain, backend or DTO work.** `GROUP` nodes in a
+    `BUCKET_SAMPLED_PERT` draft are already fully supported end to end — the
+    Merlin importer creates them and `DraftUpdateApplier` persists them. This
+    is a frontend affordance plus a seed-data change.
+  - Do not change `hierarchyActions`' `node.type === 'GROUP'` gate. Offering
+    "+ Gruppe" on a leaf row would mean "make this leaf a group", which is a
+    different (and unwanted) operation.
+
+steps:
+  - |
+    Add the i18n key to BOTH catalogs, mirroring the PERT wording so the two
+    editors read identically. In `src/frontend/src/lib/i18n/de.json` and
+    `en.json`, add to the `bucket` object next to `addItemRow`:
+
+      de: "addGroupRow": "+ Gruppe hinzufügen"
+      en: "addGroupRow": "+ Add group"
+
+    Use the exact strings `grid.addGroupRow` already carries in each catalog —
+    read them and copy, do not invent a second phrasing.
+
+  - |
+    Add a root-level group mutation to
+    `src/frontend/src/lib/methods/bucketSampled/EditorModule.svelte`, beside the
+    existing `addItem()` (~line 144):
+
+      function addRootGroup() {
+          roots = [...roots, { logicalId: newId(), type: 'GROUP', title: '', children: [] }];
+      }
+
+    Match `addChildGroupAt`'s shape exactly — an **empty** `title` (its input
+    carries `bucket.groupTitlePlaceholder`) and an empty `children` array. Do
+    NOT copy the PERT `addRootGroup`, which seeds a `FIXED` child; a bucketed
+    group starts empty and the user adds leaves with the row action.
+
+    Log it like the sibling mutations do (`log.debug`), per the CLAUDE.md
+    frontend logging convention.
+
+  - |
+    Render the button in the hierarchy view's footer (~line 616-622), beside the
+    existing add-item button, inside the same `{#if editable}` block:
+
+      <button type="button" onclick={addRootGroup}
+        class="text-sm text-brand-green hover:text-brand-green-hover"
+        >{$_('bucket.addGroupRow')}</button>
+
+    Keep both buttons in one flex row with a gap so they read as a pair.
+
+    **Leave the bucket view's footer (~line 650-656) untouched** — see the scope
+    note.
+
+  - |
+    Add the same affordance to the hierarchy empty state (~line 583-593), which
+    currently offers only `bucket.addItem`. An estimation with no roots at all
+    must be able to start with a group, not only with a loose leaf.
+
+    Note that block already uses the `$lib/ui/Button` primitive (task-149) —
+    add a second `<Button variant="secondary">` rather than a raw `<button>`, and
+    while you are there tidy the stray blank lines inside the existing
+    `<Button>` tag (a leftover from task-149's mechanical transform).
+
+  - |
+    Give the seeded bucket estimation a group so the view is exercised in dev.
+    In `src/backend/implementation/.../testdata/TestDataSeeder.kt` (~line 550),
+    the bucket draft is built with `addRootLeaves(draft, listOf(...))` over six
+    leaves. Restructure so at least one group is present — e.g. keep two leaves
+    at root and nest the other four under a `group(draft, "Datenplattform", …)`
+    via the existing `group(...)` + `addRoots(...)` helpers (lines 95 and 112).
+
+    `addRoots` takes `List<DraftGroupNode>` while `addRootLeaves` takes
+    `List<DraftEstimationNode>`; a mixed root list of groups AND leaves needs
+    the leaf-typed helper, so use `addRootLeaves` for the mixed list rather than
+    widening `addRoots`.
+
+    Keep the German sample-data content German (intentional per CLAUDE.md) and
+    keep each bucket's sample/non-sample pairing intact, so
+    `computeBucketAverages` still has a sample per bucket.
+
+  - |
+    Delete the `test.fail()` marker from the third test in
+    `src/frontend/e2e/bucket-hierarchy.test.ts` and let it assert normally: with
+    the footer button present, a flat draft now offers a way to create a group.
+    Tighten its final assertion onto the new button
+    (`{ name: '+ Gruppe hinzufügen', exact: true }`) rather than the loose
+    `/Gruppe/` regex it uses while documenting the bug.
+
+    Also extend it to prove the affordance WORKS end to end, not merely that it
+    renders: click it, then assert a new `GROUP` row appears and that the
+    per-row `+ Element` action is now reachable on it — that is the loop that
+    was impossible before.
+
+  - |
+    Update `src/frontend/CLAUDE.md`. Its bucket-editor section describes the
+    hierarchy view as "the real nested-group tree with `+ group` / `+ item` / `✕`
+    row actions". Add that the hierarchy view also carries a root-level
+    "+ Gruppe hinzufügen" in its footer and empty state — without it the per-row
+    actions are unreachable from a flat draft, which is the defect task-150
+    fixed — and that the bucket view deliberately has no group affordance.
+
+  - |
+    Run the frontend gate:
+
+      ./gradlew :frontend:check
+
+  - |
+    Run the backend tests (the seeder change touches persisted fixture shape)
+    and the full build:
+
+      ./gradlew :backend:implementation:test
+      ./gradlew build
+
+  - |
+    Run the e2e suite against a running dev stack (`./scripts/dev.sh`, Docker
+    up, backend :8090, Vite :5173) — the seeder change affects every spec that
+    reads the seeded bucket estimation:
+
+      cd src/frontend && npm run test:e2e
+
+validation:
+  - |
+    jq -e '.bucket.addGroupRow' src/frontend/src/lib/i18n/de.json > /dev/null \
+      && jq -e '.bucket.addGroupRow' src/frontend/src/lib/i18n/en.json > /dev/null
+  - |
+    [ "$(jq -r '.bucket.addGroupRow' src/frontend/src/lib/i18n/de.json)" \
+      = "$(jq -r '.grid.addGroupRow' src/frontend/src/lib/i18n/de.json)" ]
+  - |
+    grep -q 'function addRootGroup' src/frontend/src/lib/methods/bucketSampled/EditorModule.svelte
+  - |
+    # EXACTLY twice — footer + empty state. `-ge 2` would tolerate a third
+    # occurrence leaking into the bucket-view footer, which scope forbids.
+    [ "$(grep -c "bucket.addGroupRow" src/frontend/src/lib/methods/bucketSampled/EditorModule.svelte)" = "2" ]
+  - |
+    ! grep -rqE '(^|[^.a-zA-Z])console\.' src/frontend/src/lib/methods/bucketSampled/
+  - |
+    # The NEW mutation must log, not merely the file somewhere.
+    grep -A4 'function addRootGroup' src/frontend/src/lib/methods/bucketSampled/EditorModule.svelte \
+      | grep -q 'log\.'
+  - |
+    ! grep -q 'test.fail' src/frontend/e2e/bucket-hierarchy.test.ts
+  - |
+    # Target the LOCATOR, not the prose: the old bug-note comment already
+    # contained the button label, so a bare string grep passed vacuously.
+    grep -q "name: '+ Gruppe hinzufügen'" src/frontend/e2e/bucket-hierarchy.test.ts \
+      && ! grep -q '/Gruppe/' src/frontend/e2e/bucket-hierarchy.test.ts
+  - |
+    # Scoped to the bucket-seeding section: `DraftGroupNode` and
+    # `BUCKET_SAMPLED_PERT` both already appear elsewhere in this file (the PERT
+    # seeds), so an unscoped grep proves nothing.
+    sed -n '/BUCKET_SAMPLED_PERT/,$p' \
+      src/backend/implementation/src/main/kotlin/io/github/theestimator/testdata/TestDataSeeder.kt \
+      | grep -q 'group('
+  - |
+    grep -q 'addGroupRow\|root-level' src/frontend/CLAUDE.md
+  - |
+    ./gradlew :frontend:check
+  - |
+    ./gradlew build
+  - |
+    cd src/frontend && npx playwright test e2e/bucket-hierarchy.test.ts e2e/bucket-views.test.ts
+
+outputs:
+  - modified: src/frontend/src/lib/methods/bucketSampled/EditorModule.svelte
+  - modified: src/frontend/src/lib/i18n/de.json
+  - modified: src/frontend/src/lib/i18n/en.json
+  - modified: src/frontend/e2e/bucket-hierarchy.test.ts
+  - modified: src/frontend/CLAUDE.md
+  - modified: src/backend/implementation/src/main/kotlin/io/github/theestimator/testdata/TestDataSeeder.kt

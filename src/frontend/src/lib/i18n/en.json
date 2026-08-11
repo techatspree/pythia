@@ -310,7 +310,8 @@
     "phaseNone": "— none —",
     "itemsEmpty": "No items yet.",
     "addItem": "Add item",
-    "addItemRow": "+ Add item"
+    "addItemRow": "+ Add item",
+    "addGroupRow": "+ Add group"
   },
   "language": {
     "label": "Language",

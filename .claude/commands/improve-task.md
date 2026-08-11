@@ -60,7 +60,36 @@ Check whether the task introduces work that the CLAUDE.md "Logging" conventions 
 - If they add a **significant frontend flow** (a new route load, store action, or data-mutation path with a `try`/`catch`), the task must log via `log` from `$lib/log.ts` — never bare `console.*` — while keeping `ErrorBanner` surfacing. Flag bare `console.*` or missing logging.
 - Reference the CLAUDE.md logging conventions in any finding. Purely structural/config/docs tasks with no new service, domain op, or frontend flow are exempt — rate PASS.
 
-### 7. Report
+### 7. I18n completeness
+
+Check whether the task introduces **user-visible GUI text** and, if so, whether it actually requires that text to be translated into every supported language. The languages are whatever catalogs exist in `src/frontend/src/lib/i18n/` (today `de.json` and `en.json`, mirroring the domain `SupportedLanguage` enum) — enumerate that directory rather than assuming two, so a language added later is covered.
+
+- If `steps`/`outputs` add or change anything a user can read — a new route or panel, a button, a label, a heading, a table header, a toast/banner message, an empty-state line, a validation error, a status label — the task must have a step that adds the key to **every** catalog. Flag if the step is missing, and flag equally if it names only one catalog (`de.json` but not `en.json`).
+- The task must forbid inline literals: strings belong in the catalogs and render via `$_('key')` (or `get(_)` in module context), per the CLAUDE.md i18n convention. Flag a step that spells out visible English text to hardcode in a component.
+- Check the **non-obvious surfaces** are covered when relevant: `title`, `aria-label`, `alt`, `placeholder`, `<option>` labels, and strings assigned to a variable before being rendered. These are the ones tasks forget; a task that only says "add a button labelled X" and whose UI needs a tooltip or aria-label should be flagged as incomplete rather than assumed fine.
+- The task should require a **real translation**, not the same sentence in both files. If it dictates literal string values, check the German ones are actually German. Proper nouns and symbols that are genuinely identical (a product name, "OK", "CSS") are fine.
+- `validation` must contain a runnable check that the catalogs stay key-for-key identical and carry the new keys. Flag if the only i18n evidence is prose. A good shape:
+  ```bash
+  python3 - <<'PY'
+  import json, pathlib, sys
+  cats = {p.stem: json.loads(p.read_text())
+          for p in pathlib.Path('src/frontend/src/lib/i18n').glob('*.json')}
+  def flat(o, p=''):
+      s = set()
+      for k, v in o.items():
+          n = f'{p}.{k}' if p else k
+          s |= flat(v, n) if isinstance(v, dict) else {n}
+      return s
+  keys = {l: flat(d) for l, d in cats.items()}
+  ref = set().union(*keys.values())
+  bad = {l: sorted(ref - k) for l, k in keys.items() if ref - k}
+  print('missing keys:', bad or 'none')
+  sys.exit(1 if bad else 0)
+  PY
+  ```
+- Backend-only tasks, pure refactors, and tasks that touch no user-visible text are exempt — rate PASS and say so in one line rather than inventing a finding.
+
+### 8. Report
 
 Produce this exact structure:
 
@@ -87,6 +116,10 @@ Produce this exact structure:
 [PASS | WARN | FAIL]
 <one line per finding, or "No issues found.">
 
+### I18n completeness
+[PASS | WARN | FAIL]
+<one line per finding, or "No issues found." — or "No user-visible text — exempt.">
+
 ### Improvement suggestions
 <bullet list of optional improvements, or "None.">
 
@@ -99,7 +132,7 @@ Rating rules:
 - **WARN** — issues that should be addressed but won't block execution
 - **FAIL** — issues that must be fixed before running `/implement-task $ARGUMENTS`
 
-### 8. Apply fixes (if requested)
+### 9. Apply fixes (if requested)
 
 If the user asks you to apply fixes after seeing the report:
 
