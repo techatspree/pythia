@@ -19,9 +19,18 @@ export class SessionStore {
 	}
 
 	// Replace the whole snapshot from a socket frame.
+	//
+	// This deliberately does NOT touch `connected` (task-147): liveness inferred
+	// from "a payload arrived once" can never become false again, so the room's
+	// indicator stayed green over a dead socket and told the user stale data was
+	// live. Connection state comes only from setConnected(), driven by the
+	// socket's open/close/error/watchdog events.
 	apply(session: SessionDto): void {
 		this.session = session;
-		this.connected = true;
+	}
+
+	setConnected(value: boolean): void {
+		this.connected = value;
 	}
 
 	// Reactive getters (not `$derived` fields, which would read the

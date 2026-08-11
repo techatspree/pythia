@@ -241,6 +241,14 @@ test('suspend parks the room, resume continues it, end-early keeps the results',
 			est.getByRole('listitem').filter({ hasText: title }).first()
 		).toContainText('Pausiert');
 		await est.goto(`/sessions/${sessionId}`);
+		// Navigating back re-created the estimator's socket. Wait for it to be
+		// live before the moderator acts: a broadcast sent while this socket is
+		// still connecting reaches nobody, and the room would sit on stale state
+		// (task-147 made this indicator truthful, so it is a real signal).
+		await expect(est.getByTestId('session-connection')).toHaveAttribute(
+			'data-connected',
+			'true'
+		);
 
 		// Resume continues exactly where it stopped: item 2, PHASE1.
 		await mod.getByTestId('session-resume').click();

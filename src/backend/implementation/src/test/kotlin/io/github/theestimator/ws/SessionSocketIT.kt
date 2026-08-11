@@ -99,6 +99,32 @@ class SessionSocketIT {
         assertTrue(collector.messages.any { it.contains("RUNNING") }, "expected a broadcast after start")
     }
 
+    // task-147: the client cannot tell a quiet room from a dead socket on its
+    // own, so the server must keep feeding its watchdog. %test runs the schedule
+    // at 1s so this does not sleep out the production 20s.
+    @Test
+    fun `an open connection keeps receiving heartbeat frames`() {
+        val sessionId = createRunnableSession()
+        val collector = Collector()
+        connect(sessionId, wsTicket(sessionId), collector)
+
+        await { collector.messages.any { it.contains("\"type\":\"heartbeat\"") } }
+        assertTrue(
+            collector.messages.any { it.contains("\"type\":\"heartbeat\"") },
+            "expected a heartbeat frame on an open connection, got: ${collector.messages}"
+        )
+
+        // It is a recurring beat, not a one-off on connect — the watchdog is
+        // reset by every frame, so a single heartbeat would not keep a quiet
+        // room alive.
+        val first = collector.messages.count { it.contains("\"type\":\"heartbeat\"") }
+        await { collector.messages.count { it.contains("\"type\":\"heartbeat\"") } > first }
+        assertTrue(
+            collector.messages.count { it.contains("\"type\":\"heartbeat\"") } > first,
+            "expected heartbeats to repeat, still $first after waiting"
+        )
+    }
+
     @Test
     fun `a bogus ticket is rejected — no session snapshot`() {
         val sessionId = createRunnableSession()

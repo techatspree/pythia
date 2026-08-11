@@ -1,0 +1,253 @@
+id: task-148
+phase: phase-11
+title: Align the session UI with the app's shared GUI style
+depends_on: [task-147]
+description: |
+  The collaborative-session pages look like a different product from the rest
+  of TheEstimator. task-141 already fixed the worst of it — the session route
+  group used to substitute its own top bar for the app header — but the
+  *content* below the header still diverges. This task finishes the job so a
+  user moving from a project or an estimation editor into a session room sees
+  the same surface, not a visually foreign one.
+
+  ## The divergences (all verified against the current tree)
+
+  **1. Page background.** `src/frontend/src/routes/sessions/+layout.svelte`
+  wraps the whole route group in `bg-gray-50`. It is the ONLY route-level page
+  background in the app — every other route paints on the default white. The
+  session pages therefore read as grey while the rest of the app reads white.
+  (`bg-gray-50` is used widely *elsewhere* as an accent — table header strips,
+  hovered rows, nested wells — that usage is correct and stays.)
+
+  **2. Content width.** Every content route uses a bare `p-6` wrapper and runs
+  full width — that was a deliberate change ("UI uses the whole width now").
+  The two session routes instead centre a narrow column:
+  `p-6 max-w-4xl mx-auto` (room) and `p-6 max-w-2xl mx-auto` (setup). Beside a
+  full-width project or editor page this reads as a different layout system.
+
+  **3. Card idiom.** The four editor panels (`ParametersPanel`,
+  `EffortDriversPanel`, `PhasesPanel`, `AdditionalCostsPanel`) all use one
+  identical card shape:
+
+      <div class="border rounded-lg overflow-hidden mb-4">
+        <button class="w-full flex items-center justify-between px-4 py-2
+                       bg-brand-green/10 text-brand-green text-xs font-semibold
+                       uppercase tracking-wide hover:bg-brand-green/20"> … </button>
+        <div class="p-4"> … </div>
+      </div>
+
+  — a bordered card with **no padding on the wrapper**, a brand-green tinted
+  header strip, and a `p-4` body. The session markup instead uses an ad-hoc
+  `border rounded-lg p-4 bg-white` (7 occurrences) and `border rounded p-3`
+  (2 occurrences), with no header strip and no brand tint anywhere.
+
+  **4. Section headings.** Non-session `<h2>`s are `text-lg font-semibold mb-4`
+  (7 of 9 occurrences). The session mixes three unrelated treatments:
+  `text-lg font-semibold mb-2`, a bare
+  `text-xs font-semibold uppercase tracking-wide text-gray-500` (which is the
+  app's *strip* typography used without the strip, so it reads as unstyled grey
+  text), and one `text-xl font-bold` where a section heading is wanted.
+
+  **5. Redundant `bg-white`.** Session cards set `bg-white` explicitly only
+  because they sit on the grey layout background. Once (1) is fixed these are
+  redundant and should go, so the cards match the panels byte-for-byte.
+
+  ## Target state
+
+  Session pages are visually indistinguishable in *style* from the project,
+  estimation and editor pages: white page background, full-width `p-6`
+  wrapper, the shared bordered-card idiom with the brand-green header strip for
+  titled sections, and `text-lg font-semibold mb-4` section headings.
+
+  ## Explicitly OUT of scope
+
+  - `src/frontend/src/routes/admin/system/+page.svelte` keeps its
+    `p-6 max-w-3xl mx-auto`. A single-column settings form legitimately reads
+    narrow; the session room is a working surface like the editor and does not.
+    Do not "fix" the admin page.
+  - No behaviour changes. This is presentational only: no store, socket, API
+    or i18n-key changes, and no new user-facing strings. Any label that needs
+    to move stays the same `session.*` key.
+  - The participants list stays a `<ul>`/`<li>`. `e2e/undo.test.ts` asserts a
+    page-global `ul li` count of 0, but that assertion runs on the **editor**
+    page, not the session room — do not migrate this markup to another route,
+    and do not introduce `ul`/`li` into the editor.
+
+  ## Hard constraint — the e2e contract
+
+  The session markup carries 13 `data-testid` attributes that
+  `e2e/session.test.ts` and `e2e/navigation.test.ts` select on:
+  `aggregate`, `aggregate-mean`, `conflict-badge`, `conflict-drawer`,
+  `diverged-banner`, `participant`, `phase1-count`, `revise-submit`,
+  `session-end-early`, `session-ended-early`, `session-resume`,
+  `session-suspend`, `session-suspended`.
+
+  **Every one must survive on the same element role.** A restyle that moves a
+  testid onto a wrapper, or drops one while re-nesting a card, breaks the suite
+  — and `session-ended-early` in particular is asserted on BOTH the moderator's
+  and the estimator's page. Restyle by changing `class` attributes and card
+  nesting, never by rewriting an element that carries a testid.
+
+  ## Logging
+
+  Presentational only — no new service, domain operation or frontend flow, so
+  the CLAUDE.md logging conventions add nothing here. The existing `log.error`
+  calls and `ErrorBanner` usage in the session components must survive
+  unchanged; do not remove an error path while restyling its container.
+
+steps:
+  - |
+    Remove the route-group background. In
+    `src/frontend/src/routes/sessions/+layout.svelte`, drop the `bg-gray-50`
+    wrapper so the layout renders `{@render children()}` directly.
+
+    Keep the file (SvelteKit needs it only if it still does something — if it
+    reduces to a bare pass-through, deleting it is equivalent and preferred).
+    Whichever you choose, carry over the existing comment's warning in some
+    form: this layout must NOT reintroduce `min-h-screen`, which pushes every
+    session page past the fold and leaves a permanent scrollbar over dead
+    space once the global header sits above it.
+
+  - |
+    Make both session routes full-width, matching every other content route:
+
+      src/frontend/src/routes/sessions/+page.svelte      (line ~177)
+        `p-6 max-w-2xl mx-auto`  ->  `p-6`
+      src/frontend/src/routes/sessions/[id]/+page.svelte (line ~116)
+        `p-6 max-w-4xl mx-auto`  ->  `p-6`
+
+    Where a narrow measure is genuinely wanted for readability (a paragraph of
+    prose, the item-picker column), constrain that inner block with `max-w-*`
+    instead of the page wrapper — the editor panels do exactly this
+    (`ParametersPanel` uses `max-w-xl` on its inner grid).
+
+  - |
+    Convert the session's titled cards to the shared panel idiom. In
+    `src/frontend/src/routes/sessions/[id]/+page.svelte` these are the
+    participants card (~line 145) and the current-item card (~line 227); in
+    `src/frontend/src/routes/sessions/+page.svelte` the open-sessions list and
+    the item picker.
+
+    Replace `border rounded-lg p-4 bg-white` with the panel shape:
+
+      <div class="border rounded-lg overflow-hidden mb-4">
+        <div class="px-4 py-2 bg-brand-green/10 text-brand-green text-xs
+                    font-semibold uppercase tracking-wide">Title</div>
+        <div class="p-4"> …body… </div>
+      </div>
+
+    Use a `<div>` header strip, not the panels' `<button>` — the session cards
+    are not collapsible and a button would be a keyboard-focusable no-op. Drop
+    the now-redundant `bg-white`. Cards that are a single status sentence
+    (the CANCELLED / ENDED_EARLY / SUSPENDED notices) need no header strip:
+    give them `border rounded-lg p-4` and leave them untitled.
+
+  - |
+    Normalise the section headings. Any `<h2>` that titles a card becomes the
+    header-strip text from the previous step. Any remaining standalone `<h2>`
+    uses the app default `text-lg font-semibold mb-4`. Replace the lone
+    `text-xl font-bold` heading with that same class. The page `<h1>` in each
+    route stays `text-2xl font-bold`, matching `projects/+page.svelte`.
+
+    Do not leave a bare
+    `text-xs font-semibold uppercase tracking-wide text-gray-500` anywhere in
+    the session markup — that typography belongs to the tinted strip, and
+    without it the label reads as unstyled grey text.
+
+  - |
+    Apply the same treatment to the four session components so the room is
+    internally consistent: `src/frontend/src/lib/session/PhaseOnePanel.svelte`,
+    `PhaseTwoPanel.svelte`, `SessionSummary.svelte` and `ConflictBadge.svelte`.
+
+    These render INSIDE the current-item card, so they must not add another
+    bordered card around themselves — they contribute body content. Normalise
+    their inner `border rounded p-3` wells to the app's nested-well style
+    (`p-3 border-t bg-gray-50/40`, as `ParametersPanel` and its siblings use
+    for sub-sections) and align their button classes on the app's pair:
+
+      primary:   px-4 py-2 text-sm bg-brand-green text-white rounded hover:bg-[#007a45]
+      secondary: px-4 py-2 text-sm border rounded hover:bg-gray-50
+
+    The amber `diverged` highlight in `PhaseTwoPanel` is meaningful state, not
+    styling drift — keep it.
+
+  - |
+    Verify no `data-testid` was lost or relocated. The 13 ids listed in the
+    description must still be present, and each must sit on the same element
+    role it did before (the button that triggers the action, the element whose
+    text is asserted). Diff the before/after id sets rather than eyeballing.
+
+  - |
+    Update `src/frontend/CLAUDE.md`. Its "Frontend session UI" material
+    currently documents `sessions/+layout.svelte` as "only the room background
+    wrapper (`bg-gray-50`, deliberately WITHOUT `min-h-screen`)". Rewrite that
+    to describe the new state: the session pages use the same full-width `p-6`
+    wrapper, white background and shared card idiom as every other route, and
+    the `min-h-screen` warning still stands for whatever the layout becomes.
+
+  - |
+    Run the frontend gate:
+
+      ./gradlew :frontend:check
+
+  - |
+    Run the session and navigation e2e specs against a running dev stack
+    (`./scripts/dev.sh`, Docker up, backend :8090, Vite :5173):
+
+      cd src/frontend && npx playwright test e2e/session.test.ts e2e/navigation.test.ts
+
+    Then the full suite, since the restyle touches shared routes:
+
+      cd src/frontend && npm run test:e2e
+
+validation:
+  - |
+    ! grep -q 'bg-gray-50' src/frontend/src/routes/sessions/+layout.svelte 2>/dev/null
+  - |
+    ! grep -qE 'max-w-(2xl|4xl) mx-auto' src/frontend/src/routes/sessions/+page.svelte \
+        'src/frontend/src/routes/sessions/[id]/+page.svelte'
+  - |
+    grep -qE '^<div class="p-6">' src/frontend/src/routes/sessions/+page.svelte \
+      && grep -qE '^<div class="p-6">' 'src/frontend/src/routes/sessions/[id]/+page.svelte'
+  - |
+    grep -q 'p-6 max-w-3xl mx-auto' src/frontend/src/routes/admin/system/+page.svelte
+  - |
+    ! grep -rq 'border rounded-lg p-4 bg-white' src/frontend/src/routes/sessions src/frontend/src/lib/session
+  - |
+    grep -rq 'bg-brand-green/10' src/frontend/src/routes/sessions
+  - |
+    ! grep -rq 'text-xs font-semibold uppercase tracking-wide text-gray-500' \
+        src/frontend/src/routes/sessions src/frontend/src/lib/session
+  - |
+    ! grep -rq 'text-xl font-bold' src/frontend/src/routes/sessions src/frontend/src/lib/session
+  - |
+    [ "$(grep -rhoE 'data-testid="[^"]+"' src/frontend/src/routes/sessions src/frontend/src/lib/session \
+        | sort -u | wc -l | tr -d ' ')" = "13" ]
+  - |
+    for t in aggregate aggregate-mean conflict-badge conflict-drawer diverged-banner participant \
+             phase1-count revise-submit session-end-early session-ended-early session-resume \
+             session-suspend session-suspended; do \
+      grep -rq "data-testid=\"$t\"" src/frontend/src/routes/sessions src/frontend/src/lib/session || exit 1; \
+    done
+  - |
+    grep -rq 'log\.' src/frontend/src/routes/sessions \
+      && ! grep -rqE '(^|[^.a-zA-Z])console\.' src/frontend/src/routes/sessions src/frontend/src/lib/session
+  - |
+    grep -rq 'ErrorBanner' src/frontend/src/routes/sessions
+  - |
+    grep -q 'min-h-screen' src/frontend/CLAUDE.md \
+      && ! grep -q 'room background wrapper (`bg-gray-50`' src/frontend/CLAUDE.md
+  - |
+    ./gradlew :frontend:check
+  - |
+    cd src/frontend && npx playwright test e2e/session.test.ts e2e/navigation.test.ts
+
+outputs:
+  - modified: src/frontend/src/routes/sessions/+layout.svelte
+  - modified: src/frontend/src/routes/sessions/+page.svelte
+  - modified: src/frontend/src/routes/sessions/[id]/+page.svelte
+  - modified: src/frontend/src/lib/session/PhaseOnePanel.svelte
+  - modified: src/frontend/src/lib/session/PhaseTwoPanel.svelte
+  - modified: src/frontend/src/lib/session/SessionSummary.svelte
+  - modified: src/frontend/src/lib/session/ConflictBadge.svelte
+  - modified: src/frontend/CLAUDE.md

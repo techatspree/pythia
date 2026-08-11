@@ -1,0 +1,253 @@
+id: task-147
+phase: phase-11
+title: Session socket — truthful connection state + liveness
+depends_on: [task-144]
+description: |
+  A session room can sit on stale data while telling the user it is connected.
+  This surfaced as an intermittent `e2e/session.test.ts` failure (the estimator's
+  room not reaching `ENDED_EARLY` within 5 s while the moderator's did), but the
+  test flake is the symptom, not the defect.
+
+  ## What was verified in the current code (do not re-derive; these are facts)
+
+  - **The connection indicator lies.** `SessionStore.connected`
+    (`src/frontend/src/lib/session/store.svelte.ts`) starts `false` and is set
+    to `true` inside `apply(session)` — i.e. when the FIRST payload arrives —
+    and is **never set back to `false` anywhere**. `connectSessionSocket`
+    reports nothing about the connection: its callbacks are only `onSession`
+    and `onError`. So the room's green "Connected" dot
+    (`routes/sessions/[id]/+page.svelte`) turns green once and stays green for
+    the lifetime of the page, including while the socket is dead and in
+    backoff. A participant looking at stale numbers is actively told they are
+    live. This is the core defect.
+  - **A half-open socket is never detected.** In `socket.ts` the ONLY reconnect
+    trigger is `ws.onclose`. There is no heartbeat, no idle watchdog, and
+    `ws.onerror` is not handled at all. A connection dropped without a close
+    frame — laptop sleep, NAT/proxy idle-kill, a silently broken TCP path — is
+    never noticed, so the client never reconnects and the room stays stale
+    indefinitely, with the dot still green.
+  - **Reconnect backoff can outlast a user's patience.** `scheduleReconnect`
+    doubles from 1 s up to `MAX_BACKOFF_MS` (15 s) and `attempt` is only reset
+    in `ws.onopen`, so a few failed handshakes push the next retry 8–15 s out
+    with no indication in the UI.
+  - **Re-syncing state on reconnect is ALREADY correct — do not add a REST
+    re-fetch.** `SessionSocket.onOpen` (backend) calls
+    `broadcaster.sendSnapshot(connection, sessionId)`, so every successful
+    (re)connect immediately pushes the current `SessionDto`. Once the client
+    reconnects, state self-heals. The gap is *detecting* the drop and *telling
+    the user*, not fetching.
+
+  ## Target state
+
+  The indicator reflects the real socket state, a dead socket is detected
+  within a bounded time, and the user can tell live data from stale data.
+
+  ## Design decisions — do not deviate
+
+  **Connection state is owned by the socket, not inferred from payloads.**
+  `connectSessionSocket` gains an `onConnectionChange(connected: boolean)`
+  callback fired on `ws.onopen` (true) and on `ws.onclose` / `ws.onerror` /
+  watchdog-triggered teardown (false). `SessionStore` gets an explicit
+  `setConnected(value)`; **remove the `this.connected = true` line from
+  `apply()`** — deriving liveness from "a message arrived once" is exactly the
+  bug.
+
+  **Liveness needs an application-level heartbeat, because the browser cannot
+  help.** JS cannot send WebSocket protocol pings and is not notified of
+  pong frames, so a client-side watchdog has nothing to feed it on an idle
+  session — a healthy room legitimately sends no frames for minutes. The
+  server therefore emits a periodic `{"type":"heartbeat"}` frame, and the
+  client treats **any** received frame as proof of life.
+
+  - Backend: a `@Scheduled(every = "20s")` method on `SessionBroadcaster` (or a
+    small sibling bean) that iterates `connections.listAll()` and sends the
+    heartbeat through the existing private `send(...)`, which already swallows
+    per-connection failures so one dead socket cannot abort the sweep.
+  - Frontend: `handleMessage` ignores `type: "heartbeat"` for state purposes
+    but resets the watchdog. The watchdog is **45 s** (> 2 heartbeats, so one
+    lost frame is not a false positive); on expiry it logs, reports
+    disconnected, force-closes the socket and reconnects immediately.
+
+  Also set `quarkus.websockets-next.server.auto-ping-interval=30s` in
+  `application.properties` so the SERVER reaps connections whose client is
+  gone. That is the mirror-image problem (server-side) and is one property, not
+  a second mechanism.
+
+  **Do not make the reconnect aggressive to paper over this.** Keep the capped
+  exponential backoff; the fix is that the user can now SEE the state. Reset
+  `attempt` in `ws.onopen` as today.
+
+  **`ws.onerror` must not be left unhandled.** Log it and report disconnected;
+  the browser fires `onclose` after `onerror`, so the existing reconnect path
+  still drives retries — do not schedule a second reconnect from `onerror` or
+  the backoff doubles twice per failure.
+
+  **The e2e flake must be fixed by waiting on a real signal, not by raising
+  timeouts.** `e2e/session.test.ts` navigates the estimator away to `/sessions`
+  and back, which tears down and re-creates the socket; the spec then asserts
+  on pushed state with no guarantee the new socket is up. With a truthful
+  indicator the spec can await it. Do NOT add blanket `waitForTimeout` calls.
+
+steps:
+  - |
+    Extend the socket client `src/frontend/src/lib/session/socket.ts`:
+      - add a third callback parameter `onConnectionChange: (connected: boolean) => void`;
+      - fire `true` from `ws.onopen`, `false` from `ws.onclose`;
+      - add `ws.onerror` — `log.error(...)` plus `onConnectionChange(false)`,
+        and do NOT call `scheduleReconnect()` there (the browser fires
+        `onclose` afterwards, which already reconnects; scheduling in both
+        doubles the backoff per failure);
+      - add the idle watchdog: a 45 s timer reset on EVERY received frame,
+        cleared on `close()`; on expiry `log.warn`, `onConnectionChange(false)`,
+        `ws.close()` and reconnect immediately (do not wait out the backoff —
+        this is a first failure, so reset `attempt` to 0 before reopening);
+      - in `handleMessage`, treat `type === 'heartbeat'` as a liveness-only
+        frame: reset the watchdog, do not call `onSession`.
+    Keep `MAX_BACKOFF_MS`/`BASE_BACKOFF_MS` and the ticket-per-attempt logic as
+    they are.
+  - |
+    In `src/frontend/src/lib/session/store.svelte.ts`: add
+    `setConnected(value: boolean)` and **delete the `this.connected = true`
+    line from `apply()`**, so liveness comes only from the socket. Leave the
+    `connected = $state(false)` initial value.
+  - |
+    In `src/frontend/src/routes/sessions/[id]/+page.svelte`, pass the new
+    callback into `connectSessionSocket` (`(c) => store.setConnected(c)`).
+    The existing indicator markup needs no change — it already reads
+    `store.connected` — but add `data-testid="session-connection"` to the
+    indicator span so the e2e can await it.
+  - |
+    Backend heartbeat: add a scheduled method to
+    `src/backend/implementation/src/main/kotlin/io/github/theestimator/ws/SessionBroadcaster.kt`
+    that sends `{"type":"heartbeat"}` to every connection in
+    `connections.listAll()` via the existing private `send(...)`. Log at DEBUG
+    with the connection count (never INFO — this fires every 20 s and would
+    flood the log).
+
+    **`quarkus-scheduler` is NOT currently a backend dependency (verified)** —
+    add `implementation("io.quarkus:quarkus-scheduler")` to
+    `src/backend/implementation/build.gradle.kts` first, or `@Scheduled` is
+    silently inert.
+
+    **Make the interval configurable from the start**, not as a test
+    afterthought: `@Scheduled(every = "{app.session.heartbeat-interval}")` with
+    `app.session.heartbeat-interval=20s` in `application.properties` and a
+    `%test` override of `1s`. That keeps the IT fast without a second code path.
+
+    `send(...)` uses the blocking `sendTextAndAwait`, which is fine here:
+    Quarkus runs `@Scheduled` methods on a worker thread, so unlike
+    `SessionSocket.onOpen` (an event-loop callback) this needs no `@Blocking`.
+    Say so in a comment — it is the first question the next reader will have.
+  - |
+    Add `quarkus.websockets-next.server.auto-ping-interval=30s` to
+    `src/backend/implementation/src/main/resources/application.properties` so
+    the server reaps connections whose client has vanished. Comment it with
+    WHY (it is the server-side mirror of the client watchdog). The property
+    name is verified against `quarkus-websockets-next` 3.35.1.
+
+    Do NOT also set `quarkus.websockets-next.server.connection-idle-timeout`
+    (it exists, and it is tempting): the heartbeat keeps every healthy
+    connection non-idle, so an idle timeout would only ever fire on rooms that
+    are fine, and would fight the mechanism this task is adding.
+  - |
+    Backend IT: extend the EXISTING
+    `src/backend/implementation/src/test/kotlin/io/github/theestimator/ws/SessionSocketIT.kt`
+    — not the REST-only `SessionResourceIT`. It already has everything needed:
+    a `@QuarkusTest` harness, a `WebSocket.Listener`-based `Collector` that
+    accumulates text frames, and the ws-ticket handshake. Add a case that opens
+    a connection and asserts a `"type":"heartbeat"` frame arrives, relying on
+    the `%test` interval of 1 s rather than sleeping out the production 20 s.
+  - |
+    Fix the e2e flake in `src/frontend/e2e/session.test.ts`: after the
+    estimator navigates back into the room, await the truthful connection
+    indicator (`data-testid="session-connection"` showing the connected state)
+    before asserting on any socket-pushed state. Do not raise timeouts and do
+    not add `waitForTimeout`.
+  - |
+    Add a frontend e2e that the indicator tells the truth:
+    `src/frontend/e2e/session-connection.test.ts` — open a room, assert the
+    indicator reads connected; then make the socket fail (e.g. `page.route`
+    the ws-ticket endpoint to abort, and evaluate a close on the live socket,
+    or use CDP offline emulation) and assert the indicator flips to
+    disconnected within a bounded wait. The point is that a dead socket is
+    VISIBLE; keep the mechanism simple and deterministic.
+  - |
+    Update documentation: the "Realtime channel" section of
+    `.claude/skills/estimation-sessions/SKILL.md` gains the heartbeat +
+    watchdog contract and the rule that `connected` comes from the socket and
+    never from `apply()`. Note there that reconnect self-heals state via the
+    server's on-open snapshot, so no REST re-fetch belongs on that path.
+  - |
+    Run the full gate: `./gradlew :backend:implementation:test`, then
+    `./gradlew build`, then the e2e suite with the dev stack running
+    (`./scripts/dev.sh`; backend :8090, Vite :5173;
+    `cd src/frontend && npm run test:e2e`). Run `e2e/session.test.ts` at least
+    five times in a row — the defect this task fixes is intermittent, so a
+    single green run proves nothing. Stop the stack with SIGTERM to `dev.sh`,
+    never by killing the child JVMs.
+
+validation:
+  - |
+    Liveness is no longer inferred from a payload arriving:
+      S=src/frontend/src/lib/session/store.svelte.ts
+      grep -q "setConnected" "$S"
+      # apply() must not flip `connected` any more
+      ! awk '/apply\(session/,/^\t}/' "$S" | grep -q "connected = true"
+  - |
+    The socket reports connection state and detects a silent death:
+      C=src/frontend/src/lib/session/socket.ts
+      grep -q "onConnectionChange" "$C"
+      grep -q "onerror" "$C"
+      grep -q "heartbeat" "$C"
+      grep -qE "watchdog|IDLE_TIMEOUT|idleTimer" "$C"
+      grep -q "log\." "$C"
+      ! grep -q "console\." "$C"
+  - |
+    The room feeds the store from the socket and exposes the indicator:
+      P="src/frontend/src/routes/sessions/[id]/+page.svelte"
+      grep -q "setConnected" "$P"
+      grep -q "session-connection" "$P"
+  - |
+    The server emits the heartbeat and reaps dead clients:
+      B=src/backend/implementation/src/main/kotlin/io/github/theestimator/ws/SessionBroadcaster.kt
+      grep -q "Scheduled" "$B"
+      grep -q "heartbeat" "$B"
+      grep -q "Log\.debug" "$B"
+      grep -q "quarkus-scheduler" src/backend/implementation/build.gradle.kts
+      grep -q "app.session.heartbeat-interval" src/backend/implementation/src/main/resources/application.properties
+      # the heartbeat IT belongs with the other WebSocket tests
+      grep -q "heartbeat" src/backend/implementation/src/test/kotlin/io/github/theestimator/ws/SessionSocketIT.kt
+      ! grep -qE 'Log\.info\("Heartbeat|Log\.info\("heartbeat' "$B"
+      grep -q "auto-ping-interval" src/backend/implementation/src/main/resources/application.properties
+  - |
+    The on-open snapshot is still the re-sync path (no redundant REST fetch was
+    added to the reconnect path):
+      W=src/backend/implementation/src/main/kotlin/io/github/theestimator/ws/SessionSocket.kt
+      grep -q "sendSnapshot" "$W"
+  - |
+    Both e2e specs exist and neither papers over the race with a sleep:
+      test -f src/frontend/e2e/session-connection.test.ts
+      grep -q "session-connection" src/frontend/e2e/session.test.ts
+      ! grep -q "waitForTimeout" src/frontend/e2e/session-connection.test.ts
+      ! grep -q "waitForTimeout" src/frontend/e2e/session.test.ts
+  - |
+    ./gradlew :backend:implementation:test
+  - |
+    ./gradlew build
+  - |
+    Requires a running dev stack (`./scripts/dev.sh`; backend :8090, Vite :5173).
+    The bug is intermittent, so the session spec must survive repetition:
+      ( cd src/frontend && npm run test:e2e )
+      ( cd src/frontend && for i in 1 2 3 4 5; do npx playwright test e2e/session.test.ts || exit 1; done )
+
+outputs:
+  - modified: src/frontend/src/lib/session/socket.ts
+  - modified: src/frontend/src/lib/session/store.svelte.ts
+  - modified: src/frontend/src/routes/sessions/[id]/+page.svelte
+  - modified: src/backend/implementation/src/main/kotlin/io/github/theestimator/ws/SessionBroadcaster.kt
+  - modified: src/backend/implementation/src/main/resources/application.properties
+  - modified: src/backend/implementation/build.gradle.kts
+  - modified: src/backend/implementation/src/test/kotlin/io/github/theestimator/ws/SessionSocketIT.kt
+  - modified: src/frontend/e2e/session.test.ts
+  - created: src/frontend/e2e/session-connection.test.ts
+  - modified: .claude/skills/estimation-sessions/SKILL.md

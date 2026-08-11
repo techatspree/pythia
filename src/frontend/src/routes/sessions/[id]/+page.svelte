@@ -61,7 +61,8 @@
 			(s) => store.apply(s),
 			(msg) => {
 				bannerMessage = msg;
-			}
+			},
+			(connected) => store.setConnected(connected)
 		);
 	});
 
@@ -129,6 +130,8 @@
 				>{$_(`session.status.${s.status}`)}</span
 			>
 			<span
+				data-testid="session-connection"
+				data-connected={store.connected}
 				class="ml-auto flex items-center gap-1.5 text-xs {store.connected
 					? 'text-green-600'
 					: 'text-gray-400'}"

@@ -37,6 +37,8 @@ dependencies {
     implementation("io.quarkus:quarkus-container-image-jib")
     implementation("io.quarkus:quarkus-rest-jackson")
     implementation("io.quarkus:quarkus-websockets-next")
+    // Drives the session-socket heartbeat (task-147); @Scheduled is inert without it.
+    implementation("io.quarkus:quarkus-scheduler")
     implementation("io.quarkus:quarkus-jackson")
     implementation("com.fasterxml.jackson.module:jackson-module-kotlin")
     implementation("io.quarkus:quarkus-oidc")
