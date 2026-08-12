@@ -2,11 +2,19 @@ apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 resources:
   - ../../base
+# Deploy-time coordinates. `${REGISTRY}` and `${IMAGE_TAG}` survive
+# `kubectl kustomize` as literal text and are resolved by envsubst in
+# scripts/deploy.sh — kustomize itself cannot read the environment, and the
+# registry host must not be committed to a public repository. IMAGE_TAG is the
+# short commit SHA, never the floating 1.0.0-SNAPSHOT: with imagePullPolicy
+# IfNotPresent a moving tag silently keeps serving the image already on the node.
 images:
   - name: pythia/pythia-backend
-    newName: REGISTRY_PLACEHOLDER/estimation-backend
+    newName: ${REGISTRY}/pythia/pythia-backend
+    newTag: ${IMAGE_TAG}
   - name: pythia/pythia-frontend
-    newName: REGISTRY_PLACEHOLDER/estimation-frontend
+    newName: ${REGISTRY}/pythia/pythia-frontend
+    newTag: ${IMAGE_TAG}
 replicas:
   - name: backend
     count: 2

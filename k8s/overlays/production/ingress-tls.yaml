@@ -5,10 +5,10 @@ metadata:
 spec:
   tls:
     - hosts:
-        - estimation.example.com
+        - ${INGRESS_HOST}
       secretName: estimation-tls
   rules:
-    - host: estimation.example.com
+    - host: ${INGRESS_HOST}
       http:
         paths:
           - path: /

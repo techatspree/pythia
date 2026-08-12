@@ -1,0 +1,76 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# Staging and production are two namespaces on the SAME single-node minikube
+# (see docs/deployment.md). Kustomize's `namespace:` also renames the Namespace
+# object itself, so this one line both creates `estimation-staging` and stamps
+# it onto every resource inherited from the base.
+namespace: estimation-staging
+
+resources:
+  - ../../base
+
+# Deploy-time coordinates. `${REGISTRY}` and `${IMAGE_TAG}` survive
+# `kubectl kustomize` as literal text and are resolved by envsubst in
+# scripts/deploy.sh — kustomize itself cannot read the environment, and the
+# registry host must not be committed to a public repository.
+images:
+  - name: pythia/pythia-backend
+    newName: ${REGISTRY}/pythia/pythia-backend
+    newTag: ${IMAGE_TAG}
+  - name: pythia/pythia-frontend
+    newName: ${REGISTRY}/pythia/pythia-frontend
+    newTag: ${IMAGE_TAG}
+
+replicas:
+  - name: backend
+    count: 1
+
+patches:
+  # The base pins imagePullPolicy to Never, which is right for a local minikube
+  # where images are side-loaded with `docker save | minikube ssh docker load`.
+  # Staging pulls from the internal registry instead, so leaving it would fail
+  # every first deploy with ErrImageNeverPull.
+  - target:
+      kind: Deployment
+    patch: |-
+      - op: replace
+        path: /spec/template/spec/containers/0/imagePullPolicy
+        value: IfNotPresent
+
+  # Staging needs its own hostname — a subdomain of the production one is the
+  # obvious choice. Where no second DNS record exists, deploy with the ingress
+  # patch removed and reach staging over the SSH tunnel with
+  # `kubectl -n estimation-staging port-forward` (docs/deployment.md).
+  - target:
+      kind: Ingress
+      name: estimation
+    patch: |-
+      - op: replace
+        path: /spec/rules/0/host
+        value: ${INGRESS_HOST}
+
+  # One node, two namespaces, no isolation: the base HPA scales the backend to
+  # 3 replicas at 512Mi/500m each, which on a shared node lets a staging load
+  # spike evict production pods. Staging stays at one.
+  - target:
+      kind: HorizontalPodAutoscaler
+      name: backend
+    patch: |-
+      - op: replace
+        path: /spec/maxReplicas
+        value: 1
+
+  - target:
+      kind: ConfigMap
+      name: backend-config
+    patch: |-
+      - op: replace
+        path: /data/QUARKUS_OIDC_ENABLED
+        value: "true"
+      - op: replace
+        path: /data/QUARKUS_OIDC_AUTH_SERVER_URL
+        value: ${OIDC_AUTH_SERVER_URL}
+      - op: replace
+        path: /data/QUARKUS_OIDC_CLIENT_ID
+        value: ${OIDC_CLIENT_ID}

@@ -50,6 +50,10 @@ All profiles use PostgreSQL 16 — there is no H2. Local dev (`dev` profile) and
 
 Stop `./scripts/dev.sh` with SIGTERM (Ctrl-C) — never `pkill` the child JVMs, or the Dev Services PostgreSQL container orphans and keeps port 5432 bound.
 
+**CI is `.github/workflows/ci.yaml`** (task-027) — the public gate on every PR and push to `main`: `./gradlew build` + `./gradlew staticAnalysis`, the Playwright suite against a `dev.sh` stack, and a container-image build on `main` that pushes nothing. It sets no secrets. Note that `CI=true` there activates `verifyOpenApiSchemaCommitted`, the OpenAPI drift gate that is deliberately inert locally: when it fails, run `./gradlew build` and commit the regenerated `openapi.json` + `schema.d.ts` — never disable the gate.
+
+**Deployment (task-028) is NOT in this repository.** It runs on an internal GitLab that pull-mirrors the GitHub repo, with its pipeline definition held in a separate internal project (GitLab's external CI-config path) so no hostname, registry or credential ever enters this public history. What *is* committed is the generic logic: `scripts/deploy.sh <staging|production>` renders a Kustomize overlay, refuses to run when any `${...}` placeholder it finds is unset, `envsubst`s the rest and waits on the rollout; `scripts/smoke.sh <base-url>` checks it afterwards. Both overlays therefore carry `${REGISTRY}`/`${IMAGE_TAG}`/`${INGRESS_HOST}` rather than literals — never commit a real one. The target is a single server running **minikube**, with staging and production as two namespaces (`estimation-staging` / `estimation`) on that one node. See **`docs/deployment.md`**, which also covers the traps that come with minikube-as-production: `minikube delete` destroys the database, the cluster needs a systemd unit to survive a reboot, and the node is shared so staging is capped at one replica.
+
 ## Architecture
 
 A single Gradle build; the projects are declared in `settings.gradle.kts`.

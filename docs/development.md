@@ -38,6 +38,53 @@ and frontend.
 ./gradlew :backend:end2end:e2eTest
 ```
 
+CI does **not** run `:backend:end2end:e2eTest`. `HealthEndpointIT` reads
+`System.getProperty("backend.url", "http://localhost:8080")` — it defaults to
+8080, while the `dev` backend serves 8090 — and the `e2eTest` task in
+`src/backend/end2end/build.gradle.kts` declares no `systemProperty`, so a
+`-Dbackend.url=…` on the Gradle command line never reaches the forked test JVM.
+Wiring `systemProperty("backend.url", …)` into that task is the prerequisite for
+putting the suite into the pipeline; until then its single test only asserts
+`/q/health` is UP, which the pipeline's readiness poll already proves.
+
+## Continuous integration
+
+`.github/workflows/ci.yaml` is the public quality gate. It runs on every pull
+request and every push to `main`, needs no secrets, and deploys nothing.
+
+| Job | When | What it does |
+|-----|------|--------------|
+| `build` | PR + `main` | `./gradlew build` — domain (JVM + Kotlin/JS), backend `@QuarkusTest`, `:frontend:check`. Then `./gradlew staticAnalysis` and an upload of the consolidated report plus the JUnit XML. |
+| `e2e` | PR + `main` | Starts the dev stack with `./scripts/dev.sh` and runs the Playwright suite against it. |
+| `images` | `main` only | Builds both container images, asserts the backend image is byte-identical across rebuilds, and scans it with Trivy. **Pushes nothing.** |
+| `security` | PR + `main` | `npm audit --omit=dev` and a Trivy filesystem scan. Reports only — it does not gate. |
+
+To reproduce the gate locally, run what the pipeline runs:
+
+```bash
+./gradlew build
+./gradlew staticAnalysis
+```
+
+The runner needs Docker: the `%test` profile starts a throwaway PostgreSQL 16
+through Quarkus Dev Services, and the `e2e` job's dev stack does the same.
+
+**Deployment is not here.** It runs on a separate internal pipeline whose
+coordinates are deliberately kept out of this repository (task-028).
+
+### If CI fails on `verifyOpenApiSchemaCommitted`
+
+That is the OpenAPI drift gate (task-114). It is opt-in via the `CI`
+environment variable — which GitHub Actions sets automatically — so it fires in
+the pipeline but not during ordinary local development. A failure means the
+committed API client no longer matches the backend's REST contract, usually
+because a DTO changed. The fix is never to disable the gate:
+
+```bash
+./gradlew build
+git add src/frontend/src/lib/api/openapi.json src/frontend/src/lib/api/schema.d.ts
+```
+
 ## Gradle 10 readiness
 
 The build runs on the Gradle **9.6.1** wrapper. Our own build scripts are

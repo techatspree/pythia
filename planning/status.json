@@ -159,15 +159,15 @@
       "notes": ""
     },
     "task-027": {
-      "status": "pending",
-      "started_at": null,
-      "completed_at": null,
+      "status": "done",
+      "started_at": "2026-08-12T12:55:02+00:00",
+      "completed_at": "2026-08-12T13:05:01+00:00",
       "notes": ""
     },
     "task-028": {
-      "status": "pending",
-      "started_at": null,
-      "completed_at": null,
+      "status": "done",
+      "started_at": "2026-08-12T14:41:09+00:00",
+      "completed_at": "2026-08-12T14:53:00+00:00",
       "notes": ""
     },
     "task-029": {

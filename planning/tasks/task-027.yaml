@@ -1,25 +1,420 @@
 id: task-027
 phase: phase-7
-title: Set up CI pipeline
+title: CI pipeline on GitHub Actions
 depends_on: [task-022, task-023]
 description: |
-  Continuous integration that runs on every push and PR. The pipeline
-  should be fast on PRs (lint + tests) and produce images on main.
-stages:
-  - lint:
-      backend: "./mvnw verify -DskipTests=false"
-      frontend: "npm run lint && npm run typecheck"
-  - test:
-      backend: "./mvnw verify"
-      frontend: "npm test -- --run"
-  - build_images:
-      condition: "branch == main"
-      steps: build backend (jib) and frontend (docker), push to registry
-  - security_scan:
-      - mvn dependency-check (or Trivy on the image)
-      - npm audit --production
+  Continuous integration on every pull request and every push to `main`, fast
+  enough to be useful on a PR: full Gradle build (domain + backend + frontend,
+  all tests), Playwright end-to-end suite, container-image build on `main`, and
+  a dependency/image vulnerability scan.
+
+  ## Where CI runs, and why it is NOT the internal GitLab
+
+  The company runs an internal GitLab, but this code is hosted publicly at
+  `github.com/techatspree/pythia` under Apache-2.0 (phase-18). The two systems
+  get different jobs, and this task is only the first of them:
+
+  - **GitHub Actions — the public quality gate (THIS task).** Pull requests land
+    on GitHub, so that is where they have to be verified; a pipeline an external
+    contributor can neither see nor trigger is not a quality gate. No secrets,
+    no internal hostnames, no deployment, no registry push.
+  - **Internal GitLab — the deployment pipeline (task-028).** The target server
+    sits in a private corporate network that a GitHub-hosted runner can never
+    reach, so building for and deploying to it belongs on an internal runner
+    holding internal credentials.
+
+  Everything about the deployment target — the server DNS name, SSH access, the
+  internal registry, the GitLab mirror — **has been moved to task-028**. Do not
+  implement any of it here.
+
+  ## The previous version of this file was written before the Gradle migration
+
+  Every command it named is stale and must NOT be carried into the workflow.
+  For the record, so they are not reintroduced:
+
+  - `./mvnw verify` — there is no Maven wrapper and no Maven build (task-082
+    migrated the reactor to Gradle). The build is `./gradlew build`.
+  - `npm run typecheck` and `npm test` — neither script exists in
+    `src/frontend/package.json`, and there is **no frontend unit-test runner at
+    all**; the only frontend tests are Playwright (`npm run test:e2e`). Type
+    checking and linting run through `./gradlew :frontend:check`.
+  - `mvn dependency-check` — no such plugin is configured anywhere. Use Trivy.
+  - `npm audit --production` — the flag is deprecated in npm 10 (the build pins
+    npm 10.9.2); it is `npm audit --omit=dev`.
+
+  ## Design decisions — do not deviate
+
+  **One build command covers everything.** `./gradlew build` builds and tests
+  `:domain` (JVM **and** Kotlin/JS + `packageTypescript`), `:backend:implementation`
+  and `:frontend` — the `base` plugin wires `:frontend:check` into `build`, so
+  svelte-check, ESLint and the design-token gate all run. Do not hand-assemble a
+  per-module command list; a lane-per-module pipeline is exactly how `:domain`
+  got left out of the original draft.
+
+  **Docker must be available on the runner.** The `%test` profile starts a
+  throwaway PostgreSQL 16 through Quarkus Dev Services / Testcontainers — there
+  is no H2 — so a runner without a working Docker daemon fails at container
+  start, not at compile. GitHub-hosted `ubuntu-latest` has Docker; a self-hosted
+  runner would have to be provisioned for it. This is also why the runner must
+  stay `ubuntu-latest` and not, say, a container-based job without a socket.
+
+  **`CI=true` is load-bearing — never unset it.** `src/frontend/build.gradle.kts`
+  opts `verifyOpenApiSchemaCommitted` into `check` **only** when the `CI`
+  environment variable is present (task-114). That is the drift gate that keeps
+  the committed `src/lib/api/openapi.json` + `schema.d.ts` in step with the
+  backend's real REST contract, and CI is precisely where it is meant to fire.
+  GitHub Actions sets `CI=true` on every runner automatically, so it engages for
+  free — do not override it, and do not "fix" the resulting red build by
+  disabling the gate. The correct fix is to run `./gradlew build` locally and
+  commit the two regenerated files; say so in the docs step.
+
+  **No secrets, and no company-internal anything in the workflow file.** The
+  root CLAUDE.md forbids reintroducing the originating company's name into the
+  repository (task-145 rewrote the whole history to remove it). A public
+  workflow file naming an internal host, registry or SSH target puts it straight
+  back — and a public repo is the worst place for it. This workflow needs no
+  secret of any kind: use `pull_request` (**never** `pull_request_target`, which
+  hands fork code a privileged token), and declare `permissions: contents: read`
+  at workflow level.
+
+  **Build images on `main`, but do NOT push them.** Verifying that both images
+  still build is worth a job; publishing them is not this pipeline's business.
+  Pushing to GHCR would additionally bake the GitHub org name into the image
+  coordinates, which the naming rule above rules out — the image names are
+  `pythia/pythia-backend` and `pythia/pythia-frontend` and stay that way. The
+  internal registry push lives in task-028.
+
+  **Do not add `--warning-mode fail`.** It looks like an easy hardening win and
+  it would fail today: three Gradle deprecations remain, all emitted from inside
+  third-party plugins (detekt, the Quarkus plugin, the KMP plugin) with no fixed
+  release available. `docs/development.md` § "Gradle 10 readiness" documents
+  each one and the conditions for revisiting. Leave it alone.
+
+  **Do not flip detekt / ESLint to failing.** `detekt` and `:frontend:npmLintReport`
+  are informational by design (they always exit 0) while `checkDesignTokens`
+  fails hard; that split is deliberate. Publish the consolidated report as a
+  build artifact so findings are visible on a PR, and leave the exit codes as
+  they are — changing them is a separate cleanup, not a CI task.
+
+  **The Playwright suite needs the dev stack, which nothing starts for it.**
+  `src/frontend/playwright.config.ts` has **no `webServer`** block; it just
+  points `baseURL` at `http://localhost:5173` and pre-seeds `devAuthSubject`.
+  So the e2e job has to start the stack itself with `./scripts/dev.sh`, wait for
+  readiness, run the suite, and stop it with **SIGTERM** — `dev.sh` traps
+  `EXIT INT TERM` and its cleanup is what reaps the Dev Services PostgreSQL
+  container and the Kotlin daemon. Killing the child JVMs directly orphans that
+  container (root CLAUDE.md).
+
+  **The backend is on :8090, not 8080.** `%dev.quarkus.http.port=8090`, and the
+  Vite proxy targets `localhost:8090`. Health-check the dev backend at
+  `http://localhost:8090/q/health`.
+
+  **Pin toolchains to what the build already declares:** JDK **21**
+  (`.java-version`) and Node **22.14.0** (`node { version }` in
+  `src/frontend/build.gradle.kts`). Gradle downloads its own Node for
+  `npmInstall`, but `dev.sh` shells out to the *system* `npm run dev`, so the
+  e2e job needs `actions/setup-node` at that exact version or the two disagree.
+
+  **Pin third-party actions by commit SHA.** `actions/*` may use a major tag;
+  anything else (Trivy) gets a full 40-character SHA with the version in a
+  trailing comment. This repo is public and the workflow runs on every fork PR.
+
+steps:
+  - |
+    Create `.github/workflows/ci.yaml` with the workflow skeleton:
+
+      name: CI
+      on:
+        pull_request:
+        push:
+          branches: [main]
+      permissions:
+        contents: read
+      concurrency:
+        group: ci-${{ github.ref }}
+        cancel-in-progress: true
+
+    `pull_request`, never `pull_request_target`. `concurrency` keeps a rapid
+    series of PR pushes from queueing behind each other. Give every job an
+    explicit `timeout-minutes` (20 is generous for `build`, 25 for `e2e`) so a
+    hung Dev Services container cannot burn a six-hour runner slot.
+  - |
+    Add the **`build`** job — the main gate, running on `ubuntu-latest`:
+
+      - `actions/checkout@v4`
+      - `actions/setup-java@v4` with `distribution: temurin`, `java-version: 21`
+      - `gradle/actions/setup-gradle@v4` for the Gradle dependency + build cache
+        (leave `cache-read-only` at its default: it writes the cache only from
+        `main`, which is what you want)
+      - `./gradlew build --stacktrace`
+
+    That single Gradle invocation is the whole gate: `:domain` JVM tests and the
+    Kotlin/JS + TypeScript packaging, the backend `@QuarkusTest` suite against
+    Dev Services PostgreSQL, and `:frontend:check` (svelte-check, ESLint,
+    design tokens, and — because `CI` is set — the OpenAPI drift gate).
+
+    Then add `./gradlew staticAnalysis` with `if: always()`. This is NOT
+    redundant with `build`: the consolidated
+    `build/reports/static-analysis/static-analysis.html` is produced by
+    `:frontend:sarifHtmlReport`, which is wired into the root `staticAnalysis`
+    task **only** — `check` gets `npmCheck`, `npmLintReport` and
+    `checkDesignTokens` but not the aggregator
+    (`src/frontend/build.gradle.kts`). Without this step the upload below finds
+    nothing and, because `if-no-files-found: warn` does not fail, the "findings
+    visible on a PR" goal silently never happens. It is cheap — detekt and the
+    lint runs are already up to date after `build`, so only the SARIF/HTML merge
+    actually executes.
+
+    Then, with `if: always()`, upload the reports with
+    `actions/upload-artifact@v4` so a red PR is diagnosable without re-running:
+
+      build/reports/static-analysis/static-analysis.html
+      build/reports/static-analysis/static-analysis.sarif
+      src/**/build/test-results/**
+
+    Note the `**` in the test-results path. `src/*/build/test-results/` looks
+    right and matches exactly ONE of the five result directories
+    (`src/domain/`) — it misses `src/backend/implementation`, `src/domain/core`
+    and both method modules, i.e. every module whose failures you actually need.
+    Keep `if-no-files-found: warn` so a legitimately empty report does not fail
+    the job.
+  - |
+    Add the **`e2e`** job (`ubuntu-latest`, no `needs:` — run it in parallel with
+    `build` so PR feedback arrives as one wall-clock build, not two in series):
+
+      - checkout, `setup-java` 21, `setup-gradle` as above
+      - `actions/setup-node@v4` with `node-version: 22.14.0`
+      - `./gradlew :frontend:npmBuild` — materialises everything the Vite dev
+        server needs that is NOT committed: `node_modules` (npmInstall),
+        `src/lib/domain` (unpackDomainTypescript, the KMP/JS output) and the
+        generated API client (genApi)
+      - `npx playwright install --with-deps chromium` in `src/frontend`
+        (the config declares only the `chromium` project — do not install all
+        three browsers)
+      - start the stack in the background and capture its PID:
+          ./scripts/dev.sh > dev-stack.log 2>&1 &
+          echo "DEV_PID=$!" >> "$GITHUB_ENV"
+        then poll until BOTH are up, with a bounded wait that fails loudly and
+        prints `dev-stack.log` on timeout (a silent 25-minute hang is the worst
+        possible failure mode here):
+          for i in $(seq 1 90); do
+            curl -sf http://localhost:8090/q/health > /dev/null \
+              && curl -sf http://localhost:5173 > /dev/null && break
+            sleep 5
+          done
+      - `cd src/frontend && npm run test:e2e`
+      - a final `if: always()` step that stops the stack with
+        `kill -TERM "$DEV_PID"` and waits for it — SIGTERM, so `dev.sh`'s trap
+        runs and reaps the Dev Services PostgreSQL container; never `pkill` the
+        child JVMs
+      - `if: failure()`, upload `src/frontend/test-results/` (Playwright traces,
+        `trace: 'on-first-retry'`) and `dev-stack.log`
+
+    Do **not** add `./gradlew :backend:end2end:e2eTest` here, tempting as it
+    looks while the stack is up. `HealthEndpointIT` reads
+    `System.getProperty("backend.url", "http://localhost:8080")` — it defaults
+    to 8080, not the dev backend's 8090 — and `tasks.register<Test>("e2eTest")`
+    in `src/backend/end2end/build.gradle.kts` declares no `systemProperty`, so
+    `-Dbackend.url=…` on the Gradle command line never reaches the forked test
+    JVM. Making it work means changing that build script, which is outside this
+    task, and the suite's single test asserts `/q/health` is UP — exactly what
+    the readiness poll above already proved. The docs step records what would
+    have to be wired first.
+  - |
+    Add the **`images`** job — `needs: [build, e2e]`, and gated to pushes on the
+    default branch only:
+
+      if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+
+    Build both images to the runner's local Docker daemon, exactly as
+    `scripts/minikube-deploy.sh` does, and push NOTHING:
+
+      ./gradlew :backend:implementation:imageBuild -Dquarkus.container-image.build=true
+      ./gradlew :frontend:dockerBuildImage
+
+    Assert both references exist (`docker image inspect pythia/pythia-backend:1.0.0-SNAPSHOT`
+    and `pythia/pythia-frontend:1.0.0-SNAPSHOT`).
+
+    Then verify the backend image is genuinely reproducible — an invariant the
+    root CLAUDE.md states but nothing currently checks. Record the image id,
+    rebuild with `--rerun-tasks`, and compare:
+
+      A=$(docker image inspect -f '{{.Id}}' pythia/pythia-backend:1.0.0-SNAPSHOT)
+      ./gradlew :backend:implementation:imageBuild -Dquarkus.container-image.build=true --rerun-tasks
+      B=$(docker image inspect -f '{{.Id}}' pythia/pythia-backend:1.0.0-SNAPSHOT)
+      [ "$A" = "$B" ]
+
+    If those ever differ it is a real regression — someone added a
+    time- or environment-derived jar-manifest attribute, or flipped one of the
+    two `quarkus.jib.use-current-timestamp*` flags. Investigate it; do not
+    delete the check.
+
+    Finally, scan the freshly built backend image with Trivy in **this** job —
+    the image exists only on this runner's Docker daemon, so the scan has to
+    live where the image does rather than in the `security` job. Same
+    configuration as the filesystem scan there (`severity: HIGH,CRITICAL`,
+    `ignore-unfixed: true`, action pinned by full commit SHA), and likewise
+    non-gating: `continue-on-error: true` on the step.
+  - |
+    Add the **`security`** job (`ubuntu-latest`, no `needs:`, runs on PRs too):
+
+      - `npm audit --omit=dev --audit-level=high` in `src/frontend` — note the
+        modern flag; `--production` is deprecated in npm 10
+      - a Trivy filesystem scan of the repository for vulnerable dependencies
+        (`aquasecurity/trivy-action`, pinned by full commit SHA with the version
+        in a trailing comment), `severity: HIGH,CRITICAL`, `exit-code: 1`,
+        `ignore-unfixed: true`
+
+    The built backend image is scanned too, but that step belongs to the
+    `images` job (see the previous step) — the image lives on that runner's
+    Docker daemon and jobs do not share one. Do not try to move it here.
+
+    Set `continue-on-error: true` on the `security` job for now and say why in a
+    comment: a newly published CVE in a transitive dependency would otherwise
+    turn every unrelated PR red overnight. It reports; it does not gate.
+  - |
+    Document the pipeline, in three places:
+
+      - `docs/development.md` — a new "## Continuous integration" section: what
+        runs on a PR versus on `main`, the exact commands (so a contributor can
+        reproduce CI locally with `./gradlew build`), the fact that deployment
+        is a separate internal pipeline (task-028), and — most useful of all —
+        the **OpenAPI drift gate**: if CI fails on
+        `verifyOpenApiSchemaCommitted`, run `./gradlew build` and commit
+        `src/frontend/src/lib/api/openapi.json` and `schema.d.ts`.
+
+        Add one paragraph next to the existing `:backend:end2end:e2eTest` entry
+        recording why CI does not run it: the suite hardcodes a default of
+        `http://localhost:8080` while the dev backend serves 8090, and the
+        `e2eTest` task forwards no system property, so `-Dbackend.url=…` never
+        reaches the test JVM. Wiring `systemProperty("backend.url", …)` into
+        that task is the prerequisite for putting it in the pipeline.
+      - root `CLAUDE.md` — two or three lines in "Build & run" noting that
+        `.github/workflows/ci.yaml` is the public gate, that it runs
+        `./gradlew build` plus the Playwright suite, that `CI=true` there
+        activates the OpenAPI gate, and that deployment lives in an internal
+        pipeline whose coordinates are deliberately not in this repository.
+      - `README.md` — add the CI status badge to the badge row. task-153
+        deliberately left it out ("no CI badge — there is no public pipeline to
+        point at yet"); that is no longer true. Use the workflow's own badge
+        URL, not a shields.io static one.
+  - |
+    Run the gate: `./gradlew :frontend:check`, then `./gradlew build`. Both must
+    be green before `./scripts/task.sh done`.
+
+    You cannot execute GitHub Actions locally, so validate the workflow the way
+    the validation section does — parse it and assert its shape — and sanity
+    check each command it contains by running that command yourself. The first
+    real run happens on the PR that introduces the file, which is the point.
+
 validation:
-  - PR triggers lint and test stages only
-  - merge to main produces tagged images in the registry
+  - |
+    The workflow exists, is valid YAML, and has the intended shape. NOTE the
+    YAML 1.1 trap: `on:` parses as the boolean `true`, not the string "on", in
+    Ruby's Psych (and in PyYAML) — hence the `w[true]` lookup below.
+      ruby -ryaml -e '
+        w = YAML.load_file(".github/workflows/ci.yaml")
+        on = w[true] || w["on"]
+        abort "no pull_request trigger"  unless on.key?("pull_request")
+        abort "no push trigger"          unless on.key?("push")
+        abort "pull_request_target is banned" if on.key?("pull_request_target")
+        jobs = w["jobs"]
+        %w[build e2e images security].each { |j|
+          abort "missing job: #{j}" unless jobs.key?(j) }
+        abort "workflow-level permissions missing" unless w["permissions"]
+        abort "concurrency group missing"          unless w["concurrency"]
+        jobs.each { |name, j|
+          abort "job #{name} has no timeout-minutes" unless j["timeout-minutes"] }
+        puts "workflow shape OK"
+      '
+  - |
+    No stale Maven or non-existent npm scripts leaked into the workflow, and the
+    build really is driven by the Gradle wrapper:
+      W=.github/workflows/ci.yaml
+      grep -q './gradlew build' "$W" || { echo "workflow never runs ./gradlew build"; exit 1; }
+      ! grep -Eq 'mvnw|[^a-z]mvn ' "$W"            || { echo "stale Maven command"; exit 1; }
+      ! grep -q 'npm run typecheck' "$W"           || { echo "npm script does not exist"; exit 1; }
+      ! grep -q 'npm audit --production' "$W"      || { echo "deprecated npm audit flag"; exit 1; }
+      grep -q 'test:e2e' "$W"                      || { echo "Playwright suite not run"; exit 1; }
+      grep -q 'staticAnalysis' "$W" \
+        || { echo "staticAnalysis is what produces the consolidated report"; exit 1; }
+      ! grep -q 'e2eTest' "$W" \
+        || { echo ":backend:end2end:e2eTest defaults to :8080 and forwards no backend.url"; exit 1; }
+  - |
+    The uploaded artifact paths actually match something. `src/*/build/test-results`
+    silently matches only ONE of the five module result directories, so assert
+    the recursive glob is used and that it resolves after a build:
+      W=.github/workflows/ci.yaml
+      grep -q 'src/\*\*/build/test-results' "$W" \
+        || { echo "test-results glob misses backend and the domain submodules"; exit 1; }
+      grep -q 'build/reports/static-analysis/static-analysis.html' "$W"
+      test "$(find src -type d -name test-results -not -path '*/node_modules/*' | wc -l)" -ge 5 \
+        || { echo "expected test-results in domain, its submodules and the backend"; exit 1; }
+      ./gradlew staticAnalysis
+      test -s build/reports/static-analysis/static-analysis.html \
+        || { echo "staticAnalysis did not produce the report the workflow uploads"; exit 1; }
+  - |
+    Nothing company-internal, no secrets, and no registry push reached the
+    public workflow (root CLAUDE.md naming rule; the internal pipeline is
+    task-028):
+      W=.github/workflows/ci.yaml
+      ! grep -Eiq 'techatspree|spree\.de|estimator\.[a-z-]+\.de' "$W" || { echo "internal reference in public workflow"; exit 1; }
+      ! grep -q 'secrets\.' "$W"                   || { echo "this workflow needs no secrets"; exit 1; }
+      ! grep -Eq 'container-image\.push|docker push|ghcr\.io' "$W" || { echo "no image push from GitHub CI"; exit 1; }
+  - |
+    The runner toolchains match what the build declares — JDK 21 and the exact
+    Node version pinned in the frontend build:
+      W=.github/workflows/ci.yaml
+      grep -q "java-version: *'\?21'\?" "$W" || { echo "JDK 21 not pinned"; exit 1; }
+      # Anchor on the indented `version.set(` inside the node { } block: an
+      # unanchored match also hits `npmVersion.set(...)`, and a `[0-9.]*` class
+      # matches the dot in `version.set` itself, yielding a pattern that greps
+      # true against anything.
+      NODE=$(grep -E '^[[:space:]]*version\.set\("[0-9]+\.[0-9]+\.[0-9]+"\)' \
+               src/frontend/build.gradle.kts | head -1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+')
+      test -n "$NODE" || { echo "could not read the pinned Node version"; exit 1; }
+      grep -q "$NODE" "$W" || { echo "workflow does not pin Node $NODE"; exit 1; }
+  - |
+    Third-party actions are pinned by commit SHA (official `actions/*` and
+    `gradle/*` may use a major tag):
+      python3 - <<'PY'
+      import re, pathlib, sys
+      txt = pathlib.Path('.github/workflows/ci.yaml').read_text()
+      uses = re.findall(r'uses:\s*([^\s#]+)', txt)
+      bad = [u for u in uses
+             if not u.split('/')[0] in ('actions', 'gradle')
+             and not re.search(r'@[0-9a-f]{40}$', u)]
+      print('unpinned third-party actions:', bad or 'none')
+      sys.exit(1 if bad else 0)
+      PY
+  - |
+    The e2e job starts and stops the dev stack correctly — the backend on 8090
+    (never 8080), and SIGTERM rather than a kill of the child JVMs:
+      W=.github/workflows/ci.yaml
+      grep -q '8090' "$W"        || { echo "dev backend port 8090 not used"; exit 1; }
+      ! grep -q 'localhost:8080' "$W" || { echo "8080 reaches a port-forwarded cluster, not the dev backend"; exit 1; }
+      grep -q 'kill -TERM' "$W"  || { echo "dev.sh must be stopped with SIGTERM"; exit 1; }
+      ! grep -q 'pkill' "$W"     || { echo "pkill orphans the Dev Services container"; exit 1; }
+  - |
+    The image job is main-only and builds both images under their real names:
+      W=.github/workflows/ci.yaml
+      grep -q "refs/heads/main" "$W"
+      grep -q 'pythia/pythia-backend' "$W"
+      grep -q 'pythia/pythia-frontend' "$W"
+  - |
+    Documentation was updated in all three places, and the README badge hole
+    left by task-153 is closed:
+      grep -qi "continuous integration" docs/development.md
+      grep -q "verifyOpenApiSchemaCommitted\|openapi.json" docs/development.md
+      grep -q "workflows/ci.yaml" CLAUDE.md
+      grep -q "workflows/ci.yaml/badge.svg" README.md
+  - |
+    ./gradlew :frontend:check
+  - |
+    ./gradlew build
+
 outputs:
-  - .github/workflows/ci.yaml (or equivalent for other CI systems)
+  - created: .github/workflows/ci.yaml
+  - modified: docs/development.md
+  - modified: CLAUDE.md
+  - modified: README.md

@@ -26,6 +26,17 @@ spec:
           volumeMounts:
             - name: postgres-data
               mountPath: /var/lib/postgresql/data
+          # Staging and production share one minikube node. Without requests the
+          # scheduler treats PostgreSQL as free and can pack both namespaces'
+          # databases onto a node already committed to the backends; without
+          # limits one of them can starve the other under load.
+          resources:
+            requests:
+              memory: 256Mi
+              cpu: 250m
+            limits:
+              memory: 512Mi
+              cpu: "1"
           readinessProbe:
             exec:
               command: ["pg_isready", "-U", "estimation"]

@@ -4,5 +4,9 @@ metadata:
   name: backend-config
 data:
   QUARKUS_OIDC_ENABLED: "true"
-  QUARKUS_OIDC_AUTH_SERVER_URL: "https://login.example.com/realms/estimation"
-  QUARKUS_OIDC_CLIENT_ID: "estimation-prod"
+  # Deploy-time coordinates, resolved by envsubst in scripts/deploy.sh — the
+  # identity-provider URL is environment-specific and must not be committed.
+  # These were sample values (login.example.com / estimation-prod), which would
+  # have deployed a production backend pointing at an issuer that does not exist.
+  QUARKUS_OIDC_AUTH_SERVER_URL: "${OIDC_AUTH_SERVER_URL}"
+  QUARKUS_OIDC_CLIENT_ID: "${OIDC_CLIENT_ID}"

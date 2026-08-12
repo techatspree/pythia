@@ -10,6 +10,7 @@
 </p>
 
 <p align="center">
+  <img alt="CI" src="https://github.com/techatspree/pythia/actions/workflows/ci.yaml/badge.svg">
   <img alt="License: Apache 2.0" src="https://img.shields.io/badge/License-Apache_2.0-009e5a">
   <img alt="Kotlin" src="https://img.shields.io/badge/Kotlin-Multiplatform-7F52FF">
   <img alt="Quarkus" src="https://img.shields.io/badge/Backend-Quarkus_3-4695EB">

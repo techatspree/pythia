@@ -1,0 +1,232 @@
+name: CI
+
+# The public quality gate. Deployment is a separate, internal pipeline whose
+# coordinates are deliberately not in this repository (see docs/deployment.md).
+#
+# `pull_request`, never `pull_request_target`: the latter runs with a
+# privileged token in the context of the base repository, which would hand
+# fork code write access. Nothing here needs a secret of any kind.
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # The main gate. One Gradle invocation covers :domain (JVM tests plus the
+  # Kotlin/JS + TypeScript packaging), the backend @QuarkusTest suite against a
+  # Dev Services PostgreSQL, and :frontend:check — svelte-check, ESLint, the
+  # design-token gate, and the OpenAPI drift gate, which activates because the
+  # runner sets CI=true.
+  #
+  # Docker must be available: the %test profile has no H2, it starts a
+  # throwaway PostgreSQL 16 via Quarkus Dev Services / Testcontainers. That is
+  # why this runs on ubuntu-latest and not in a container without a socket.
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - uses: gradle/actions/setup-gradle@v6
+
+      - name: Build (domain + backend + frontend, all tests)
+        run: ./gradlew build --stacktrace
+
+      # Not redundant with `build`. The consolidated report is produced by
+      # :frontend:sarifHtmlReport, which is wired into the root staticAnalysis
+      # task only — `check` gets npmCheck, npmLintReport and checkDesignTokens
+      # but not the aggregator. Without this the upload below finds nothing and
+      # `if-no-files-found: warn` hides it. Cheap: detekt and the lint runs are
+      # already up to date, so only the SARIF/HTML merge executes.
+      - name: Consolidated static-analysis report
+        if: always()
+        run: ./gradlew staticAnalysis
+
+      # `src/*/build/test-results` looks right and matches exactly one of the
+      # five module result directories — hence the recursive glob.
+      - name: Upload reports
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: build-reports
+          if-no-files-found: warn
+          path: |
+            build/reports/static-analysis/static-analysis.html
+            build/reports/static-analysis/static-analysis.sarif
+            src/**/build/test-results/**
+
+  # Playwright. playwright.config.ts declares no `webServer`, so this job has to
+  # start the dev stack itself. No `needs:` — it runs alongside `build` so PR
+  # feedback costs one wall-clock build rather than two in series.
+  e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - uses: gradle/actions/setup-gradle@v6
+
+      # dev.sh shells out to the system `npm run dev`, so the system Node must
+      # match the version the Gradle node plugin pins for npmInstall.
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22.14.0
+
+      # Materialises what the Vite dev server needs and the repository does not
+      # carry: node_modules, src/lib/domain (the KMP/JS output) and the
+      # generated API client.
+      - name: Prepare the frontend
+        run: ./gradlew :frontend:npmBuild
+
+      - name: Install the Playwright browser
+        working-directory: src/frontend
+        run: npx playwright install --with-deps chromium
+
+      - name: Start the dev stack
+        run: |
+          ./scripts/dev.sh > dev-stack.log 2>&1 &
+          echo "DEV_PID=$!" >> "$GITHUB_ENV"
+
+      # A silent hang is the worst failure mode here, so the wait is bounded and
+      # dumps the stack log before giving up.
+      - name: Wait for the dev stack
+        run: |
+          for i in $(seq 1 90); do
+            if curl -sf http://localhost:8090/q/health > /dev/null \
+               && curl -sf http://localhost:5173 > /dev/null; then
+              echo "Dev stack ready after $((i * 5))s."
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "The dev stack did not become ready within 450s." >&2
+          cat dev-stack.log >&2
+          exit 1
+
+      - name: Run the Playwright suite
+        working-directory: src/frontend
+        run: npm run test:e2e
+
+      # SIGTERM, so dev.sh's `trap cleanup EXIT INT TERM` runs: that trap is
+      # what reaps the Dev Services PostgreSQL container and the Kotlin daemon.
+      # Killing the child JVMs directly orphans the container. dev.sh is not a
+      # child of this shell, so the wait is a poll rather than `wait`.
+      - name: Stop the dev stack
+        if: always()
+        run: |
+          if [ -n "${DEV_PID:-}" ]; then
+            kill -TERM "$DEV_PID" 2>/dev/null || true
+            for i in $(seq 1 30); do
+              kill -0 "$DEV_PID" 2>/dev/null || break
+              sleep 1
+            done
+          fi
+
+      - name: Upload Playwright traces and the stack log
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: e2e-failure
+          if-no-files-found: warn
+          path: |
+            src/frontend/test-results/**
+            dev-stack.log
+
+  # Verifies both images still build. Publishing them is the internal
+  # pipeline's business, not this one's — nothing here pushes.
+  images:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: [build, e2e]
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - uses: gradle/actions/setup-gradle@v6
+
+      - name: Build both container images
+        run: |
+          ./gradlew :backend:implementation:imageBuild -Dquarkus.container-image.build=true
+          ./gradlew :frontend:dockerBuildImage
+
+      - name: Assert both image references exist
+        run: |
+          docker image inspect pythia/pythia-backend:1.0.0-SNAPSHOT > /dev/null
+          docker image inspect pythia/pythia-frontend:1.0.0-SNAPSHOT > /dev/null
+
+      # The reproducible Jib image is an invariant the root CLAUDE.md states and
+      # nothing else checks. A difference means someone added a time- or
+      # environment-derived jar-manifest attribute, or flipped one of the two
+      # quarkus.jib.use-current-timestamp* flags. Investigate it; do not delete
+      # this check.
+      - name: Verify the backend image is reproducible
+        run: |
+          A=$(docker image inspect -f '{{.Id}}' pythia/pythia-backend:1.0.0-SNAPSHOT)
+          ./gradlew :backend:implementation:imageBuild \
+            -Dquarkus.container-image.build=true --rerun-tasks
+          B=$(docker image inspect -f '{{.Id}}' pythia/pythia-backend:1.0.0-SNAPSHOT)
+          if [ "$A" != "$B" ]; then
+            echo "The backend image is not reproducible: $A != $B" >&2
+            exit 1
+          fi
+          echo "Backend image is byte-identical across rebuilds ($A)."
+
+      # The image exists only on this runner's Docker daemon, so the image scan
+      # lives here rather than in the `security` job.
+      - name: Scan the backend image
+        continue-on-error: true
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: pythia/pythia-backend:1.0.0-SNAPSHOT
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: '1'
+
+  # Reports; it does not gate. A CVE published overnight in a transitive
+  # dependency would otherwise turn every unrelated PR red.
+  security:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22.14.0
+
+      # `--production` is deprecated in npm 10 (the build pins 10.9.2).
+      - name: Audit the frontend dependencies
+        working-directory: src/frontend
+        run: npm audit --omit=dev --audit-level=high
+
+      - name: Trivy filesystem scan
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          scan-type: fs
+          scan-ref: .
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: '1'

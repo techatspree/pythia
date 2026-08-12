@@ -1,19 +1,351 @@
 id: task-028
 phase: phase-7
-title: Set up CD pipeline to staging and production
+title: Set up CD pipeline on the internal GitLab
 depends_on: [task-027, task-024]
 description: |
-  Continuous deployment using the Kustomize overlays. Staging deploys
-  automatically on main; production requires manual approval.
+  Continuous deployment to the corporate environment: staging deploys
+  automatically from `main`, production requires a manual approval gate.
+
+  ## The target environment
+
+  - **One physical/virtual server**, DNS name `estimator.spree.de`, inside the
+    corporate **private network**, reached over **SSH**.
+  - That server runs **minikube** — a single-node Kubernetes cluster, one
+    profile. So Kustomize IS the deployment unit and `k8s/overlays/` is right;
+    SSH is how the pipeline reaches the cluster, not an alternative to it.
+  - **Staging and production are two namespaces on that one minikube**:
+    `estimation-staging` (auto on `main`) and `estimation` (manual approval).
+  - Images travel through the **company's internal registry**: the GitLab runner
+    pushes, the server's kubelet pulls via an `imagePullSecret`.
+  - CI runs on **GitHub Actions** (task-027) and deliberately pushes nothing.
+    This pipeline runs on the **internal GitLab** because no GitHub-hosted
+    runner can reach a private corporate network.
+
+  ## Keep the internal coordinates OUT of the public repository
+
+  The root CLAUDE.md forbids reintroducing the originating company's name here —
+  task-145 rewrote the entire git history to remove it, and the repo is public
+  under Apache-2.0. A committed `.gitlab-ci.yml` naming `estimator.spree.de`,
+  the registry host or an SSH user undoes that in one commit.
+
+  The arrangement that satisfies both needs:
+
+  1. **Pull-mirror** `github.com/techatspree/pythia` into the internal GitLab
+     project (Settings → Repository → Mirroring, pull direction). The GitLab
+     copy is a read-only mirror; pipelines still run on it normally.
+  2. Set that project's **CI/CD configuration path to an external project** —
+     e.g. `.gitlab-ci.yml@<internal-group>/pythia-deploy`. The pipeline
+     definition then lives entirely inside GitLab and **no `.gitlab-ci.yml` is
+     ever committed here**.
+  3. Every internal coordinate — registry host, image prefix, SSH target,
+     ingress hostnames, namespaces — is a **masked, protected GitLab CI/CD
+     variable**, never a literal in any file in this repo.
+  4. What *is* committed here is the generic, reviewable deployment **logic**:
+     `scripts/deploy.sh`, parameterised purely by environment variables, with no
+     default naming a company, host or registry. It must run against a
+     developer's local minikube by exporting the same variables — which is also
+     how it gets tested without the corporate network.
+
+  ## How the runner reaches the cluster: SSH in, deploy locally
+
+  Do **not** try to expose minikube's API server to the runner. Its endpoint is
+  the driver's internal IP, exposing it means certificate SANs and a firewall
+  hole, and it buys nothing. Instead the deploy job SSHes to the server and runs
+  the deployment there, where the kubeconfig and the cluster are both local:
+
+      ssh "$DEPLOY_HOST" 'cd /opt/pythia && git fetch --all && git checkout "$SHA" \
+                          && REGISTRY=… IMAGE_TAG=… ./scripts/deploy.sh staging'
+
+  The server keeps a checkout of the mirror at a fixed path; the pipeline
+  advances it to the exact commit being deployed. That keeps the deployed
+  manifests and the deployed images provably from the same commit.
+
+  ## Image provenance and tagging
+
+  Reuse the existing coordinates; do not invent new ones. Jib produces
+  `pythia/pythia-backend` (`src/backend/implementation/gradle.properties`) and
+  `:frontend:dockerBuildImage` produces `pythia/pythia-frontend`. Override only
+  the registry prefix:
+
+      ./gradlew :backend:implementation:imageBuild \
+        -Dquarkus.container-image.build=true \
+        -Dquarkus.container-image.registry="$REGISTRY" \
+        -Dquarkus.container-image.push=true
+
+  Do not touch the reproducibility settings — both
+  `quarkus.jib.use-current-timestamp*` stay `false`, and no time- or
+  environment-derived jar-manifest attribute may be added; task-027's image job
+  asserts the backend image is byte-identical across rebuilds.
+
+  **Deploy immutable tags, never `1.0.0-SNAPSHOT`.** Push each build under the
+  short commit SHA as well and have the overlays reference *that*, so a rollback
+  is "redeploy tag `abc1234`" rather than an archaeology exercise. A floating
+  tag on a cluster with `imagePullPolicy: IfNotPresent` also silently keeps
+  serving the old image.
+
+  ## minikube as a production runtime — what this task must therefore cover
+
+  minikube is a development tool. Running it as the production cluster is the
+  stated constraint, not something to relitigate, but it has consequences that
+  the pipeline and the docs have to address explicitly rather than discover:
+
+  - **`minikube delete` destroys the production database.** Postgres is a
+    StatefulSet with a 1Gi PVC (`k8s/base/postgres/statefulset.yaml`) backed by
+    minikube's storage provisioner, which lives inside the minikube VM/container.
+    A scheduled `pg_dump` off the node is mandatory, not optional.
+  - **minikube does not survive a reboot on its own.** It needs a systemd unit
+    that runs `minikube start` (with the same profile and driver) at boot, before
+    anything depends on it.
+  - **Nothing forwards the host's :80/:443 into the cluster by default.** The
+    ingress addon must be enabled and the host's ports routed to it.
+  - **One node, two namespaces, no isolation.** A staging rollout competes with
+    production for the same CPU and memory; see the sizing step below.
+
+  ## State of the manifests — three things are wrong today
+
+  Fix them as part of this task rather than working around them:
+
+  1. `k8s/overlays/production/kustomization.yaml` still renames the images to
+     `REGISTRY_PLACEHOLDER/estimation-backend` and `…/estimation-frontend` —
+     both the literal placeholder and the **pre-task-152 product name**. The
+     repositories are `pythia/pythia-backend` and `pythia/pythia-frontend`.
+  2. The production ingress host is the sample value `estimation.example.com`
+     (`overlays/production/ingress-tls.yaml`), and the base ingress is
+     `estimation.local`. Neither is deployable, and the real hostname must not
+     be committed.
+  3. There is no `imagePullSecret` anywhere, so a private registry pull cannot
+     authenticate.
+
 steps:
-  - on successful main build, run "kubectl apply -k k8s/overlays/staging"
-  - manual approval gate before production deploy
-  - tag git commit on production deploy for traceability
-  - smoke-test the deployment by hitting /q/health/ready and a known endpoint
+  - |
+    Record the environment decision and its consequences in a new
+    `docs/deployment.md`: single server, one minikube profile, two namespaces,
+    internal registry, SSH-in-and-deploy-locally. This is the document an
+    operator reads at 2am; write it for them, not for the pipeline author.
+  - |
+    Create the `k8s/overlays/staging/` overlay. It does not exist yet — only
+    `minikube` and `production` do. It is genuinely small, because Kustomize's
+    `namespace:` field also renames the `Namespace` object itself (verified:
+    `kubectl kustomize` on a `namespace: estimation-staging` overlay emits
+    `kind: Namespace / metadata.name: estimation-staging` and stamps the
+    namespace onto all ten resources). So:
+
+      apiVersion: kustomize.config.k8s.io/v1beta1
+      kind: Kustomization
+      namespace: estimation-staging
+      resources:
+        - ../../base
+      images: …            # same ${REGISTRY} / ${IMAGE_TAG} shape as production
+      patches: …           # imagePullPolicy IfNotPresent, ingress host, OIDC config
+
+    Keep the backend at **1 replica** in staging and cap the HPA at 1 (the base
+    `backend/hpa.yaml` allows up to 3) — see the sizing step.
+  - |
+    Parameterise the image coordinates in BOTH overlays, replacing
+    `REGISTRY_PLACEHOLDER/estimation-*` with the correct repositories and
+    deploy-time variables:
+
+      images:
+        - name: pythia/pythia-backend
+          newName: ${REGISTRY}/pythia/pythia-backend
+          newTag: ${IMAGE_TAG}
+        - name: pythia/pythia-frontend
+          newName: ${REGISTRY}/pythia/pythia-frontend
+          newTag: ${IMAGE_TAG}
+
+    Resolve them with the pipeline pattern this repo already uses —
+    `kubectl kustomize <overlay> | envsubst '<allow-list>' | kubectl apply -f -`
+    (see `scripts/minikube-deploy.sh:100`). The allow-list of variable NAMES is
+    the point: it leaves every other `${…}` in the rendered manifests untouched.
+    No standalone `kustomize` CLI is needed, which matters because the server
+    will only have `kubectl` and `minikube`.
+
+    Do the same for the ingress host — `${INGRESS_HOST}` in place of
+    `estimation.example.com` — in the production TLS patch and in the staging
+    overlay's ingress patch.
+  - |
+    Add registry authentication: an `imagePullSecret` of type
+    `kubernetes.io/dockerconfigjson` referenced by both Deployments (or attached
+    to the namespace's `default` ServiceAccount, which avoids patching each
+    Deployment). Create it on the server from GitLab CI variables — **never**
+    commit a secret manifest with real credentials; the repo's
+    `k8s/base/postgres/secret.yaml` is a dev-only sample and must not become the
+    precedent for this.
+
+    Note the base sets `imagePullPolicy: Never` (correct for local minikube,
+    where images are side-loaded). The production overlay already patches it to
+    `IfNotPresent`; staging needs the same patch, otherwise the kubelet never
+    contacts the registry and you get `ErrImageNeverPull` on a first deploy.
+  - |
+    Add `scripts/deploy.sh` — the committed, generic deployment logic that the
+    GitLab job invokes over SSH. Contract:
+
+      ./scripts/deploy.sh <staging|production>
+
+    reading `REGISTRY`, `IMAGE_TAG`, `INGRESS_HOST`, and whatever the OIDC patch
+    needs, from the environment. It must:
+      - `set -euo pipefail`, and refuse to run with any required variable unset,
+        naming the missing one — no defaults that name a host, registry or
+        company
+      - render → envsubst (explicit allow-list) → `kubectl apply -f -`
+      - `kubectl rollout status` for backend and frontend with a bounded
+        `--timeout`, so a failed deploy fails the pipeline instead of hanging
+      - be runnable against a developer's local minikube with the same variables
+      - follow the house style of `scripts/minikube-deploy.sh` (that script's
+        header comments are the model, including the shellcheck annotations)
+  - |
+    Add `scripts/smoke.sh`, run after every rollout against the deployed base
+    URL: `/q/health/ready` must return 200, and one authenticated known endpoint
+    must answer. A deploy that "succeeded" because nothing checked the running
+    app is precisely the failure this prevents. Non-zero exit fails the job, and
+    on production failure the docs must point at the rollback path.
+  - |
+    Size the node for both namespaces. Requests today: backend
+    512Mi/500m **per replica** (production runs 2, HPA up to 3), frontend
+    64Mi/100m, and Postgres has **no requests or limits at all**. At HPA
+    maximum, production alone requests ~1.6Gi/1.6 CPU before Postgres; staging
+    adds another ~600Mi/600m. Give Postgres explicit requests/limits, cap the
+    staging HPA at 1 replica, and document the minimum `minikube start
+    --cpus/--memory` the server must use. Without this, a staging rollout can
+    evict a production pod on the shared node.
+  - |
+    Cover the host-level operations that minikube-as-production requires, in
+    `docs/deployment.md` and — where it is code — in `scripts/`:
+      - a **systemd unit** starting `minikube start -p <profile>` at boot, with
+        the same driver, before the app is expected to answer
+      - the **ingress addon** enabled, and the host's :80/:443 routed to it
+      - **TLS** for `${INGRESS_HOST}` — the existing
+        `overlays/production/ingress-tls.yaml` expects a secret named
+        `estimation-tls`; say where the certificate comes from and how it is
+        renewed
+      - a **scheduled `pg_dump` off the node**, with the restore procedure
+        written down and the explicit warning that `minikube delete` destroys
+        the PVC and therefore the production database
+      - how to reach **staging**: it needs its own hostname (a subdomain of the
+        production one is the obvious choice). If a second DNS record is not
+        available, document the fallback — reach staging through the SSH tunnel
+        with `kubectl -n estimation-staging port-forward`, and give staging no
+        ingress rule at all rather than a fake host.
+  - |
+    Configure the GitLab side and document it in `docs/deployment.md` — as prose
+    and a variable table, **not** as pipeline YAML committed here: the pull
+    mirror, the external CI config path, the masked/protected variables (with
+    descriptions, never values), the runner tags, and the stages —
+    build+push images → deploy staging (automatic on `main`) → **manual**
+    approval job → deploy production → smoke test → git tag.
+
+    Note the runner requirements: Docker, and access to the corporate artifact
+    mirror. The build needs Maven Central, the npm registry, and the
+    digest-pinned `registry.access.redhat.com/ubi9/openjdk-21-runtime` base
+    image — in a private network all three must be proxied or the build fails
+    at dependency resolution, long before anything deploys.
+  - |
+    Tag the git commit on each production deploy for traceability, and document
+    the rollback: redeploy the previous immutable image tag through the same
+    `deploy.sh` invocation. Add a short pointer in the root `CLAUDE.md`
+    "Build & run" section stating that deployment runs on an internal pipeline
+    whose coordinates are deliberately not in this repository, and linking
+    `docs/deployment.md`.
+  - |
+    Run the gate: `./gradlew build`. The new scripts are shell, so also run
+    `shellcheck scripts/deploy.sh scripts/smoke.sh` — the existing scripts carry
+    `# shellcheck disable=` annotations, so the project already expects shell to
+    be clean.
+
 validation:
-  - merge to main results in a working staging deployment
-  - production deploy requires explicit approval
+  - |
+    Both overlays render, and each lands in its own namespace with the Namespace
+    object renamed to match (this is what makes one base serve two environments):
+      kubectl kustomize k8s/overlays/staging    > /tmp/stg.yaml
+      kubectl kustomize k8s/overlays/production > /tmp/prd.yaml
+      kubectl kustomize k8s/overlays/minikube   > /dev/null
+      grep -q 'name: estimation-staging' /tmp/stg.yaml || { echo "staging Namespace not renamed"; exit 1; }
+      grep -q 'namespace: estimation-staging' /tmp/stg.yaml
+      ! grep -q 'namespace: estimation-staging' /tmp/prd.yaml
+  - |
+    No placeholder, no pre-task-152 image name, and no sample hostname survives
+    in the rendered manifests; the image references are deploy-time variables:
+      ! grep -q 'REGISTRY_PLACEHOLDER' /tmp/stg.yaml /tmp/prd.yaml
+      ! grep -Eq 'estimation-backend|estimation-frontend' /tmp/stg.yaml /tmp/prd.yaml
+      ! grep -q 'estimation.example.com' /tmp/stg.yaml /tmp/prd.yaml
+      grep -q 'pythia/pythia-backend' /tmp/prd.yaml
+      grep -q '\${IMAGE_TAG}' /tmp/prd.yaml
+      ! grep -q 'imagePullPolicy: Never' /tmp/prd.yaml || { echo "production would never pull from the registry"; exit 1; }
+      ! grep -q 'imagePullPolicy: Never' /tmp/stg.yaml || { echo "staging would never pull from the registry"; exit 1; }
+  - |
+    After envsubst the manifests are fully resolved — no unsubstituted variable
+    reaches the cluster:
+      REGISTRY=example.invalid IMAGE_TAG=deadbee INGRESS_HOST=host.invalid \
+        envsubst '${REGISTRY} ${IMAGE_TAG} ${INGRESS_HOST}' < /tmp/prd.yaml > /tmp/prd-resolved.yaml
+      ! grep -Eq '\$\{(REGISTRY|IMAGE_TAG|INGRESS_HOST)\}' /tmp/prd-resolved.yaml
+      grep -q 'example.invalid/pythia/pythia-backend:deadbee' /tmp/prd-resolved.yaml
+  - |
+    The deploy script exists, is executable, and refuses to guess when its
+    required variables are missing instead of deploying something wrong:
+      test -x scripts/deploy.sh
+      test -x scripts/smoke.sh
+      ! ( env -u REGISTRY -u IMAGE_TAG -u INGRESS_HOST ./scripts/deploy.sh staging ) \
+        || { echo "deploy.sh ran without its required variables"; exit 1; }
+      ./scripts/deploy.sh 2>&1 | grep -qi 'staging\|production' \
+        || { echo "deploy.sh does not state its usage"; exit 1; }
+  - |
+    No internal coordinate was committed anywhere in the repository — the whole
+    point of the external-CI-config arrangement (root CLAUDE.md naming rule).
+    The pattern deliberately does NOT match a bare "spree": ESLint's parser is
+    called `espree` and appears in `package-lock.json` and in a CLAUDE.md note
+    about exactly this false positive.
+      ! grep -rIiEl 'spree\.de|estimator\.[a-z-]+\.de' \
+          --exclude-dir=.git --exclude-dir=node_modules --exclude-dir=build \
+          --exclude-dir=planning . \
+        || { echo "internal hostname committed"; exit 1; }
+    The GitHub organisation name is a separate case. It is allowed ONLY inside
+    the repository's own public URL — the CI badge task-027 added to README.md
+    cannot render without `github.com/techatspree/pythia`, and that address is
+    already public in `git remote`. Anywhere else it is a leak:
+      if grep -rIn 'techatspree' \
+           --exclude-dir=.git --exclude-dir=node_modules --exclude-dir=build \
+           --exclude-dir=planning . \
+         | grep -v 'github\.com/techatspree/pythia' | grep -q .; then
+        echo "organisation name outside the repository's own URL"; exit 1
+      fi
+      ! test -f .gitlab-ci.yml \
+        || { echo ".gitlab-ci.yml belongs in the internal GitLab, not here"; exit 1; }
+      ! grep -rq 'dockerconfigjson' k8s/ \
+        || { echo "registry credentials must be created on the server, not committed"; exit 1; }
+  - |
+    The documentation covers what an operator actually needs at 2am — including
+    the minikube-specific traps that have nothing to do with the app:
+      test -f docs/deployment.md
+      for kw in "staging" "production" "approval" "rollback" "registry" \
+                "mirror" "systemd" "pg_dump" "minikube delete" "ingress"; do
+        grep -qi "$kw" docs/deployment.md || { echo "docs/deployment.md omits: $kw"; exit 1; }
+      done
+      grep -qi "deployment" CLAUDE.md
+  - |
+    shellcheck scripts/deploy.sh scripts/smoke.sh
+  - |
+    ./gradlew build
+  - |
+    Environment-dependent — verified by hand on the internal GitLab and the
+    server, since none of it can run from a developer machine outside the
+    corporate network:
+      - a push to `main` pushes both images to the internal registry, tagged
+        with the short commit SHA
+      - staging deploys automatically into `estimation-staging` and its smoke
+        test passes
+      - the production job does not start without an explicit manual approval
+      - a production deploy tags the git commit
+      - redeploying the previous SHA tag restores the previous version
+      - rebooting the server brings minikube and both namespaces back up
+        unattended
+      - a `pg_dump` restore into a fresh cluster reproduces the data
+
 outputs:
-  - .github/workflows/cd.yaml
-  - k8s/overlays/staging/
-  - k8s/overlays/production/
+  - created: docs/deployment.md
+  - created: k8s/overlays/staging/kustomization.yaml
+  - created: scripts/deploy.sh
+  - created: scripts/smoke.sh
+  - modified: k8s/overlays/production/kustomization.yaml
+  - modified: k8s/overlays/production/ingress-tls.yaml
+  - modified: k8s/base/postgres/statefulset.yaml
+  - modified: CLAUDE.md
