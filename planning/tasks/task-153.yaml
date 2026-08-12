@@ -80,9 +80,13 @@ steps:
     `"gen:screenshots": "node scripts/capture-screenshots.mjs"` in
     `src/frontend/package.json`. Model it on `scripts/generate-icons.mjs`:
     import `chromium` from `@playwright/test` (already a devDependency — add
-    nothing), launch headless at a fixed viewport (1440x900,
-    `deviceScaleFactor: 2` for a crisp image on high-DPI displays), and write
-    PNGs to `docs/images/`.
+    nothing) and write PNGs to `docs/images/` (create the directory).
+
+    `viewport` and `deviceScaleFactor` are **`browser.newContext()` options, not
+    `chromium.launch()` options** — pass them as
+    `browser.newContext({ viewport: { width: 1440, height: 900 },
+    deviceScaleFactor: 2 })`. Passing `deviceScaleFactor` to `launch()` is
+    silently ignored and yields 1x images that look soft on a high-DPI display.
 
     It must run against the dev stack (backend :8090, Vite :5173) and
     authenticate the same way the e2e specs do — seed `localStorage`
@@ -95,8 +99,12 @@ steps:
     reachable — a script that silently writes blank images is worse than one
     that stops.
   - |
-    Capture four screenshots that show the product to a PM, using the seeded
-    demo project ("Webshop Redesign" / "RetailCorp GmbH"):
+    Capture four screenshots that show the product to a PM. Three of them use
+    data the dev seed ALREADY creates — `TestDataSeeder` builds the "Webshop
+    Redesign" / "RetailCorp GmbH" project, submits versions (so a comparison has
+    two sides), and creates a `BUCKET_SAMPLED_PERT` estimation — so navigate to
+    the seeded data rather than creating your own. Only the session room needs
+    seeding through the REST API.
       - `docs/images/estimation-editor.png` — the version editor: the tree of
         groups and items with three-point inputs, and the summary panel above
         it showing effort, cost and offer price. This is the core screen.
@@ -129,7 +137,8 @@ steps:
          calculation engine shared by backend and frontend so the numbers
          cannot drift.
       6. **Features**, grouped under headings with the remaining screenshots
-         placed beside the group they illustrate: *Estimating* (three-point
+         placed ABOVE the group they illustrate (GitHub markdown has no clean
+         side-by-side without a table; do not fight it): *Estimating* (three-point
          PERT, bucket + sampled, effort drivers, risk surcharge, phases,
          time-relative items), *Collaborating* (sessions, blind phase, reveal,
          divergence, notes, write-back), *Governing* (draft → submitted
@@ -232,6 +241,7 @@ validation:
 
 outputs:
   - modified: README.md
+  - created: docs/images/
   - created: src/frontend/scripts/capture-screenshots.mjs
   - modified: src/frontend/package.json
   - created: docs/images/estimation-editor.png
