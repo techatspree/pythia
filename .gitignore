@@ -29,6 +29,13 @@ Thumbs.db
 *.jar
 *.war
 
+# ...except the Gradle wrapper jar, which MUST be committed: `gradlew` is only a
+# launcher script and cannot bootstrap without it. Ignoring it makes the repo
+# unbuildable from a fresh clone — `Unable to access jarfile
+# gradle/wrapper/gradle-wrapper.jar` — while every existing checkout keeps
+# working, so the breakage only ever shows up on CI or for a new contributor.
+!gradle/wrapper/gradle-wrapper.jar
+
 # Node
 npm-debug.log*
 yarn-debug.log*
