@@ -54,7 +54,7 @@ request and every push to `main`, needs no secrets, and deploys nothing.
 
 | Job | When | What it does |
 |-----|------|--------------|
-| `build` | PR + `main` | `./gradlew build` — domain (JVM + Kotlin/JS), backend `@QuarkusTest`, `:frontend:check`. Then `./gradlew staticAnalysis` and an upload of the consolidated report plus the JUnit XML. |
+| `build` | PR + `main` | Validates the committed Gradle wrapper jar against Gradle's published checksums, then `./gradlew build` — domain (JVM + Kotlin/JS), backend `@QuarkusTest`, `:frontend:check`. Then `./gradlew staticAnalysis` and an upload of the consolidated report plus the JUnit XML. |
 | `e2e` | PR + `main` | Starts the dev stack with `./scripts/dev.sh` and runs the Playwright suite against it. |
 | `images` | `main` only | Builds both container images, asserts the backend image is byte-identical across rebuilds, and scans it with Trivy. **Pushes nothing.** |
 | `security` | PR + `main` | `npm audit --omit=dev` and a Trivy filesystem scan. Reports only — it does not gate. |
