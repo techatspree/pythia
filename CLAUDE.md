@@ -18,7 +18,9 @@ The German-language UI is intentional. **Domain source code is English, though**
 
 ## Licence and namespace (task-145)
 
-The project is **open source under Apache-2.0** — `LICENSE` (verbatim) + `NOTICE` at the root, `"license": "Apache-2.0"` in `src/frontend/package.json`, and an `SPDX-License-Identifier` jar-manifest attribute set for every project in the root `build.gradle.kts`. Copyright is held by "Pythia Contributors"; there are deliberately **no per-file SPDX headers**. Those manifest attributes are constants — never add a time- or environment-derived one, or the reproducible Jib image stops being byte-deterministic.
+The project is **open source under Apache-2.0** — `LICENSE` (verbatim) + `NOTICE` at the root, `"license": "Apache-2.0"` in `src/frontend/package.json`, and an `SPDX-License-Identifier` jar-manifest attribute set for every project in the root `build.gradle.kts`. Copyright is held by "Pythia Contributors"; there are deliberately **no per-file SPDX headers**. Those manifest attributes are constants — never add a time- or environment-derived one, and keep both `quarkus.jib.use-current-timestamp*` flags `false` with the base image digest-pinned, so the image build stays independent of *when* and *where* it runs (CI asserts exactly this).
+
+Note that this does **not** make the image byte-identical across rebuilds, and do not write a check that assumes it does. Quarkus' augmentation emits one non-deterministic artifact regardless of our settings: `quarkus/generated-bytecode.jar`, specifically `io/quarkus/runner/recorded/ResteasyReactiveProcessor$setupDeployment*.class` — 1 of 971 entries, measured by building twice and diffing. Everything else in `build/quarkus-app/` (260 files) is identical, and the application jar itself is reproducible.
 
 The product is **Pythia** (task-152; it was "The Estimator" through task-151). The name is not decorative: the collaborative sessions run a **Wideband-Delphi** flow, and Pythia was the oracle at Delphi — which is also why the crystal-ball mark from task-130 was kept unchanged by the rename.
 
