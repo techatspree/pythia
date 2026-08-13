@@ -80,13 +80,22 @@ test('the item list scrolls internally instead of stretching the page', async ({
 	expect(box.client).toBeLessThanOrEqual(300);
 	expect(box.scroll).toBeGreaterThan(box.client);
 
-	// The page therefore stays a normal length: 40 uncapped rows measured well
-	// over 2000px before the cap.
-	const pageHeight = await page.evaluate(() => document.body.scrollHeight);
-	expect(pageHeight).toBeLessThan(1200);
-
 	// And the submit is reachable — one short scroll, not a marathon.
 	const start = page.getByRole('button', { name: 'Sitzung starten', exact: true });
+
+	// The list therefore does not push the rest of the form down: measure from
+	// the top of the picker to the bottom of the submit button. Deliberately NOT
+	// document.body.scrollHeight — this page also lists every OPEN SESSION in the
+	// system, which other specs create concurrently against the shared backend
+	// (nine of them in the run that exposed this), so a whole-page height
+	// measures other tests' data and fails at ~1291px for reasons that have
+	// nothing to do with the cap. Uncapped, 40 rows measured well over 2000px.
+	const pickerTop = (await page.locator('.max-h-72').first().boundingBox())!.y;
+	const startBox = (await start.boundingBox())!;
+	// 455px when capped (measured); ~1650px+ if the cap regressed, since 40 rows
+	// alone run to roughly 1480px. 700 leaves headroom for font/locale variation
+	// while still failing decisively.
+	expect(startBox.y + startBox.height - pickerTop).toBeLessThan(700);
 	await start.scrollIntoViewIfNeeded();
 	await expect(start).toBeInViewport();
 });

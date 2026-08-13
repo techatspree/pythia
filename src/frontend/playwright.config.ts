@@ -4,12 +4,16 @@ export default defineConfig({
 	testDir: './e2e',
 	timeout: 30_000,
 	reporter: 'list',
-	// Retry only on CI, and only there. Locally a flake should be visible, not
-	// smoothed over. On CI the retry count is also diagnostic: a test that
-	// passes on attempt 2 is timing-sensitive, while one that fails all three
-	// times is a real defect on that environment — a distinction a single
-	// attempt cannot make.
-	retries: process.env.CI ? 2 : 0,
+	// No retries, deliberately. Re-running a whole failed test is a blunt
+	// instrument: it hides an infrastructure hiccup and a genuine race behind
+	// the same green tick. Where a step is legitimately racy the retry belongs
+	// INSIDE the test, bounded and visible — Playwright's web-first assertions
+	// already poll, and `settleAndDrop` in e2e/bucket-views.test.ts chases a
+	// moving drop zone for a fixed number of passes. Both known flakes were
+	// fixed that way rather than retried away: a drag that released before the
+	// layout settled, and a page-height assertion that measured other specs'
+	// concurrently-created sessions.
+	retries: 0,
 	use: {
 		baseURL: 'http://localhost:5173',
 		// `on-first-retry` produces NOTHING when retries are 0, which is how a
