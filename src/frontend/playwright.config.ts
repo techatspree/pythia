@@ -4,9 +4,19 @@ export default defineConfig({
 	testDir: './e2e',
 	timeout: 30_000,
 	reporter: 'list',
+	// Retry only on CI, and only there. Locally a flake should be visible, not
+	// smoothed over. On CI the retry count is also diagnostic: a test that
+	// passes on attempt 2 is timing-sensitive, while one that fails all three
+	// times is a real defect on that environment — a distinction a single
+	// attempt cannot make.
+	retries: process.env.CI ? 2 : 0,
 	use: {
 		baseURL: 'http://localhost:5173',
-		trace: 'on-first-retry',
+		// `on-first-retry` produces NOTHING when retries are 0, which is how a
+		// CI failure once shipped an artifact containing no trace at all. Keep
+		// a trace for every failed test, so a failure that only reproduces on
+		// CI can still be opened locally with `npx playwright show-trace`.
+		trace: 'retain-on-failure',
 		// Force a German browser locale so Accept-Language seeds freshly-provisioned
 		// dev users to German (task-123 seeds language from Accept-Language on first
 		// sighting). This keeps the app default (`de`) and the suite's German

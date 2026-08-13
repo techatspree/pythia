@@ -241,3 +241,15 @@ jobs:
           severity: HIGH,CRITICAL
           ignore-unfixed: true
           exit-code: '1'
+          # The two Kotlin/JS lock files are the Kotlin Multiplatform toolchain's
+          # OWN build dependencies — webpack, karma, mocha and friends. None of
+          # it ships: the frontend image serves the built SPA and the domain
+          # ships compiled `domain.mjs`, not these tools. Their versions are
+          # resolved by the Kotlin Gradle plugin, so they cannot be bumped
+          # directly, and a Yarn `resolution` pin would be a permanent treadmill
+          # against DoS advisories in code that never reaches production.
+          #
+          # This is a scoping decision, not a blanket mute: `package-lock.json`
+          # (which does ship) is still scanned, and reports 0. If you ever need
+          # them audited, drop this line rather than adding CVE-specific ignores.
+          skip-files: 'kotlin-js-store/yarn.lock,src/domain/kotlin-js-store/yarn.lock'

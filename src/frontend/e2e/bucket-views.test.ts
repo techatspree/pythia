@@ -116,6 +116,54 @@ async function openDraft(page: Page, estimationId: string) {
 const row = (id: string) => `[data-testid="tt-row-${id}"]`;
 
 /**
+ * Steer the cursor onto a drop ZONE that MOVES while the drag is in flight, and
+ * release only once it has stopped moving.
+ *
+ * For zone CONTAINERS only. A sibling row inside the list being reordered is
+ * animated continuously by svelte-dnd-action and never satisfies the
+ * convergence check below (measured: it fails 4 times out of 4), which is why
+ * every drag in this spec aims at a zone rather than at a neighbouring row.
+ *
+ * Lifting a leaf out of its bucket empties that subtree, so everything below it
+ * reflows upward — measured at ~244 px, one leaf row plus list padding. Reading
+ * the target's box, moving, then releasing therefore races a reflow the move
+ * itself triggers, and because TreeTable's zones detect by CURSOR position
+ * (`useCursorForDetection`) a target that slides out from under a stationary
+ * pointer takes the drop with it. A fixed pass count made that a ~1-in-3 flake,
+ * locally and on CI, with the release landing on nothing.
+ *
+ * Waiting for two consecutive reads to agree means the last move landed
+ * somewhere that then stayed put — the pointer is provably over the settled
+ * target at mouse-up. `point` re-reads the geometry on every pass; returning
+ * null means the target disappeared, which is a failure, not a reason to
+ * release wherever the cursor happens to be.
+ */
+async function settleAndDrop(
+	page: Page,
+	point: () => Promise<{ x: number; y: number } | null>,
+	what: string
+): Promise<void> {
+	let previous: { x: number; y: number } | null = null;
+	let stable = 0;
+	for (let i = 0; i < 12 && stable < 2; i++) {
+		const target = await point();
+		if (!target) throw new Error(`${what} vanished mid-drag`);
+		stable =
+			previous && Math.abs(previous.x - target.x) < 1 && Math.abs(previous.y - target.y) < 1
+				? stable + 1
+				: 0;
+		await page.mouse.move(target.x, target.y, { steps: 6 });
+		await page.waitForTimeout(180);
+		previous = target;
+	}
+	// Fail loudly rather than dropping somewhere arbitrary: the fixed loops this
+	// replaced turned a lost target into a silent no-op drop, which surfaced as
+	// an unrelated-looking assertion failure much later.
+	if (stable < 2) throw new Error(`${what} never stopped moving`);
+	await page.mouse.up();
+}
+
+/**
  * Drag a row into ANOTHER zone, by steering the cursor onto one of that zone's
  * existing child rows. Mirrors `mouseDragIntoGroup` in
  * e2e/tree-table-dnd-mouse.test.ts: TreeTable's zones use
@@ -126,7 +174,7 @@ const row = (id: string) => `[data-testid="tt-row-${id}"]`;
 async function mouseDragIntoZone(
 	page: Page,
 	sourceId: string,
-	targetChildId: string
+	targetBucketId: string
 ): Promise<boolean> {
 	await page.locator(row(sourceId)).scrollIntoViewIfNeeded();
 	const handle = page.locator(`${row(sourceId)} [data-dnd-handle]`).first();
@@ -140,14 +188,24 @@ async function mouseDragIntoZone(
 
 	const engaged = (await page.locator('#dnd-action-dragged-el').count()) > 0;
 
-	for (let i = 0; i < 4; i++) {
-		const tb = await page.locator(`${row(targetChildId)} > div`).first().boundingBox();
-		if (!tb) break;
-		await page.mouse.move(tb.x + tb.width / 2, tb.y + tb.height * 0.5, { steps: 6 });
-		await page.waitForTimeout(180);
-	}
-
-	await page.mouse.up();
+	const zone = page.locator(`${row(`bucket:${targetBucketId}`)} > [aria-label="Children"]`);
+	await settleAndDrop(
+		page,
+		async () => {
+			const z = await zone.boundingBox();
+			// Anchor near the zone's TOP, not its centre. This zone is POPULATED, and
+			// svelte-dnd-action inserts a placeholder into it while hovering, growing
+			// it downward — so its centre keeps sliding even once the box as a whole
+			// has settled, and the release lands in the gap the placeholder vacated.
+			// The top edge is pinned to the bucket row above and does not move. (The
+			// empty-zone drops below keep the centre: at the `min-h-8` floor the two
+			// are the same point, and those are validated as-is.)
+			return z
+				? { x: z.x + Math.min(z.width / 2, 400), y: z.y + Math.min(z.height / 2, 20) }
+				: null;
+		},
+		`the drop zone of bucket ${targetBucketId}`
+	);
 	await page.waitForTimeout(450); // flipDurationMs + finalize microtask + margin
 	return engaged;
 }
@@ -229,13 +287,14 @@ test('a leaf can be dropped into a still-collapsed bucket', async ({ page, reque
 	await page.mouse.down();
 	await page.mouse.move(sb.x + sb.width / 2, sb.y + sb.height / 2 + 6, { steps: 4 });
 	await page.waitForTimeout(200);
-	for (let i = 0; i < 5; i++) {
-		const z = await zone.boundingBox();
-		if (!z) break;
-		await page.mouse.move(z.x + Math.min(z.width / 2, 400), z.y + z.height / 2, { steps: 6 });
-		await page.waitForTimeout(180);
-	}
-	await page.mouse.up();
+	await settleAndDrop(
+		page,
+		async () => {
+			const z = await zone.boundingBox();
+			return z ? { x: z.x + Math.min(z.width / 2, 400), y: z.y + z.height / 2 } : null;
+		},
+		'the bucket drop zone'
+	);
 	await page.waitForTimeout(700);
 
 	await expect(select).toHaveValue(b2);
@@ -243,7 +302,7 @@ test('a leaf can be dropped into a still-collapsed bucket', async ({ page, reque
 });
 
 test('dragging a leaf between buckets re-buckets it and autosaves', async ({ page, request }) => {
-	const { estimationId, b1, b2, leafC, leafB } = await seed(request);
+	const { estimationId, b1, b2, leafC } = await seed(request);
 	await openDraft(page, estimationId);
 	await expandBucket(page, b1);
 	await expandBucket(page, b2);
@@ -256,7 +315,7 @@ test('dragging a leaf between buckets re-buckets it and autosaves', async ({ pag
 	);
 
 	// Drag the Frontend leaf into the Backend bucket's zone.
-	const engaged = await mouseDragIntoZone(page, leafC, leafB);
+	const engaged = await mouseDragIntoZone(page, leafC, b2);
 	expect(engaged, 'drag should have engaged svelte-dnd-action').toBe(true);
 
 	// The model changed: only the bucket, never the tree.
@@ -334,13 +393,14 @@ test('a leaf can be dragged into an EMPTY bucket', async ({ page, request }) => 
 	await page.mouse.down();
 	await page.mouse.move(sb.x + sb.width / 2, sb.y + sb.height / 2 + 6, { steps: 4 });
 	await page.waitForTimeout(150);
-	for (let i = 0; i < 5; i++) {
-		const z = await zone.boundingBox();
-		if (!z) break;
-		await page.mouse.move(z.x + Math.min(z.width / 2, 400), z.y + z.height / 2, { steps: 6 });
-		await page.waitForTimeout(180);
-	}
-	await page.mouse.up();
+	await settleAndDrop(
+		page,
+		async () => {
+			const z = await zone.boundingBox();
+			return z ? { x: z.x + Math.min(z.width / 2, 400), y: z.y + z.height / 2 } : null;
+		},
+		'the bucket drop zone'
+	);
 	await page.waitForTimeout(600);
 
 	await expect(select).toHaveValue(b3);
