@@ -56,7 +56,7 @@ request and every push to `main`, needs no secrets, and deploys nothing.
 |-----|------|--------------|
 | `build` | PR + `main` | Validates the committed Gradle wrapper jar against Gradle's published checksums, then `./gradlew build` — domain (JVM + Kotlin/JS), backend `@QuarkusTest`, `:frontend:check`. Then `./gradlew staticAnalysis` and an upload of the consolidated report plus the JUnit XML. |
 | `e2e` | PR + `main` | Starts the dev stack with `./scripts/dev.sh` and runs the Playwright suite against it. |
-| `images` | `main` only | Builds both container images, asserts the backend image is byte-identical across rebuilds, and scans it with Trivy. **Pushes nothing.** |
+| `images` | `main` only | Builds both container images (with `--no-build-cache`, or a cached augmentation skips the Jib side effect and no image is produced), asserts both exist, checks the Jib timestamp flags and digest-pinned base image, and scans the backend with Trivy. **Pushes nothing.** |
 | `security` | PR + `main` | `npm audit --omit=dev` and a Trivy filesystem scan. Reports only — it does not gate. |
 
 To reproduce the gate locally, run what the pipeline runs:

@@ -73,9 +73,12 @@ description: |
         -Dquarkus.container-image.push=true
 
   Do not touch the reproducibility settings — both
-  `quarkus.jib.use-current-timestamp*` stay `false`, and no time- or
-  environment-derived jar-manifest attribute may be added; task-027's image job
-  asserts the backend image is byte-identical across rebuilds.
+  `quarkus.jib.use-current-timestamp*` stay `false`, the Jib base image stays
+  digest-pinned, and no time- or environment-derived jar-manifest attribute may
+  be added; task-027's image job asserts those three inputs. It does NOT assert
+  byte-identity across rebuilds: Quarkus' augmentation emits one
+  non-deterministic file (`quarkus/generated-bytecode.jar`), so the image id
+  legitimately differs between identical builds.
 
   **Deploy immutable tags, never `1.0.0-SNAPSHOT`.** Push each build under the
   short commit SHA as well and have the overlays reference *that*, so a rollback

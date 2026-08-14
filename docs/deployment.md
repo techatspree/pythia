@@ -92,10 +92,17 @@ dependency resolution long before it reaches a deploy.
    ```
 
    Do **not** change the reproducibility settings while doing so: both
-   `quarkus.jib.use-current-timestamp*` stay `false`, and no time- or
-   environment-derived jar-manifest attribute may be added. The GitHub `images`
-   job asserts the backend image is byte-identical across rebuilds and will go
-   red if that is broken.
+   `quarkus.jib.use-current-timestamp*` stay `false`, the Jib base image stays
+   pinned by digest, and no time- or environment-derived jar-manifest attribute
+   may be added. The GitHub `images` job asserts exactly those three inputs and
+   goes red if one is broken.
+
+   It deliberately does **not** assert that the image is byte-identical across
+   rebuilds, because it is not: Quarkus' augmentation emits one non-deterministic
+   file (`quarkus/generated-bytecode.jar`, in it the recorded
+   `ResteasyReactiveProcessor$setupDeployment*.class`). Keeping the inputs
+   constant is what makes a build independent of *when* and *where* it ran; it
+   does not make two builds bit-for-bit equal.
 
 2. **Deploy staging** — automatic on `main`.
 3. **Manual approval** — a GitLab job with `when: manual`, on a protected
