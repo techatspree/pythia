@@ -177,10 +177,23 @@ jobs:
 
       - uses: gradle/actions/setup-gradle@v6
 
+      # `--no-build-cache` is load-bearing, not belt-and-braces.
+      #
+      # Building the image happens INSIDE the Quarkus augmentation
+      # (`quarkusAppPartsBuild`), and Gradle's build cache replays a task's file
+      # outputs — not its side effects. The `build` job populates the cache
+      # WITHOUT `quarkus.container-image.build`, and that entry then satisfies
+      # this job: the log reads `quarkusAppPartsBuild FROM-CACHE`, the whole
+      # thing reports BUILD SUCCESSFUL in 12s, and no image ever reaches the
+      # Docker daemon — so the very next step fails with "No such image".
+      #
+      # This disables only the TASK-OUTPUT cache; the dependency cache still
+      # applies, so the job stays fast. Do not remove it to shave a minute.
       - name: Build both container images
         run: |
-          ./gradlew :backend:implementation:imageBuild -Dquarkus.container-image.build=true
-          ./gradlew :frontend:dockerBuildImage
+          ./gradlew :backend:implementation:imageBuild \
+            -Dquarkus.container-image.build=true --no-build-cache
+          ./gradlew :frontend:dockerBuildImage --no-build-cache
 
       - name: Assert both image references exist
         run: |
