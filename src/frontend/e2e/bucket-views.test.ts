@@ -116,6 +116,15 @@ async function openDraft(page: Page, estimationId: string) {
 const row = (id: string) => `[data-testid="tt-row-${id}"]`;
 
 /**
+ * How long `settleAndDrop` chases a moving drop target before giving up, and
+ * how long it waits between re-reads. A deadline rather than a pass count, so
+ * the budget does not shrink when the machine is loaded — see the note on
+ * `settleAndDrop`.
+ */
+const SETTLE_BUDGET_MS = 8_000;
+const SETTLE_POLL_MS = 180;
+
+/**
  * Steer the cursor onto a drop ZONE that MOVES while the drag is in flight, and
  * release only once it has stopped moving.
  *
@@ -137,29 +146,54 @@ const row = (id: string) => `[data-testid="tt-row-${id}"]`;
  * target at mouse-up. `point` re-reads the geometry on every pass; returning
  * null means the target disappeared, which is a failure, not a reason to
  * release wherever the cursor happens to be.
+ *
+ * The convergence CHECK is what makes the drop correct; the BUDGET below is
+ * only how long we are willing to wait for it. Those are different things, and
+ * the budget used to be a fixed 12 passes (~2.2 s) — enough locally, but under
+ * four parallel workers sharing one dev server a reflow that normally settles
+ * in ~400 ms can exceed it, and the drag then failed as "never stopped moving"
+ * having done nothing wrong. Observed as a ~1-in-6 full-suite flake that always
+ * passed when the spec was run alone.
+ *
+ * So the budget is a DEADLINE, not a pass count: a loaded machine simply takes
+ * more passes. It stays well inside the 30 s test timeout, and a genuinely
+ * stuck target still fails loudly — with the elapsed budget and the last
+ * observed drift in the message, which a bare pass count never told us.
  */
 async function settleAndDrop(
 	page: Page,
 	point: () => Promise<{ x: number; y: number } | null>,
 	what: string
 ): Promise<void> {
+	const startedAt = Date.now();
+	const deadline = startedAt + SETTLE_BUDGET_MS;
 	let previous: { x: number; y: number } | null = null;
 	let stable = 0;
-	for (let i = 0; i < 12 && stable < 2; i++) {
+	let drift = Number.NaN;
+	let passes = 0;
+
+	while (stable < 2 && Date.now() < deadline) {
 		const target = await point();
 		if (!target) throw new Error(`${what} vanished mid-drag`);
-		stable =
-			previous && Math.abs(previous.x - target.x) < 1 && Math.abs(previous.y - target.y) < 1
-				? stable + 1
-				: 0;
+		drift = previous
+			? Math.max(Math.abs(previous.x - target.x), Math.abs(previous.y - target.y))
+			: Number.NaN;
+		stable = previous && drift < 1 ? stable + 1 : 0;
 		await page.mouse.move(target.x, target.y, { steps: 6 });
-		await page.waitForTimeout(180);
+		await page.waitForTimeout(SETTLE_POLL_MS);
 		previous = target;
+		passes++;
 	}
+
 	// Fail loudly rather than dropping somewhere arbitrary: the fixed loops this
 	// replaced turned a lost target into a silent no-op drop, which surfaced as
 	// an unrelated-looking assertion failure much later.
-	if (stable < 2) throw new Error(`${what} never stopped moving`);
+	if (stable < 2) {
+		throw new Error(
+			`${what} never stopped moving: ${passes} passes over ${Date.now() - startedAt}ms, ` +
+				`last drift ${drift.toFixed(1)}px (budget ${SETTLE_BUDGET_MS}ms)`
+		);
+	}
 	await page.mouse.up();
 }
 
