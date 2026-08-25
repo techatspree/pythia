@@ -80,6 +80,22 @@ data class EstimationVersion(
      */
     fun totals(): EstimationTotals = computeTotals(this)
 
+    /**
+     * A rough schedule over this estimation's ROOT nodes: one scheduling unit
+     * per root, `duration = offerPT / teamFte`, and the critical path through
+     * the finish-to-start [dependencies] as the project length.
+     *
+     * **Call this on the result of [calculate]** — a node's `offerPT` derives
+     * from the [CalculationParameters] that [calculate] stamps on, so on an
+     * uncalculated version every duration is 0.
+     *
+     * Deliberately a MEMBER, not an extension function: `@JsExport` does not
+     * export extension functions, so an extension would compile and then be
+     * missing from the frontend's `domain.d.mts`.
+     */
+    fun schedule(dependencies: List<ScheduleDependency>, teamFte: Double): ProjectSchedule =
+        computeSchedule(this, dependencies, teamFte)
+
     // Rebuild the tree with each leaf replaced by its calculated version (indexed
     // by logicalId), preserving the group structure.
     private fun substituteCalculated(

@@ -1,0 +1,196 @@
+id: task-157
+phase: phase-19
+title: Graphical dependency editor for the project schedule
+depends_on: [task-156]
+description: |
+  Third task of phase-19. task-155 computes a schedule and task-156 stores its
+  inputs; both are invisible. This task adds the way a user actually declares
+  them: a **team-FTE field** and a **graphical editor** for the finish-to-start
+  dependencies between root nodes.
+
+  The Gantt view and the export are task-158 — this task ends with a schedule
+  that is editable and saved, surfaced as a plain list of computed durations.
+
+  ## Graphical means hand-rolled SVG
+
+  Draw one box per scheduling unit, drag from a box's handle to another box to
+  create an edge, click an edge to delete it. **Add no charting or graph
+  library.** This repo hand-rolls `TreeTable`, generates its icons with
+  Playwright's bundled Chromium rather than adding `sharp`, and builds its own
+  drop-zone geometry — a graph dependency editor of this size is squarely in
+  that tradition, and a library would own the interaction model that the next
+  task's Gantt has to match.
+
+  Layout is a single column of boxes in root order, with edges as SVG paths
+  routed to the right of the column. Do not implement free-placement dragging,
+  auto-layout, or zoom: position is not part of the model and must not be
+  persisted.
+
+  ## The domain owns the math
+
+  The component renders `ProjectSchedule` and never computes a duration, a
+  start, or a critical path itself. `adapter.ts` gains a `computeSchedule(...)`
+  bridge calling task-155's `Array`-taking `DomainFactory` factory — an
+  `@JsExport` function taking `List<T>` is not callable from JS with a plain
+  array, which is why that factory exists.
+
+  ## Cycles are shown, not prevented
+
+  Let the user draw an edge that closes a cycle. task-155 returns a
+  `cycleError`; render it inline and hide the computed durations until it is
+  resolved. Blocking the gesture would need the editor to reimplement cycle
+  detection — the exact duplication phase-19 is arranged to avoid.
+
+  ## The optimism caveat is part of the UI
+
+  `duration = effort / teamFte` gives every branch the full team, so parallel
+  branches are optimistic. Render that as an i18n'd hint under the team-FTE
+  field. A number this easy to over-trust must carry its assumption.
+
+steps:
+  - |
+    Add the domain bridge to `src/frontend/src/lib/adapter.ts`, beside
+    `computeEstimation(...)`: `computeSchedule(roots, dependencies, teamFte)`
+    calling the `Array`-taking `DomainFactory` factory from task-155 and
+    returning the `ProjectSchedule`. Reimplementing any part of the critical
+    path in TypeScript is out of bounds — the domain is the single source of
+    truth.
+  - |
+    Add `src/frontend/src/lib/components/schedule/DependencyEditor.svelte`:
+      - a `$bindable()` `dependencies` prop the parent owns and this component
+        mutates directly (the established editor pattern — no snapshot + local
+        `$state` + onchange)
+      - one box per `ScheduledTask` in root order, showing the title and the
+        computed `durationDays`
+      - drag from a box's right-hand handle onto another box to add an edge;
+        dropping on empty space cancels
+      - edges as SVG paths; click an edge to remove it
+      - a duplicate edge is refused silently (task-156's unique constraint would
+        reject it anyway)
+      - the `cycleError` rendered inline when present
+      - an empty state when the version has fewer than two roots — with one
+        root there is nothing to connect
+
+    Buttons come from `$lib/ui/`; colours from `@theme` tokens in `app.css`
+    (an arbitrary `bg-[#…]` fails `:frontend:check`); failures go through `log`
+    from `$lib/log.ts`, never bare `console.*`.
+
+    Give the drag handle and each edge an `aria-label` — both are i18n keys, not
+    literals.
+  - |
+    Wire it into the version editor route
+    `src/frontend/src/routes/estimations/[id]/versions/[versionNumber]/+page.svelte`
+    as a collapsible section below `EstimationSummaryPanel`:
+      - `currentTeamFte` and `currentDependencies` as route-owned `$state`,
+        hydrated in `applyVersionData` (so an undo or reload does not resurrect
+        stale values and does not trigger a spurious autosave)
+      - both included in the autosave PUT payload
+      - a team-FTE number field with the optimism hint beneath it
+      - `DependencyEditor` bound to the state
+      - a plain list of the computed per-unit durations plus the project length,
+        so the task is useful before task-158 adds the chart
+      - read-only for a submitted version, like the rest of the editor
+  - |
+    Add every new visible string to **both** `src/frontend/src/lib/i18n/de.json`
+    and `en.json`, key-for-key, under a `schedule.*` prefix: the section title,
+    the team-FTE label and its hint, the editor's empty state, the edge-delete
+    tooltip, the cycle error, the project-length label, and the `aria-label`s on
+    the drag handle and the edges. Real German, not the English sentence pasted
+    across. Never inline a literal — render via `$_('key')`.
+  - |
+    Add `src/frontend/e2e/schedule.test.ts`: seed a draft with at least two root
+    groups through the REST API (the pattern the other specs use), open the
+    draft, set the team FTE, drag one dependency, and assert the computed
+    project length changes and survives a reload.
+
+    Mouse-driven drag in this codebase is timing-sensitive: re-read the target's
+    `boundingBox()` between moves and release only once it has settled, exactly
+    as `settleAndDrop` in `e2e/bucket-views.test.ts` does. A fixed number of
+    passes races the layout and produces a ~1-in-3 flake.
+  - |
+    Document the new bridge and component in `src/frontend/CLAUDE.md`. That file
+    already enumerates `adapter.ts`'s entry points — `computeEstimation(...)`
+    and the Kotlin/JS factories it calls — so a second entry point that is not
+    listed there is invisible to the next reader. Record: `computeSchedule(...)`
+    and the `Array`-taking factory it needs, that `ProjectSchedule.tasks`
+    arrives as a Kotlin `List` rather than a JS array, and that the editor
+    renders the domain's schedule and computes nothing itself. A short paragraph
+    beside the existing adapter notes, not a tutorial.
+  - |
+    Run the gate: `./gradlew :frontend:check`, then `./gradlew build`, then the
+    Playwright suite with the dev stack up (`./scripts/dev.sh`; backend :8090,
+    Vite :5173; stop it with SIGTERM, never by killing the child JVMs):
+    `cd src/frontend && npm run test:e2e`.
+
+validation:
+  - |
+    The bridge exists and the frontend does not re-derive the schedule:
+      F=src/frontend/src
+      grep -q "computeSchedule" "$F/lib/adapter.ts"
+      test -f "$F/lib/components/schedule/DependencyEditor.svelte"
+      ! grep -rqi "criticalpath\s*=" "$F/lib/components/schedule/"
+  - |
+    The component obeys the frontend hard rules:
+      S=src/frontend/src/lib/components/schedule
+      ! grep -rq "console\." "$S"
+      grep -rq "log\." "$S"
+      ! grep -rqE "bg-\[#" "$S"
+      ! grep -rqE "toFixed\(|toLocale" "$S"
+      grep -rq "aria-label" "$S"
+  - |
+    The route owns the state, saves it, and re-hydrates it:
+      P="src/frontend/src/routes/estimations/[id]/versions/[versionNumber]/+page.svelte"
+      grep -q "DependencyEditor" "$P"
+      grep -q "teamFte" "$P"
+      grep -q "dependencies" "$P"
+  - |
+    Both catalogs carry the new keys, key-for-key, and the German ones are
+    translated rather than copied:
+      python3 - <<'PY'
+      import json, pathlib, sys
+      d = pathlib.Path('src/frontend/src/lib/i18n')
+      cats = {p.stem: json.loads(p.read_text()) for p in d.glob('*.json')}
+      def flat(o, p=''):
+          out = {}
+          for k, v in o.items():
+              n = f'{p}.{k}' if p else k
+              out.update(flat(v, n) if isinstance(v, dict) else {n: v})
+          return out
+      f = {l: flat(c) for l, c in cats.items()}
+      ref = set().union(*(set(x) for x in f.values()))
+      bad = {l: sorted(ref - set(x)) for l, x in f.items() if ref - set(x)}
+      no_sched = [l for l, x in f.items() if not any(k.startswith('schedule.') for k in x)]
+      de, en = f.get('de', {}), f.get('en', {})
+      copied = [k for k in de if k.startswith('schedule.')
+                and len(str(de[k])) > 3 and de[k] == en.get(k)]
+      print('catalogs:', sorted(cats))
+      print('key mismatch:', bad or 'none')
+      print('missing schedule.*:', no_sched or 'none')
+      print('untranslated:', copied or 'none')
+      sys.exit(1 if (bad or no_sched or copied) else 0)
+      PY
+  - |
+    The e2e spec exists and does not reintroduce the fixed-pass drag race:
+      T=src/frontend/e2e/schedule.test.ts
+      test -f "$T"
+      grep -qi "boundingBox" "$T"
+  - |
+    The new adapter entry point is documented where the others are — an
+    undocumented second bridge is how `adapter.ts` drifts:
+      grep -q "computeSchedule" src/frontend/CLAUDE.md
+  - |
+    ./gradlew :frontend:check
+  - |
+    ./gradlew build
+  - |
+    With the dev stack running (`./scripts/dev.sh`, backend :8090, Vite :5173):
+      cd src/frontend && npm run test:e2e
+
+outputs:
+  - created: src/frontend/src/lib/components/schedule/DependencyEditor.svelte
+  - created: src/frontend/e2e/schedule.test.ts
+  - modified: src/frontend/src/lib/adapter.ts
+  - modified: src/frontend/CLAUDE.md
+  - modified: src/frontend/src/routes/estimations/[id]/versions/[versionNumber]/+page.svelte
+  - modified: src/frontend/src/lib/i18n/de.json
+  - modified: src/frontend/src/lib/i18n/en.json

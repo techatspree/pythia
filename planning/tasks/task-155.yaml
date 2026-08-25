@@ -1,0 +1,445 @@
+id: task-155
+phase: phase-19
+title: "Domain: project schedule, critical path from an estimate"
+depends_on: [task-139, task-143]
+description: |
+  **First task of phase-19 "Dependency tracking and Gant Chart".** It opens the
+  phase and builds the calculation everything else in it renders; it touches no
+  persistence and no UI.
+
+  An estimate answers "how much effort". The next question is always "how long
+  will it take", and Pythia cannot answer it at all today: `EstimationTotals`
+  produces person-days and money, and nothing turns person-days into a duration.
+
+  The phase adds the smallest honest answer — a **rough schedule**, not a full
+  project plan:
+
+  1. finish-to-start **dependencies** between the upper levels of the tree
+  2. a **team size** in FTE
+  3. duration per scheduling unit = effort ÷ team FTE
+  4. the **critical path** — the longest chain through the dependency graph —
+     is the project length
+
+  Phase-19 delivers that in four tasks: **task-155** the domain calculation
+  (this one), **task-156** persistence + REST, **task-157** the graphical
+  dependency editor, **task-158** the Gantt view and its export. Design
+  decisions that outlive this task are recorded here so the later three can
+  refer back rather than restate them.
+
+  ## Scheduling units are the ROOT nodes
+
+  A dependency editor over every leaf of a 200-item tree is unusable, and the
+  requirement says "upper level parts of the tree". So the scheduling units are
+  exactly `EstimationVersion.roots` — each root node (group or leaf) is one
+  schedule task, identified by its `logicalId` and labelled by its title
+  (`EstimationGroup.title`, else the leaf's description). Its effort is the
+  node's already-computed `offerPT`, so a group contributes its whole subtree
+  and the schedule never re-derives estimation math.
+
+  Do **not** invent a separate breakdown, and do not add a "scheduling level"
+  setting — one level, the roots, is the whole rule for this phase.
+
+  ## The duration formula, and its assumption
+
+  `duration = offerPT / teamFte`, exactly as the requirement states. Note this
+  models a team working on **one scheduling unit at a time**: two independent
+  branches each get the full team, so parallel branches come out optimistic.
+  That is the accepted simplification for a rough estimate — task-157 surfaces
+  the caveat in the UI rather than shipping a number readers over-trust.
+  Resource levelling is out of scope for the phase.
+
+  Durations are **working days**. Calendar mapping (weekends) happens only in
+  task-158's export, never in the domain.
+
+  `offerPT` is the risk- and driver-loaded figure, so this duration is the
+  loaded plan — see "The project length is a RANGE" below for the band around
+  it and for why that band is NOT `duration +/- stdDevFactor * sigma`.
+
+  ## The project length is a RANGE, not one number
+
+  A single `projectDurationDays` invites false precision, and the estimate
+  already carries what is needed to avoid it: every leaf has a PERT `variance`
+  (`((max - min) / 6)^2`) and `EstimationGroup.variance` sums its subtree. Both
+  are abstract on `EstimationNode`, so the range stays method-neutral exactly
+  like the rest of this calculation.
+
+  **Variances add along a chain; standard deviations do NOT.** Accumulate
+  `variance` in the forward pass alongside `earliestFinish`, taking it from
+  whichever predecessor won the `max`. That yields the variance of the longest
+  path without tracing chains, and it does not double-count two parallel
+  critical branches the way summing over `onCriticalPath` would. Break ties on
+  the larger accumulated variance, then on `logicalId`, so the result is
+  deterministic.
+
+  Effort variance is in **PT-squared**, so turning it into a duration divides by
+  `teamFte` **squared**:
+  `durationVariance = effortVariance / (teamFte * teamFte)`. Dividing once is
+  the classic bug here and yields a plausible-looking band, so it is a test case
+  below.
+
+  **Do not build the band around `projectDurationDays`.** `offerPT` already
+  contains the risk surcharge, and that surcharge IS a standard-deviation
+  loading — `riskFactor = sqrt(totalVariance) * stdDevFactor / totalMean`, so
+  across the whole estimate `offerPT ~= mean + stdDevFactor * sigma`. Writing
+  `projectDurationDays +/- stdDevFactor * sigma` would apply the same sigma
+  twice and put the pessimistic end near `mean + 4 * sigma` at the default
+  `stdDevFactor = 2.0`.
+
+  So the band is computed on the **mean** scale and reported beside the loaded
+  figure:
+
+      expectedDurationDays    = (sum of mean along the longest path) / teamFte
+      durationStdDevDays      = sqrt(sum of variance along that path) / teamFte
+      optimisticDurationDays  = max(0.0, expected - stdDevFactor * sd)
+      pessimisticDurationDays = expected + stdDevFactor * sd
+
+  `stdDevFactor` is read from `version.stdDevFactor` — the same knob that drives
+  the risk surcharge, so one setting governs both and `schedule()` needs no
+  extra parameter. `projectDurationDays` keeps its meaning (the risk-loaded
+  plan) and therefore sits near the **top** of that band by construction:
+  task-157 and task-158 must present it that way, never as the midpoint.
+
+  ## Critical path
+
+  Longest path by duration through a DAG of finish-to-start edges.
+  `earliestStart` is the max `earliestFinish` of a unit's predecessors (0 with
+  none); `earliestFinish = earliestStart + duration`; project length is the
+  maximum `earliestFinish`.
+
+  A unit is **on the critical path** when delaying it delays the project —
+  compute that as `latestFinish - earliestFinish < 1e-9` after a backward pass.
+  Do **not** trace one arbitrary longest chain: on ties that silently omits
+  parallel critical branches.
+
+  **A dependency cycle is a reported result, never a hang or a throw.** Detect
+  it during the topological sort and return a schedule whose `error` is
+  `ScheduleError(CYCLE, <the logicalIds involved>)` and whose `tasks` is empty.
+  task-157's editor makes cycles reachable by design, so this is a normal path.
+
+  ## Failures are DATA, not an English sentence
+
+  `ProjectSchedule.error` is a structured `ScheduleError` — a `kind` enum plus
+  the `logicalId`s involved — and deliberately not a `String` message.
+
+  Two reasons. First, the domain has **two** distinct failure conditions here (a
+  cycle, and an unusable `teamFte`); one opaque string for both leaves task-157
+  unable to tell them apart. Second, task-157 renders this, and a message
+  composed in the domain is English text arriving in a German UI: it cannot go
+  through the `de.json` / `en.json` catalogs, which the frontend hard rules
+  require for everything a user can read. With a `kind`, task-157 selects
+  `schedule.error.cycle` / `schedule.error.invalidTeamFte` and interpolates the
+  unit titles itself.
+
+  Prose about the failure belongs in the `logger.debug` line, not in the return
+  value. Decide this here: `ProjectSchedule` is `@JsExport`ed and task-156
+  persists against it, so reshaping the field later is a breaking change across
+  three tasks.
+
+  ## Method neutrality — the calculation belongs in `:domain:core`
+
+  The estimation methods are separate Gradle modules (task-143) and this phase
+  must not erode that boundary. It does not have to: the calculation reads only
+  `EstimationVersion.roots`, each root's `offerPT`, and `EstimationGroup.title` /
+  `EstimationItem.description` — every one of them declared abstractly in
+  `:domain:core`. Nothing distinguishes three-point PERT from bucket+sampled
+  here; duration is `offerPT / teamFte` and the critical path is graph math over
+  `logicalId`s.
+
+  So `ProjectSchedule.kt` lives in **`:domain:core`**, the parent both method
+  modules depend on — and that placement is self-enforcing rather than a
+  convention: `:domain:core` declares no `project(...)` dependency at all, so a
+  method-specific import there is an "Unresolved reference", not a review
+  comment.
+
+  **Do not add a third SPI.** The domain already carries two sibling SPIs
+  (`EstimationMethodModule`, `EstimationMethodSessionSupport`) and
+  `src/domain/CLAUDE.md` records why they were kept apart instead of merged. An
+  `EstimationMethodScheduleSupport` would be speculative generality — there is
+  no method-specific behaviour to dispatch on. task-156, task-157 and task-158
+  inherit this rule: scheduling is a core-level concern keyed on the abstract
+  `offerPT`, and it does not acquire a per-method dimension.
+
+  The **test is the one exception, and it is not a contradiction.** Asserting an
+  exact `projectDurationDays` needs roots carrying real effort, which needs a
+  concrete leaf (`FixedEstimationItem`), which lives in
+  `:domain:method-threepoint` — a module `:domain:core` cannot see. That is the
+  boundary working as designed, so the test belongs in the **aggregator**
+  `:domain`, beside `EstimationTotalsTest.kt`, and must call
+  `StandardMethods.installAll()` first exactly as that suite does. A test under
+  `src/domain/core/src/test` could only build empty `EstimationGroup`s, whose
+  `offerPT` is 0 — and `./gradlew :domain:build` would not even run it, because
+  `build` on the aggregator pulls core's `jar`, not core's `test`.
+
+  ## KMP constraints
+
+  - `schedule(...)` must be a **member function on `EstimationVersion`**, exactly
+    like `totals()` — `@JsExport` does not export extension functions, so an
+    extension compiles, passes `:domain:build`, and is then missing from
+    `domain.d.mts`.
+  - It is meaningful only on the result of `calculate()`: `offerPT` exists once
+    the calculation parameters are stamped on.
+  - **`@JsExport` functions taking `List<T>` are not callable from JS with a
+    plain array**, and task-157 calls this from `adapter.ts` — so the
+    `Array`-taking factory in `DomainFactory.kt` is part of THIS task, not a
+    later one. Note that file lives in the aggregator `:domain`
+    (`src/domain/src/main/kotlin/io/pythia/DomainFactory.kt`), not
+    `:domain:core`.
+  - The same boundary applies **outward**: `ProjectSchedule.tasks` — and
+    `ScheduleError.involvedLogicalIds` — reach JavaScript as a Kotlin `List`,
+    not a JS array, so task-157's `adapter.ts` must walk them the way it already
+    walks the result tree from `calculate()`.
+    That is a known, handled shape — do not "fix" it by returning `Array` from
+    the domain, which would distort the JVM API the backend uses.
+  - Never call `super.<computed property>` in an override — infinite recursion
+    on Kotlin/JS while the JVM tests pass. Inline the parent formula.
+
+  `planning/README.md` documents the planning system's structure and does not
+  enumerate phases, so it needs no change and is deliberately not an output.
+
+steps:
+  - |
+    Add `src/domain/core/src/main/kotlin/io/pythia/model/ProjectSchedule.kt`
+    (package `io.pythia.model`), structured like `EstimationTotals.kt`:
+    `@JsExport` data classes, a top-level `computeSchedule(...)` the member
+    delegates to, and a file-level `private val logger = KotlinLogging.logger {}`.
+
+    The file MUST open with `@file:OptIn(ExperimentalJsExport::class)` above the
+    `package` line, as every `@JsExport` file in the domain does — without it
+    the file does not compile.
+
+      @JsExport data class ScheduleDependency(val fromLogicalId: String, val toLogicalId: String)
+
+      @JsExport data class ScheduledTask(
+          val logicalId: String,
+          val title: String,
+          /** The node's risk- and driver-loaded `offerPT`. */
+          val effortPT: Double,
+          /** The node's UNLOADED PERT mean — the scale the range is built on. */
+          val meanPT: Double,
+          /** The node's PERT variance, in PT-squared. */
+          val effortVariance: Double,
+          val durationDays: Double,
+          val earliestStart: Double,
+          val earliestFinish: Double,
+          val onCriticalPath: Boolean
+      )
+
+      @JsExport enum class ScheduleErrorKind { CYCLE, INVALID_TEAM_FTE }
+
+      /** Structured on purpose — task-157 maps [kind] to an i18n key. */
+      @JsExport data class ScheduleError(
+          val kind: ScheduleErrorKind,
+          val involvedLogicalIds: List<String>
+      )
+
+      @JsExport data class ProjectSchedule(
+          val tasks: List<ScheduledTask>,
+          /** Risk-loaded plan length. Sits near the TOP of the band below. */
+          val projectDurationDays: Double,
+          val expectedDurationDays: Double,
+          val durationStdDevDays: Double,
+          val optimisticDurationDays: Double,
+          val pessimisticDurationDays: Double,
+          val teamFte: Double,
+          /** Non-null when the inputs are unusable; `tasks` is then empty. */
+          val error: ScheduleError?
+      )
+  - |
+    Implement
+    `computeSchedule(version: EstimationVersion, dependencies: List<ScheduleDependency>, teamFte: Double): ProjectSchedule`
+    in that file: one `ScheduledTask` per `version.roots` entry, forward pass for
+    earliest start/finish, backward pass for latest finish, `onCriticalPath` by
+    slack < 1e-9.
+
+    The forward pass ALSO carries `(meanAccum, varianceAccum)` taken from the
+    predecessor that won the `max` — see "The project length is a RANGE" above
+    for why accumulating along the path beats summing over `onCriticalPath`, why
+    the duration conversion divides by `teamFte` squared, and why the band is
+    built on the mean scale rather than around `projectDurationDays`. Read
+    `stdDevFactor` off `version`.
+
+    Five edge cases are requirements, not polish:
+      - an edge naming an unknown `logicalId` is **ignored**, not thrown on — a
+        root can be deleted after an edge was drawn
+      - `teamFte <= 0.0` returns `ScheduleError(INVALID_TEAM_FTE, emptyList())`
+        instead of dividing; `Infinity` must never reach the UI
+      - a cycle returns `ScheduleError(CYCLE, <the logicalIds on the cycle>)`
+        with empty `tasks`
+      - a **self-edge** (`from == to`) is a one-node cycle: report it as `CYCLE`,
+        never loop on it
+      - a **duplicate edge** must not count twice — dedupe, or the predecessor
+        walk inflates nothing today but will once weights are ever added
+
+    `logger.debug { … }` the unit count, team size, resulting length and the
+    band — prose about a failure belongs in this line, never in `ScheduleError`.
+  - |
+    Add the member to `EstimationVersion`, beside `totals()` and carrying the
+    same "deliberately a MEMBER, not an extension" comment:
+
+      fun schedule(dependencies: List<ScheduleDependency>, teamFte: Double): ProjectSchedule =
+          computeSchedule(this, dependencies, teamFte)
+  - |
+    Add the JS bridge in `src/domain/src/main/kotlin/io/pythia/DomainFactory.kt`
+    (the aggregator `:domain`, not `:domain:core`): an `Array`-taking factory
+    such as
+    `scheduleVersion(version: EstimationVersion, dependencies: Array<ScheduleDependency>, teamFte: Double)`,
+    mirroring the existing `createVersion(roots: Array<EstimationNode>)`.
+    Without it task-157 cannot call the schedule from TypeScript with a plain
+    array.
+  - |
+    Add `src/domain/src/test/kotlin/io/pythia/model/ProjectScheduleTest.kt` — in
+    the **aggregator** `:domain`, NOT in `:domain:core`; see "Method neutrality"
+    above for why the calculation and its test live in different modules. Build
+    the fixtures the way `EstimationTotalsTest.kt` in that same directory does:
+    a `@BeforeEach` calling `StandardMethods.installAll()` (the registry does not
+    self-populate since task-143), `FixedEstimationItem` leaves, and
+    `EstimationVersion(...).calculate()` so the roots carry a real `offerPT`.
+
+    Cover: a linear chain; two parallel branches of equal length (BOTH critical —
+    the case a longest-chain trace gets wrong); a diamond; an edge with an
+    unknown id; a self-edge (`from == to`, reported as `CYCLE`, not a hang); a
+    duplicate edge (same result as a single one); a root that is a LEAF rather
+    than a group (its label comes from `description`, not `title`);
+    `teamFte = 0`; and a cycle.
+
+    Then three that pin the range, which is where a plausible-looking wrong
+    number is easiest to ship:
+      - variances ADD along a chain while standard deviations do not — assert
+        the exact `durationStdDevDays` of a two-unit chain, which must be
+        `sqrt(v1 + v2) / teamFte` and NOT `(sqrt(v1) + sqrt(v2)) / teamFte`
+      - the same chain at `teamFte = 2.0` must have exactly HALF the
+        `durationStdDevDays` of the same chain at `teamFte = 1.0` — this is the
+        test that catches dividing effort variance by `teamFte` instead of by
+        `teamFte` squared
+      - two parallel critical branches must NOT sum their variances: the
+        project's `durationStdDevDays` is that of ONE branch
+
+    Assert the **exact** `projectDurationDays` in each case, not merely that the
+    call returns. A critical-path bug that inflates or shortens the path still
+    produces a plausible-looking number, and only an exact expectation catches
+    it — the diamond is the case that distinguishes "longest path" from "sum of
+    everything".
+  - |
+    Open the phase in `planning/plan.yaml`, listing all four tasks so the phase
+    reads as a unit from the start:
+
+      - id: phase-19
+        name: Dependency tracking and Gant Chart
+        duration_weeks: 3
+        tasks: [task-155, task-156, task-157, task-158]
+  - |
+    Document the new computation in `src/domain/CLAUDE.md`, in the model
+    section: what a scheduling unit is (the root nodes, and why not the leaves),
+    that `schedule()` is a **member and not an extension** for the same reason
+    `totals()` is, that it must be called on the result of `calculate()`, and
+    that durations are working days with calendar mapping deliberately left to
+    the export, that the calculation is method-neutral and therefore lives in
+    `:domain:core` with no third SPI, and that the project length is a RANGE
+    whose band is built on the mean scale because `offerPT` already carries a
+    `stdDevFactor` loading.
+
+    While in that file, fix a stale path it already carries: it states the
+    sealed hierarchy lives in `src/domain/src/main/kotlin/io/pythia/model/`,
+    which has been `src/domain/core/src/main/kotlin/io/pythia/model/` since
+    task-143 split the modules.
+
+    This is not optional bookkeeping: the identical member-vs-extension
+    constraint is already written up for `totals()` in `src/frontend/CLAUDE.md`
+    § "Whole-estimation totals", and the next person to add a domain reducer
+    should read it rather than rediscover it from a missing `domain.d.mts`
+    entry. Keep it to a short paragraph — the rationale, not a tutorial.
+  - |
+    Run the gate: `./gradlew :domain:build`. The domain compiles to Kotlin/JS as
+    well as JVM, so this also proves the new `@JsExport` surface is legal.
+
+    Then `./gradlew :frontend:check` — the frontend consumes the domain's
+    generated TypeScript, so a new export can break its type-check even though
+    no frontend file changed in this task. (If it fails on a stale `.d.mts`,
+    the documented recovery is
+    `./gradlew :domain:clean :frontend:clean :frontend:check`.)
+
+    Then `./gradlew build` as the safety net.
+
+validation:
+  - |
+    The model and the computation exist, and the entry point is a MEMBER (an
+    extension would compile and then be missing from the JS surface):
+      D=src/domain/core/src/main/kotlin/io/pythia/model
+      test -f "$D/ProjectSchedule.kt"
+      grep -q "data class ProjectSchedule" "$D/ProjectSchedule.kt"
+      grep -q "data class ScheduledTask" "$D/ProjectSchedule.kt"
+      grep -q "data class ScheduleDependency" "$D/ProjectSchedule.kt"
+      grep -q "onCriticalPath" "$D/ProjectSchedule.kt"
+      grep -q "enum class ScheduleErrorKind" "$D/ProjectSchedule.kt"
+      grep -q "data class ScheduleError" "$D/ProjectSchedule.kt"
+      grep -q "fun schedule(" "$D/EstimationVersion.kt"
+      # Every @JsExport file in the domain carries the file-level opt-in.
+      grep -q "@file:OptIn(ExperimentalJsExport::class)" "$D/ProjectSchedule.kt"
+  - |
+    The project length is a RANGE, and it is built from the per-unit mean and
+    variance rather than as a band around the risk-loaded figure:
+      D=src/domain/core/src/main/kotlin/io/pythia/model
+      for f in meanPT effortVariance expectedDurationDays durationStdDevDays \
+               optimisticDurationDays pessimisticDurationDays; do
+        grep -q "$f" "$D/ProjectSchedule.kt" || { echo "missing field: $f"; exit 1; }
+      done
+      # The band uses the version's own stdDevFactor, not a hardcoded z-score.
+      grep -q "stdDevFactor" "$D/ProjectSchedule.kt"
+  - |
+    The domain logs its new operation through the kotlin-logging facade, in the
+    lambda form the CLAUDE.md convention requires:
+      D=src/domain/core/src/main/kotlin/io/pythia/model
+      grep -q "KotlinLogging.logger" "$D/ProjectSchedule.kt"
+      grep -qE "logger\.debug \{" "$D/ProjectSchedule.kt"
+  - |
+    The Kotlin/JS array bridge exists in the AGGREGATOR module — an @JsExport
+    function taking List<T> is not callable from JS with a plain array:
+      grep -q "Array<ScheduleDependency>" src/domain/src/main/kotlin/io/pythia/DomainFactory.kt
+  - |
+    The cases that distinguish a correct critical path from a plausible one are
+    actually tested:
+      T=src/domain/src/test/kotlin/io/pythia/model/ProjectScheduleTest.kt
+      test -f "$T"
+      grep -qi "cycle" "$T"
+      grep -qi "parallel\|diamond" "$T"
+      grep -q "teamFte = 0\|teamFte=0" "$T"
+      grep -qi "self\|duplicate" "$T"
+      # The two range bugs that still produce a plausible number: adding standard
+      # deviations instead of variances, and dividing variance by teamFte once.
+      grep -q "durationStdDevDays" "$T"
+      grep -q "teamFte = 2.0\|teamFte=2.0" "$T"
+      # The aggregator suite must install the methods; without it calculate()
+      # throws IllegalStateException and every duration assertion is vacuous.
+      grep -q "StandardMethods.installAll()" "$T"
+      # And it must NOT have been placed in :domain:core, where no concrete leaf
+      # type is on the compile classpath and :domain:build would not run it.
+      test ! -f src/domain/core/src/test/kotlin/io/pythia/model/ProjectScheduleTest.kt
+  - |
+    The phase is registered with all four of its tasks:
+      grep -q "id: phase-19" planning/plan.yaml
+      for t in task-155 task-156 task-157 task-158; do
+        grep -q "$t" planning/plan.yaml || { echo "phase-19 omits $t"; exit 1; }
+      done
+  - |
+    The new domain computation is documented where the domain model is
+    documented — a reducer whose constraints live only in the compiler is how
+    the member-vs-extension trap gets rediscovered:
+      grep -qi "schedule" src/domain/CLAUDE.md
+      grep -qi "critical path" src/domain/CLAUDE.md
+      grep -qiE "range|optimistic" src/domain/CLAUDE.md
+      # The stale pre-task-143 model path is gone (it is src/domain/core/ now).
+      ! grep -q "src/domain/src/main/kotlin/io/pythia/model" src/domain/CLAUDE.md
+  - |
+    ./gradlew :domain:build
+  - |
+    ./gradlew :frontend:check
+  - |
+    ./gradlew build
+
+outputs:
+  - created: src/domain/core/src/main/kotlin/io/pythia/model/ProjectSchedule.kt
+  - created: src/domain/src/test/kotlin/io/pythia/model/ProjectScheduleTest.kt
+  - modified: src/domain/core/src/main/kotlin/io/pythia/model/EstimationVersion.kt
+  - modified: src/domain/src/main/kotlin/io/pythia/DomainFactory.kt
+  - modified: src/domain/CLAUDE.md
+  - modified: planning/plan.yaml

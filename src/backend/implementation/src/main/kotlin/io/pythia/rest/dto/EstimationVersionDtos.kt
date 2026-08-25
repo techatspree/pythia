@@ -26,7 +26,17 @@ data class EstimationVersionDto(
     val effortDrivers: List<EffortDriverDto>,
     val phases: List<ProjectPhaseDto>,
     val roots: List<EstimationNodeDto>,
-    val additionalCosts: List<AdditionalCostDto>
+    val additionalCosts: List<AdditionalCostDto>,
+    // Schedule inputs (task-156). The frontend feeds these straight back into
+    // the domain's scheduleVersion(version, dependencies, teamFte).
+    val teamFte: Double,
+    val dependencies: List<ScheduleDependencyDto>
+)
+
+/** One finish-to-start edge between two ROOT nodes, by `logicalId`. */
+data class ScheduleDependencyDto(
+    val fromLogicalId: String,
+    val toLogicalId: String
 )
 
 
@@ -106,7 +116,11 @@ data class DraftUpdateDto(
     // (bucket + sampled method only; null/empty for PERT).
     val buckets: List<BucketUpdateDto>? = null,
     val roots: List<EstimationNodeUpdateDto>? = null,
-    val additionalCosts: List<AdditionalCostUpdateDto>? = null
+    val additionalCosts: List<AdditionalCostUpdateDto>? = null,
+    // Schedule inputs (task-156), OPTIONAL like every other field here: a
+    // client that omits them leaves a saved schedule alone.
+    val teamFte: Double? = null,
+    val dependencies: List<ScheduleDependencyDto>? = null
 )
 
 data class BucketUpdateDto(

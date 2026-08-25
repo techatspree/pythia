@@ -387,6 +387,16 @@
             "items" : {
               "$ref" : "#/components/schemas/AdditionalCostUpdateDto"
             }
+          },
+          "teamFte" : {
+            "type" : [ "number", "null" ],
+            "format" : "double"
+          },
+          "dependencies" : {
+            "type" : [ "array", "null" ],
+            "items" : {
+              "$ref" : "#/components/schemas/ScheduleDependencyDto"
+            }
           }
         }
       },
@@ -701,7 +711,7 @@
       },
       "EstimationVersionDto" : {
         "type" : "object",
-        "required" : [ "versionNumber", "isDraft", "totalEffort", "notes", "createdAt", "submittedAt", "dailyRate", "stdDevFactor", "salesSurcharge", "effortDrivers", "phases", "roots", "additionalCosts" ],
+        "required" : [ "versionNumber", "isDraft", "totalEffort", "notes", "createdAt", "submittedAt", "dailyRate", "stdDevFactor", "salesSurcharge", "effortDrivers", "phases", "roots", "additionalCosts", "teamFte", "dependencies" ],
         "properties" : {
           "versionNumber" : {
             "type" : "integer",
@@ -765,6 +775,16 @@
             "type" : "array",
             "items" : {
               "$ref" : "#/components/schemas/AdditionalCostDto"
+            }
+          },
+          "teamFte" : {
+            "type" : "number",
+            "format" : "double"
+          },
+          "dependencies" : {
+            "type" : "array",
+            "items" : {
+              "$ref" : "#/components/schemas/ScheduleDependencyDto"
             }
           }
         }
@@ -1123,6 +1143,18 @@
       "Role" : {
         "type" : "string",
         "enum" : [ "VIEWER", "ESTIMATOR", "ADMIN" ]
+      },
+      "ScheduleDependencyDto" : {
+        "type" : "object",
+        "required" : [ "fromLogicalId", "toLogicalId" ],
+        "properties" : {
+          "fromLogicalId" : {
+            "type" : "string"
+          },
+          "toLogicalId" : {
+            "type" : "string"
+          }
+        }
       },
       "SessionDto" : {
         "type" : "object",

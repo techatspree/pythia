@@ -42,6 +42,15 @@ class DraftEstimationVersion : BaseEntity() {
     @Column(name = "sales_surcharge", nullable = false)
     var salesSurcharge: Double = EstimationDefaults.SALES_SURCHARGE
 
+    // Schedule inputs (task-156), the two values EstimationVersion.schedule()
+    // takes. Defaulting to 1.0 keeps every row schedulable — 0 is the one team
+    // size task-155 rejects.
+    @Column(name = "team_fte", nullable = false)
+    var teamFte: Double = 1.0
+
+    @OneToMany(mappedBy = "version", cascade = [CascadeType.ALL], orphanRemoval = true)
+    var scheduleDependencies: MutableList<DraftScheduleDependency> = mutableListOf()
+
     @OneToMany(mappedBy = "version", cascade = [CascadeType.ALL], orphanRemoval = true)
     var effortDrivers: MutableList<DraftEffortDriver> = mutableListOf()
 

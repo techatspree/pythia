@@ -1,0 +1,442 @@
+id: task-159
+phase: phase-18
+title: Move open tasks to GitHub Issues; retool the commands
+depends_on: [task-153]
+description: |
+  Pythia is public (task-145 / task-152), but its task management is not. The
+  plan lives in `planning/tasks/task-NNN.yaml` + `planning/status.json`, driven
+  by `scripts/task.sh` and three slash commands. That worked while the repo was
+  a single-developer directory. It does not work for an open-source project:
+  an outsider cannot see what is open, cannot propose a task, and cannot claim
+  one — `status.json` is a file only a committer can write. GitHub Issues is
+  already enabled on `techatspree/pythia` and is empty.
+
+  This task moves the **open** frontier to GitHub Issues, freezes the local
+  archive, and retools `scripts/task.sh` and the three `.claude/commands/`
+  prompts to operate on issues instead of files.
+
+  ## The 16 tasks that move
+
+  Everything in `status.json` that is not `done`, as of this task:
+
+    task-025, task-029, task-030, task-031, task-032, task-060,
+    task-086 (in_progress), task-087, task-107, task-108,
+    task-110 (in_progress), task-117, task-155, task-156, task-157, task-158
+
+  task-159 (this one) moves too, as the last step — after its own work is
+  finished, so it does not migrate a description of itself mid-flight.
+
+  ## Identity: `task-NNN` stays canonical, the issue number does not
+
+  Do **not** re-key tasks onto GitHub issue numbers. `task-NNN` ids are cited
+  throughout the codebase — `CLAUDE.md` alone references task-027, task-082,
+  task-121, task-137, task-138, task-143, task-145, task-146, task-152; source
+  comments and 158 task YAMLs cite more. Issue numbers start at 1 and share a
+  counter with pull requests, so they can never be made to line up.
+
+  Instead the id lives in the **issue title**, as the prefix:
+
+      task-155: Derive a project schedule from an estimate
+
+  `scripts/task.sh` resolves `task-NNN` → issue number by searching titles.
+  Every historical reference keeps working, `/implement-task task-155` still
+  takes the same argument, and the issue number stays a URL detail.
+
+  The next id is `max(NNN over planning/tasks/*.yaml, NNN over every issue
+  title including closed ones) + 1` — the archive and the issue list together
+  are the id space, so an id is never reused after the archive stops growing.
+
+  ## State: issue state replaces status.json
+
+  | plan state     | GitHub                                              |
+  |----------------|-----------------------------------------------------|
+  | `pending`      | open, no status label                               |
+  | `in_progress`  | open + label `status:in-progress`                   |
+  | `blocked`      | open + label `status:blocked`                       |
+  | `done`         | closed as `completed`                               |
+  | `skipped`      | closed as `not planned`                             |
+
+  Labels to create: `task` (on every planning task — this is what separates a
+  planned task from a community bug report), `status:in-progress`,
+  `status:blocked`, and one `phase:N` label per phase in `plan.yaml`.
+
+  ## Issue body: Markdown sections, not a YAML blob
+
+  It is tempting to paste the task YAML into a fenced block and be done. Do not
+  — a code blob is unreadable on GitHub and defeats the reason for moving. The
+  body is Markdown with a **fixed heading contract** so it stays machine-
+  addressable:
+
+      **Phase:** phase-19
+      **Depends on:** task-157
+
+      ## Description
+      <prose>
+
+      ## Steps
+      1. <step>
+      2. <step>
+
+      ## Validation
+      ```bash
+      <check>
+      ```
+
+      ## Outputs
+      - created: `path`
+      - modified: `path`
+
+  Four H2 headings, exactly those names, exactly that order. Validation checks
+  stay in ```bash fences so they remain copy-pasteable. The two bold metadata
+  lines sit above the first heading.
+
+  ## The archive is frozen, and it keeps exactly one live copy of each task
+
+  After migration `planning/tasks/` holds only tasks that are `done` — a
+  historical record, never edited again. The 16 migrated YAML files are
+  **deleted**, because a stale YAML sitting beside a live issue is a trap the
+  next session will fall into. Their `status.json` entries are not deleted:
+  each is set to `"status": "migrated"` with the issue URL in `notes`, so the
+  pointer survives and nothing silently vanishes. Every other `status.json`
+  entry is left untouched.
+
+  `planning/plan.yaml` stays — phases, stack and domain entities are still the
+  map. Its per-phase `tasks:` arrays become a historical index, and its
+  `execution:` block is rewritten to point at GitHub. Phase-19 ("Dependency
+  tracking and Gant Chart", used by task-155..158) is already listed there, so
+  the phase label set is derivable from the file.
+
+  `planning/README.md` is rewritten. It currently documents a
+  `scripts/executor.py` CLI that does not exist in this repository — that
+  staleness goes with it.
+
+  ## Do not
+
+  - Do not migrate `done` tasks. 143 closed issues would bury the 16 that matter.
+  - Do not commit a one-shot migration script; write the converter into the
+    scratchpad, run it, and leave it there.
+  - Do not put a host, credential or organisation-internal name into an issue
+    body (the workspace `CLAUDE.md` rule applies to issues as much as to files).
+
+steps:
+  - |
+    Create the label set on `techatspree/pythia` with `gh label create --force`
+    (idempotent, so a re-run is safe):
+      - `task` — "Planned work item from the project plan"
+      - `status:in-progress`, `status:blocked`
+      - one `phase:N` label for every phase in `planning/plan.yaml`
+        (phase-1 … phase-19)
+    Pick distinguishable colours; put the three `status:`/`task` labels on a
+    different hue from the `phase:` family so the issue list is scannable.
+  - |
+    Rewrite `planning/plan.yaml`'s `execution:` block to describe the new
+    source of truth (the `phases:` list, phase-1 … phase-19, stays as the
+    historical index the labels are generated from):
+    task_source `github-issues`, the `task-NNN: <title>` title convention, the
+    label→state mapping, and a note that `tasks/` + `status.json` are a frozen
+    archive of completed work.
+  - |
+    Write a throwaway YAML→Markdown converter in the scratchpad (Python, using
+    the stdlib plus whatever YAML parser is available; `python3 -c "import
+    yaml"` first and fall back to a hand-rolled reader for this fixed schema if
+    it is absent). For one task YAML it must emit exactly the body contract from
+    the description: the two bold metadata lines, then `## Description`,
+    `## Steps` (numbered list, one entry per `steps` item), `## Validation`
+    (each item in a ```bash fence), `## Outputs` (one `- <kind>: \`path\`` line
+    each). Do not commit it.
+  - |
+    Migrate the 15 non-`task-159` open tasks listed in the description. For each,
+    in ascending id order:
+
+      gh issue create \
+        --title "task-NNN: <title from the YAML>" \
+        --body-file <converted.md> \
+        --label task --label "phase:N"
+
+    then add `--add-label status:in-progress` for task-086 and task-110, which
+    are `in_progress`. Record the returned issue URL for each.
+
+    Verify each created issue renders: `gh issue view <n>` must show four H2
+    headings and no raw YAML.
+  - |
+    Delete the 15 migrated YAML files from `planning/tasks/` and update their
+    `status.json` entries in place to
+    `{"status": "migrated", "notes": "<issue URL>"}`, preserving any existing
+    `started_at`/`completed_at`. Change no other entry. Leave every `done`
+    task's YAML and entry exactly as they are.
+  - |
+    Rewrite `scripts/task.sh` as a `gh` wrapper, keeping the existing verb
+    surface so the commands and muscle memory survive, and adding the three
+    verbs that files used to provide for free:
+
+      add "<description>"   create issue "task-NNN: <description>" with label
+                            `task`; print `task-NNN` on stdout and the human
+                            line on stderr (the current contract — callers do
+                            `NEW_ID=$(./scripts/task.sh add "…")`)
+      start   <task-id>     add `status:in-progress`
+      done    <task-id>     close as completed, remove `status:in-progress`
+      pending <task-id>     reopen, remove `status:in-progress`
+      blocked <task-id> [r] add `status:blocked`, comment the reason if given
+      show    <task-id>     print the issue body to stdout
+      url     <task-id>     print the issue URL
+      list    [--all]       one line per task issue: id, state, title
+
+    Requirements:
+      - preflight: `command -v gh`, `command -v jq`, and `gh auth status`, each
+        with an actionable error message on failure (the current script's `jq`
+        check is the model)
+      - resolve `task-NNN` → issue number via
+        `gh issue list --state all --search "task-NNN in:title" --json number,title`
+        and match the title prefix `^task-NNN:` exactly — a substring search
+        alone matches task-1590 and, worse, any issue quoting the id in prose
+      - `add` computes the next id from BOTH sources (archive filenames and all
+        issue titles), then re-checks that no issue already claims it
+      - a task id that resolves to no issue is an error naming the id, never a
+        silent no-op
+      - `show`, `url`, `list` must work read-only for an unauthenticated user on
+        a public repo where `gh` can still read; only the mutating verbs need
+        write access
+      - keep `set -euo pipefail`, and keep the script `bash -n`- and
+        `shellcheck`-clean
+  - |
+    Add `.github/ISSUE_TEMPLATE/task.yml` — a GitHub issue **form** that
+    produces the body contract above: a title field pre-filled with `task-: `,
+    a phase dropdown, a `depends on` input, and four textareas (Description,
+    Steps, Validation, Outputs) whose ids and labels match the four H2 headings.
+    Set `labels: [task]`. Add `.github/ISSUE_TEMPLATE/config.yml` with
+    `blank_issues_enabled: true` so a drive-by bug report is not forced through
+    the task form.
+  - |
+    Update `.claude/commands/add-task.md`:
+      - step 1 unchanged in shape — `./scripts/task.sh add "…"` still prints the
+        id — but say it creates a GitHub issue
+      - step 2 reads `planning/plan.yaml` (phases), `./scripts/task.sh list`
+        (the open frontier) and `./scripts/task.sh show <id>` for the 2–3 most
+        recent tasks, instead of `status.json` and the last task YAMLs
+      - step 5 writes the **issue body** in the Markdown contract, applied with
+        `gh issue edit <n> --body-file <file>`, plus
+        `gh issue edit <n> --add-label "phase:N"` — not a YAML file
+      - drop step 6's `jq` check; verify with `./scripts/task.sh show <new-id>`
+      - keep every style rule, the logging rule and the i18n rule verbatim; they
+        are about task content, not storage
+      - hard rules: keep "never reuse an id"; replace "never edit existing task
+        YAML files" with "never edit another task's issue", and "never change
+        status/started_at/completed_at" with "never close or relabel another
+        task's issue"
+  - |
+    Update `.claude/commands/implement-task.md`:
+      - step 1 reads the task with `./scripts/task.sh show $ARGUMENTS` instead of
+        `planning/tasks/$ARGUMENTS.yaml`
+      - steps 2 and 10 keep `./scripts/task.sh start|done $ARGUMENTS` unchanged
+      - add to step 10: post the completion note as an issue comment
+        (`gh issue comment`) — what was built, the build outcome, and the
+        static-analysis/i18n gate results — so the closed issue carries the
+        record that `status.json`'s `notes` field used to hold
+      - leave the mandatory build check, the static-analysis gate, the i18n gate
+        and every hard rule untouched, including the rule against `git commit` /
+        `git push`; closing the issue is the endpoint, committing is still a
+        separate user-initiated action
+  - |
+    Update `.claude/commands/improve-task.md`:
+      - step 1 reads via `./scripts/task.sh show $ARGUMENTS`
+      - the mechanical checks rebind: `depends_on` ids must each resolve to an
+        existing issue or an archived `planning/tasks/task-NNN.yaml`; `phase`
+        must match a phase in `plan.yaml` AND the issue must carry the matching
+        `phase:N` label; the four required sections are the four H2 headings
+      - the "`status.json` must have an entry" check becomes "the issue exists,
+        is open, and carries the `task` label"
+      - improvements are applied with `gh issue edit <n> --body-file`
+  - |
+    Rewrite `planning/README.md` for the new split: GitHub Issues is the live
+    plan (with the title convention, the label→state mapping and the body
+    contract), `planning/plan.yaml` is the architecture and phase map,
+    `planning/tasks/` + `status.json` are a frozen archive of completed work.
+    Remove the `scripts/executor.py` section entirely — that script does not
+    exist in this repository. Add a short "How to propose a task" paragraph
+    aimed at an outside contributor: open an issue with the task form.
+  - |
+    Update the **Planning system** section of `CLAUDE.md` to match: issues are
+    the live plan, `task-NNN` is still the id and lives in the issue title,
+    `scripts/task.sh` is now a `gh` wrapper (needs `gh` + `jq` + `gh auth
+    login`), and `planning/tasks/` + `status.json` are a frozen archive whose
+    task YAMLs may still be read for historical context. Keep the existing note
+    about legacy `./mvnw` references — it now applies to the archive.
+  - |
+    Migrate this task itself last: convert `planning/tasks/task-159.yaml` with
+    the same converter, create its issue with labels `task` and `phase:18`,
+    delete the YAML, and set its `status.json` entry to `migrated` with the
+    issue URL. Then `./scripts/task.sh start task-159` must resolve against the
+    new issue — run it as the proof, then `done` it at the end via the same
+    script.
+  - |
+    Run the gate: `bash -n scripts/task.sh`, `shellcheck scripts/task.sh` (if
+    installed), then `./gradlew build`.
+
+validation:
+  - |
+    All 16 open tasks exist as open issues with the id in the title prefix, and
+    no `done` task was migrated:
+      python3 - <<'PY'
+      import json, subprocess, sys, re, pathlib
+      raw = subprocess.run(['gh','issue','list','--state','all','--label','task',
+                            '--limit','300','--json','number,title,state,labels'],
+                           capture_output=True, text=True, check=True).stdout
+      issues = json.loads(raw)
+      ids = {}
+      for i in issues:
+          m = re.match(r'^(task-\d{3}):\s+\S', i['title'])
+          if m: ids[m.group(1)] = i
+      expected = {'task-025','task-029','task-030','task-031','task-032','task-060',
+                  'task-086','task-087','task-107','task-108','task-110','task-117',
+                  'task-155','task-156','task-157','task-158','task-159'}
+      missing = sorted(expected - set(ids))
+      not_open = sorted(t for t in expected & set(ids) if ids[t]['state'] != 'OPEN')
+      status = json.loads(pathlib.Path('planning/status.json').read_text())['tasks']
+      done_migrated = sorted(t for t in ids if status.get(t,{}).get('status') == 'done')
+      print('missing:', missing or 'none', '| not open:', not_open or 'none',
+            '| done tasks migrated:', done_migrated or 'none')
+      sys.exit(1 if (missing or not_open or done_migrated) else 0)
+      PY
+  - |
+    Every migrated issue body follows the four-heading contract, carries a
+    `phase:N` label, and contains no raw YAML blob:
+      python3 - <<'PY'
+      import json, subprocess, sys
+      raw = subprocess.run(['gh','issue','list','--state','open','--label','task',
+                            '--limit','300','--json','number,title,body,labels'],
+                           capture_output=True, text=True, check=True).stdout
+      bad = []
+      for i in json.loads(raw):
+          b = i['body'] or ''
+          heads = [h for h in ('## Description','## Steps','## Validation','## Outputs') if h in b]
+          has_phase = any(l['name'].startswith('phase:') for l in i['labels'])
+          if len(heads) != 4 or not has_phase or '```yaml' in b or 'depends_on:' in b:
+              bad.append(i['title'])
+      print('non-conforming:', bad or 'none')
+      sys.exit(1 if bad else 0)
+      PY
+  - |
+    The archive is frozen and holds exactly one live copy of each task — the
+    migrated YAMLs are gone, every remaining YAML is a `done` task, and the
+    migrated entries point at their issue:
+      python3 - <<'PY'
+      import json, pathlib, re, sys
+      status = json.loads(pathlib.Path('planning/status.json').read_text())['tasks']
+      files = {p.stem for p in pathlib.Path('planning/tasks').glob('task-*.yaml')}
+      migrated = {t for t,v in status.items() if v.get('status') == 'migrated'}
+      leftover = sorted(migrated & files)
+      not_done = sorted(f for f in files if status.get(f,{}).get('status') != 'done')
+      nourl = sorted(t for t in migrated
+                     if not re.search(r'github\.com/\S+/issues/\d+', status[t].get('notes') or ''))
+      print('stale YAML:', leftover or 'none', '| non-done YAML:', not_done or 'none',
+            '| migrated without issue URL:', nourl or 'none')
+      sys.exit(1 if (leftover or not_done or nourl) else 0)
+      PY
+  - |
+    `scripts/task.sh` is a gh wrapper with the full verb surface, preflights its
+    tools, and no longer writes `status.json`:
+      grep -q "gh issue" scripts/task.sh
+      grep -q "gh auth status" scripts/task.sh
+      for v in add start done pending blocked show url list; do
+        grep -q "$v" scripts/task.sh || { echo "missing verb: $v"; exit 1; }
+      done
+      ! grep -q "STATUS_FILE.tmp" scripts/task.sh
+      bash -n scripts/task.sh
+  - |
+    Resolution is prefix-anchored, not a loose substring match — the trap that
+    would let task-159 resolve to an issue merely quoting "task-159":
+      grep -qE 'task-\$?\{?[A-Za-z_]*\}?[0-9]*:' scripts/task.sh || grep -q '\^task-' scripts/task.sh
+  - |
+    The script round-trips against the real repository:
+      ./scripts/task.sh show task-155 | grep -q "## Steps"
+      ./scripts/task.sh url  task-155 | grep -qE '^https://github\.com/.+/issues/[0-9]+$'
+      ./scripts/task.sh list | grep -q "task-158"
+  - |
+    The label set exists and is derivable from `plan.yaml`:
+      gh label list --limit 100 | grep -q "^task"
+      gh label list --limit 100 | grep -q "status:in-progress"
+      python3 - <<'PY'
+      import re, subprocess, sys, pathlib
+      plan = pathlib.Path('planning/plan.yaml').read_text()
+      phases = set(re.findall(r'^\s+- id: phase-(\d+)', plan, re.M))
+      out = subprocess.run(['gh','label','list','--limit','200'],
+                           capture_output=True, text=True, check=True).stdout
+      have = set(re.findall(r'^phase:(\d+)', out, re.M))
+      print('phases without a label:', sorted(phases - have, key=int) or 'none')
+      sys.exit(1 if phases - have else 0)
+      PY
+  - |
+    phase-19 is registered and `execution:` points at GitHub:
+      grep -q "phase-19" planning/plan.yaml
+      grep -qi "github" planning/plan.yaml
+  - |
+    The issue form exists and produces the body contract:
+      test -f .github/ISSUE_TEMPLATE/task.yml
+      test -f .github/ISSUE_TEMPLATE/config.yml
+      python3 - <<'PY'
+      import sys, pathlib, re
+      t = pathlib.Path('.github/ISSUE_TEMPLATE/task.yml').read_text()
+      missing = [s for s in ('Description','Steps','Validation','Outputs') if s not in t]
+      print('form fields missing:', missing or 'none', '| labels:', 'task' in t)
+      sys.exit(1 if (missing or 'task' not in t) else 0)
+      PY
+  - |
+    All three slash commands read tasks through the script, no longer reference
+    the retired file paths, and keep their gates:
+      for f in add-task implement-task improve-task; do
+        grep -q "task.sh" ".claude/commands/$f.md" || { echo "no task.sh in $f"; exit 1; }
+        ! grep -q "planning/tasks/\$ARGUMENTS.yaml" ".claude/commands/$f.md" || { echo "stale path in $f"; exit 1; }
+      done
+      grep -q "gh issue comment" .claude/commands/implement-task.md
+      grep -q "MANDATORY BUILD CHECK" .claude/commands/implement-task.md
+      grep -q "STATIC-ANALYSIS GATE" .claude/commands/implement-task.md
+      grep -q "I18N GATE" .claude/commands/implement-task.md
+      ! grep -q "status.json" .claude/commands/add-task.md
+  - |
+    The docs describe the new system and the dead executor reference is gone:
+      grep -qi "github issue" CLAUDE.md
+      grep -qi "github issue" planning/README.md
+      ! grep -q "executor.py" planning/README.md
+  - |
+    No migration script was committed and no coordinates leaked into an issue:
+      ! test -f scripts/migrate-tasks-to-github.sh
+      python3 - <<'PY'
+      import json, subprocess, sys, re
+      raw = subprocess.run(['gh','issue','list','--state','all','--limit','300','--json','title,body'],
+                           capture_output=True, text=True, check=True).stdout
+      pat = re.compile(r'gitlab|\.intern|registry\.|ssh://|password|@spree\.de', re.I)
+      hits = [i['title'] for i in json.loads(raw) if pat.search((i['body'] or '') + i['title'])]
+      print('issues containing internal coordinates:', hits or 'none')
+      sys.exit(1 if hits else 0)
+      PY
+  - |
+    ./gradlew build
+
+outputs:
+  - modified: scripts/task.sh
+  - modified: .claude/commands/add-task.md
+  - modified: .claude/commands/implement-task.md
+  - modified: .claude/commands/improve-task.md
+  - modified: planning/plan.yaml
+  - modified: planning/README.md
+  - modified: planning/status.json
+  - modified: CLAUDE.md
+  - created: .github/ISSUE_TEMPLATE/task.yml
+  - created: .github/ISSUE_TEMPLATE/config.yml
+  - deleted: planning/tasks/task-025.yaml
+  - deleted: planning/tasks/task-029.yaml
+  - deleted: planning/tasks/task-030.yaml
+  - deleted: planning/tasks/task-031.yaml
+  - deleted: planning/tasks/task-032.yaml
+  - deleted: planning/tasks/task-060.yaml
+  - deleted: planning/tasks/task-086.yaml
+  - deleted: planning/tasks/task-087.yaml
+  - deleted: planning/tasks/task-107.yaml
+  - deleted: planning/tasks/task-108.yaml
+  - deleted: planning/tasks/task-110.yaml
+  - deleted: planning/tasks/task-117.yaml
+  - deleted: planning/tasks/task-155.yaml
+  - deleted: planning/tasks/task-156.yaml
+  - deleted: planning/tasks/task-157.yaml
+  - deleted: planning/tasks/task-158.yaml
+  - deleted: planning/tasks/task-159.yaml

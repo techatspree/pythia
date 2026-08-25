@@ -115,7 +115,11 @@ phases:
   - id: phase-18
     name: Open Source Release
     duration_weeks: 1
-    tasks: [task-145, task-146, task-152, task-153]
+    tasks: [task-145, task-146, task-152, task-153, task-159]
+  - id: phase-19
+    name: Dependency tracking and Gant Chart
+    duration_weeks: 3
+    tasks: [task-155, task-156, task-157, task-158]
 
 execution:
   task_format: tasks/<task-id>.yaml

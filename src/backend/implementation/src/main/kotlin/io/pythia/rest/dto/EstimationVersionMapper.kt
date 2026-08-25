@@ -40,7 +40,19 @@ fun SubmittedEstimationVersion.toDto() = EstimationVersionDto(
     effortDrivers = effortDrivers.map { it.toDto() },
     phases = phases.map { it.toDto() },
     roots = roots.map { it.toDto() },
-    additionalCosts = additionalCosts.map { it.toDto() }
+    additionalCosts = additionalCosts.map { it.toDto() },
+    teamFte = teamFte,
+    dependencies = scheduleDependencies.map { it.toDto() }
+)
+
+fun SubmittedScheduleDependency.toDto() = ScheduleDependencyDto(
+    fromLogicalId = fromLogicalId,
+    toLogicalId = toLogicalId
+)
+
+fun DraftScheduleDependency.toDto() = ScheduleDependencyDto(
+    fromLogicalId = fromLogicalId,
+    toLogicalId = toLogicalId
 )
 
 fun DraftEstimationVersion.toDto(calculated: EstimationVersion): EstimationVersionDto {
@@ -58,7 +70,9 @@ fun DraftEstimationVersion.toDto(calculated: EstimationVersion): EstimationVersi
         effortDrivers = effortDrivers.map { it.toDto() },
         phases = phases.map { it.toDto() },
         roots = roots.map { it.toDtoWithCalc(calcMap) },
-        additionalCosts = additionalCosts.map { it.toDto() }
+        additionalCosts = additionalCosts.map { it.toDto() },
+        teamFte = teamFte,
+        dependencies = scheduleDependencies.map { it.toDto() }
     )
 }
 

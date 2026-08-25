@@ -9,6 +9,7 @@ import io.pythia.domain.draft.DraftBucketedItemNode
 import io.pythia.domain.draft.DraftFixedItemNode
 import io.pythia.domain.draft.DraftGroupNode
 import io.pythia.domain.draft.DraftProjectPhase
+import io.pythia.domain.draft.DraftScheduleDependency
 import io.pythia.domain.draft.DraftTimeRelativeItemNode
 import io.pythia.domain.submitted.SubmittedAdditionalCost
 import io.pythia.domain.submitted.SubmittedEffortDriver
@@ -18,6 +19,7 @@ import io.pythia.domain.submitted.SubmittedBucketedItemNode
 import io.pythia.domain.submitted.SubmittedFixedItemNode
 import io.pythia.domain.submitted.SubmittedGroupNode
 import io.pythia.domain.submitted.SubmittedProjectPhase
+import io.pythia.domain.submitted.SubmittedScheduleDependency
 import io.pythia.domain.submitted.SubmittedTimeRelativeItemNode
 import io.pythia.method.bucketsampled.BucketedEstimationItem
 import io.pythia.method.threepoint.FixedEstimationItem
@@ -204,6 +206,20 @@ class EstimationVersionService(
         submitted.stdDevFactor = draft.stdDevFactor
         submitted.salesSurcharge = draft.salesSurcharge
 
+        // Schedule inputs (task-156). A snapshot without them renders an empty
+        // Gantt where the draft rendered a full one.
+        submitted.teamFte = draft.teamFte
+        draft.scheduleDependencies.forEach { d ->
+            submitted.scheduleDependencies.add(SubmittedScheduleDependency().apply {
+                fromLogicalId = d.fromLogicalId
+                toLogicalId = d.toLogicalId
+                version = submitted
+            })
+            Log.debug("Snapshotting schedule edge ${d.fromLogicalId} -> ${d.toLogicalId}")
+        }
+        val edgeCount = draft.scheduleDependencies.size
+        Log.info("Schedule snapshot: draft=${draft.id} teamFte=${draft.teamFte} edges=$edgeCount")
+
         draft.effortDrivers.forEach { d ->
             submitted.effortDrivers.add(SubmittedEffortDriver().apply {
                 description = d.description
@@ -350,6 +366,20 @@ class EstimationVersionService(
         target.dailyRate = source.dailyRate
         target.stdDevFactor = source.stdDevFactor
         target.salesSurcharge = source.salesSurcharge
+
+        // The THIRD schedule-carrying path (task-156): a draft cloned from a
+        // submitted version must inherit its schedule, or continuing an
+        // estimate silently starts over with no dependencies.
+        target.teamFte = source.teamFte
+        source.scheduleDependencies.forEach { d ->
+            target.scheduleDependencies.add(DraftScheduleDependency().apply {
+                fromLogicalId = d.fromLogicalId
+                toLogicalId = d.toLogicalId
+                version = target
+            })
+        }
+        val clonedEdges = source.scheduleDependencies.size
+        Log.debug("Cloned schedule: v${source.versionNumber} teamFte=${source.teamFte} edges=$clonedEdges")
 
         source.effortDrivers.forEach { d ->
             target.effortDrivers.add(DraftEffortDriver().apply {

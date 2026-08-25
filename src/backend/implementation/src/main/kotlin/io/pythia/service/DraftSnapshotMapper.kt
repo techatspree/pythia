@@ -11,6 +11,7 @@ import io.pythia.rest.dto.DraftUpdateDto
 import io.pythia.rest.dto.EffortDriverDto
 import io.pythia.rest.dto.EstimationNodeUpdateDto
 import io.pythia.rest.dto.PhaseUpdateDto
+import io.pythia.rest.dto.ScheduleDependencyDto
 
 // Captures a draft entity's full current state as the wire DraftUpdateDto —
 // the inverse of DraftUpdateApplier. `apply(draft, draft.toUpdateDto())` is an
@@ -34,6 +35,13 @@ fun DraftEstimationVersion.toUpdateDto(): DraftUpdateDto = DraftUpdateDto(
     buckets = estimation?.buckets?.map {
         BucketUpdateDto(id = it.id, position = it.position, label = it.label)
     } ?: emptyList(),
+    // Schedule inputs (task-156). Captured here as well as in snapshotDraft —
+    // those are different paths: this one is UNDO, and omitting it would let an
+    // undo silently wipe a saved schedule.
+    teamFte = teamFte,
+    dependencies = scheduleDependencies.map {
+        ScheduleDependencyDto(fromLogicalId = it.fromLogicalId, toLogicalId = it.toLogicalId)
+    },
     roots = roots.map { it.toUpdateDto() },
     additionalCosts = additionalCosts.map {
         AdditionalCostUpdateDto(

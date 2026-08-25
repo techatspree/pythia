@@ -25,6 +25,8 @@ import io.pythia.model.EstimationVersion
 import io.pythia.model.EstimationVersionStatus
 import io.pythia.model.EstimatorVote
 import io.pythia.model.ProjectPhase
+import io.pythia.model.ProjectSchedule
+import io.pythia.model.ScheduleDependency
 import io.pythia.model.VoteAggregate
 import io.pythia.model.VoteAggregation
 import io.pythia.model.newId
@@ -142,3 +144,20 @@ fun createVersion(
         roots = roots.toList()
     )
 }
+
+// JS-friendly wrapper over EstimationVersion.schedule (task-155). An @JsExport
+// function taking a List<T> is not callable from JS with a plain array, so
+// adapter.ts needs this Array-taking door to reach the schedule at all — the
+// same reason createVersion takes Array<EstimationNode>.
+//
+// The RESULT still crosses as Kotlin collections: ProjectSchedule.tasks and
+// ScheduleError.involvedLogicalIds are Lists, not JS arrays, and adapter.ts
+// walks them the way it already walks calculate()'s result tree. Do not "fix"
+// that by returning Array from the domain — it would distort the JVM API the
+// backend uses.
+@JsExport
+fun scheduleVersion(
+    version: EstimationVersion,
+    dependencies: Array<ScheduleDependency>,
+    teamFte: Double
+): ProjectSchedule = version.schedule(dependencies.toList(), teamFte)

@@ -168,7 +168,7 @@
       "status": "done",
       "started_at": "2026-08-12T14:41:09+00:00",
       "completed_at": "2026-08-12T14:53:00+00:00",
-      "notes": ""
+      "notes": "Repo-side deliverables COMPLETE and committed: scripts/deploy.sh, scripts/smoke.sh, k8s/overlays/staging, production overlay + postgres fixes, docs/deployment.md. The environment-dependent validation was NOT performed and is outstanding: GitLab pull mirror, external CI config path, CI/CD variables, runner, and the server bring-up (minikube systemd unit, ingress, TLS, registry pull secret, backups). Tracked separately."
     },
     "task-029": {
       "status": "pending",
@@ -913,6 +913,36 @@
       "started_at": "2026-08-11T13:47:42+00:00",
       "completed_at": "2026-08-11T13:57:58+00:00",
       "notes": "Session GUI: panel widths do not align, ghost-variant session controls do not read as buttons; extend $lib/ui into a real design-system core (layout width, form field, chip, button variants)"
+    },
+    "task-155": {
+      "status": "done",
+      "started_at": "2026-08-24T08:45:25+00:00",
+      "completed_at": "2026-08-24T08:57:45+00:00",
+      "notes": "Domain: derive a project schedule from an estimate — root-level finish-to-start dependencies, team FTE, critical path, and a duration range from PERT variance"
+    },
+    "task-156": {
+      "status": "done",
+      "started_at": "2026-08-25T10:25:25+00:00",
+      "completed_at": "2026-08-25T10:37:33+00:00",
+      "notes": "Persist and expose the project schedule inputs: team FTE and dependencies"
+    },
+    "task-157": {
+      "status": "pending",
+      "started_at": null,
+      "completed_at": null,
+      "notes": "Graphical dependency editor for the project schedule"
+    },
+    "task-158": {
+      "status": "pending",
+      "started_at": null,
+      "completed_at": null,
+      "notes": "Gantt chart view and Mermaid export for the project schedule"
+    },
+    "task-159": {
+      "status": "pending",
+      "started_at": null,
+      "completed_at": null,
+      "notes": "Migrate local YAML task management to GitHub Issues and adapt add-task/implement-task commands"
     }
   }
 }

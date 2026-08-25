@@ -1,0 +1,198 @@
+id: task-158
+phase: phase-19
+title: Gantt chart view and Mermaid export
+depends_on: [task-157]
+description: |
+  Last task of phase-19. task-157 leaves the schedule editable and saved, shown
+  as a list of durations. This task makes it a **Gantt chart** on screen and an
+  **export** the user can paste into a plan, a wiki or a report — which is where
+  the whole phase was heading: "how long will the project take", in a form
+  somebody else will read.
+
+  ## Export format: Mermaid
+
+  Export a Mermaid `gantt` block, downloaded as `project-plan.mmd`.
+
+  It is text — diffable, reviewable, and it renders natively in GitHub, GitLab
+  and Confluence, so the answer travels without a screenshot. It also adds **no
+  dependency**: the README already carries a Mermaid diagram, and this repo
+  consistently declines to pull a library for a rendering job it can do itself
+  (icons via Playwright's bundled Chromium rather than `sharp`). Do not add a
+  charting or Gantt library, and do not export an image.
+
+  Do not invent a second download mechanism either. Build the text into a
+  `Blob` and hand it to `downloadResponse(...)` from `$lib/api/download.ts`, the
+  same seam the xlsx/csv and Merlin exports use. A plain `<a href download>` is
+  banned repo-wide.
+
+  ## Working days become calendar dates here, and only here
+
+  task-155 deliberately keeps the domain in working days. The export takes a
+  **project start date** from the user and maps working-day offsets onto
+  calendar dates, skipping Saturdays and Sundays. That mapping belongs to the
+  export because it is a presentation concern — do not push it back into the
+  domain, and do not model holidays (out of scope for the phase).
+
+  All date and number rendering goes through `$lib/format.ts`; `.toFixed()`,
+  `toLocale*()` and a hardcoded locale are banned, so an English user sees
+  English date order.
+
+  ## The chart
+
+  One row per `ScheduledTask`: a bar positioned by `earliestStart` and sized by
+  `durationDays`, against a working-day axis. Critical-path bars in the brand
+  colour, the rest muted — the critical path is the answer to "what makes the
+  project this long", so it must be the thing the eye lands on. Colours come
+  from `@theme` tokens in `app.css`; an arbitrary `bg-[#…]` fails
+  `:frontend:check`.
+
+  When task-155 reports a `cycleError`, render that instead of a chart — a Gantt
+  drawn from an empty task list would read as "zero days".
+
+steps:
+  - |
+    Add `src/frontend/src/lib/components/schedule/GanttChart.svelte`:
+      - a `schedule: ProjectSchedule` prop (read-only; this component computes
+        nothing)
+      - one row per task: label plus a bar offset by `earliestStart` and sized
+        by `durationDays`, both as a percentage of `projectDurationDays`
+      - critical-path bars in the brand colour, others muted, with the
+        distinction also carried by an `aria-label` so it is not colour-only
+      - a working-day axis with a handful of ticks
+      - the `cycleError` rendered in place of the chart when present
+      - horizontal overflow scrolls inside the component rather than widening
+        the page
+  - |
+    Add the export beside it: a project-start-date input, and a button that
+    builds a Mermaid `gantt` block and downloads it as `project-plan.mmd`.
+
+    Shape:
+
+      gantt
+        title <estimation title>
+        dateFormat YYYY-MM-DD
+        axisFormat %d.%m
+        section <unit title>
+        <unit title> :<crit,> <id>, <start-date>, <n>d
+
+    Mark critical-path units with Mermaid's `crit` tag so the exported chart
+    carries the same emphasis as the on-screen one. Map working-day offsets to
+    calendar dates from the chosen start date, skipping weekends. Escape or
+    strip characters that would break Mermaid syntax in a unit title (`:` and
+    newlines in particular) — a title is free text.
+
+    Download via `downloadResponse(...)` from `$lib/api/download.ts` with a
+    locally-built `Blob`; never a plain `<a download>`.
+  - |
+    Render it in the version editor route
+    `src/frontend/src/routes/estimations/[id]/versions/[versionNumber]/+page.svelte`,
+    inside the schedule section task-157 added, below the dependency editor —
+    replacing the plain duration list that task-157 used as a placeholder. The
+    export controls sit with the chart, and are available for submitted versions
+    too (exporting a snapshot's plan is exactly the point).
+  - |
+    Add the new strings to **both** `src/frontend/src/lib/i18n/de.json` and
+    `en.json`, key-for-key under `schedule.*`: the chart heading, the axis label,
+    the start-date label, the export button, the download's fallback file name,
+    the critical/non-critical `aria-label`s, and the cycle notice. Real German,
+    not the English text pasted across. No inline literals — `$_('key')`.
+  - |
+    Extend `src/frontend/e2e/schedule.test.ts` from task-157: after setting a
+    team size and a dependency, assert the chart renders one bar per root, that
+    at least one bar is marked as critical, and that the export downloads a file
+    whose bytes start with `gantt` and contain a `crit` entry — the same
+    "assert the downloaded bytes, not just that a click happened" approach
+    `e2e/export.test.ts` uses.
+  - |
+    Extend the schedule note in `src/frontend/CLAUDE.md` that task-157 started:
+    the Gantt renders `ProjectSchedule` and computes nothing; the export is
+    Mermaid text through `downloadResponse(...)` and deliberately adds no
+    charting library; and working days become calendar dates **only** in the
+    export, skipping weekends, never in the domain. That last one is the rule a
+    future change is most likely to violate by "helpfully" moving date handling
+    into the domain.
+  - |
+    Run the gate: `./gradlew :frontend:check`, then `./gradlew build`, then
+    Playwright with the dev stack up (`./scripts/dev.sh`; backend :8090, Vite
+    :5173; stop with SIGTERM, never by killing the child JVMs):
+    `cd src/frontend && npm run test:e2e`.
+
+validation:
+  - |
+    The chart exists, renders the schedule, and computes nothing itself:
+      S=src/frontend/src/lib/components/schedule
+      test -f "$S/GanttChart.svelte"
+      grep -q "onCriticalPath" "$S/GanttChart.svelte"
+      grep -q "cycleError" "$S/GanttChart.svelte"
+  - |
+    The export is Mermaid, goes through the shared download seam, and adds no
+    library:
+      S=src/frontend/src/lib/components/schedule
+      grep -q "gantt" "$S/GanttChart.svelte"
+      grep -q "crit" "$S/GanttChart.svelte"
+      grep -q "downloadResponse" "$S/GanttChart.svelte"
+      ! grep -rqE "<a [^>]*download" "$S"
+      python3 - <<'PY'
+      import json, pathlib, sys
+      p = json.loads(pathlib.Path('src/frontend/package.json').read_text())
+      deps = {**p.get('dependencies', {}), **p.get('devDependencies', {})}
+      bad = [d for d in deps if any(k in d.lower() for k in ('gantt', 'chart', 'mermaid', 'dhtmlx', 'frappe'))]
+      print('charting dependencies added:', bad or 'none')
+      sys.exit(1 if bad else 0)
+      PY
+  - |
+    The frontend hard rules still hold across the schedule components:
+      S=src/frontend/src/lib/components/schedule
+      ! grep -rq "console\." "$S"
+      ! grep -rqE "bg-\[#" "$S"
+      ! grep -rqE "toFixed\(|toLocale" "$S"
+      grep -rq "aria-label" "$S"
+  - |
+    The chart is wired into the editor route and the placeholder list is gone:
+      P="src/frontend/src/routes/estimations/[id]/versions/[versionNumber]/+page.svelte"
+      grep -q "GanttChart" "$P"
+  - |
+    Both catalogs stay key-for-key identical, carry `schedule.*`, and the German
+    strings are translated rather than copied:
+      python3 - <<'PY'
+      import json, pathlib, sys
+      d = pathlib.Path('src/frontend/src/lib/i18n')
+      cats = {p.stem: json.loads(p.read_text()) for p in d.glob('*.json')}
+      def flat(o, p=''):
+          out = {}
+          for k, v in o.items():
+              n = f'{p}.{k}' if p else k
+              out.update(flat(v, n) if isinstance(v, dict) else {n: v})
+          return out
+      f = {l: flat(c) for l, c in cats.items()}
+      ref = set().union(*(set(x) for x in f.values()))
+      bad = {l: sorted(ref - set(x)) for l, x in f.items() if ref - set(x)}
+      de, en = f.get('de', {}), f.get('en', {})
+      copied = [k for k in de if k.startswith('schedule.')
+                and len(str(de[k])) > 3 and de[k] == en.get(k)]
+      print('key mismatch:', bad or 'none', '| untranslated:', copied or 'none')
+      sys.exit(1 if (bad or copied) else 0)
+      PY
+  - |
+    The e2e asserts the exported BYTES, not merely that a click happened:
+      T=src/frontend/e2e/schedule.test.ts
+      grep -q "gantt" "$T"
+  - |
+    The export's two load-bearing rules are written down, not just implemented:
+      grep -qi "mermaid" src/frontend/CLAUDE.md
+      grep -qi "working day" src/frontend/CLAUDE.md
+  - |
+    ./gradlew :frontend:check
+  - |
+    ./gradlew build
+  - |
+    With the dev stack running (`./scripts/dev.sh`, backend :8090, Vite :5173):
+      cd src/frontend && npm run test:e2e
+
+outputs:
+  - created: src/frontend/src/lib/components/schedule/GanttChart.svelte
+  - modified: src/frontend/CLAUDE.md
+  - modified: src/frontend/src/routes/estimations/[id]/versions/[versionNumber]/+page.svelte
+  - modified: src/frontend/e2e/schedule.test.ts
+  - modified: src/frontend/src/lib/i18n/de.json
+  - modified: src/frontend/src/lib/i18n/en.json

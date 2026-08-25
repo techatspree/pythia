@@ -1,0 +1,279 @@
+id: task-156
+phase: phase-19
+title: "Schedule inputs: persistence and REST"
+depends_on: [task-155]
+description: |
+  Second task of phase-19. task-155 computes a schedule from two inputs the
+  system cannot store yet: the **team size in FTE** and the **dependency edges**
+  between root nodes. This task persists them and carries them over REST, so
+  task-157's editor has somewhere to save to.
+
+  It adds no UI and no new resource class — the schedule inputs ride on the
+  existing version payload, exactly as the calculation parameters do.
+
+  ## Both version tables, not just the draft
+
+  A submitted version is an immutable **snapshot**; a snapshot that loses its
+  schedule inputs would render a different Gantt than the draft it came from.
+  So the inputs land on both `draft_estimation_versions` and
+  `submitted_estimation_versions`, mirroring how `V16` folded `daily_rate` /
+  `std_dev_factor` / `sales_surcharge` onto both tables.
+
+  Dependencies are rows, not a JSON column — this repo models collections as
+  tables (see the bucket and additional-cost tables), and a unique constraint is
+  what stops the editor from persisting a duplicate edge.
+
+  ## Shape
+
+  - `team_fte DOUBLE PRECISION NOT NULL DEFAULT 1` on both version tables —
+    `DOUBLE PRECISION`, matching how `V16` typed `daily_rate` /
+    `std_dev_factor` / `sales_surcharge` for the same JPA `Double`. The default
+    matters: every existing row gets a usable schedule immediately, and
+    `teamFte = 0` is the one value task-155 rejects.
+  - `draft_schedule_dependencies` and `submitted_schedule_dependencies`, each
+    `(id, version_id, from_logical_id, to_logical_id)` with
+    `ON DELETE CASCADE` on the version FK and `UNIQUE (version_id,
+    from_logical_id, to_logical_id)`.
+
+  The DTO fields are **optional** on `DraftUpdateDto`, applied by direct
+  assignment in `DraftUpdateApplier` like the other draft fields, so an older
+  client that omits them does not wipe a saved schedule.
+
+  Note the REST DTOs live together in `rest/dto/EstimationVersionDtos.kt` —
+  there is no per-DTO file. The version READ DTO is `EstimationVersionDto` (not
+  `EstimationVersionSummaryDto`, which stays a summary).
+
+  ## TWO snapshot paths, and they are different files
+
+  Getting these two confused silently drops the schedule inputs, so read this
+  before editing either:
+
+  - **draft → submitted** is `EstimationVersionService.snapshotDraft(...)`. It
+    is the function that already does `submitted.dailyRate = draft.dailyRate`
+    and copies `effortDrivers` / `phases` child-by-child. The new inputs are
+    copied HERE. Miss it and every submitted snapshot renders an empty Gantt.
+  - **draft → `DraftUpdateDto`** is `service/DraftSnapshotMapper.kt`
+    (`DraftEstimationVersion.toUpdateDto()`). It is the inverse of
+    `DraftUpdateApplier`, used by the UNDO service to capture before/after —
+    NOT the submit path. Its own header says so, and it deliberately emits
+    every field non-null so `apply` can tell "leave unchanged" from "clear".
+
+  Both need the new fields. `toUpdateDto()` especially: add `teamFte` /
+  `dependencies` to `DraftUpdateDto` and to `DraftUpdateApplier` but not to
+  `toUpdateDto()`, and `apply(draft, draft.toUpdateDto())` stops being the
+  identity it is documented to be — **undo silently wipes a saved schedule.**
+
+  ## The UNIQUE constraint must ALSO be on the entity
+
+  `%test.quarkus.flyway.enabled=false` and
+  `%dev.quarkus.flyway.migrate-at-start=false`: tests and local dev build the
+  schema from Hibernate, so a constraint declared only in a migration **does
+  not exist where it gets tested**. This is the V15 lesson written up in
+  `src/backend/CLAUDE.md` ("When adding a constraint in a migration, add it to
+  the entity too, or it will not exist where you test") — the bucket-reorder bug
+  it came from was literally unreproducible locally.
+
+  So each dependency entity carries
+  `@Table(uniqueConstraints = [UniqueConstraint(name = …, columnNames = [...])])`,
+  mirroring `EstimationBucket`, `SystemEffortDriver` and
+  `SubmittedEstimationVersion`. A test asserting the duplicate is rejected makes
+  the rule self-enforcing instead of advisory.
+
+  ## Out of scope — do NOT touch the KMP domain
+
+  task-155 made these **parameters** of `EstimationVersion.schedule(dependencies,
+  teamFte)`, deliberately not fields on the domain model. Do not add them to
+  `io.pythia.model.EstimationVersion`, and leave `service/DraftVersionMapper.kt`
+  (domain → entity) alone: it maps what `calculate()` needs, and the schedule
+  inputs are not part of that. They travel entity → DTO → frontend, and
+  task-157 passes them back into `scheduleVersion(...)` itself.
+
+  An edge naming a `logicalId` that is not a current root is **accepted** on
+  write. task-155 deliberately ignores unknown ids at calculation time, so
+  rejecting them here would make a root deletion fail a later save.
+
+steps:
+  - |
+    Add the Flyway migration
+    `src/backend/implementation/src/main/resources/db/migration/V19__project_schedule.sql`
+    (V18 is the current head — do not renumber it):
+      - `ALTER TABLE draft_estimation_versions ADD COLUMN team_fte DOUBLE PRECISION NOT NULL DEFAULT 1`
+        (`DOUBLE PRECISION` for JPA `Double`, as `V16` typed `daily_rate`)
+      - the same on `submitted_estimation_versions`
+      - `CREATE TABLE draft_schedule_dependencies (id UUID PRIMARY KEY, version_id UUID NOT NULL
+        REFERENCES draft_estimation_versions(id) ON DELETE CASCADE, from_logical_id TEXT NOT NULL,
+        to_logical_id TEXT NOT NULL, CONSTRAINT uq_draft_schedule_dep UNIQUE (version_id,
+        from_logical_id, to_logical_id))`
+      - the same shape for `submitted_schedule_dependencies` against
+        `submitted_estimation_versions`
+  - |
+    Map them onto the JPA entities: `@Column(name = "team_fte", nullable = false)
+    var teamFte: Double = 1.0` on `domain/draft/DraftEstimationVersion.kt` and
+    `domain/submitted/SubmittedEstimationVersion.kt` (beside `dailyRate`), plus a
+    `DraftScheduleDependency` / `SubmittedScheduleDependency` entity beside each
+    (same package as its owning version entity), wired as
+    `@OneToMany(mappedBy = "version", cascade = [CascadeType.ALL], orphanRemoval = true)`
+    like the existing `effortDrivers` / `phases` collections.
+
+    **Declare the UNIQUE constraint on the ENTITY as well as in the migration** —
+    see "The UNIQUE constraint must ALSO be on the entity" above. Tests build the
+    schema from Hibernate, so a migration-only constraint is absent exactly where
+    it would be exercised:
+
+      @Table(
+          name = "draft_schedule_dependencies",
+          uniqueConstraints = [UniqueConstraint(
+              name = "uq_draft_schedule_dep",
+              columnNames = ["version_id", "from_logical_id", "to_logical_id"]
+          )]
+      )
+  - |
+    Extend the REST surface in `rest/dto/EstimationVersionDtos.kt`:
+      - `ScheduleDependencyDto(fromLogicalId: String, toLogicalId: String)`
+      - `teamFte: Double` and `dependencies: List<ScheduleDependencyDto>` on
+        `EstimationVersionDto` (the read DTO — NOT
+        `EstimationVersionSummaryDto`, which stays a summary)
+      - the same two as **optional** fields on `DraftUpdateDto`, so an older
+        client that omits them does not wipe a saved schedule
+
+    Then wire all FOUR sites — the two snapshot paths are different files, see
+    "TWO snapshot paths" above:
+      - `rest/dto/EstimationVersionMapper.kt` — entity → `EstimationVersionDto`
+      - `service/DraftUpdateApplier.kt` — apply the `DraftUpdateDto` onto the
+        draft, clear-and-rebuild on the dependency list like the other
+        collections (`dto.field?.let { … list.clear(); list.add(…) }`)
+      - `service/DraftSnapshotMapper.kt` (`toUpdateDto()`) — capture both,
+        non-null like every other field there, so UNDO round-trips them and
+        `apply(draft, draft.toUpdateDto())` stays the identity it is documented
+        to be
+      - `service/EstimationVersionService.kt` (`snapshotDraft`) — copy
+        `teamFte` beside the existing `submitted.dailyRate = draft.dailyRate`,
+        and mirror each dependency row as a `SubmittedScheduleDependency` the
+        way `effortDrivers` / `phases` are mirrored. **This** is what carries
+        the schedule into a submitted version.
+  - |
+    Log the operation in `service/EstimationVersionService.kt` using the static
+    `io.quarkus.logging.Log` API — never a per-class logger field: INFO when a
+    draft's schedule inputs change, carrying the version id, the team FTE and
+    the dependency count; DEBUG for the individual edges.
+  - |
+    Regenerate the OpenAPI client: `./gradlew build` refreshes
+    `src/frontend/src/lib/api/openapi.json` and `schema.d.ts` on its own (no
+    manual `cp` / `npm run gen:api`). Leave them in the working tree for the
+    commit that carries this change.
+
+    Do NOT run `verifyOpenApiSchemaCommitted` as a local check. It is
+    `git diff --exit-code HEAD` against those two files, so it cannot pass until
+    they are COMMITTED — and the task workflow requires a green build before the
+    commit. That is exactly why the gate is opt-in (`CI` set, or
+    `-PopenApiGate`); it runs in CI, after the commit. Locally, assert the
+    content instead — the validation greps `openapi.json` for the new field.
+  - |
+    Extend the backend tests, beside the existing version tests in
+    `src/backend/implementation/src/test/kotlin/io/pythia/`. A `@QuarkusTest`
+    that PUTs a draft with team FTE and two dependencies, reads it back, submits,
+    and asserts the SUBMITTED snapshot carries both — that is the `snapshotDraft`
+    path, and the one that silently returns an empty Gantt when missed.
+
+    Two more, each pinning a trap this task is built around:
+      - **undo round-trips the schedule**: capture `draft.toUpdateDto()`, apply
+        it back, and assert `teamFte` and the edges are unchanged. Without the
+        `toUpdateDto()` half, undo silently wipes them.
+      - **a duplicate edge is rejected**: persisting the same
+        `(version, from, to)` twice must fail. This test passes only if the
+        UNIQUE constraint is on the ENTITY — under `%test` Hibernate builds the
+        schema and the migration never runs — so it is what makes the V15 parity
+        rule self-enforcing rather than advisory.
+  - |
+    Document the new persistence in `src/backend/CLAUDE.md`, in the
+    "Persistence shape" section where the bucket tables, the undo log and
+    `system_settings` are already written up. Keep it short: the two dependency
+    tables and the `team_fte` column on both version tables, that the UNIQUE
+    constraint is declared on the entity as well as the migration (the V15
+    parity rule, which that file already states), and — the one worth a
+    sentence — that the schedule inputs are copied in BOTH `snapshotDraft`
+    (draft → submitted) and `toUpdateDto()` (undo capture), because those are
+    different files and missing either one loses the schedule in a different way.
+  - |
+    Run the gate: `./gradlew :backend:implementation:test` (PostgreSQL via Dev
+    Services — Docker must be running), then `./gradlew build`.
+
+validation:
+  - |
+    The migration exists at the right version and creates both tables plus both
+    columns:
+      M=src/backend/implementation/src/main/resources/db/migration
+      test -f "$M/V19__project_schedule.sql"
+      grep -qi "team_fte" "$M/V19__project_schedule.sql"
+      # DOUBLE PRECISION for a JPA Double, as V16 typed daily_rate.
+      grep -qi "double precision" "$M/V19__project_schedule.sql"
+      grep -qi "draft_schedule_dependencies" "$M/V19__project_schedule.sql"
+      grep -qi "submitted_schedule_dependencies" "$M/V19__project_schedule.sql"
+      grep -qi "on delete cascade" "$M/V19__project_schedule.sql"
+      grep -qi "unique" "$M/V19__project_schedule.sql"
+  - |
+    Both version entities carry the team size, so a submitted snapshot cannot
+    lose it:
+      B=src/backend/implementation/src/main/kotlin/io/pythia
+      grep -q "teamFte" "$B/domain/draft/DraftEstimationVersion.kt"
+      grep -q "teamFte" "$B/domain/submitted/SubmittedEstimationVersion.kt"
+  - |
+    The UNIQUE constraint is on the ENTITY, not only in the migration — under
+    %test Hibernate builds the schema and Flyway never runs, so a migration-only
+    constraint does not exist where it is tested (the V15 parity rule):
+      B=src/backend/implementation/src/main/kotlin/io/pythia
+      grep -q "UniqueConstraint" "$B/domain/draft/DraftScheduleDependency.kt"
+      grep -q "UniqueConstraint" "$B/domain/submitted/SubmittedScheduleDependency.kt"
+  - |
+    The REST surface carries both inputs, and ALL FOUR wiring sites are done —
+    the two snapshot paths are different files and missing either loses the
+    schedule in a different way (submit vs undo):
+      B=src/backend/implementation/src/main/kotlin/io/pythia
+      grep -q "ScheduleDependencyDto" "$B/rest/dto/EstimationVersionDtos.kt"
+      grep -q "teamFte" "$B/rest/dto/EstimationVersionDtos.kt"
+      grep -q "teamFte" "$B/rest/dto/EstimationVersionMapper.kt"
+      grep -q "teamFte" "$B/service/DraftUpdateApplier.kt"
+      # undo capture — the inverse of DraftUpdateApplier
+      grep -q "teamFte" "$B/service/DraftSnapshotMapper.kt"
+      # draft -> submitted: THIS is what carries the schedule into a snapshot
+      grep -q "teamFte" "$B/service/EstimationVersionService.kt"
+  - |
+    The service logs THIS operation through the static Log API, not a per-class
+    logger. Anchored to the new fields on purpose: EstimationVersionService is
+    already the reference logging site with several Log.info calls, so a bare
+    "does it log at all" grep passes without the task doing anything:
+      B=src/backend/implementation/src/main/kotlin/io/pythia
+      grep -qE "Log\.(info|debug).*(teamFte|dependenc)" "$B/service/EstimationVersionService.kt"
+      ! grep -q "LoggerFactory.getLogger" "$B/service/EstimationVersionService.kt"
+  - |
+    The regenerated OpenAPI client carries the new contract. Content, NOT
+    `git diff HEAD`: verifyOpenApiSchemaCommitted compares against the last
+    COMMIT, so it cannot pass before this change is committed — which is why it
+    is opt-in and runs in CI. Asserting it here would fail the task by
+    construction:
+      grep -q "teamFte" src/frontend/src/lib/api/openapi.json
+      grep -q "ScheduleDependencyDto" src/frontend/src/lib/api/openapi.json
+      grep -q "teamFte" src/frontend/src/lib/api/schema.d.ts
+  - |
+    The new persistence is documented where the persistence shape is documented:
+      grep -qi "schedule_dependencies" src/backend/CLAUDE.md
+      grep -qi "team_fte\|teamFte" src/backend/CLAUDE.md
+  - |
+    ./gradlew :backend:implementation:test
+  - |
+    ./gradlew build
+
+outputs:
+  - created: src/backend/implementation/src/main/resources/db/migration/V19__project_schedule.sql
+  - created: src/backend/implementation/src/main/kotlin/io/pythia/domain/draft/DraftScheduleDependency.kt
+  - created: src/backend/implementation/src/main/kotlin/io/pythia/domain/submitted/SubmittedScheduleDependency.kt
+  - modified: src/backend/implementation/src/main/kotlin/io/pythia/domain/draft/DraftEstimationVersion.kt
+  - modified: src/backend/implementation/src/main/kotlin/io/pythia/domain/submitted/SubmittedEstimationVersion.kt
+  - modified: src/backend/implementation/src/main/kotlin/io/pythia/rest/dto/EstimationVersionDtos.kt
+  - modified: src/backend/implementation/src/main/kotlin/io/pythia/rest/dto/EstimationVersionMapper.kt
+  - modified: src/backend/implementation/src/main/kotlin/io/pythia/service/DraftUpdateApplier.kt
+  - modified: src/backend/implementation/src/main/kotlin/io/pythia/service/DraftSnapshotMapper.kt
+  - modified: src/backend/implementation/src/main/kotlin/io/pythia/service/EstimationVersionService.kt
+  - modified: src/backend/CLAUDE.md
+  - modified: src/frontend/src/lib/api/openapi.json
+  - modified: src/frontend/src/lib/api/schema.d.ts

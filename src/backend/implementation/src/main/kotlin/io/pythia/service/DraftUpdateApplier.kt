@@ -9,6 +9,7 @@ import io.pythia.domain.draft.DraftBucketedItemNode
 import io.pythia.domain.draft.DraftFixedItemNode
 import io.pythia.domain.draft.DraftGroupNode
 import io.pythia.domain.draft.DraftProjectPhase
+import io.pythia.domain.draft.DraftScheduleDependency
 import io.pythia.domain.draft.DraftTimeRelativeItemNode
 import io.pythia.method.EstimationMethod
 import io.pythia.rest.dto.AdditionalCostUpdateDto
@@ -17,6 +18,7 @@ import io.pythia.rest.dto.DraftUpdateDto
 import io.pythia.rest.dto.EffortDriverDto
 import io.pythia.rest.dto.EstimationNodeUpdateDto
 import io.pythia.rest.dto.PhaseUpdateDto
+import io.pythia.rest.dto.ScheduleDependencyDto
 import io.quarkus.logging.Log
 import jakarta.enterprise.context.ApplicationScoped
 import jakarta.ws.rs.BadRequestException
@@ -36,6 +38,8 @@ class DraftUpdateApplier {
         update.dailyRate?.let { draft.dailyRate = it }
         update.stdDevFactor?.let { draft.stdDevFactor = it }
         update.salesSurcharge?.let { draft.salesSurcharge = it }
+        update.teamFte?.let { draft.teamFte = it }
+        update.dependencies?.let { applyScheduleDependencies(draft, it) }
         update.effortDrivers?.let { applyEffortDrivers(draft, it) }
         update.phases?.let { applyPhases(draft, it) }
         // Buckets before roots: a bucketed leaf resolves its bucket by id.
@@ -84,6 +88,36 @@ class DraftUpdateApplier {
                 })
             }
         }
+    }
+
+    // Clear-and-rebuild like the other collections. An edge naming a logicalId
+    // that is not a current root is ACCEPTED: task-155 ignores unknown ids when
+    // it computes, so rejecting here would make a root deletion fail a later
+    // save. Duplicates are stopped by the UNIQUE constraint, not here.
+    private fun applyScheduleDependencies(
+        draft: DraftEstimationVersion,
+        dependencies: List<ScheduleDependencyDto>
+    ) {
+        // Clear, then FLUSH before re-inserting. Hibernate orders INSERTs ahead
+        // of orphan-removal DELETEs, and UNIQUE(version_id, from, to) is
+        // evaluated by PostgreSQL after every statement — so re-saving an
+        // UNCHANGED edge list (the common case) transiently held two copies of
+        // the same edge and aborted the transaction. Same trap as the bucket
+        // reorder above; here a plain flush is enough, since this is a pure
+        // clear-and-rebuild rather than an in-place swap.
+        if (draft.scheduleDependencies.isNotEmpty()) {
+            draft.scheduleDependencies.clear()
+            entityManager.flush()
+        }
+        dependencies.forEach { dto ->
+            draft.scheduleDependencies.add(DraftScheduleDependency().apply {
+                fromLogicalId = dto.fromLogicalId
+                toLogicalId = dto.toLogicalId
+                version = draft
+            })
+            Log.debug("Schedule edge ${dto.fromLogicalId} -> ${dto.toLogicalId} on draft ${draft.id}")
+        }
+        Log.info("Schedule applied: draft=${draft.id} teamFte=${draft.teamFte} edges=${dependencies.size}")
     }
 
     private fun applyEffortDrivers(draft: DraftEstimationVersion, drivers: List<EffortDriverDto>) {

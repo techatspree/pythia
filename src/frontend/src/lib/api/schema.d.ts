@@ -2856,6 +2856,9 @@ export interface components {
             buckets?: components["schemas"]["BucketUpdateDto"][] | null;
             roots?: components["schemas"]["EstimationNodeUpdateDto"][] | null;
             additionalCosts?: components["schemas"]["AdditionalCostUpdateDto"][] | null;
+            /** Format: double */
+            teamFte?: number | null;
+            dependencies?: components["schemas"]["ScheduleDependencyDto"][] | null;
         };
         EffortDriverDto: {
             id?: components["schemas"]["UUID"] | null;
@@ -2977,6 +2980,9 @@ export interface components {
             phases: components["schemas"]["ProjectPhaseDto"][];
             roots: components["schemas"]["EstimationNodeDto"][];
             additionalCosts: components["schemas"]["AdditionalCostDto"][];
+            /** Format: double */
+            teamFte: number;
+            dependencies: components["schemas"]["ScheduleDependencyDto"][];
         };
         EstimationVersionSummaryDto: {
             /** Format: int32 */
@@ -3096,6 +3102,10 @@ export interface components {
         };
         /** @enum {string} */
         Role: "VIEWER" | "ESTIMATOR" | "ADMIN";
+        ScheduleDependencyDto: {
+            fromLogicalId: string;
+            toLogicalId: string;
+        };
         SessionDto: {
             id: components["schemas"]["UUID"];
             title: string;
