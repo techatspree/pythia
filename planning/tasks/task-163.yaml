@@ -1,0 +1,249 @@
+id: task-163
+phase: phase-15
+title: "Chase the silent no-op drop in the bucket DnD e2e flake"
+depends_on: [task-150]
+description: |
+  `e2e/bucket-views.test.ts` — "a leaf can be dragged into an EMPTY bucket" —
+  fails intermittently, only under full-suite parallel load, never when the spec
+  runs alone. **This is probably not a test problem.** The evidence points at a
+  real defect in `TreeTable.svelte` that would silently revert a user's
+  cross-zone drag.
+
+  ## What the last failure actually showed
+
+  Earlier work on this test assumed the drag was releasing before the drop zone
+  settled, and replaced `settleAndDrop`'s fixed pass count with a deadline
+  (commit `16810f6`). The most recent failure proves that was a different
+  mechanism, now ruled out:
+
+      Error: expect(locator).toHaveValue(expected) failed
+      Expected: "70d36e59-2314-4a41-a9d0-e622b3d4faca"   (the target bucket b3)
+      Received: "16ea89b5-335d-41b7-aca0-9fb6d8044a20"   (the source bucket b1)
+      Timeout:  5000ms
+      - 9 × locator resolved to <select …> unexpected value "16ea89b5-…"
+
+  The settle loop did **not** throw `never stopped moving`, so the cursor
+  converged on the zone and the pointer was released over it. The assertion then
+  polled for five seconds and the leaf's bucket `select` never changed at all.
+  So the drop was released correctly and the model simply did not move — a
+  **silent no-op drop**, not a mis-aimed release and not a slow save.
+
+  ## The leading hypothesis: the anomaly check reverts a legitimate cross-zone move
+
+  `TreeTable.handleZoneEvent` commits a finalize like this:
+
+      dragItems.clear();
+      applyChildren(owner, newChildren);
+      if (cycleCheckPending) return;
+      cycleCheckPending = true;
+      queueMicrotask(() => {
+          if (preDragSnapshot !== null && isStructuralAnomaly(roots, preDragSnapshot)) {
+              roots = preDragSnapshot;          // <-- reverts the drag
+          } else {
+              onChildrenChange?.({ parentPath, newChildren, phase: 'finalize' });
+          }
+          …
+      });
+
+  and `isStructuralAnomaly(after, before)` returns true when the node COUNT
+  differs or any id present before is missing after:
+
+      if (a.ids.size !== b.ids.size) return true;
+      for (const id of b.ids) if (!a.ids.has(id)) return true;
+
+  A move ACROSS zones fires `finalize` on **both** zones — the source (leaf
+  removed) and the target (leaf added). Between those two dispatches the tree is
+  transiently one node short, which is exactly the shape `isStructuralAnomaly`
+  calls an anomaly. The `queueMicrotask` is what normally hides this: both
+  finalize handlers run before the microtask checkpoint, so by the time the
+  check executes the tree is whole again.
+
+  That is a **timing assumption, not a guarantee.** If anything puts a task
+  boundary between the two dispatches, the microtask runs while the leaf belongs
+  to no zone, the check fires, and `roots = preDragSnapshot` silently undoes the
+  drag. Under four parallel Playwright workers sharing one dev server, an
+  interleaved task boundary is exactly what becomes likely — which is why this
+  only ever fails in a full run.
+
+  If that is confirmed, **a real user can lose a drag the same way**, and the
+  fix belongs in `TreeTable.svelte`, not in the test. Note the check already
+  knows which ids are in flight (`draggedSubtreeIds`), so a missing id that
+  belongs to the dragged subtree during a multi-zone finalize is *expected*
+  rather than anomalous — that is one plausible direction, but confirm the cause
+  before choosing a fix.
+
+  ## Alternatives to rule out with the same evidence
+
+  - **Only one finalize arrives.** `if (cycleCheckPending) return;` makes the
+    SECOND zone's finalize skip `onChildrenChange` entirely; only the first
+    zone's `parentPath`/`newChildren` are published. If the consumer applies the
+    published payload rather than re-reading `roots`, the target zone's
+    insertion is never persisted.
+  - **The drop genuinely landed outside the zone**, and the settle loop
+    converged on a stale box. The Playwright trace shows the final cursor
+    position against the zone's rectangle.
+  - **The autosave PUT failed or raced.** Ruled in or out by the browser console
+    and the network entries in the trace — but note the assertion polled for 5s
+    and the value never changed, which argues against a slow save.
+
+  ## Constraints
+
+  - **Do not add Playwright `retries`.** `playwright.config.ts` argues the case
+    at length and both previous flakes here were fixed with a bounded, visible
+    retry *inside* the test. `retries: 0` stays.
+  - **Do not weaken the cycle protection.** `isStructuralAnomaly` exists to
+    reject a group dropped into its own descendant (which
+    `dropFromOthersDisabled` does not cover for keyboard drags). Any change must
+    keep `e2e/tree-table.test.ts`'s "cycle protection rejects dropping a group
+    into its descendant" and `smoke.test.ts`'s "dragging a group onto its own
+    descendant is a no-op" green — those pin the behaviour being protected.
+  - **Do not revert the `settleAndDrop` deadline** (commit `16810f6`). It fixed
+    a real, separate failure mode; this task is about what happens *after* a
+    successful release.
+  - Frontend logging goes through `log` from `$lib/log.ts` — never bare
+    `console.*` — and any user-visible error still surfaces via `ErrorBanner`.
+
+  ## Out of scope
+
+  The session WebSocket flake (task-160) is a different subsystem. Do not fold
+  it in.
+
+steps:
+  - |
+    Instrument first, fix second. In
+    `src/frontend/src/lib/components/treetable/TreeTable.svelte`, add `log.debug`
+    calls (from `$lib/log.ts`, never `console.*`) that make the finalize sequence
+    observable:
+      - each `finalize` as it arrives: the zone's owner id (or `root`), the
+        incoming child count, and whether `cycleCheckPending` was already set —
+        this shows whether BOTH zones fired and in which order
+      - inside the `queueMicrotask` callback: whether `isStructuralAnomaly`
+        returned true, and when it did, the ids present before but missing after
+
+    That last line is the one that decides the hypothesis: if the missing id is
+    the dragged leaf, the check fired mid-move and the revert is the bug.
+  - |
+    Reproduce with the instrumentation in place. Start the stack
+    (`./scripts/dev.sh`, Docker running) and run the FULL suite in a loop — the
+    spec alone has never failed, so a single-spec loop will not reproduce it:
+
+      cd src/frontend
+      for i in $(seq 1 20); do npm run test:e2e > "/tmp/e2e_$i.log" 2>&1; done
+
+    Budget ~17 minutes; nothing has hung. On the failing run keep the Playwright
+    trace under `src/frontend/test-results/` (a later run CLEARS that directory,
+    so copy it out immediately) and read the browser console entries in it —
+    that is where the `log.debug` output lands.
+
+    **If 20 runs produce no failure, that is an expected outcome, not a
+    blocker.** Extend to 40 before giving up. If it still will not reproduce,
+    proceed on the anomaly-revert hypothesis — it is derivable from the code
+    without a capture — and say plainly in the code comment and the report that
+    the cause was REASONED, not OBSERVED.
+  - |
+    Confirm which of the four candidates it is (anomaly-revert, single-finalize,
+    mis-aimed drop, failed PUT) and write the finding down before changing
+    behaviour. The remaining steps depend on it.
+  - |
+    Fix the confirmed cause.
+
+    If it is the anomaly-revert: make `isStructuralAnomaly` — or the guard
+    around it — tolerate the transient mid-move state, using the
+    `draggedSubtreeIds` the component already tracks, so an id that is in flight
+    is not counted as lost. A duplicate id must STILL be an anomaly, and a group
+    dropped into its own descendant must still revert.
+
+    Whatever the cause, keep the fix in the component that owns the defect:
+    `TreeTable.svelte` is shared by the hierarchy view, the bucket view and the
+    session room, so a fix there benefits all three — and a test-only change
+    would leave a real user able to lose a drag.
+  - |
+    Add a regression test that pins the fixed behaviour deterministically,
+    rather than relying on the flake not recurring. The
+    `/dev/tree-table-demo` route already exists as a DnD harness
+    (`src/frontend/src/routes/dev/tree-table-demo/+page.svelte`, used by
+    `e2e/tree-table-dnd-mouse.test.ts`), so a cross-zone move asserted there is
+    the natural home. If the confirmed cause cannot be triggered deterministically
+    from the UI, say so explicitly and explain what the new test does cover
+    instead — do not present a probabilistic test as a deterministic one.
+  - |
+    Record the outcome in `src/frontend/CLAUDE.md`, in the `TreeTable` section:
+    what the finalize sequence guarantees (and does not), why the anomaly check
+    is deferred, and what the fix changed. Keep it to a short paragraph — the
+    rationale, not a tutorial. This is the third time this test has been chased;
+    the next person should find the answer written down.
+  - |
+    Prove it. Re-run the full suite at least 20 times against a freshly started
+    stack and require every run green. Report the observed pass count honestly,
+    including the residual uncertainty — 20 green runs against a roughly
+    1-in-10 flake is suggestive, not proof.
+  - |
+    Run the gate: `./gradlew :frontend:check`, then `./gradlew build`.
+
+validation:
+  - |
+    The constraints earlier tasks paid for are still in place — a "fix" that
+    quietly relaxes one of these is not a fix:
+      F=src/frontend
+      grep -q "retries: 0" "$F/playwright.config.ts"
+      # the settleAndDrop deadline (commit 16810f6) stays
+      grep -q "SETTLE_BUDGET_MS" "$F/e2e/bucket-views.test.ts"
+      # cycle protection still exists in some form
+      grep -q "isStructuralAnomaly" "$F/src/lib/components/treetable/TreeTable.svelte"
+  - |
+    The finalize path is observable through the project's logging facade, so the
+    next recurrence can be diagnosed from a trace instead of re-derived:
+      T=src/frontend/src/lib/components/treetable/TreeTable.svelte
+      grep -q "log\." "$T"
+      ! grep -qE "(^|[^.\w])console\." "$T"
+      grep -q "\$lib/log" "$T"
+  - |
+    The cycle-protection tests that pin the behaviour being protected still
+    exist — the fix must not have deleted the thing it had to keep working:
+      F=src/frontend
+      grep -q "cycle protection rejects dropping a group into its descendant" "$F/e2e/tree-table.test.ts"
+      grep -q "dragging a group onto its own descendant is a no-op" "$F/e2e/smoke.test.ts"
+  - |
+    A regression test for the cross-zone move exists:
+      F=src/frontend
+      grep -rqiE "cross-zone|no-op drop|different zone" "$F/e2e/" || { echo "no regression test names the fixed behaviour"; exit 1; }
+  - |
+    The finding is written down where the TreeTable is documented:
+      grep -qi "TreeTable" src/frontend/CLAUDE.md
+      grep -q "task-163" src/frontend/CLAUDE.md
+      grep -qiE "finalize|anomaly" src/frontend/CLAUDE.md
+  - |
+    Something was actually FIXED, not just documented — every other check here
+    can pass on an untouched tree, and no grep can prove a race is gone:
+      # Assumes the pre-commit workflow state (implement-task does not commit).
+      git diff --stat HEAD -- \
+        src/frontend/src/lib/components/treetable/TreeTable.svelte \
+        src/frontend/e2e | grep -q .
+  - |
+    The DnD specs pass. Requires the dev stack (./scripts/dev.sh, Docker up,
+    backend :8090, Vite :5173). This is a SMOKE CHECK, not the gate — a single
+    green run proves nothing against an intermittent failure:
+      cd src/frontend && npx playwright test e2e/bucket-views.test.ts e2e/tree-table.test.ts e2e/tree-table-dnd-mouse.test.ts
+  - |
+    THE GATE. The full suite, repeatedly — the flake only reproduces under full
+    parallel load, so the DnD specs alone would not catch a regression.
+    ~17 minutes; nothing has hung:
+      cd src/frontend
+      fails=0
+      for i in $(seq 1 20); do
+        npm run test:e2e > "/tmp/e2e_gate_$i.log" 2>&1 || fails=$((fails + 1))
+      done
+      echo "failed runs: $fails / 20"
+      test "$fails" -eq 0
+  - |
+    ./gradlew :frontend:check
+  - |
+    ./gradlew build
+
+outputs:
+  - modified: src/frontend/src/lib/components/treetable/TreeTable.svelte
+  - modified: src/frontend/CLAUDE.md
+  # The regression test lands in whichever DnD spec fits the confirmed cause;
+  # the demo-route spec is the likeliest home since /dev/tree-table-demo is the
+  # existing deterministic harness.
+  - modified: src/frontend/e2e/tree-table-dnd-mouse.test.ts
