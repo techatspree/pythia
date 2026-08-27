@@ -1,0 +1,359 @@
+id: task-162
+phase: phase-7
+title: "Runtime config for the SPA instead of baked VITE_ vars"
+depends_on: [task-161]
+description: |
+  The frontend half of "a stage differs by configuration, never by image".
+  task-161 did the backend, where Quarkus reads `QUARKUS_*` env from a ConfigMap
+  and no application code had to change. **The frontend cannot work that way at
+  all**, and that is what makes this the harder half.
+
+  ## The frontend image IS the configuration
+
+  Vite inlines `VITE_*` into the SPA bundle at `npm run build`, and
+  `src/frontend/Dockerfile` takes them as `ARG`s. `getAuthProvider()`
+  (`src/frontend/src/lib/auth/index.ts`) reads
+  `import.meta.env.VITE_AUTH_PROVIDER`; `EntraAuthProvider.init()` reads
+  `VITE_ENTRA_TENANT_ID`, `VITE_ENTRA_SPA_CLIENT_ID`,
+  `VITE_ENTRA_API_CLIENT_ID` and `VITE_ENTRA_REDIRECT_URI`.
+
+  So staging and production need separately-built images, and an image cannot be
+  promoted from one stage to the next. That directly contradicts the pipeline
+  invariant that the deployed manifests and the deployed images provably come
+  from the same commit. A pod environment variable cannot fix it: the bundle is
+  already compiled, and only the browser can read what the server sends it.
+
+  ## Three ways to give a compiled SPA runtime configuration
+
+  Only the first is acceptable here; the others are recorded so they are not
+  re-proposed:
+
+  - **(A) A `config.json` served by the frontend's own nginx, mounted from a
+    ConfigMap. CHOSEN.** The SPA fetches `/config.json` once at boot and reads
+    its auth coordinates from it. One image for every stage; the ConfigMap is
+    the only thing that differs; the same k8s idiom task-161 already uses, just
+    projected as a file instead of as env.
+  - **(B) Serve the config from the backend** (extend the existing `@PermitAll`
+    `GET /api/system`). Tempting because the endpoint exists and is already
+    fetched before login — but it couples SPA bootstrap to the backend being
+    reachable, and it puts *frontend* configuration back inside an
+    *application*, which is the thing this work is removing.
+  - **(C) `envsubst` over the built assets at container start.** Rejected: the
+    bundle filenames are content-hashed and immutable-cached, rewriting them at
+    runtime breaks that contract, and a typo is not caught until a user hits it.
+
+  ## Fail closed, and mind the two ways it can fail open
+
+  `getAuthProvider()` currently reads `import.meta.env.VITE_AUTH_PROVIDER ?? 'dev'`.
+  A runtime config must **not** keep that default: if `/config.json` is missing
+  or unparseable the app must fail loudly with an error the user can see, never
+  silently fall back to the dev auth module, which is an auth downgrade. This
+  mirrors the backend's posture — `app.auth.provider` has no unprofiled default
+  and `AuthProviderGuard` refuses to boot the dev provider under a NORMAL launch
+  (task-092).
+
+  Two concrete ways it fails open unless handled:
+
+  1. **nginx serves `index.html` for a missing file.** `src/frontend/nginx.conf`
+     ends with `try_files $uri $uri/ /index.html;`, so a missing `/config.json`
+     comes back as HTML with **status 200**, and `JSON.parse` chokes on
+     `<!doctype html>` instead of the app seeing a clean 404. The config route
+     needs its own `location = /config.json` with `try_files $uri =404;`.
+  2. **`COPY . .` bakes a developer's config into the image.**
+     `src/frontend/Dockerfile` copies the whole tree, and
+     `src/frontend/.dockerignore` currently lists only
+     `node_modules .svelte-kit build .git *.log`. A developer who ran `dev.sh`
+     (which generates `static/config.json`, see below) and then `docker build`
+     would ship a dev-auth config inside the image, which then wins wherever no
+     ConfigMap overrides it. `.dockerignore` must exclude it.
+
+  A third, quieter one: if the **base** frontend ConfigMap holds a working dev
+  shape, a stage overlay that forgets to override it serves dev auth. Give the
+  base an explicitly invalid `authProvider` (`"UNCONFIGURED"`) so a forgotten
+  overlay fails loudly instead.
+
+  ## Local dev and CI need the same file — and CI is where this breaks first
+
+  `.github/workflows/ci.yaml` runs the Playwright suite against
+  `./scripts/dev.sh`. If `static/config.json` is gitignored and the SPA fails
+  closed without it, **every CI run starts from a fresh checkout with no config
+  and every e2e test fails at boot.**
+
+  `scripts/dev.sh` already owns this concern — it currently does
+  `export VITE_AUTH_PROVIDER=dev` — so it is the right place to generate
+  `src/frontend/static/config.json` with the dev shape before starting Vite.
+  That covers local dev and CI with one mechanism, keeps the file out of git,
+  and (together with `.dockerignore`) keeps it out of the image.
+
+  ## The bootstrap seam is `+layout.ts`, not `+layout.svelte`
+
+  `getAuthProvider()` has **eight** call sites, including `$lib/api/fetch.ts`
+  (every HTTP call) and component-scope initialisers in `RequiredRole.svelte`
+  and `sessions/[id]/+page.svelte`. `+layout.svelte` itself calls it at
+  component-script top level (`const provider = getAuthProvider()`), so there is
+  no point inside that file at which an `await` could run first.
+
+  `src/frontend/src/routes/+layout.ts` already exists and already does exactly
+  this pattern for i18n:
+
+      export const load = async () => { await waitLocale(); return {}; };
+
+  A SvelteKit universal `load` resolves **before** the layout component
+  initialises, and therefore before every component beneath it. That is the
+  ordering guarantee this task relies on, and it is what makes
+  `getRuntimeConfig()` safe to write as "throws if not loaded".
+
+  **Order matters inside that load.** `waitLocale()` must complete before a
+  config failure is rendered, or the error message appears as a raw dotted key —
+  precisely the symptom the i18n convention exists to prevent. Await the locale
+  first, then the config.
+
+  ## Coordination with task-161
+
+  Both tasks edit `k8s/overlays/*/kustomization.yaml` and `docs/deployment.md`.
+  task-161 owns the backend ConfigMap keys and the `${...}` placeholder-naming
+  convention; **follow whatever convention it landed on** rather than inventing
+  a second one for the frontend.
+
+steps:
+  - |
+    Add the runtime config loader at
+    `src/frontend/src/lib/config/runtimeConfig.ts`:
+
+      export type RuntimeConfig = {
+          authProvider: 'dev' | 'entra' | 'keycloak';
+          entra?: { tenantId: string; spaClientId: string; apiClientId: string; redirectUri: string };
+      };
+      export async function loadRuntimeConfig(): Promise<RuntimeConfig>
+      export function getRuntimeConfig(): RuntimeConfig   // throws if not loaded
+
+    `loadRuntimeConfig` fetches `/config.json` ONCE, caches the result, and on a
+    non-OK response, a parse failure, or an `authProvider` it does not recognise
+    (including the `"UNCONFIGURED"` sentinel) it **throws** — it must never
+    return a default. Log the failure with `log` from `$lib/log.ts` (never bare
+    `console.*`).
+
+    When `authProvider` is `entra`, every one of the four `entra` fields is
+    REQUIRED — including `redirectUri`, which today silently defaults to
+    `http://localhost:5173`. A deployed stage falling back to a localhost
+    redirect is a broken login, so make it an error instead.
+  - |
+    Wire the bootstrap in `src/frontend/src/routes/+layout.ts` — NOT in
+    `+layout.svelte`, which calls `getAuthProvider()` at component-script top
+    level. Await the locale first, then the config, so a config failure renders
+    a translated message rather than a raw key:
+
+      export const load = async () => {
+          await waitLocale();
+          await loadRuntimeConfig();
+          return {};
+      };
+
+    Then make the auth layer read it: `getAuthProvider()` in
+    `src/frontend/src/lib/auth/index.ts` switches on
+    `getRuntimeConfig().authProvider` with **no `?? 'dev'` fallback**, and
+    `EntraAuthProvider.init()` (already `async`) takes its four coordinates from
+    the config instead of `import.meta.env`.
+  - |
+    Surface the failure to the user. A `load` that throws renders
+    `src/frontend/src/routes/+error.svelte`, so the message belongs there (or in
+    an `ErrorBanner` it mounts) — not swallowed.
+
+    Add i18n keys `config.load.failed` and a short hint key to **both**
+    `src/frontend/src/lib/i18n/de.json` and `en.json`, key-for-key, with a real
+    German translation rather than the English sentence copied across. Render
+    them via `$_('…')`; never inline the literal in a component.
+  - |
+    Serve the file, and close both fail-open paths.
+
+    - `src/frontend/nginx.conf`: add
+      `location = /config.json { try_files $uri =404; add_header Cache-Control "no-store"; }`
+      **above** the catch-all `location /`, so a missing file is a clean 404
+      instead of `index.html` with status 200. `no-store` because a stage's
+      config must not be cached across a redeploy.
+    - `src/frontend/.dockerignore`: add `static/config.json`, so a locally
+      generated dev config can never be baked in by `COPY . .`.
+    - `src/frontend/Dockerfile`: delete the five `VITE_*` `ARG`/`ENV` lines and
+      the `check=skip=SecretsUsedInArgOrEnv` comment they justified.
+  - |
+    Give local dev and CI the file. In `scripts/dev.sh`, replace
+    `export VITE_AUTH_PROVIDER=dev` with a step that writes
+    `src/frontend/static/config.json` containing the dev shape
+    (`{"authProvider":"dev"}`) before Vite starts.
+
+    This is what keeps `.github/workflows/ci.yaml` green: CI runs Playwright
+    against `dev.sh`, and without this every e2e test fails at boot on a fresh
+    checkout. The workflow itself needs no change — verify that by reading it,
+    and only touch it if it turns out to bypass `dev.sh`.
+
+    Also commit `src/frontend/static/config.example.json` (the dev shape, for
+    reference), add `static/config.json` to `src/frontend/.gitignore` next to
+    the existing `.env` rules, and strip the `VITE_AUTH_PROVIDER` /
+    `VITE_ENTRA_*` entries from `src/frontend/.env.example`, leaving a pointer
+    to the example config.
+  - |
+    Add the Kubernetes plumbing:
+    `k8s/base/frontend/configmap.yaml` holding a `config.json` key whose
+    `authProvider` is the literal `"UNCONFIGURED"` sentinel (so a stage that
+    forgets to override it fails loudly), mounted in
+    `k8s/base/frontend/deployment.yaml` as a volume at
+    `/usr/share/nginx/html/config.json` with `subPath: config.json`, and
+    registered in `k8s/base/kustomization.yaml`.
+
+    Note the `subPath` trade-off and take it deliberately: a `subPath` mount
+    does NOT receive ConfigMap updates without a pod restart, which is the
+    behaviour you want here — the SPA reads the file once at boot, so a
+    live-changing file would leave running tabs disagreeing with new ones. A
+    config change therefore requires a rollout, exactly like an image change.
+
+    Give the minikube, staging and production overlays their own `config.json`
+    with `${...}` placeholders for the tenant and client ids, using the
+    placeholder-naming convention task-161 established.
+  - |
+    Drop the now-dead frontend build plumbing from `scripts/minikube-deploy.sh`:
+    the `VITE_ENTRA_*` exports and the `--build-arg` passing. The script still
+    needs the `ENTRA_*` ids, but now to render the frontend ConfigMap rather
+    than to build a stage-specific image.
+  - |
+    Document it. In `docs/deployment.md`, add the frontend ConfigMap key and its
+    `${...}` placeholders to the table task-161 started. In
+    `src/frontend/CLAUDE.md`, record the runtime-config contract: `/config.json`
+    fetched once in `+layout.ts`, `getRuntimeConfig()` throws rather than
+    defaulting, `VITE_*` is no longer how auth is configured, and the two
+    fail-open traps (nginx `try_files`, `.dockerignore`).
+  - |
+    Verify the manifests render, since no Gradle gate touches them:
+
+      kubectl kustomize k8s/overlays/staging > /dev/null
+      kubectl kustomize k8s/overlays/production > /dev/null
+      kubectl kustomize k8s/overlays/minikube > /dev/null
+  - |
+    Run the gate: `./gradlew :frontend:check`, then `./gradlew build`. Then the
+    Playwright suite against a `./scripts/dev.sh` stack — the auth bootstrap
+    path changed, so e2e is REQUIRED, not optional:
+    `cd src/frontend && npm run test:e2e`.
+
+validation:
+  - |
+    The frontend reads a RUNTIME config, no longer a build-time one, and fails
+    closed rather than defaulting to the dev auth module:
+      F=src/frontend/src/lib
+      test -f "$F/config/runtimeConfig.ts"
+      grep -q "config.json" "$F/config/runtimeConfig.ts"
+      ! grep -q "VITE_AUTH_PROVIDER" "$F/auth/index.ts"
+      ! grep -qE "\?\?\s*'dev'" "$F/auth/index.ts"
+      ! grep -rq "VITE_ENTRA_" "$F/auth/"
+      # No localhost fallback for the redirect URI in a deployed stage.
+      ! grep -q "localhost:5173" "$F/auth/EntraAuthProvider.ts"
+      # log via $lib/log.ts, never bare console.*
+      grep -q "log\." "$F/config/runtimeConfig.ts"
+      ! grep -q "console\." "$F/config/runtimeConfig.ts"
+  - |
+    The bootstrap is in the universal load, which resolves before any component
+    initialises — +layout.svelte calls getAuthProvider() at script top level, so
+    awaiting there would be too late:
+      L=src/frontend/src/routes/+layout.ts
+      grep -q "loadRuntimeConfig" "$L"
+      # locale first, then config, or the error renders as a raw i18n key
+      grep -q "waitLocale" "$L"
+      python3 -c "
+      import pathlib, sys
+      t = pathlib.Path('src/frontend/src/routes/+layout.ts').read_text()
+      i, j = t.find('waitLocale'), t.find('loadRuntimeConfig')
+      print('waitLocale at', i, 'loadRuntimeConfig at', j)
+      sys.exit(0 if 0 <= i < j else 1)
+      "
+  - |
+    Both fail-open paths are closed: a missing config is a real 404, and a
+    developer's local config can never be baked into the image:
+      grep -qE "location\s*=\s*/config\.json" src/frontend/nginx.conf
+      grep -A3 -E "location\s*=\s*/config\.json" src/frontend/nginx.conf | grep -q "=404"
+      grep -q "static/config.json" src/frontend/.dockerignore
+      ! grep -qE "^\s*(ARG|ENV)\s+VITE_" src/frontend/Dockerfile
+      test -f src/frontend/static/config.example.json
+      grep -q "config.json" src/frontend/.gitignore
+  - |
+    Local dev and CI get a config, or every e2e test fails at boot on a fresh
+    checkout — dev.sh is what CI runs:
+      grep -q "static/config.json" scripts/dev.sh
+      ! grep -q "VITE_AUTH_PROVIDER" scripts/dev.sh
+      ! grep -q "VITE_ENTRA_" scripts/minikube-deploy.sh
+  - |
+    The frontend ConfigMap exists, is mounted, and its BASE value is the
+    fail-loudly sentinel rather than a working dev config:
+      test -f k8s/base/frontend/configmap.yaml
+      grep -q "config.json" k8s/base/frontend/configmap.yaml
+      grep -q "UNCONFIGURED" k8s/base/frontend/configmap.yaml
+      grep -q "subPath" k8s/base/frontend/deployment.yaml
+      grep -q "frontend/configmap.yaml" k8s/base/kustomization.yaml
+      # and no deployed overlay leaves it unconfigured or on dev auth
+      for o in staging production; do
+        ! kubectl kustomize "k8s/overlays/$o" | grep -q "UNCONFIGURED" || { echo "$o never overrides the sentinel"; exit 1; }
+      done
+  - |
+    Every overlay still renders:
+      for o in minikube staging production; do
+        kubectl kustomize "k8s/overlays/$o" > /dev/null || { echo "$o does not render"; exit 1; }
+      done
+  - |
+    No real coordinate leaked into the public repo:
+      ! grep -rqE "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}" k8s/
+  - |
+    The new user-visible text is translated in every catalog, key-for-key:
+      python3 -c "
+      import json, pathlib, sys
+      d = pathlib.Path('src/frontend/src/lib/i18n')
+      cats = {p.stem: json.loads(p.read_text()) for p in d.glob('*.json')}
+      def flat(o, p=''):
+          s = set()
+          for k, v in o.items():
+              n = f'{p}.{k}' if p else k
+              s |= flat(v, n) if isinstance(v, dict) else {n}
+          return s
+      keys = {l: flat(c) for l, c in cats.items()}
+      ref = set().union(*keys.values())
+      bad = {l: sorted(ref - k) for l, k in keys.items() if ref - k}
+      missing = [l for l, k in keys.items() if not any(x.startswith('config.') for x in k)]
+      print('catalogs:', sorted(cats), 'mismatched:', bad or 'none', 'without config.*:', missing or 'none')
+      sys.exit(1 if bad or missing else 0)
+      "
+  - |
+    The German string is a real translation, not the English one copied across:
+      python3 -c "
+      import json, pathlib, sys
+      d = pathlib.Path('src/frontend/src/lib/i18n')
+      de = json.loads((d / 'de.json').read_text()).get('config', {})
+      en = json.loads((d / 'en.json').read_text()).get('config', {})
+      same = [k for k in en if isinstance(en.get(k), str) and de.get(k) == en.get(k)]
+      print('untranslated config.* keys:', same or 'none')
+      sys.exit(1 if same else 0)
+      "
+  - |
+    ./gradlew :frontend:check
+  - |
+    ./gradlew build
+
+outputs:
+  - created: src/frontend/src/lib/config/runtimeConfig.ts
+  - modified: src/frontend/src/routes/+layout.ts
+  - modified: src/frontend/src/routes/+error.svelte
+  - modified: src/frontend/src/lib/auth/index.ts
+  - modified: src/frontend/src/lib/auth/EntraAuthProvider.ts
+  - modified: src/frontend/src/lib/i18n/de.json
+  - modified: src/frontend/src/lib/i18n/en.json
+  - created: src/frontend/static/config.example.json
+  - modified: src/frontend/.gitignore
+  - modified: src/frontend/.dockerignore
+  - modified: src/frontend/.env.example
+  - modified: src/frontend/Dockerfile
+  - modified: src/frontend/nginx.conf
+  - created: k8s/base/frontend/configmap.yaml
+  - modified: k8s/base/frontend/deployment.yaml
+  - modified: k8s/base/kustomization.yaml
+  - modified: k8s/overlays/minikube/kustomization.yaml
+  - modified: k8s/overlays/staging/kustomization.yaml
+  - modified: k8s/overlays/production/kustomization.yaml
+  - modified: scripts/dev.sh
+  - modified: scripts/minikube-deploy.sh
+  - modified: docs/deployment.md
+  - modified: src/frontend/CLAUDE.md

@@ -29,6 +29,19 @@
 	// estimator, and render the phase-appropriate panel — PHASE1 blind input,
 	// PHASE2 reveal/finalize, or the FINALIZED summary — driven by the pushed
 	// SessionDto store.
+	//
+	// Once the socket is up it is the ONLY writer of live session state
+	// (task-160). The mutation helpers below still return the fresh SessionDto,
+	// but that DTO is built INSIDE the mutation's own transaction, so it cannot
+	// see a change another participant committed concurrently — applying it is a
+	// second, unordered writer that can roll the room back to a state the socket
+	// has already superseded. Measured: an estimator's vote landing in the same
+	// millisecond as the moderator's end-early left the estimator's room showing
+	// a RUNNING session that had in fact ended, over a healthy socket, forever —
+	// nothing else changes in an ended session, so it never healed. Every
+	// mutation publishes a SessionChangedEvent, so the acting client's own socket
+	// gets the authoritative snapshot milliseconds later; await the call for its
+	// errors, and let the broadcast update the store.
 	const sessionId = page.params.id!;
 	const subjectId = getAuthProvider().getAccount()?.subjectId ?? null;
 	const store = new SessionStore(subjectId);
@@ -74,7 +87,7 @@
 
 	async function startSession() {
 		try {
-			store.apply(await start(sessionId));
+			await start(sessionId);
 		} catch (e: unknown) {
 			log.error('session room: start failed', e);
 			bannerMessage = e instanceof Error ? e.message : String(e);
@@ -83,7 +96,7 @@
 
 	async function cancelSession() {
 		try {
-			store.apply(await cancel(sessionId));
+			await cancel(sessionId);
 		} catch (e: unknown) {
 			log.error('session room: cancel failed', e);
 			bannerMessage = e instanceof Error ? e.message : String(e);
@@ -92,7 +105,7 @@
 
 	async function pauseSession() {
 		try {
-			store.apply(await suspendSession(sessionId));
+			await suspendSession(sessionId);
 		} catch (e: unknown) {
 			log.error('session room: suspend failed', e);
 			bannerMessage = e instanceof Error ? e.message : String(e);
@@ -101,7 +114,7 @@
 
 	async function continueSession() {
 		try {
-			store.apply(await resumeSession(sessionId));
+			await resumeSession(sessionId);
 		} catch (e: unknown) {
 			log.error('session room: resume failed', e);
 			bannerMessage = e instanceof Error ? e.message : String(e);
@@ -110,7 +123,7 @@
 
 	async function endEarly() {
 		try {
-			store.apply(await endSessionEarly(sessionId));
+			await endSessionEarly(sessionId);
 		} catch (e: unknown) {
 			log.error('session room: end-early failed', e);
 			bannerMessage = e instanceof Error ? e.message : String(e);

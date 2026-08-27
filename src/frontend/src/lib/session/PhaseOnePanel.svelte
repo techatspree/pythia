@@ -9,8 +9,13 @@
 	// the moderator, who also estimates) submits a PERT triple; only the
 	// submitted/total count is ever visible, never others' numbers. The moderator
 	// additionally edits the shared discussion notes (debounced PUT) and reveals
-	// PHASE2. Mutations return the fresh SessionDto which we apply straight to the
-	// store for snappy feedback; the socket also pushes it to everyone.
+	// PHASE2.
+	//
+	// These mutations do NOT apply their own response to the store (task-160).
+	// They used to, "for snappy feedback" — but the returned DTO is built inside
+	// the mutation's own transaction and is blind to anything committed
+	// concurrently, so it could overwrite newer state the socket had already
+	// delivered. The socket is the single writer; see the room page.
 	let {
 		store,
 		sessionId,
@@ -31,12 +36,11 @@
 	async function submit() {
 		busy = true;
 		try {
-			const dto = await submitVote(sessionId, {
+			await submitVote(sessionId, {
 				minEffort: optimistic,
 				expectedEffort: likely,
 				maxEffort: pessimistic
 			});
-			store.apply(dto);
 			submitted = true;
 		} catch (e: unknown) {
 			log.error('phase1: submit vote failed', e);
@@ -53,7 +57,7 @@
 		clearTimeout(notesTimer);
 		notesTimer = setTimeout(async () => {
 			try {
-				store.apply(await updateNotes(sessionId, value));
+				await updateNotes(sessionId, value);
 			} catch (err: unknown) {
 				log.error('phase1: update notes failed', err);
 				onError(err instanceof Error ? err.message : String(err));
@@ -64,7 +68,7 @@
 	async function reveal() {
 		busy = true;
 		try {
-			store.apply(await revealPhase2(sessionId));
+			await revealPhase2(sessionId);
 		} catch (e: unknown) {
 			log.error('phase1: reveal failed', e);
 			onError(e instanceof Error ? e.message : String(e));

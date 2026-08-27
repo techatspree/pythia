@@ -20,6 +20,16 @@ export class SessionStore {
 
 	// Replace the whole snapshot from a socket frame.
 	//
+	// ONLY two callers are legitimate (task-160): the socket's onSession
+	// callback, and the room's initial load — which runs before the socket is
+	// opened, so no frame can precede it. In particular a MUTATION's own REST
+	// response must never be applied: it is built inside that mutation's
+	// transaction and is blind to anything committed concurrently, so applying
+	// it makes this slot a second, unordered writer that can roll the room back
+	// to a state the socket has already superseded. Every mutation publishes a
+	// SessionChangedEvent, so the acting client's socket carries the
+	// authoritative snapshot anyway.
+	//
 	// This deliberately does NOT touch `connected` (task-147): liveness inferred
 	// from "a payload arrived once" can never become false again, so the room's
 	// indicator stayed green over a dead socket and told the user stale data was

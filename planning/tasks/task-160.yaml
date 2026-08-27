@@ -1,0 +1,326 @@
+id: task-160
+phase: phase-11
+title: "Diagnose and fix the session WebSocket e2e flake"
+depends_on: [task-144, task-147]
+description: |
+  `e2e/session.test.ts:191` — "suspend parks the room, resume continues it,
+  end-early keeps the results" — fails intermittently. Observed once in 13
+  full-suite runs; the spec passes every time it is run alone.
+
+  The failure is precise and always the same shape:
+
+      274 | await mod.getByTestId('session-end-early').click();
+      275 | await expect(mod.getByTestId('session-ended-early')).toBeVisible();  ← passes
+    > 276 | await expect(est.getByTestId('session-ended-early')).toBeVisible();  ← fails
+          Timeout: 5000ms, element(s) not found
+
+  The **moderator's** page updates (it issued the REST call and re-renders from
+  the response). The **estimator's** page never learns about it. Mutations go
+  only through REST and every client learns of a change through the push-only
+  WebSocket, so a state change that does not arrive leaves the estimator's room
+  stale — which is exactly what the assertion sees.
+
+  This is a REAL defect surfacing under load, not a slow assertion. A user in
+  that room sees a session that has ended still offering to collect votes. The
+  goal is to find which of the mechanisms below it is, fix that, and leave the
+  evidence behind — not to relax the test.
+
+  ## The detection loop is far slower in e2e than the assertion
+
+  This is the leading hypothesis and must be checked first.
+
+  `app.session.heartbeat-interval` is **20s** by default and `1s` only under
+  `%test` (`application.properties`). The e2e suite runs against
+  `./scripts/dev.sh`, i.e. the **`%dev`** profile, which has no override — so
+  e2e exercises the 20s heartbeat. The client watchdog is
+  `IDLE_TIMEOUT_MS = 45_000` in `src/frontend/src/lib/session/socket.ts`.
+
+  So if the estimator's socket dies **silently** — no `onclose`, which is what a
+  proxy idle-kill or a stalled Vite WS tunnel looks like — the client needs up
+  to 45s to notice and reopen. The assertion allows 5s. Under four parallel
+  Playwright workers sharing one Vite dev server that gap is plausible, and it
+  explains why the spec is green when run alone.
+
+  Note the asymmetry is real in production too, just less visible: 20s
+  heartbeat, 45s watchdog. A room can be stale for 45s before it heals.
+
+  ## The discriminating evidence already exists in the logs
+
+  `SessionBroadcaster.onChange` logs at DEBUG:
+
+      Broadcasting session $sessionId to ${targets.size} connection(s)
+
+  and `%dev` logs `io.pythia` at DEBUG (see `src/backend/CLAUDE.md`). That
+  single line separates the candidate causes at the moment of the failure:
+
+  - **targets.size == 1** → the estimator's connection was already gone from
+    the broadcaster when end-early committed. The push never had a recipient;
+    the client had not yet noticed. This is the silent-death path above.
+  - **targets.size == 2** → the frame was *sent*. It does NOT follow that it
+    was received — see below.
+
+  **`targets.size == 2` is not proof of delivery.**
+  `quarkus.websockets-next.server.auto-ping-interval=30s` is what reaps a
+  connection whose client has vanished, so a silently-dead socket stays
+  registered — and keeps counting as a target — for up to 30s. A write to such
+  a socket buffers rather than throwing, so `SessionBroadcaster.send`'s ERROR
+  log stays quiet too. Both server-side signals therefore look healthy for a
+  connection that is already gone.
+
+  So a `targets.size == 2` reading MUST be corroborated from the **client**
+  side before concluding the frame arrived: the Playwright trace for the
+  estimator's page, and `socket.ts`'s own `log` output in that page's console
+  (it logs through `$lib/log.ts`). If the server says it sent two and the
+  estimator's browser shows no frame, the connection was dead-but-unreaped —
+  which is the same silent-death branch, not a separate client bug.
+
+  Capture this before changing anything. A fix chosen without knowing which
+  branch it is will be a guess.
+
+  ## Fix where the defect is, and nowhere else
+
+  The correct fix depends on the branch, and each has a hard constraint:
+
+  - **Silent death / detection too slow** — shorten the *detection loop*, not
+    the assertion. The watchdog must stay comfortably above two heartbeat
+    intervals (that ratio is why one dropped frame is not a false positive), so
+    the heartbeat and the watchdog move together. Changing only
+    `%dev.app.session.heartbeat-interval` makes e2e greener while leaving the
+    production gap untouched — if the gap is real in prod, fix it in prod and
+    let e2e inherit it.
+
+    That is a real tradeoff, so make it deliberately: the heartbeat is pushed
+    to EVERY open connection in EVERY room, so 20s → 5s is four times the
+    fan-out for every connected user, all day, to close a detection gap that
+    matters only when a socket dies silently. Pick the largest interval that
+    makes detection acceptable rather than the smallest one that makes the
+    test green, and record which you chose and why.
+  - **Frame delivered but not applied** — fix `socket.ts` / `store.svelte.ts`.
+  - **Socket genuinely mid-reconnect** — `BASE_BACKOFF_MS` is 1s, and
+    `@OnOpen` calls `sendSnapshot`, so a reconnect self-heals in about a
+    second. If this is the branch, the test is racing a known-transient state
+    and the guard belongs in the test: wait for
+    `est.getByTestId('session-connection')` to have `data-connected="true"`
+    before the moderator acts, exactly as the same spec already does after the
+    estimator re-navigates post-suspend.
+
+  ## Constraints — these are all load-bearing, do not undo them
+
+  - **Do NOT add Playwright `retries`.** `playwright.config.ts` argues the case
+    at length: a whole-test retry hides an infrastructure hiccup and a genuine
+    race behind the same green tick. Both previous flakes were fixed with a
+    bounded, visible retry *inside* the test. `retries: 0` stays.
+  - **Do NOT add a REST re-fetch to the reconnect path.** `@OnOpen` already
+    calls `broadcaster.sendSnapshot(...)`, so every successful reconnect
+    receives the current `SessionDto`. The hard part was never fetching, it was
+    noticing.
+  - **Do NOT set `connected` from a payload.** It comes from
+    `connectSessionSocket`'s `onConnectionChange` only. Inferring liveness from
+    "a message arrived once" can never become false again, which is the bug
+    task-147 fixed; `e2e/session-connection.test.ts` pins both directions.
+  - **Do NOT pair `auto-ping-interval` with `connection-idle-timeout`.** The
+    heartbeat keeps every healthy connection non-idle, so an idle timeout would
+    only ever reap the healthy ones.
+  - `ws.onerror` must not schedule a reconnect — the browser fires `onclose`
+    afterwards, and scheduling in both doubles the backoff per failure.
+
+  ## Out of scope
+
+  The `bucket-views.test.ts` drag-and-drop settle loop is a separate,
+  already-addressed flake. Do not fold it in here.
+
+steps:
+  - |
+    Reproduce and capture the evidence before changing any product code.
+
+    Start the stack (`./scripts/dev.sh`, Docker running) with the backend log
+    captured to a file, then run the session spec in a loop under realistic
+    parallel load until it fails — the full suite is what reproduces it, since
+    the spec alone has never failed.
+
+    Budget for it: each full-suite run is ~50s, so the loop below is about 13
+    minutes and the proof loop near the end is another 13. Nothing has hung.
+
+      for i in $(seq 1 15); do npm run test:e2e > /tmp/e2e_$i.log 2>&1; done
+
+    On the failing run, keep three things: the Playwright trace under
+    `src/frontend/test-results/` (`trace: 'retain-on-failure'` writes one; note
+    a later run CLEARS that directory, so copy it out immediately), the failing
+    run's Playwright log, and the backend log window around the end-early call.
+
+    **If 15 runs produce no failure, that is an expected outcome, not a
+    blocker.** At a ~1-in-13 rate, 15 clean runs happen about 30% of the time.
+    Do NOT conclude the flake is gone. Take one of these, in order:
+
+      1. Extend the loop to 40 runs before giving up — roughly 35 minutes, and
+         it puts the no-repro probability under 5%.
+      2. If it still will not reproduce, proceed on the detection-loop
+         hypothesis (the one the 20s/45s-vs-5s arithmetic already supports
+         without needing a capture) and say plainly in the SKILL.md note that
+         the cause was REASONED, not OBSERVED. A documented hypothesis is
+         honest; a hypothesis presented as a diagnosis is not.
+      3. Do NOT close the task by declaring it unreproducible and changing
+         nothing. The arithmetic gap between a 45s watchdog and a 5s assertion
+         is a defect on its own terms.
+  - |
+    Read the discriminator out of the captured backend log:
+
+      grep "Broadcasting session" <backend-log>
+
+    Find the line for the end-early transition and record `targets.size`, plus
+    any `Failed to push session message to connection` ERROR from
+    `SessionBroadcaster.send`. In the Playwright trace, check whether the
+    estimator's page received any frame after the resume push, and what
+    `session-connection`'s `data-connected` was at the moment of the failure.
+
+    Write the finding down — which branch of "The discriminating evidence"
+    above it is — before proceeding. The remaining steps depend on it.
+  - |
+    Apply the fix for the branch the evidence identified, honouring the matching
+    constraint in "Fix where the defect is, and nowhere else".
+
+    If it is the detection-loop branch, change the heartbeat and the watchdog
+    **together** and keep the watchdog above two heartbeat intervals:
+    `app.session.heartbeat-interval` in
+    `src/backend/implementation/src/main/resources/application.properties` and
+    `IDLE_TIMEOUT_MS` in `src/frontend/src/lib/session/socket.ts`. Update the
+    comments at both sites — each currently explains the 20s/45s pair and the
+    ">2 beats" ratio, and a changed number with a stale rationale is worse than
+    either.
+
+    Keep the existing logging conventions: `io.quarkus.logging.Log` in
+    `SessionBroadcaster` (no per-class logger field), `log` from `$lib/log.ts`
+    in `socket.ts` (never bare `console.*`), with `ErrorBanner` surfacing
+    intact on every error path.
+  - |
+    If — and only if — the evidence showed a genuine mid-reconnect race rather
+    than a product defect, add the bounded guard to
+    `src/frontend/e2e/session.test.ts` before the `session-end-early` click:
+
+      await expect(est.getByTestId('session-connection'))
+          .toHaveAttribute('data-connected', 'true');
+
+    mirroring the guard the same test already applies after the estimator
+    re-navigates post-suspend, and comment it with what it is waiting for.
+    Do not add `retries` to `playwright.config.ts`.
+  - |
+    Record the outcome in `.claude/skills/estimation-sessions/SKILL.md`, in the
+    "Heartbeat + watchdog (task-147)" paragraph of the "Realtime channel"
+    section — the numbers and their ratio are documented there, so a change to
+    either belongs beside them. State the measured cause in one or two
+    sentences, not a narrative.
+  - |
+    Add `task-160` to phase-11's task list in `planning/plan.yaml` so the phase
+    index stays accurate.
+  - |
+    Prove it. Re-run the full suite at least 15 times against a freshly started
+    stack and require every run green — the pre-fix rate was roughly 1 in 13,
+    so a handful of runs proves nothing:
+
+      for i in $(seq 1 15); do npm run test:e2e > /tmp/e2e_after_$i.log 2>&1; \
+        echo "run $i: $(grep -E '^\s+[0-9]+ (passed|failed)' /tmp/e2e_after_$i.log)"; done
+
+    Report the observed pass count honestly, including the residual uncertainty
+    — 15 green runs against a 1-in-13 rate is suggestive, not proof.
+  - |
+    Run the gate: `./gradlew :frontend:check`, then `./gradlew build`.
+
+validation:
+  - |
+    The constraints that previous tasks paid for are still in place — a fix that
+    quietly relaxes one of these is not a fix:
+      F=src/frontend
+      grep -q "retries: 0" "$F/playwright.config.ts"
+      # Match an actual ASSIGNMENT, not the comment on line 156 that explains
+      # why the setting is deliberately absent — a bare grep for the name fails
+      # on the current, correct tree.
+      ! grep -qE "^[^#]*connection-idle-timeout[[:space:]]*=" src/backend/implementation/src/main/resources/application.properties
+      grep -q "onConnectionChange" "$F/src/lib/session/socket.ts"
+      ! grep -q "console\." "$F/src/lib/session/socket.ts"
+  - |
+    The heartbeat and the watchdog still exist and the client still treats any
+    frame as proof of life:
+      grep -q "app.session.heartbeat-interval" src/backend/implementation/src/main/resources/application.properties
+      grep -q "IDLE_TIMEOUT_MS" src/frontend/src/lib/session/socket.ts
+      grep -q "heartbeat" src/frontend/src/lib/session/socket.ts
+  - |
+    The watchdog is still comfortably above two heartbeat intervals. This ratio
+    is the whole reason one dropped frame is not a false positive, so it must
+    hold whatever the new numbers are:
+      # Pure shell on purpose: a heredoc inside a YAML block scalar ends up
+      # INDENTED, and <<'PY' needs its terminator at column 0 — the heredoc
+      # would never close.
+      P=src/backend/implementation/src/main/resources/application.properties
+      S=src/frontend/src/lib/session/socket.ts
+      # Accept ms as well as s: a legitimate fix may express the interval as
+      # 2500ms, and a check that only knows whole seconds would reject it.
+      hb=$(grep -oE "^app\.session\.heartbeat-interval=[0-9]+(ms|s)" "$P" | head -1 | sed 's/.*=//')
+      wd=$(grep -oE "IDLE_TIMEOUT_MS[[:space:]]*=[[:space:]]*[0-9_]+" "$S" | head -1 | sed 's/.*=[[:space:]]*//' | tr -d '_')
+      case "$hb" in
+        *ms) hb_ms=${hb%ms} ;;
+        *s)  hb_ms=$(( ${hb%s} * 1000 )) ;;
+        *)   echo "unparseable heartbeat: '$hb'"; exit 1 ;;
+      esac
+      echo "heartbeat=${hb_ms}ms watchdog=${wd}ms"
+      test "$wd" -gt $(( 2 * hb_ms ))
+  - |
+    The backend still logs the broadcast fan-out through the static Log API —
+    this line is the discriminator any future recurrence will be diagnosed with,
+    so it must not be removed:
+      B=src/backend/implementation/src/main/kotlin/io/pythia
+      S=$(find "$B" -name SessionBroadcaster.kt)
+      grep -q "Broadcasting session" "$S"
+      grep -qE "Log\.(debug|info|error)" "$S"
+      ! grep -q "LoggerFactory.getLogger" "$S"
+  - |
+    Something was actually FIXED, not just documented. Every other check in
+    this list passes on an untouched tree — no grep can prove a race is gone,
+    so this asserts that at least one of the three branch files changed:
+      # Assumes the pre-commit workflow state (implement-task does not commit).
+      git diff --stat HEAD -- \
+        src/backend/implementation/src/main/resources/application.properties \
+        src/frontend/src/lib/session/socket.ts \
+        src/frontend/e2e/session.test.ts | grep -q .
+  - |
+    The finding is written down where the heartbeat numbers are documented,
+    and says whether the cause was OBSERVED or REASONED:
+      S=.claude/skills/estimation-sessions/SKILL.md
+      grep -qi "heartbeat" "$S"
+      grep -q "task-160" "$S"
+      grep -qiE "observed|reasoned" "$S"
+  - |
+    The phase index lists this task:
+      grep -q "task-160" planning/plan.yaml
+  - |
+    Smoke check — the session specs pass at all. This is NOT the gate: a single
+    green run proves nothing against a ~1-in-13 flake. Requires the dev stack
+    running (./scripts/dev.sh, Docker up, backend :8090, Vite :5173):
+      cd src/frontend && npx playwright test e2e/session.test.ts e2e/session-connection.test.ts
+  - |
+    THE GATE. The full suite, repeatedly — the flake only reproduces under full
+    parallel load, so running the session spec alone would not catch a
+    regression. ~13 minutes; nothing has hung:
+      cd src/frontend
+      fails=0
+      for i in $(seq 1 15); do
+        npm run test:e2e > "/tmp/e2e_gate_$i.log" 2>&1 || fails=$((fails + 1))
+      done
+      echo "failed runs: $fails / 15"
+      test "$fails" -eq 0
+  - |
+    ./gradlew :frontend:check
+  - |
+    ./gradlew build
+
+outputs:
+  # Always written.
+  - modified: .claude/skills/estimation-sessions/SKILL.md
+  - modified: planning/plan.yaml
+  # Branch-dependent: the evidence captured in step 2 decides which of these
+  # three change, and a correct fix for one branch leaves the others untouched.
+  # AT LEAST ONE must change — a run that touches only the two files above has
+  # documented a defect without fixing it, which the "Something was actually
+  # FIXED" validation rejects.
+  - modified: src/backend/implementation/src/main/resources/application.properties
+  - modified: src/frontend/src/lib/session/socket.ts
+  - modified: src/frontend/e2e/session.test.ts

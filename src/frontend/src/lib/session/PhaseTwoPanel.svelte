@@ -46,13 +46,13 @@
 	async function submitRevision() {
 		busy = true;
 		try {
-			store.apply(
-				await submitVote(sessionId, {
-					minEffort: optimistic,
-					expectedEffort: likely,
-					maxEffort: pessimistic
-				})
-			);
+			// No store.apply of the response — the socket is the single writer of
+			// live session state (task-160); see the room page for why.
+			await submitVote(sessionId, {
+				minEffort: optimistic,
+				expectedEffort: likely,
+				maxEffort: pessimistic
+			});
 		} catch (e: unknown) {
 			log.error('phase2: submit revision failed', e);
 			onError(e instanceof Error ? e.message : String(e));
@@ -64,7 +64,7 @@
 	async function toggleAgree() {
 		busy = true;
 		try {
-			store.apply(await agree(sessionId));
+			await agree(sessionId);
 		} catch (e: unknown) {
 			log.error('phase2: agree failed', e);
 			onError(e instanceof Error ? e.message : String(e));
@@ -76,7 +76,7 @@
 	async function finalizeItem() {
 		busy = true;
 		try {
-			store.apply(await finalize(sessionId));
+			await finalize(sessionId);
 		} catch (e: unknown) {
 			log.error('phase2: finalize failed', e);
 			onError(e instanceof Error ? e.message : String(e));
@@ -93,7 +93,7 @@
 		clearTimeout(notesTimer);
 		notesTimer = setTimeout(async () => {
 			try {
-				store.apply(await updateNotes(sessionId, value));
+				await updateNotes(sessionId, value);
 			} catch (err: unknown) {
 				log.error('phase2: update notes failed', err);
 				onError(err instanceof Error ? err.message : String(err));

@@ -269,11 +269,28 @@ test('suspend parks the room, resume continues it, end-early keeps the results',
 		await expect(est.getByRole('button', { name: 'Schätzung abgeben' })).toBeVisible();
 
 		// End early with item 2 only half-voted.
+		//
+		// The estimator's vote POST is deliberately still IN FLIGHT when the
+		// moderator ends the session — that overlap is the race task-160 fixed.
+		// The vote's REST response is built inside its own transaction and cannot
+		// see the end-early commit, so a room that applied it would roll back to a
+		// RUNNING session that had in fact ended, over a perfectly healthy socket,
+		// and never heal (nothing else changes in an ended session). Capture the
+		// response so the assertions below can run AFTER it has landed.
 		await fillTriple(estCtx, '3', '5', '7');
+		const votePosted = est.waitForResponse(
+			(r) => r.url().includes('/votes') && r.request().method() === 'POST'
+		);
 		await est.getByRole('button', { name: 'Schätzung abgeben' }).click();
 		await mod.getByTestId('session-end-early').click();
 		await expect(mod.getByTestId('session-ended-early')).toBeVisible();
 		await expect(est.getByTestId('session-ended-early')).toBeVisible();
+		// …and it must STAY ended once the losing vote response has arrived: this
+		// is the regression the fix is about, and asserting only the first sighting
+		// above would not catch a room that reverts a moment later.
+		await votePosted;
+		await expect(est.getByTestId('session-ended-early')).toBeVisible();
+		await expect(est.getByRole('button', { name: 'Schätzung abgeben' })).toHaveCount(0);
 		// The early-ended room shows the SAME summary the FINALIZED one does.
 		await expect(mod.getByText('Sitzung abgeschlossen')).toBeVisible();
 

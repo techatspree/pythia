@@ -1,0 +1,228 @@
+id: task-161
+phase: phase-7
+title: "Externalise backend stage config into ConfigMap and Secret"
+depends_on: [task-028, task-120]
+description: |
+  A stage should differ from another stage by its **configuration**, never by
+  its **image**. Today it differs by both. This task fixes the backend half;
+  **task-162 fixes the frontend half**, which is the harder one — a compiled SPA
+  cannot read a pod environment variable at all.
+
+  ## Where backend configuration lives today
+
+  It is partly externalised already: `k8s/base/backend/configmap.yaml` carries
+  three OIDC keys, and the Deployment injects the datasource credentials from
+  the `postgres-credentials` Secret. But `application.properties` still bakes
+  stage-varying values into the image under `%prod`:
+
+      %prod.app.auth.provider=entra
+      %prod.quarkus.datasource.username=estimation
+      %prod.quarkus.datasource.password=estimation
+      %prod.quarkus.datasource.jdbc.url=jdbc:postgresql://localhost:5432/estimation
+      %prod.quarkus.oidc.auth-server-url=https://login.microsoftonline.com/${ENTRA_TENANT_ID}/v2.0
+      %prod.quarkus.oidc.client-id=${ENTRA_API_CLIENT_ID}
+      %prod.quarkus.oidc.token.audience=api://${ENTRA_API_CLIENT_ID},${ENTRA_API_CLIENT_ID}
+
+  A default database password shipped inside a public image is the worst of
+  these, even though the Deployment's Secret env overrides it at runtime.
+
+  ## Two mechanisms are in play, and they disagree
+
+  Stage coordinates reach the backend by two different routes today:
+
+  1. a `QUARKUS_*` environment variable from the ConfigMap, which overrides the
+     property outright, and
+  2. a `${ENTRA_*}` placeholder *inside* a baked property, which Quarkus expands
+     from the runtime config at startup.
+
+  The overlays are not consistent about it. `k8s/overlays/minikube/backend-oidc.yaml`
+  sets `QUARKUS_OIDC_TOKEN_AUDIENCE` explicitly; production and staging set only
+  `QUARKUS_OIDC_ENABLED`, `QUARKUS_OIDC_AUTH_SERVER_URL` and
+  `QUARKUS_OIDC_CLIENT_ID`, and rely on the baked
+  `%prod.quarkus.oidc.token.audience` expanding `${ENTRA_API_CLIENT_ID}` — a
+  key **no production or staging manifest supplies**. Minikube uses `${ENTRA_*}`
+  placeholder names; production and staging use `${OIDC_*}`.
+
+  Verify that against a real `kubectl kustomize` render before assuming it is
+  broken, then collapse it to ONE mechanism either way: every stage-varying
+  value arrives as a `QUARKUS_*`/`APP_*` env var from a ConfigMap or Secret, and
+  no baked property contains a `${...}` placeholder.
+
+  ## Which Kubernetes "component" — and which one NOT to build
+
+  The k8s-native answer is **ConfigMap** (non-secret values) plus **Secret**
+  (credentials), projected into the pod **as environment variables**
+  (`envFrom` / `valueFrom`). That fits the backend exactly, because Quarkus
+  already maps `quarkus.oidc.client-id` to `QUARKUS_OIDC_CLIENT_ID` through
+  MicroProfile Config — so no application code changes at all.
+
+  **Do not introduce a configuration server** (Spring Cloud Config, Consul,
+  etcd-as-config). It is the wrong shape here: another component that must
+  itself be configured, be up before the app can start, and be made highly
+  available — to solve a problem the platform already solves. A ConfigMap needs
+  no runtime, versions alongside the manifests, and rolls out with the same
+  `kubectl apply` as everything else.
+
+  ## What must NOT move out of the image
+
+  Quarkus fixes a subset of properties at **augmentation (build) time**; they
+  cannot be overridden by an environment variable no matter what the ConfigMap
+  says, and *a container that starts is not proof the value took effect*.
+  `quarkus.datasource.db-kind` is the clear example, and it is genuinely
+  stage-invariant (always PostgreSQL) so it belongs in the image anyway. The
+  same goes for `quarkus.oidc.application-type`,
+  `quarkus.oidc.roles.role-claim-path`, `quarkus.flyway.migrate-at-start`,
+  `quarkus.hibernate-orm.schema-management.strategy` and the `%prod` JSON
+  logging flag: invariant across stages, so leave them.
+
+  For every property this task DOES move, prove at runtime that the env var
+  actually changes behaviour — do not infer it from a successful startup.
+
+  ## Repository constraint
+
+  No real hostname, tenant id, client id or credential may enter this public
+  repository. Overlays keep carrying `${...}` placeholders resolved by
+  `envsubst` in `scripts/deploy.sh`, whose values come from the internal
+  pipeline. `deploy.sh` DISCOVERS the placeholders in the rendered manifests and
+  refuses to deploy when one is unset, so new placeholders need no change to
+  that script — but every new one must be documented in `docs/deployment.md`.
+
+  ## Coordination with task-162
+
+  Both tasks edit `k8s/overlays/*/kustomization.yaml` and `docs/deployment.md`.
+  This one owns the **backend** ConfigMap keys and the placeholder-naming
+  convention; task-162 adds the frontend ConfigMap and follows whatever
+  convention this task lands on. Do the backend first so there is one convention
+  to follow.
+
+steps:
+  - |
+    Split `%prod` in
+    `src/backend/implementation/src/main/resources/application.properties` into
+    stage-INVARIANT (stays) and stage-VARYING (leaves).
+
+    Remove entirely — these become ConfigMap/Secret keys:
+      `%prod.app.auth.provider`, `%prod.quarkus.datasource.username`,
+      `%prod.quarkus.datasource.password`, `%prod.quarkus.datasource.jdbc.url`,
+      `%prod.quarkus.oidc.auth-server-url`, `%prod.quarkus.oidc.client-id`,
+      `%prod.quarkus.oidc.token.audience`
+
+    Keep — invariant, and some are build-time fixed anyway:
+      `%prod.quarkus.datasource.db-kind`, `%prod.quarkus.flyway.migrate-at-start`,
+      `%prod.quarkus.hibernate-orm.schema-management.strategy`,
+      `%prod.quarkus.oidc.application-type`,
+      `%prod.quarkus.oidc.roles.role-claim-path`,
+      `%prod.quarkus.log.console.json.enabled`
+
+    Leave `%dev`, `%test` and `%dev-minikube` alone: those profiles are
+    developer conveniences, not deployed stages. Replace the removed block with
+    a comment saying where the values now come from, so the next reader does not
+    conclude they were lost.
+
+    **No baked property may contain a `${...}` placeholder afterwards** — that
+    is the second mechanism this task collapses.
+  - |
+    Extend `k8s/base/backend/configmap.yaml` with the non-secret keys the
+    backend now needs, defaulting to the safe local-minikube shape:
+
+      APP_AUTH_PROVIDER, QUARKUS_OIDC_ENABLED, QUARKUS_OIDC_AUTH_SERVER_URL,
+      QUARKUS_OIDC_CLIENT_ID, QUARKUS_OIDC_TOKEN_AUDIENCE
+
+    Move `QUARKUS_DATASOURCE_JDBC_URL` out of the literal `env:` block in
+    `k8s/base/backend/deployment.yaml` into the ConfigMap too. The username and
+    password stay `valueFrom` the `postgres-credentials` Secret — credentials do
+    not belong in a ConfigMap.
+  - |
+    Make every overlay set the SAME key names.
+    `QUARKUS_OIDC_TOKEN_AUDIENCE` is the one production and staging are missing
+    today; add it there as the minikube overlay already does. Unify the
+    placeholder names across `k8s/overlays/{minikube,staging,production}` on one
+    convention rather than `${ENTRA_*}` in one place and `${OIDC_*}` in another.
+
+    Record the chosen convention in `docs/deployment.md` in the same change —
+    task-162 has to follow it.
+  - |
+    Log the resolved configuration at startup, so a mis-set ConfigMap is visible
+    in the pod log rather than as a puzzling 401. In
+    `src/backend/implementation/src/main/kotlin/io/pythia/auth/AuthProviderGuard.kt`
+    (already a `@Observes StartupEvent` bean), add an `io.quarkus.logging.Log`
+    INFO line naming the active auth provider and whether OIDC is enabled, and
+    DEBUG for the resolved issuer URL and audience. Use the static `Log` API —
+    no per-class logger field. **Never log a credential**, and note that the
+    issuer URL and client id are not secrets while the datasource password is.
+  - |
+    Document it. In `docs/deployment.md`, list every backend ConfigMap/Secret
+    key and every `${...}` placeholder a stage must supply, and state the rule
+    that a stage differs by configuration only. In `src/backend/CLAUDE.md`,
+    record that `%prod` now holds only stage-invariant values, that stage
+    coordinates arrive as `QUARKUS_*`/`APP_*` env from the ConfigMap, and that
+    Quarkus build-time-fixed properties are the reason some values stay baked.
+  - |
+    Verify the manifests actually render, since no Gradle gate touches them:
+
+      kubectl kustomize k8s/overlays/staging > /dev/null
+      kubectl kustomize k8s/overlays/production > /dev/null
+      kubectl kustomize k8s/overlays/minikube > /dev/null
+  - |
+    Run the gate: `./gradlew :backend:implementation:test`, then
+    `./gradlew build`.
+
+validation:
+  - |
+    No stage-varying value and no placeholder is baked into the image any more:
+      P=src/backend/implementation/src/main/resources/application.properties
+      ! grep -qE "^%prod\.app\.auth\.provider=" "$P"
+      ! grep -qE "^%prod\.quarkus\.datasource\.(username|password|jdbc\.url)=" "$P"
+      ! grep -qE "^%prod\.quarkus\.oidc\.(auth-server-url|client-id|token\.audience)=" "$P"
+      # The second mechanism is gone: no baked property expands a ${...}.
+      ! grep -qE "^%prod\..*\\\$\{[A-Z_]" "$P"
+  - |
+    The invariant values stayed — this task externalises stage differences, it
+    does not empty the file:
+      P=src/backend/implementation/src/main/resources/application.properties
+      grep -qE "^%prod\.quarkus\.datasource\.db-kind=" "$P"
+      grep -qE "^%prod\.quarkus\.flyway\.migrate-at-start=" "$P"
+      grep -qE "^%prod\.quarkus\.oidc\.application-type=" "$P"
+  - |
+    The ConfigMap carries the keys, including the audience key production and
+    staging were missing:
+      C=k8s/base/backend/configmap.yaml
+      grep -q "APP_AUTH_PROVIDER" "$C"
+      grep -q "QUARKUS_OIDC_TOKEN_AUDIENCE" "$C"
+      grep -q "QUARKUS_DATASOURCE_JDBC_URL" "$C"
+      for o in staging production minikube; do
+        grep -rq "QUARKUS_OIDC_TOKEN_AUDIENCE" "k8s/overlays/$o" || { echo "$o omits the audience"; exit 1; }
+      done
+  - |
+    Credentials are in the Secret, never the ConfigMap:
+      ! grep -qi "password" k8s/base/backend/configmap.yaml
+      grep -q "postgres-credentials" k8s/base/backend/deployment.yaml
+  - |
+    The backend logs its resolved configuration through the static Log API:
+      G=src/backend/implementation/src/main/kotlin/io/pythia/auth/AuthProviderGuard.kt
+      grep -qE "Log\.(info|debug)" "$G"
+      ! grep -q "LoggerFactory.getLogger" "$G"
+  - |
+    Every overlay still renders — no Gradle task covers the manifests:
+      for o in minikube staging production; do
+        kubectl kustomize "k8s/overlays/$o" > /dev/null || { echo "$o does not render"; exit 1; }
+      done
+  - |
+    No real coordinate leaked into the public repo — stage values stay
+    placeholders:
+      ! grep -rqE "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}" k8s/
+  - |
+    ./gradlew :backend:implementation:test
+  - |
+    ./gradlew build
+
+outputs:
+  - modified: src/backend/implementation/src/main/resources/application.properties
+  - modified: src/backend/implementation/src/main/kotlin/io/pythia/auth/AuthProviderGuard.kt
+  - modified: k8s/base/backend/configmap.yaml
+  - modified: k8s/base/backend/deployment.yaml
+  - modified: k8s/overlays/minikube/backend-oidc.yaml
+  - modified: k8s/overlays/staging/kustomization.yaml
+  - modified: k8s/overlays/production/backend-oidc.yaml
+  - modified: docs/deployment.md
+  - modified: src/backend/CLAUDE.md

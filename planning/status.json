@@ -943,6 +943,24 @@
       "started_at": null,
       "completed_at": null,
       "notes": "Migrate local YAML task management to GitHub Issues and adapt add-task/implement-task commands"
+    },
+    "task-160": {
+      "status": "done",
+      "started_at": "2026-08-27T11:59:18+00:00",
+      "completed_at": "2026-08-27T12:32:22+00:00",
+      "notes": "Session room e2e flake: a moderator's end-early state change does not reach the estimator's room within 5s (session.test.ts:191), suggesting a residual gap in the push-only WebSocket resync that task-147 addressed"
+    },
+    "task-161": {
+      "status": "pending",
+      "started_at": null,
+      "completed_at": null,
+      "notes": "Configuration is baked into the application and the container image (Quarkus application.properties, Vite VITE_* build-time env), so a stage differs by rebuild rather than by configuration; extract it into Kubernetes ConfigMaps/Secrets"
+    },
+    "task-162": {
+      "status": "pending",
+      "started_at": null,
+      "completed_at": null,
+      "notes": "Frontend config is baked into the SPA bundle by Vite at build time, so the frontend image IS the configuration and cannot be promoted between stages; replace VITE_* auth vars with a runtime /config.json served from a ConfigMap"
     }
   }
 }
