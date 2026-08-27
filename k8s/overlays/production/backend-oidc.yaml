@@ -3,6 +3,11 @@ kind: ConfigMap
 metadata:
   name: backend-config
 data:
+  # Production runs the Entra (OIDC) auth module. APP_AUTH_PROVIDER used to be
+  # baked into the image as %prod.app.auth.provider=entra; it is a stage
+  # coordinate, so it lives here now (task-161).
+  APP_AUTH_PROVIDER: "entra"
+
   QUARKUS_OIDC_ENABLED: "true"
   # Deploy-time coordinates, resolved by envsubst in scripts/deploy.sh — the
   # identity-provider URL is environment-specific and must not be committed.
@@ -10,3 +15,11 @@ data:
   # have deployed a production backend pointing at an issuer that does not exist.
   QUARKUS_OIDC_AUTH_SERVER_URL: "${OIDC_AUTH_SERVER_URL}"
   QUARKUS_OIDC_CLIENT_ID: "${OIDC_CLIENT_ID}"
+  # Production and staging used to omit this key entirely and rely on the image's
+  # baked %prod.quarkus.oidc.token.audience expanding ${ENTRA_API_CLIENT_ID} — a
+  # variable no production manifest supplied. Both mechanisms are now collapsed
+  # into this one: every stage coordinate is an env var set here.
+  #
+  # Accept BOTH audience forms: v1.0 access tokens carry aud=api://<client-id>,
+  # v2.0 tokens carry the bare aud=<client-id>.
+  QUARKUS_OIDC_TOKEN_AUDIENCE: "${OIDC_TOKEN_AUDIENCE}"

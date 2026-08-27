@@ -951,9 +951,9 @@
       "notes": "Session room e2e flake: a moderator's end-early state change does not reach the estimator's room within 5s (session.test.ts:191), suggesting a residual gap in the push-only WebSocket resync that task-147 addressed"
     },
     "task-161": {
-      "status": "pending",
-      "started_at": null,
-      "completed_at": null,
+      "status": "done",
+      "started_at": "2026-08-27T12:45:20+00:00",
+      "completed_at": "2026-08-27T12:57:27+00:00",
       "notes": "Configuration is baked into the application and the container image (Quarkus application.properties, Vite VITE_* build-time env), so a stage differs by rebuild rather than by configuration; extract it into Kubernetes ConfigMaps/Secrets"
     },
     "task-162": {
@@ -961,6 +961,12 @@
       "started_at": null,
       "completed_at": null,
       "notes": "Frontend config is baked into the SPA bundle by Vite at build time, so the frontend image IS the configuration and cannot be promoted between stages; replace VITE_* auth vars with a runtime /config.json served from a ConfigMap"
+    },
+    "task-163": {
+      "status": "pending",
+      "started_at": null,
+      "completed_at": null,
+      "notes": "e2e flake in bucket-views.test.ts 'a leaf can be dragged into an EMPTY bucket': the drag settles and releases, but the leaf keeps its old bucket for the full 5s assertion — a silent no-op drop, a different mechanism from the settle-budget exhaustion already addressed"
     }
   }
 }

@@ -64,6 +64,18 @@ export VITE_ENTRA_API_CLIENT_ID="$ENTRA_API_CLIENT_ID"
 # Ingress host (e.g. http://estimation.local) or a different port.
 export VITE_ENTRA_REDIRECT_URI="${VITE_ENTRA_REDIRECT_URI:-http://localhost:8080}"
 
+# The k8s manifests use ONE provider-neutral placeholder convention across every
+# overlay (task-161): ${OIDC_*} names carrying FULL values, rather than
+# identity-provider-specific fragments a manifest has to compose into a URL.
+# This script keeps asking the developer for the ENTRA_* ids (that is what
+# docs/entra-setup.md and EntraIdVariables.sh hand out) and derives the
+# manifest-facing names here.
+export OIDC_AUTH_SERVER_URL="https://login.microsoftonline.com/${ENTRA_TENANT_ID}/v2.0"
+export OIDC_CLIENT_ID="$ENTRA_API_CLIENT_ID"
+# Accept BOTH audience forms: v1.0 access tokens carry aud=api://<client-id>,
+# v2.0 tokens carry the bare aud=<client-id>.
+export OIDC_TOKEN_AUDIENCE="api://${ENTRA_API_CLIENT_ID},${ENTRA_API_CLIENT_ID}"
+
 echo "Building backend and frontend container images..."
 cd "$PROJECT_ROOT"
 # Backend image via Quarkus/Jib (container-image build enabled); frontend image
@@ -87,10 +99,10 @@ for img in pythia/pythia-backend:1.0.0-SNAPSHOT pythia/pythia-frontend:1.0.0-SNA
 done
 
 echo "Applying Kustomize overlay..."
-# Render the overlay, substitute ONLY the Entra ids (kustomize can't do env
-# substitution; these are per-user secrets kept out of the committed manifests),
-# then apply. Restricting envsubst to these two names leaves any other ${...}
-# in the manifests untouched.
+# Render the overlay, substitute ONLY the OIDC coordinates (kustomize can't do
+# env substitution; these are per-user values kept out of the committed
+# manifests), then apply. Restricting envsubst to these names leaves any other
+# ${...} in the manifests untouched.
 if ! command -v envsubst >/dev/null 2>&1; then
     echo "Error: envsubst is required (install gettext, e.g. 'brew install gettext')." >&2
     exit 1
@@ -98,7 +110,7 @@ fi
 # shellcheck disable=SC2016  # single quotes are intentional: this literal is
 # envsubst's allow-list of variable NAMES, not a shell expansion.
 kubectl kustomize "$K8S_OVERLAY" \
-    | envsubst '${ENTRA_TENANT_ID} ${ENTRA_API_CLIENT_ID}' \
+    | envsubst '${OIDC_AUTH_SERVER_URL} ${OIDC_CLIENT_ID} ${OIDC_TOKEN_AUDIENCE}' \
     | kubectl apply -f -
 
 # The image tag is fixed (1.0.0-SNAPSHOT) with imagePullPolicy: Never, so a

@@ -65,6 +65,7 @@ Descriptions only — never record a value in this file.
 | `INGRESS_HOST` | Public hostname for the environment being deployed. |
 | `OIDC_AUTH_SERVER_URL` | Issuer URL of the identity provider realm. |
 | `OIDC_CLIENT_ID` | Client id registered for that environment. |
+| `OIDC_TOKEN_AUDIENCE` | Accepted token audience(s), comma-separated. See "Configuration is not in the image" below. |
 | `DEPLOY_HOST` | SSH target of the server (`user@host`). |
 | `DEPLOY_SSH_KEY` | Private key for that SSH user. File-type variable. |
 | `REGISTRY_USER` / `REGISTRY_PASSWORD` | Credentials for the image pull secret and for `docker login` on the runner. |
@@ -119,6 +120,7 @@ kubeconfig and the cluster are local:
 ssh "$DEPLOY_HOST" "cd /opt/pythia && git fetch --all && git checkout $CI_COMMIT_SHA \
   && REGISTRY='$REGISTRY' IMAGE_TAG='$CI_COMMIT_SHORT_SHA' INGRESS_HOST='$INGRESS_HOST' \
      OIDC_AUTH_SERVER_URL='$OIDC_AUTH_SERVER_URL' OIDC_CLIENT_ID='$OIDC_CLIENT_ID' \
+     OIDC_TOKEN_AUDIENCE='$OIDC_TOKEN_AUDIENCE' \
      ./scripts/deploy.sh production"
 ssh "$DEPLOY_HOST" "cd /opt/pythia && ./scripts/smoke.sh https://$INGRESS_HOST"
 ```
@@ -130,6 +132,63 @@ manifests and the deployed images provably come from the same commit.
 **Do not expose the minikube API server to the runner.** Its endpoint is the
 driver's internal IP; publishing it means certificate SANs and a firewall hole,
 and buys nothing over SSH.
+
+## Configuration is not in the image
+
+**A stage differs from another stage by its configuration, never by its image**
+(task-161). One backend image serves minikube, staging and production; what
+differs is the `backend-config` ConfigMap and the `postgres-credentials` Secret.
+
+Quarkus maps each key back to its property through MicroProfile Config
+(`QUARKUS_OIDC_CLIENT_ID` → `quarkus.oidc.client-id`), so nothing in the
+application reads these names directly.
+
+| Key | Source | Holds |
+|---|---|---|
+| `APP_AUTH_PROVIDER` | ConfigMap | `dev` \| `entra` \| `keycloak`. Was baked as `%prod.app.auth.provider`. |
+| `QUARKUS_DATASOURCE_JDBC_URL` | ConfigMap | JDBC URL of the stage's database. |
+| `QUARKUS_DATASOURCE_USERNAME` | Secret `postgres-credentials` | Database user. |
+| `QUARKUS_DATASOURCE_PASSWORD` | Secret `postgres-credentials` | Database password. A default one used to be committed in `application.properties`. |
+| `QUARKUS_OIDC_AUTH_SERVER_URL` | ConfigMap | Issuer URL. Placeholder `${OIDC_AUTH_SERVER_URL}`. |
+| `QUARKUS_OIDC_CLIENT_ID` | ConfigMap | Client id. Placeholder `${OIDC_CLIENT_ID}`. |
+| `QUARKUS_OIDC_TOKEN_AUDIENCE` | ConfigMap | Accepted audiences. Placeholder `${OIDC_TOKEN_AUDIENCE}`. |
+
+### One placeholder convention
+
+Every overlay uses provider-neutral **`${OIDC_*}`** names carrying **full
+values** — never identity-provider-specific fragments a manifest then composes
+into a URL. The auth layer is modular (`dev` | `entra` | `keycloak`), so the
+manifests are not named after one provider. `scripts/minikube-deploy.sh` still
+asks the developer for the `ENTRA_*` ids and derives these names from them.
+
+`scripts/deploy.sh` **discovers** the `${...}` placeholders in the rendered
+manifests and refuses to deploy when one is unset, so adding a placeholder needs
+no change to that script — but it must be added to the table above.
+
+### What deliberately stays in the image
+
+`%prod` in `application.properties` keeps only **stage-invariant** values:
+`quarkus.datasource.db-kind`, `hibernate-orm.schema-management.strategy`,
+`flyway.migrate-at-start`, `oidc.application-type`, `oidc.roles.role-claim-path`
+and the JSON logging flag. No property there may contain a `${...}` placeholder:
+expanding one from the pod environment is a *second* configuration mechanism,
+and having both is how production came to reference an `ENTRA_API_CLIENT_ID`
+that no production manifest supplied.
+
+Some Quarkus properties are also **fixed at augmentation (build) time** and
+cannot be overridden by an environment variable at all — a container that starts
+is not proof a value took effect. `quarkus.datasource.db-kind` is one.
+
+> **`QUARKUS_OIDC_ENABLED` is one of these and is inert at runtime.**
+> `quarkus.oidc.enabled` lives in `OidcBuildTimeConfig`, so the key present in
+> `backend-config` cannot switch OIDC on or off in a built image. It is kept
+> because removing it is a behaviour change; the runtime lever is
+> `quarkus.oidc.tenant-enabled` (`QUARKUS_OIDC_TENANT_ENABLED`). Whether OIDC is
+> actually *used* is governed by `APP_AUTH_PROVIDER`.
+
+The backend logs what it resolved at startup — `AuthProviderGuard` writes the
+active auth provider at INFO and the issuer, client id and audience at DEBUG —
+so a mis-set key shows up in the pod log instead of as an unexplained 401.
 
 ## Image tags: always immutable
 

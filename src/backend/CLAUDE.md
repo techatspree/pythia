@@ -78,6 +78,42 @@ Auth endpoints (provider-agnostic, populated by whichever concrete module is act
 - `PUT  /api/auth/me/language` — body `{ "language": "de" | "en" }`; persists the current user's language preference and returns `204`. An unsupported code → `400`. The code is validated against the shared `SupportedLanguage` enum (`fromCode`); persistence goes through `CurrentUserService.updateLanguage` (logs INFO with the user id + new language).
 - `GET  /api/admin/ping` — `@RolesAllowed("ADMIN")` canary that returns `{message: "pong", user: <subjectId>}`. Used by `e2e/auth.test.ts` to prove role enforcement under the dev module; survives feature churn.
 
+## Configuration: stage coordinates are not in the image
+
+**A stage differs from another stage by its configuration, never by its image**
+(task-161). `%prod` in `application.properties` therefore holds only
+**stage-invariant** values — `quarkus.datasource.db-kind`,
+`hibernate-orm.schema-management.strategy`, `flyway.migrate-at-start`,
+`oidc.application-type`, `oidc.roles.role-claim-path`, the JSON logging flag.
+Everything that varies per stage arrives as an environment variable from the
+`backend-config` ConfigMap (or the `postgres-credentials` Secret for
+credentials): `APP_AUTH_PROVIDER`, `QUARKUS_DATASOURCE_JDBC_URL`,
+`QUARKUS_DATASOURCE_USERNAME`/`_PASSWORD`, `QUARKUS_OIDC_AUTH_SERVER_URL`,
+`QUARKUS_OIDC_CLIENT_ID`, `QUARKUS_OIDC_TOKEN_AUDIENCE`. No application code
+reads those names — Quarkus maps each back to its property through MicroProfile
+Config. `docs/deployment.md` carries the key table and the `${OIDC_*}`
+placeholder convention every overlay shares.
+
+**No `%prod` property may contain a `${...}` placeholder.** Expanding one from
+the pod environment is a *second* configuration mechanism, and having both is
+exactly how production came to reference an `ENTRA_API_CLIENT_ID` that no
+production manifest supplied while `QUARKUS_OIDC_TOKEN_AUDIENCE` went unset.
+One mechanism: an env var from the ConfigMap.
+
+**Some properties cannot leave the image, and a container that starts is not
+proof that one did.** Quarkus fixes a subset at augmentation (build) time;
+`quarkus.datasource.db-kind` is the obvious one. The trap worth knowing:
+`quarkus.oidc.enabled` is build-time too (`OidcBuildTimeConfig`), so the
+`QUARKUS_OIDC_ENABLED` key in `backend-config` is **inert at runtime** — it
+cannot switch OIDC on or off in a built image. The runtime lever is
+`quarkus.oidc.tenant-enabled`. Before moving a property out, confirm it is a
+runtime one and prove the env var changes behaviour.
+
+`AuthProviderGuard` logs what actually resolved — the active provider at INFO,
+the issuer / client id / audience at DEBUG — so a mis-set ConfigMap key surfaces
+in the pod log rather than as an unexplained 401. Those three are public
+identifiers; the datasource password is not, and is never logged.
+
 ## Modular authentication and authorization
 
 Auth is provider-modular. The active provider is picked by the backend property `app.auth.provider` and the matching frontend env var `VITE_AUTH_PROVIDER` — values `dev` | `entra` | `keycloak`. Backend SPI lives in `src/backend/implementation/src/main/kotlin/io/pythia/auth/`: `AuthModule` (interface), `Role` (enum `VIEWER` / `ESTIMATOR` / `ADMIN`), `CurrentUser` (provider-agnostic principal), `CurrentUserProvider` (`@RequestScoped` bean populated by each concrete module via a filter or `SecurityIdentityAugmentor`), and `AuthConfig` (binds `app.auth.provider`). The `/api/auth/me` endpoint returns the current user. Frontend SPI lives in `src/frontend/src/lib/auth/`: `AuthProvider` interface (`init`/`login`/`logout`/`loadAccount`/`getAccount`/`getAuthorizationHeader`) and `getAuthProvider()` factory.

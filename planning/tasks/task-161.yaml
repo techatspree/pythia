@@ -195,7 +195,9 @@ validation:
       done
   - |
     Credentials are in the Secret, never the ConfigMap:
-      ! grep -qi "password" k8s/base/backend/configmap.yaml
+      # Non-comment lines only: a comment saying credentials live in the Secret
+      # is documentation, not a leaked value, and a bare grep flags it.
+      ! grep -vE "^[[:space:]]*#" k8s/base/backend/configmap.yaml | grep -qi "password" 
       grep -q "postgres-credentials" k8s/base/backend/deployment.yaml
   - |
     The backend logs its resolved configuration through the static Log API:
@@ -219,6 +221,13 @@ validation:
 outputs:
   - modified: src/backend/implementation/src/main/resources/application.properties
   - modified: src/backend/implementation/src/main/kotlin/io/pythia/auth/AuthProviderGuard.kt
+  # AuthProviderProfileTest pinned %prod.app.auth.provider=entra — the value
+  # step 1 removes — so its prod case now asserts the opposite invariant: the
+  # image must bake NO provider.
+  - modified: src/backend/implementation/src/test/kotlin/io/pythia/auth/AuthProviderProfileTest.kt
+  # minikube-deploy.sh feeds the overlay's placeholders, so unifying the naming
+  # convention in step 3 necessarily changes what it exports and envsubsts.
+  - modified: scripts/minikube-deploy.sh
   - modified: k8s/base/backend/configmap.yaml
   - modified: k8s/base/backend/deployment.yaml
   - modified: k8s/overlays/minikube/backend-oidc.yaml

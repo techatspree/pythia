@@ -34,8 +34,9 @@ spec:
                 secretKeyRef:
                   name: postgres-credentials
                   key: POSTGRES_PASSWORD
-            - name: QUARKUS_DATASOURCE_JDBC_URL
-              value: jdbc:postgresql://postgres:5432/estimation
+            # QUARKUS_DATASOURCE_JDBC_URL moved into backend-config (task-161):
+            # it is a stage coordinate, so it belongs with the other stage
+            # coordinates rather than as a literal in the Deployment.
             - name: QUARKUS_FLYWAY_MIGRATE_AT_START
               value: "true"
             - name: QUARKUS_HIBERNATE_ORM_DATABASE_GENERATION

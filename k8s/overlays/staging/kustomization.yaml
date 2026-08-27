@@ -61,10 +61,18 @@ patches:
         path: /spec/maxReplicas
         value: 1
 
+  # Stage coordinates (task-161). APP_AUTH_PROVIDER used to be baked into the
+  # image as %prod.app.auth.provider=entra, and QUARKUS_OIDC_TOKEN_AUDIENCE was
+  # omitted here entirely — staging relied on the image's baked audience
+  # expanding ${ENTRA_API_CLIENT_ID}, a variable no staging manifest supplied.
+  # Both now arrive the same way as every other coordinate.
   - target:
       kind: ConfigMap
       name: backend-config
     patch: |-
+      - op: replace
+        path: /data/APP_AUTH_PROVIDER
+        value: "entra"
       - op: replace
         path: /data/QUARKUS_OIDC_ENABLED
         value: "true"
@@ -74,3 +82,6 @@ patches:
       - op: replace
         path: /data/QUARKUS_OIDC_CLIENT_ID
         value: ${OIDC_CLIENT_ID}
+      - op: replace
+        path: /data/QUARKUS_OIDC_TOKEN_AUDIENCE
+        value: ${OIDC_TOKEN_AUDIENCE}

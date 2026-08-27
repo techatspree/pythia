@@ -2,7 +2,34 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: backend-config
+# Stage coordinates live HERE, not baked into the image (task-161): one image
+# serves every stage and a stage differs only by this ConfigMap and the
+# postgres-credentials Secret. Quarkus maps each key back to its property
+# through MicroProfile Config (QUARKUS_OIDC_CLIENT_ID -> quarkus.oidc.client-id),
+# so no application code reads these names directly.
+#
+# The values below are the LOCAL MINIKUBE shape. Every deployed overlay
+# overrides them; see docs/deployment.md for the full table.
+#
+# Credentials are NOT here — QUARKUS_DATASOURCE_USERNAME/PASSWORD come from the
+# postgres-credentials Secret, wired in the Deployment.
 data:
+  # dev is refused under a NORMAL launch by AuthProviderGuard, so an overlay
+  # that forgets to override this fails to boot rather than accepting the
+  # forgeable dev header.
+  APP_AUTH_PROVIDER: "dev"
+
+  QUARKUS_DATASOURCE_JDBC_URL: "jdbc:postgresql://postgres:5432/estimation"
+
+  # NOTE: quarkus.oidc.enabled is a BUILD-TIME property (OidcBuildTimeConfig),
+  # so this key is inert at runtime — it cannot switch OIDC on or off in a built
+  # image. It is kept because removing it would be a behaviour change beyond
+  # task-161's scope. The runtime lever is quarkus.oidc.tenant-enabled
+  # (QUARKUS_OIDC_TENANT_ENABLED). See docs/deployment.md.
   QUARKUS_OIDC_ENABLED: "false"
+
   QUARKUS_OIDC_AUTH_SERVER_URL: ""
   QUARKUS_OIDC_CLIENT_ID: ""
+  # Accept BOTH audience forms: v1.0 access tokens carry aud=api://<client-id>,
+  # v2.0 tokens carry the bare aud=<client-id>.
+  QUARKUS_OIDC_TOKEN_AUDIENCE: ""
