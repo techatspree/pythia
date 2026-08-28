@@ -12,6 +12,12 @@
     "generic": "An unexpected error occurred.",
     "backHome": "Back to start"
   },
+  "config": {
+    "load": {
+      "failed": "The application configuration could not be loaded.",
+      "hint": "Please contact your administrator."
+    }
+  },
   "connection": {
     "title": "Connection to the server lost",
     "body": "Your last change could not be saved and is lost. To avoid saving inconsistent data, the application is paused until the server is reachable again.",

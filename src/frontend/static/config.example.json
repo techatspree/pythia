@@ -1,0 +1,9 @@
+{
+  "authProvider": "dev",
+  "entra": {
+    "tenantId": "<entra tenant id (GUID)>",
+    "spaClientId": "<SPA app registration client id>",
+    "apiClientId": "<API app registration client id>",
+    "redirectUri": "http://localhost:5173"
+  }
+}

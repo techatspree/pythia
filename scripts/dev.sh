@@ -32,10 +32,11 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 FRONTEND_DIR="$PROJECT_ROOT/src/frontend"
 
-# Modular auth selector — same value must be set on backend and
-# frontend for the auth modules to agree.
+# Modular auth selector. Backend only: the frontend no longer reads a build-time
+# VITE_ var (task-162) — it fetches /config.json at boot, which the `predev` npm
+# script writes with the dev shape before Vite starts. `npm run dev` below runs
+# predev automatically, so this script needs no frontend step at all.
 export APP_AUTH_PROVIDER=dev
-export VITE_AUTH_PROVIDER=dev
 
 # Quarkus run profile. Gradle does not forward -Dquarkus.profile to the
 # dev-mode JVM, so pass the profile via the environment. The `dev` profile

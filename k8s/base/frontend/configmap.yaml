@@ -1,0 +1,21 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: frontend-config
+# The SPA's RUNTIME configuration (task-162). Vite inlines VITE_* at BUILD time,
+# which made the frontend image the configuration — staging and production
+# needed separately built images and an image could not be promoted between
+# stages. A compiled bundle cannot read a pod environment variable, so the
+# coordinates are projected as a FILE that nginx serves at /config.json.
+#
+# authProvider MUST match backend-config's APP_AUTH_PROVIDER. If they disagree
+# the SPA sends a `Dev` header to an Entra backend and every call 401s.
+#
+# The base value is the "UNCONFIGURED" sentinel on purpose: runtimeConfig.ts
+# rejects it, so a stage overlay that forgets to override this fails loudly
+# instead of quietly serving dev auth. Every deployed overlay replaces it.
+data:
+  config.json: |
+    {
+      "authProvider": "UNCONFIGURED"
+    }

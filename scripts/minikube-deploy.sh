@@ -37,7 +37,6 @@ K8S_OVERLAY="$PROJECT_ROOT/k8s/overlays/minikube"
 
 # Modular auth selector — minikube uses Entra in production-like mode.
 export APP_AUTH_PROVIDER=entra
-export VITE_AUTH_PROVIDER=entra
 
 # Fail fast on missing tenant config so we never silently ship the
 # unresolved ${VAR} placeholders into the running backend Pod.
@@ -49,20 +48,10 @@ for v in ENTRA_TENANT_ID ENTRA_API_CLIENT_ID ENTRA_SPA_CLIENT_ID; do
     fi
 done
 
-# The frontend picks its auth module (and Entra/MSAL config) from VITE_* at
-# BUILD time — Vite inlines them into the SPA bundle. Derive them from the
-# ENTRA_* ids above and forward them into the frontend Docker build (the
-# :frontend:dockerBuildImage task passes these as --build-args). Without this,
-# the SPA would default to the dev auth module while the backend runs Entra,
-# so logins would send a "Dev <user>" header the Entra backend rejects.
-export VITE_ENTRA_TENANT_ID="$ENTRA_TENANT_ID"
-export VITE_ENTRA_SPA_CLIENT_ID="$ENTRA_SPA_CLIENT_ID"
-export VITE_ENTRA_API_CLIENT_ID="$ENTRA_API_CLIENT_ID"
-# The SPA redirect URI must be a registered redirect URI on the Entra SPA app
-# registration AND match how you open the SPA. Defaults to the port-forward URL
-# this script prints below; override VITE_ENTRA_REDIRECT_URI if you use the
-# Ingress host (e.g. http://estimation.local) or a different port.
-export VITE_ENTRA_REDIRECT_URI="${VITE_ENTRA_REDIRECT_URI:-http://localhost:8080}"
+# The frontend no longer takes its auth config at BUILD time (task-162): the
+# image is stage-independent and the SPA fetches /config.json, rendered from the
+# frontend-config ConfigMap. So these ids render a manifest now instead of
+# feeding a Docker build arg.
 
 # The k8s manifests use ONE provider-neutral placeholder convention across every
 # overlay (task-161): ${OIDC_*} names carrying FULL values, rather than
@@ -75,6 +64,14 @@ export OIDC_CLIENT_ID="$ENTRA_API_CLIENT_ID"
 # Accept BOTH audience forms: v1.0 access tokens carry aud=api://<client-id>,
 # v2.0 tokens carry the bare aud=<client-id>.
 export OIDC_TOKEN_AUDIENCE="api://${ENTRA_API_CLIENT_ID},${ENTRA_API_CLIENT_ID}"
+# The SPA's own coordinates (task-162). OIDC_CLIENT_ID above is reused as the
+# apiClientId — it is already the API client id.
+export OIDC_TENANT_ID="$ENTRA_TENANT_ID"
+export OIDC_SPA_CLIENT_ID="$ENTRA_SPA_CLIENT_ID"
+# Must be a registered redirect URI on the Entra SPA app registration AND match
+# how you open the SPA. Defaults to the port-forward URL this script prints
+# below; override it for the Ingress host (e.g. http://estimation.local).
+export OIDC_REDIRECT_URI="${OIDC_REDIRECT_URI:-http://localhost:8080}"
 
 echo "Building backend and frontend container images..."
 cd "$PROJECT_ROOT"
@@ -110,7 +107,7 @@ fi
 # shellcheck disable=SC2016  # single quotes are intentional: this literal is
 # envsubst's allow-list of variable NAMES, not a shell expansion.
 kubectl kustomize "$K8S_OVERLAY" \
-    | envsubst '${OIDC_AUTH_SERVER_URL} ${OIDC_CLIENT_ID} ${OIDC_TOKEN_AUDIENCE}' \
+    | envsubst '${OIDC_AUTH_SERVER_URL} ${OIDC_CLIENT_ID} ${OIDC_TOKEN_AUDIENCE} ${OIDC_TENANT_ID} ${OIDC_SPA_CLIENT_ID} ${OIDC_REDIRECT_URI}' \
     | kubectl apply -f -
 
 # The image tag is fixed (1.0.0-SNAPSHOT) with imagePullPolicy: Never, so a

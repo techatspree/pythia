@@ -108,12 +108,61 @@ description: |
   precisely the symptom the i18n convention exists to prevent. Await the locale
   first, then the config.
 
+  ## The placeholders, concretely
+
+  task-161 has landed, so its convention is no longer abstract: **provider-neutral
+  `${OIDC_*}` names carrying FULL values**, never identity-provider-specific
+  fragments a manifest composes. The frontend needs four coordinates, and one of
+  them already exists:
+
+  | config.json field | placeholder | note |
+  |---|---|---|
+  | `entra.tenantId` | `${OIDC_TENANT_ID}` | new — the bare tenant id, for the MSAL authority |
+  | `entra.spaClientId` | `${OIDC_SPA_CLIENT_ID}` | new — the SPA app registration |
+  | `entra.apiClientId` | `${OIDC_CLIENT_ID}` | **reuse task-161's**, which is already the API client id |
+  | `entra.redirectUri` | `${OIDC_REDIRECT_URI}` | new — the public URL the SPA is opened at |
+
+  ## The two deploy scripts treat placeholders differently — this is a trap
+
+  - `scripts/deploy.sh` **discovers** every `${...}` in the rendered manifests
+    (`grep -oE '\$\{[A-Z_][A-Z0-9_]*\}'`) and refuses to deploy when one is
+    unset. Adding a placeholder needs no change there.
+  - `scripts/minikube-deploy.sh` carries a **hardcoded allow-list**, which
+    task-161 left as
+    `envsubst '${OIDC_AUTH_SERVER_URL} ${OIDC_CLIENT_ID} ${OIDC_TOKEN_AUDIENCE}'`.
+    A new placeholder that is not added to it is **not** substituted: envsubst
+    leaves it as the literal text `${OIDC_SPA_CLIENT_ID}`, which MSAL then
+    initialises with as though it were a client id. It must be extended.
+
+  A new placeholder is still a new requirement on the internal pipeline, which
+  lives in a different repository and cannot see this change as a diff. That is
+  deliberately NOT documented here: `deploy.sh` fails closed and names the
+  missing variable itself ("the production overlay needs these variables, and
+  they are unset: …"), so its error message is the contract. Document the
+  placeholders in the ConfigMap key table only — do not also maintain the
+  GitLab CI/CD variable table for them.
+
+  ## The two ConfigMaps must agree
+
+  After task-161 the backend's provider is `APP_AUTH_PROVIDER` in
+  `backend-config`; after this task the frontend's is `authProvider` in
+  `frontend-config`. **If they disagree the login is broken** — the SPA sends a
+  `Dev` header to an Entra backend and every call 401s, which is exactly what
+  `minikube-deploy.sh` warns about today, back when one script derived both from
+  a single intent.
+
+  They are deliberately kept as literals in each overlay rather than collapsed
+  into a shared `${AUTH_PROVIDER}` placeholder: the value is `entra` in every
+  deployed stage, so a placeholder would add a required CI variable (and a new
+  way for a deploy to fail) for something that never varies between the two
+  sides. The invariant is enforced by a validation that renders each overlay and
+  compares the two instead.
+
   ## Coordination with task-161
 
   Both tasks edit `k8s/overlays/*/kustomization.yaml` and `docs/deployment.md`.
-  task-161 owns the backend ConfigMap keys and the `${...}` placeholder-naming
-  convention; **follow whatever convention it landed on** rather than inventing
-  a second one for the frontend.
+  task-161 owns the backend ConfigMap keys and the placeholder convention above;
+  this task extends both rather than inventing a parallel scheme.
 
 steps:
   - |
@@ -155,14 +204,30 @@ steps:
     `EntraAuthProvider.init()` (already `async`) takes its four coordinates from
     the config instead of `import.meta.env`.
   - |
-    Surface the failure to the user. A `load` that throws renders
-    `src/frontend/src/routes/+error.svelte`, so the message belongs there (or in
-    an `ErrorBanner` it mounts) — not swallowed.
+    Surface the failure to the user, and mind HOW `+error.svelte` renders it.
 
-    Add i18n keys `config.load.failed` and a short hint key to **both**
+    A `load` that throws renders `src/frontend/src/routes/+error.svelte`, which
+    does:
+
+        <p>{page.error?.message ?? $_('error.generic')}</p>
+
+    — it prints the thrown message **verbatim**. So `throw new Error("Failed to
+    load /config.json")` puts an untranslated English sentence on screen and
+    quietly bypasses the catalogs: the keys would exist, satisfy the key-parity
+    check, and never render. That is the exact shape the i18n convention exists
+    to prevent.
+
+    So resolve the message BEFORE throwing. `runtimeConfig.ts` is module
+    context, not a component, so use `get(_)` from `svelte-i18n` — the form the
+    CLAUDE.md i18n convention names for exactly this case — and throw the
+    resolved string. This is safe because `+layout.ts` awaits `waitLocale()`
+    before `loadRuntimeConfig()`, so the catalog is loaded by the time the throw
+    happens; that ordering is now load-bearing for two reasons, not one.
+
+    Add `config.load.failed` and a short hint key to **both**
     `src/frontend/src/lib/i18n/de.json` and `en.json`, key-for-key, with a real
-    German translation rather than the English sentence copied across. Render
-    them via `$_('…')`; never inline the literal in a component.
+    German translation rather than the English sentence copied across. Never
+    inline the literal.
   - |
     Serve the file, and close both fail-open paths.
 
@@ -176,21 +241,41 @@ steps:
     - `src/frontend/Dockerfile`: delete the five `VITE_*` `ARG`/`ENV` lines and
       the `check=skip=SecretsUsedInArgOrEnv` comment they justified.
   - |
-    Give local dev and CI the file. In `scripts/dev.sh`, replace
-    `export VITE_AUTH_PROVIDER=dev` with a step that writes
-    `src/frontend/static/config.json` containing the dev shape
-    (`{"authProvider":"dev"}`) before Vite starts.
+    Give local dev and CI the file, with ONE mechanism rather than two.
 
-    This is what keeps `.github/workflows/ci.yaml` green: CI runs Playwright
-    against `dev.sh`, and without this every e2e test fails at boot on a fresh
-    checkout. The workflow itself needs no change — verify that by reading it,
-    and only touch it if it turns out to bypass `dev.sh`.
+    Add a **`predev`** script to `src/frontend/package.json` that writes
+    `src/frontend/static/config.json` with the dev shape
+    (`{"authProvider":"dev"}`). npm runs `predev` automatically before `dev`,
+    and `scripts/dev.sh` starts the frontend with `npm run dev` — so this one
+    script covers all three callers:
+
+      - a bare `npm run dev` (which would otherwise now fail closed, since the
+        file is gitignored — a real dev-ergonomics regression)
+      - `./scripts/dev.sh`
+      - `.github/workflows/ci.yaml`, which runs Playwright against `dev.sh`;
+        without the file every e2e test fails at boot on a fresh checkout
+
+    Putting it in `dev.sh` instead would leave `npm run dev` broken and split
+    the same concern across two files. The workflow itself needs no change —
+    verify that by reading it, and only touch it if it turns out to bypass
+    `dev.sh`.
+
+    In `scripts/dev.sh`, just drop the now-dead `export VITE_AUTH_PROVIDER=dev`.
 
     Also commit `src/frontend/static/config.example.json` (the dev shape, for
-    reference), add `static/config.json` to `src/frontend/.gitignore` next to
-    the existing `.env` rules, and strip the `VITE_AUTH_PROVIDER` /
-    `VITE_ENTRA_*` entries from `src/frontend/.env.example`, leaving a pointer
-    to the example config.
+    reference) and add `static/config.json` to `src/frontend/.gitignore` next to
+    the existing `.env` rules.
+  - |
+    **Delete `src/frontend/.env.example`** and remove the `!.env.example`
+    negation from `src/frontend/.gitignore`.
+
+    Every one of its five entries is a `VITE_*` auth variable this task
+    removes, and no other `VITE_*` is referenced anywhere in
+    `src/frontend/src/` — so stripping them leaves a file that exists to hold
+    nothing. `config.example.json` replaces it outright.
+
+    (`.gitignore` also carries a `!.env.test` negation for a file that does not
+    exist. Leave it: unrelated to this task.)
   - |
     Add the Kubernetes plumbing:
     `k8s/base/frontend/configmap.yaml` holding a `config.json` key whose
@@ -210,13 +295,34 @@ steps:
     with `${...}` placeholders for the tenant and client ids, using the
     placeholder-naming convention task-161 established.
   - |
-    Drop the now-dead frontend build plumbing from `scripts/minikube-deploy.sh`:
-    the `VITE_ENTRA_*` exports and the `--build-arg` passing. The script still
-    needs the `ENTRA_*` ids, but now to render the frontend ConfigMap rather
-    than to build a stage-specific image.
+    Rework `scripts/minikube-deploy.sh`. Two changes, and the second is the one
+    that silently breaks the deploy if missed:
+
+    1. Drop the dead frontend build plumbing — the `VITE_ENTRA_*` exports and the
+       `--build-arg` passing. The script still needs the `ENTRA_*` ids, but now
+       to render the frontend ConfigMap rather than to build a stage-specific
+       image.
+    2. **Extend the envsubst allow-list.** task-161 left it as
+       `envsubst '${OIDC_AUTH_SERVER_URL} ${OIDC_CLIENT_ID} ${OIDC_TOKEN_AUDIENCE}'`,
+       and a placeholder missing from that list is NOT substituted — envsubst
+       emits the literal `${OIDC_SPA_CLIENT_ID}` into the deployed `config.json`.
+       Add `${OIDC_TENANT_ID}`, `${OIDC_SPA_CLIENT_ID}` and
+       `${OIDC_REDIRECT_URI}`, and derive them beside the existing
+       `OIDC_*` derivations (`OIDC_TENANT_ID="$ENTRA_TENANT_ID"`,
+       `OIDC_SPA_CLIENT_ID="$ENTRA_SPA_CLIENT_ID"`, and `OIDC_REDIRECT_URI`
+       taking over the redirect default the deleted `VITE_ENTRA_REDIRECT_URI`
+       line carried).
+
+    `scripts/deploy.sh` needs NO change: it discovers placeholders in the
+    rendered manifests and refuses to deploy when one is unset.
   - |
     Document it. In `docs/deployment.md`, add the frontend ConfigMap key and its
-    `${...}` placeholders to the table task-161 started. In
+    placeholders to the **ConfigMap/Secret key table** under "Configuration is
+    not in the image" that task-161 left behind. That table only — deliberately
+    do NOT add them to the GitLab CI/CD variables table near the top, and do not
+    touch the `./scripts/deploy.sh production` invocation in the pipeline
+    snippet: `deploy.sh` discovers unset placeholders and names them in its own
+    error, so that is the contract with the internal pipeline. In
     `src/frontend/CLAUDE.md`, record the runtime-config contract: `/config.json`
     fetched once in `+layout.ts`, `getRuntimeConfig()` throws rather than
     defaulting, `VITE_*` is no longer how auth is configured, and the two
@@ -273,11 +379,64 @@ validation:
       test -f src/frontend/static/config.example.json
       grep -q "config.json" src/frontend/.gitignore
   - |
-    Local dev and CI get a config, or every e2e test fails at boot on a fresh
-    checkout — dev.sh is what CI runs:
-      grep -q "static/config.json" scripts/dev.sh
+    The failure message is TRANSLATED before it is thrown. +error.svelte renders
+    `page.error?.message` verbatim, so a raw `throw new Error("…")` would put
+    untranslated English on screen while the catalog keys sat unused:
+      R=src/frontend/src/lib/config/runtimeConfig.ts
+      grep -q "config.load.failed" "$R"
+      # get(_) is the module-context form the i18n convention names.
+      grep -qE "get\(_\)" "$R"
+      grep -q "svelte-i18n" "$R"
+  - |
+    Local dev, dev.sh and CI all get a config from ONE place — npm runs predev
+    before dev, and dev.sh starts the frontend with `npm run dev`:
+      python3 -c "
+      import json, sys
+      s = json.load(open('src/frontend/package.json'))['scripts']
+      ok = 'predev' in s and 'static/config.json' in s['predev']
+      print('predev:', s.get('predev', '<absent>'))
+      sys.exit(0 if ok else 1)
+      "
       ! grep -q "VITE_AUTH_PROVIDER" scripts/dev.sh
       ! grep -q "VITE_ENTRA_" scripts/minikube-deploy.sh
+      # .env.example held nothing but the VITE_* auth vars this task removes
+      ! test -e src/frontend/.env.example
+      ! grep -q "!.env.example" src/frontend/.gitignore
+  - |
+    Every frontend placeholder is in minikube-deploy.sh's envsubst allow-list.
+    One that is missing is NOT substituted — envsubst emits the literal
+    ${OIDC_SPA_CLIENT_ID} into the deployed config.json:
+      for v in OIDC_TENANT_ID OIDC_SPA_CLIENT_ID OIDC_REDIRECT_URI; do
+        # NOT \$v: inside double quotes that is a literal dollar sign and the
+        # pattern can never match.
+        grep -q "envsubst '.*$v" scripts/minikube-deploy.sh || { echo "allow-list omits $v"; exit 1; }
+      done
+      # and the script derives each of them
+      for v in OIDC_TENANT_ID OIDC_SPA_CLIENT_ID OIDC_REDIRECT_URI; do
+        grep -qE "^export $v=" scripts/minikube-deploy.sh || { echo "not derived: $v"; exit 1; }
+      done
+  - |
+    Every new placeholder appears in the ConfigMap key table, so a reader can
+    tell what it holds. Only that table — the GitLab CI/CD variables table is
+    deliberately not maintained for these; deploy.sh names an unset placeholder
+    in its own error instead:
+      for v in OIDC_TENANT_ID OIDC_SPA_CLIENT_ID OIDC_REDIRECT_URI; do
+        grep -q "$v" docs/deployment.md || { echo "undocumented: $v"; exit 1; }
+      done
+  - |
+    The frontend and backend agree on the auth provider. A mismatch means the SPA
+    sends a Dev header to an Entra backend and every call 401s:
+      for o in minikube staging production; do
+        kubectl kustomize "k8s/overlays/$o" > "/tmp/rendered_$o.yaml"
+        python3 -c "
+      import re, sys
+      t = open('/tmp/rendered_$o.yaml').read()
+      be = re.search(r'APP_AUTH_PROVIDER:\s*\"?([A-Za-z]+)', t)
+      fe = re.search(r'\"authProvider\"\s*:\s*\"([A-Za-z]+)', t)
+      print('$o backend=', be and be.group(1), 'frontend=', fe and fe.group(1))
+      sys.exit(0 if be and fe and be.group(1) == fe.group(1) else 1)
+      " || { echo "$o: backend and frontend auth providers disagree"; exit 1; }
+      done
   - |
     The frontend ConfigMap exists, is mounted, and its BASE value is the
     fail-loudly sentinel rather than a working dev config:
@@ -336,20 +495,28 @@ validation:
 outputs:
   - created: src/frontend/src/lib/config/runtimeConfig.ts
   - modified: src/frontend/src/routes/+layout.ts
-  - modified: src/frontend/src/routes/+error.svelte
   - modified: src/frontend/src/lib/auth/index.ts
   - modified: src/frontend/src/lib/auth/EntraAuthProvider.ts
   - modified: src/frontend/src/lib/i18n/de.json
   - modified: src/frontend/src/lib/i18n/en.json
   - created: src/frontend/static/config.example.json
+  - modified: src/frontend/package.json
   - modified: src/frontend/.gitignore
+  - deleted: src/frontend/.env.example
   - modified: src/frontend/.dockerignore
-  - modified: src/frontend/.env.example
   - modified: src/frontend/Dockerfile
+  # dockerBuildImage forwarded the five VITE_* vars as --build-args; with the
+  # Dockerfile's ARGs gone they are dead and would only earn a "build args were
+  # not consumed" warning.
+  - modified: src/frontend/build.gradle.kts
   - modified: src/frontend/nginx.conf
   - created: k8s/base/frontend/configmap.yaml
   - modified: k8s/base/frontend/deployment.yaml
   - modified: k8s/base/kustomization.yaml
+  # Each overlay's own frontend config.json, carrying the ${OIDC_*} placeholders.
+  - created: k8s/overlays/minikube/frontend-config.yaml
+  - created: k8s/overlays/staging/frontend-config.yaml
+  - created: k8s/overlays/production/frontend-config.yaml
   - modified: k8s/overlays/minikube/kustomization.yaml
   - modified: k8s/overlays/staging/kustomization.yaml
   - modified: k8s/overlays/production/kustomization.yaml

@@ -4,15 +4,8 @@ import {
 	type Configuration
 } from '@azure/msal-browser';
 import type { AuthAccount, AuthProvider } from './AuthProvider';
+import { getRuntimeConfig } from '$lib/config/runtimeConfig';
 import { fetchCurrentUserAccount } from './currentUser';
-
-function requireEnv(name: keyof ImportMetaEnv): string {
-	const v = import.meta.env[name];
-	if (v == null || v === '') {
-		throw new Error(`EntraAuthProvider: missing required env var ${String(name)}`);
-	}
-	return v as string;
-}
 
 class EntraAuthProviderImpl implements AuthProvider {
 	readonly name = 'entra' as const;
@@ -28,11 +21,18 @@ class EntraAuthProviderImpl implements AuthProvider {
 
 	async init(): Promise<void> {
 		if (this.initialized) return;
-		const tenantId = requireEnv('VITE_ENTRA_TENANT_ID');
-		const spaClientId = requireEnv('VITE_ENTRA_SPA_CLIENT_ID');
-		const apiClientId = requireEnv('VITE_ENTRA_API_CLIENT_ID');
-		const redirectUri =
-			import.meta.env.VITE_ENTRA_REDIRECT_URI ?? 'http://localhost:5173';
+		// Coordinates come from the RUNTIME config (task-162), not from VITE_*
+		// inlined at build time — that is what lets one image serve every stage.
+		// runtimeConfig.ts has already rejected a config whose authProvider is
+		// "entra" without a complete entra block, redirectUri included, so all
+		// four are present here. There is deliberately no localhost fallback for
+		// redirectUri: in a deployed stage that is a broken login that looks like
+		// a configuration that worked.
+		const entra = getRuntimeConfig().entra;
+		if (entra == null) {
+			throw new Error('EntraAuthProvider: /config.json has no entra block');
+		}
+		const { tenantId, spaClientId, apiClientId, redirectUri } = entra;
 		this.apiScope = `api://${apiClientId}/access`;
 		const config: Configuration = {
 			auth: {

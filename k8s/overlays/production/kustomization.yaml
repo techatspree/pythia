@@ -23,6 +23,10 @@ patches:
     target:
       kind: ConfigMap
       name: backend-config
+  - path: frontend-config.yaml
+    target:
+      kind: ConfigMap
+      name: frontend-config
   - path: ingress-tls.yaml
     target:
       kind: Ingress

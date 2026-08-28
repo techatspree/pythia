@@ -20,6 +20,16 @@ spec:
           imagePullPolicy: Never
           ports:
             - containerPort: 80
+          volumeMounts:
+            # subPath mounts a single FILE into the served root. The trade-off is
+            # deliberate: a subPath mount does NOT pick up ConfigMap updates
+            # without a pod restart, which is what we want — the SPA reads
+            # /config.json once at boot, so a live-changing file would leave
+            # already-open tabs disagreeing with newly-opened ones. A config
+            # change therefore needs a rollout, exactly like an image change.
+            - name: runtime-config
+              mountPath: /usr/share/nginx/html/config.json
+              subPath: config.json
           resources:
             requests:
               memory: 64Mi
@@ -39,3 +49,7 @@ spec:
               port: 80
             initialDelaySeconds: 5
             periodSeconds: 10
+      volumes:
+        - name: runtime-config
+          configMap:
+            name: frontend-config

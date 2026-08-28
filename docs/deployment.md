@@ -152,6 +152,33 @@ application reads these names directly.
 | `QUARKUS_OIDC_AUTH_SERVER_URL` | ConfigMap | Issuer URL. Placeholder `${OIDC_AUTH_SERVER_URL}`. |
 | `QUARKUS_OIDC_CLIENT_ID` | ConfigMap | Client id. Placeholder `${OIDC_CLIENT_ID}`. |
 | `QUARKUS_OIDC_TOKEN_AUDIENCE` | ConfigMap | Accepted audiences. Placeholder `${OIDC_TOKEN_AUDIENCE}`. |
+| `config.json` | ConfigMap `frontend-config` | The SPA's runtime config (task-162). Placeholders `${OIDC_TENANT_ID}`, `${OIDC_SPA_CLIENT_ID}`, `${OIDC_REDIRECT_URI}`, and `${OIDC_CLIENT_ID}` reused as `apiClientId`. |
+
+### The frontend needs a FILE, not environment variables
+
+Vite inlines `VITE_*` at **build** time, so the frontend image used to *be* the
+configuration: a stage needed its own build and an image could not be promoted.
+A compiled bundle cannot read a pod environment variable either — only the
+browser can read what the server sends it. So the SPA's coordinates are
+projected as a **file**: `frontend-config` is mounted at
+`/usr/share/nginx/html/config.json` with `subPath`, and the SPA fetches
+`/config.json` once at boot.
+
+`subPath` means the file does **not** update without a pod restart. That is the
+behaviour we want: the SPA reads it once, so a live-changing file would leave
+open tabs disagreeing with newly-opened ones. A config change needs a rollout,
+exactly like an image change.
+
+**`config.json`'s `authProvider` must match `APP_AUTH_PROVIDER`.** If they
+disagree the SPA sends a `Dev` header to an Entra backend and every call 401s.
+The base ConfigMap carries the literal `"UNCONFIGURED"`, which the SPA rejects,
+so an overlay that forgets to override it fails loudly rather than quietly
+serving dev auth.
+
+`scripts/minikube-deploy.sh` resolves these with a **hardcoded envsubst
+allow-list** — a placeholder missing from it is emitted literally rather than
+substituted. `scripts/deploy.sh` instead discovers placeholders and refuses to
+deploy when one is unset, so it needs no maintenance.
 
 ### One placeholder convention
 

@@ -61,6 +61,10 @@ patches:
         path: /spec/maxReplicas
         value: 1
 
+  - path: frontend-config.yaml
+    target:
+      kind: ConfigMap
+      name: frontend-config
   # Stage coordinates (task-161). APP_AUTH_PROVIDER used to be baked into the
   # image as %prod.app.auth.provider=entra, and QUARKUS_OIDC_TOKEN_AUDIENCE was
   # omitted here entirely — staging relied on the image's baked audience

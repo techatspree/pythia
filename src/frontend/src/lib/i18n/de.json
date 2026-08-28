@@ -12,6 +12,12 @@
     "generic": "Ein unerwarteter Fehler ist aufgetreten.",
     "backHome": "Zurück zum Start"
   },
+  "config": {
+    "load": {
+      "failed": "Die Konfiguration der Anwendung konnte nicht geladen werden.",
+      "hint": "Bitte wenden Sie sich an Ihre Administratorin oder Ihren Administrator."
+    }
+  },
   "connection": {
     "title": "Verbindung zum Server verloren",
     "body": "Ihre letzte Änderung konnte nicht gespeichert werden und ist verloren. Um das Speichern inkonsistenter Daten zu vermeiden, ist die Anwendung angehalten, bis der Server wieder erreichbar ist.",

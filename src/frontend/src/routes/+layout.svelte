@@ -14,9 +14,16 @@
 	import { system } from '$lib/stores/system.svelte';
 	import { log } from '$lib/log';
 
-	let { children } = $props();
+	let { children, data } = $props();
 
-	const provider = getAuthProvider();
+	// Runtime-config failure (task-162). getAuthProvider() reads the config, so
+	// it must NOT be called when the config failed to load — this runs at script
+	// top level, before any markup.
+	// $derived, not a plain const: reading a $props() value at script top level
+	// captures only its initial value (Svelte's state_referenced_locally warning),
+	// and this file's own rule is to never copy a prop into local state.
+	const configError = $derived<string | null>(data?.configError ?? null);
+	const provider = $derived(configError === null ? getAuthProvider() : null);
 	let account = $state<AuthAccount | null>(null);
 	let ready = $state(false);
 	let initError = $state<string | null>(null);
@@ -31,11 +38,16 @@
 	}
 
 	async function refresh() {
+		if (provider === null) return;
 		account = await provider.loadAccount();
 		applyAccountLanguage(account);
 	}
 
 	onMount(async () => {
+		if (provider === null) {
+			ready = true;
+			return;
+		}
 		// The installation's name (task-146). Unauthenticated and deliberately
 		// NOT awaited into the auth path: it must not gate rendering, and the
 		// login screen needs it before an account exists. Its own catch logs and
@@ -84,7 +96,15 @@
      `e2e/treetable-responsive.test.ts`). A route that paints its own background
      therefore ends it with its content rather than at the fold. -->
 <main>
-	{#if initError}
+	{#if configError}
+		<!-- The message arrives ALREADY TRANSLATED: runtimeConfig.ts resolves it
+		     through get(_) before throwing, because +layout.ts awaits waitLocale()
+		     first. Rendering it here rather than letting the load throw is what
+		     keeps it visible at all. -->
+		<div class="p-6">
+			<ErrorBanner message={configError} />
+		</div>
+	{:else if initError}
 		<div class="p-6">
 			<ErrorBanner message={initError} ondismiss={() => (initError = null)} />
 		</div>

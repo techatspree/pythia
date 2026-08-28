@@ -1,0 +1,20 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: frontend-config
+data:
+  # Stage coordinates for the SPA (task-162), resolved by envsubst at apply time.
+  # ${OIDC_CLIENT_ID} is REUSED from task-161 — it is already the API client id,
+  # which is exactly what the SPA needs for its access scope.
+  #
+  # authProvider MUST match backend-config's APP_AUTH_PROVIDER.
+  config.json: |
+    {
+      "authProvider": "entra",
+      "entra": {
+        "tenantId": "${OIDC_TENANT_ID}",
+        "spaClientId": "${OIDC_SPA_CLIENT_ID}",
+        "apiClientId": "${OIDC_CLIENT_ID}",
+        "redirectUri": "${OIDC_REDIRECT_URI}"
+      }
+    }
