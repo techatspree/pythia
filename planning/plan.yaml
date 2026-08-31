@@ -43,83 +43,70 @@ domain_entities:
   - name: AuditLog
     fields: [id, user_id, entity_type, entity_id, action, payload, created_at]
 
+# Phase MEMBERSHIP is not recorded here. A task's phase lives in its own file
+# (`planning/tasks/task-NNN.yaml`, the `phase:` field), and `./scripts/status.sh`
+# groups the plan by it — that is already the only thing that reads this block,
+# and it reads `id`/`name` only. The per-phase `tasks:` lists that used to sit
+# here were a second copy nothing consulted, and 37 of them had gone stale
+# (task-165). Do not re-add them; run `./scripts/phase-check.sh` to audit.
 phases:
   - id: phase-1
     name: Foundation and Local Environment
     duration_weeks: 1
-    tasks: [task-001, task-002, task-003, task-004]
   - id: phase-2
     name: Modular Authentication and Authorization
     duration_weeks: 1
-    tasks: [task-005, task-006, task-007, task-008, task-060, task-068, task-120]
   - id: phase-3
     name: Core Domain and Persistence
     duration_weeks: 1
-    tasks: [task-009, task-010, task-011, task-012]
   - id: phase-4
     name: REST API and Business Logic
     duration_weeks: 1
-    tasks: [task-013, task-014, task-015, task-016]
   - id: phase-5
     name: Frontend Application
     duration_weeks: 2
-    tasks: [task-017, task-018, task-019, task-020, task-021]
   - id: phase-6
     name: Containerization and Kubernetes
     duration_weeks: 1
-    tasks: [task-022, task-023, task-024, task-025]
   - id: phase-7
     name: Observability, CI/CD, Hardening
     duration_weeks: 1
-    tasks: [task-026, task-027, task-028, task-029]
   - id: phase-8
     name: Polish and Production Readiness
     duration_weeks: 1
-    tasks: [task-030, task-031, task-032]
   - id: phase-9
     name: Tree-shaped Estimation Hierarchy
     duration_weeks: 1
-    tasks: [task-049, task-050, task-051, task-052, task-053, task-054, task-055, task-057, task-058, task-059, task-061, task-069, task-070]
   - id: phase-10
     name: Code Quality and Static Analysis
     duration_weeks: 1
-    tasks: [task-056, task-071, task-084, task-085, task-086]
   - id: phase-11
     name: Collaborative Estimation Sessions
     duration_weeks: 2
-    tasks: [task-062, task-063, task-064, task-065, task-066, task-067, task-128, task-129, task-144, task-147, task-148, task-160]
   - id: phase-12
     name: Persistent Undo Across Sessions
     duration_weeks: 2
-    tasks: [task-072, task-073, task-074, task-075, task-076, task-077, task-109, task-110]
   - id: phase-13
     name: Excel-aligned Domain, KMP & Build Reactor
     duration_weeks: 3
-    tasks: [task-033, task-034, task-035, task-036, task-038, task-039, task-040, task-041, task-042, task-043, task-044, task-045, task-046, task-047, task-048]
   - id: phase-14
     name: Post-MVP Hardening & Build Modernization
     duration_weeks: 3
-    tasks: [task-079, task-080, task-081, task-082, task-083, task-087, task-088, task-089, task-090, task-091, task-092, task-093, task-094, task-095, task-112, task-114, task-117, task-118, task-119]
   - id: phase-15
     name: Pluggable Estimation Methods
     duration_weeks: 4
-    tasks: [task-096, task-097, task-098, task-099, task-100, task-101, task-102, task-103, task-104, task-105, task-106, task-107, task-108, task-113, task-115, task-116, task-150]
   - id: phase-16
     name: Internationalization
     duration_weeks: 2
-    tasks: [task-111, task-121, task-122, task-123, task-124, task-125, task-126, task-127]
   - id: phase-17
     name: Branding & Visual Identity
     duration_weeks: 1
-    tasks: [task-130, task-149, task-151, task-154]
   - id: phase-18
     name: Open Source Release
     duration_weeks: 1
-    tasks: [task-145, task-146, task-152, task-153, task-159]
   - id: phase-19
     name: Dependency tracking and Gant Chart
     duration_weeks: 3
-    tasks: [task-155, task-156, task-157, task-158]
 
 execution:
   task_format: tasks/<task-id>.yaml

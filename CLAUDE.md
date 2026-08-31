@@ -107,7 +107,10 @@ One logging approach per module — use it; do not invent a second mechanism. Lo
 
 This project uses a YAML-based task plan under `planning/`:
 
-- `planning/plan.yaml` — stack, domain, phases, task index.
+- `planning/plan.yaml` — stack, domain, phases. **Not a task index**: it holds
+  each phase's `id`/`name`/`duration_weeks` only. A task's phase lives in its own
+  `phase:` field, `./scripts/status.sh` groups the plan by it, and
+  `./scripts/phase-check.sh` audits it (task-165).
 - `planning/tasks/task-NNN.yaml` — one self-contained spec per task (description, steps, validation commands, outputs).
 - `planning/status.json` — mutable progress; updated via `./scripts/task.sh start|done|pending <task-id>` (requires `jq`).
 - `.claude/commands/` — slash commands `add-task`, `implement-task`, `improve-task` automate the lifecycle.

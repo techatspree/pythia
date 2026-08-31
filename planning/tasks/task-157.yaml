@@ -1,7 +1,7 @@
 id: task-157
 phase: phase-19
 title: Graphical dependency editor for the project schedule
-depends_on: [task-156]
+depends_on: [task-156, task-164]
 description: |
   Third task of phase-19. task-155 computes a schedule and task-156 stores its
   inputs; both are invisible. This task adds the way a user actually declares
@@ -21,10 +21,37 @@ description: |
   that tradition, and a library would own the interaction model that the next
   task's Gantt has to match.
 
-  Layout is a single column of boxes in root order, with edges as SVG paths
-  routed to the right of the column. Do not implement free-placement dragging,
-  auto-layout, or zoom: position is not part of the model and must not be
-  persisted.
+  Layout is **layered top-down**: nodes in dependency order, each card placed in
+  the earliest layer its predecessors allow, with edges as SVG paths between
+  cards. Do not implement free-placement dragging or zoom — position is computed
+  from the graph, is not part of the model, and must not be persisted.
+
+  ## It is a TREE, and groups collapse (task-164)
+
+  task-164 replaced task-155's roots-only rule: every node is now a scheduling
+  unit, leaves are atomic, and a **group's dates are a roll-up** of its
+  children. `ProjectSchedule.tasks` is a flat list covering every node, each
+  carrying `parentLogicalId`, `depth` and `isGroup`, in tree order — rebuild the
+  tree from that, do not walk `EstimationVersion` again.
+
+  This is the model Merlin's **Flow** (net plan) view uses, and it is why the
+  editor must collapse: `MerlinImporter` reconstructs a whole WBS as nested
+  groups, so an imported project can be one root with everything beneath it.
+
+  - A **collapsed group** renders as ONE card showing its rolled-up span, with
+    every edge touching its subtree drawn on that card.
+  - **Expanding** reveals its children as cards one layer deeper.
+  - Collapse state is **view-only** — never persisted, never sent to the
+    backend. Follow `TreeTable`'s established shape: `defaultCollapsed` is a
+    RULE consulted per node, not a seed copied into `$state`, so a node that
+    appears later is collapsed too. Default: groups start collapsed, so a
+    freshly imported project opens readable.
+  - An edge may be drawn between **any two nodes** — group-to-group,
+    group-to-leaf, leaf-to-leaf. task-164 lowers it to leaf constraints; the
+    editor stores exactly what the user drew.
+
+  A group's `durationDays` is its **span**, not `effortPT / teamFte`. Render it
+  as such and never recompute it.
 
   ## The domain owns the math
 
@@ -34,12 +61,33 @@ description: |
   `@JsExport` function taking `List<T>` is not callable from JS with a plain
   array, which is why that factory exists.
 
-  ## Cycles are shown, not prevented
+  ## Errors are shown, not prevented — and there are TWO kinds
 
-  Let the user draw an edge that closes a cycle. task-155 returns a
-  `cycleError`; render it inline and hide the computed durations until it is
-  resolved. Blocking the gesture would need the editor to reimplement cycle
-  detection — the exact duplication phase-19 is arranged to avoid.
+  There is no `cycleError` field. task-155 shipped a structured
+  `error: ScheduleError?` carrying `kind: ScheduleErrorKind` — `CYCLE` or
+  `INVALID_TEAM_FTE` — plus `involvedLogicalIds`. It was made structured
+  precisely so THIS task maps `kind` to an i18n key rather than rendering a
+  domain-composed English sentence.
+
+  - **`CYCLE`** — let the user draw it. Render the error inline, highlight the
+    cards in `involvedLogicalIds` (task-164 reports the ids the user actually
+    drew, group ids included), and hide the computed durations until it is
+    resolved. Blocking the gesture would need the editor to reimplement cycle
+    detection — the exact duplication phase-19 is arranged to avoid.
+  - **`INVALID_TEAM_FTE`** — this task adds the very field that produces it. A
+    user typing `0` or a negative team size gets this kind back; render it on
+    the field, not as a graph error.
+
+  Map both to `schedule.error.cycle` / `schedule.error.invalidTeamFte`.
+
+  ## The project length is a RANGE, and the caveat is part of the UI
+
+  `ProjectSchedule` carries `expectedDurationDays`, `durationStdDevDays`,
+  `optimisticDurationDays` and `pessimisticDurationDays` beside
+  `projectDurationDays`. task-155 delegated their presentation here explicitly:
+  `projectDurationDays` is the risk-loaded plan and **sits at the TOP of that
+  band by construction** — `offerPT` already carries a `stdDevFactor` loading —
+  so show the range and never present the loaded figure as the band's midpoint.
 
   ## The optimism caveat is part of the UI
 
@@ -49,27 +97,53 @@ description: |
 
 steps:
   - |
-    Add the domain bridge to `src/frontend/src/lib/adapter.ts`, beside
-    `computeEstimation(...)`: `computeSchedule(roots, dependencies, teamFte)`
-    calling the `Array`-taking `DomainFactory` factory from task-155 and
-    returning the `ProjectSchedule`. Reimplementing any part of the critical
-    path in TypeScript is out of bounds — the domain is the single source of
-    truth.
+    Add the domain bridge to `src/frontend/src/lib/adapter.ts`.
+
+    The factory is `scheduleVersion(version: EstimationVersion, dependencies:
+    Array<ScheduleDependency>, teamFte: number)` — an `@JsExport` function taking
+    `List<T>` is not callable from JS with a plain array, which is why the
+    Array-taking form exists.
+
+    **It takes an already-CALCULATED `EstimationVersion`, not roots.** A
+    `computeSchedule(roots, …)` that builds and `calculate()`s its own version
+    would recompute the whole estimate a second time on every keystroke —
+    exactly the double-compute task-139 removed, and which
+    `src/frontend/CLAUDE.md` documents as "a SINGLE build+`calculate()`". So
+    extend the existing single round-trip instead: have `computeEstimation(...)`
+    accept the schedule inputs and return the `ProjectSchedule` alongside
+    `calcMap` and `totals`, or expose the calculated version it already builds so
+    a sibling bridge can schedule it. One build+calculate per render, not two.
+
+    `ProjectSchedule.tasks` arrives as a Kotlin `KtList`, not a JS array — walk
+    it the way `adapter.ts` already walks the result tree. Reimplementing any
+    part of the critical path, the roll-up or the layering maths in TypeScript is
+    out of bounds; the domain is the single source of truth. Layout POSITIONS
+    are the editor's own concern and are not domain data.
   - |
     Add `src/frontend/src/lib/components/schedule/DependencyEditor.svelte`:
       - a `$bindable()` `dependencies` prop the parent owns and this component
         mutates directly (the established editor pattern — no snapshot + local
         `$state` + onchange)
-      - one box per `ScheduledTask` in root order, showing the title and the
-        computed `durationDays`
-      - drag from a box's right-hand handle onto another box to add an edge;
-        dropping on empty space cancels
+      - one card per `ScheduledTask`, laid out in LAYERS: each card in the
+        earliest layer its predecessors allow, tree order within a layer
+      - **collapse/expand for groups** (`isGroup`), rebuilt from the flat
+        `tasks` list via `parentLogicalId` / `depth`. Collapse state is
+        view-only and never persisted; express it as a RULE consulted per node
+        (`TreeTable`'s `defaultCollapsed` pattern), not a seed copied into
+        `$state`, so a node appearing later is collapsed too. Groups start
+        collapsed.
+      - a collapsed group shows its rolled-up span and carries every edge that
+        touches its subtree
+      - drag from a card's handle onto another card to add an edge — between any
+        two nodes, group or leaf; dropping on empty space cancels
       - edges as SVG paths; click an edge to remove it
       - a duplicate edge is refused silently (task-156's unique constraint would
         reject it anyway)
-      - the `cycleError` rendered inline when present
-      - an empty state when the version has fewer than two roots — with one
-        root there is nothing to connect
+      - a self-edge is refused (task-155 reports it as a one-node CYCLE)
+      - `error.kind == CYCLE` rendered inline, with the cards named in
+        `involvedLogicalIds` highlighted
+      - an empty state when the tree has fewer than two nodes — with one there
+        is nothing to connect
 
     Buttons come from `$lib/ui/`; colours from `@theme` tokens in `app.css`
     (an arbitrary `bg-[#…]` fails `:frontend:check`); failures go through `log`
@@ -85,28 +159,54 @@ steps:
         hydrated in `applyVersionData` (so an undo or reload does not resurrect
         stale values and does not trigger a spurious autosave)
       - both included in the autosave PUT payload
-      - a team-FTE number field with the optimism hint beneath it
+      - `currentTeamFte` from `EstimationVersionDto.teamFte` and
+        `currentDependencies` from `.dependencies`, PUT back as `DraftUpdateDto`'s
+        optional `teamFte` / `dependencies` (task-156's wire shape)
+      - a team-FTE number field with the optimism hint beneath it, rendering
+        `error.kind == INVALID_TEAM_FTE` on the field itself
       - `DependencyEditor` bound to the state
-      - a plain list of the computed per-unit durations plus the project length,
-        so the task is useful before task-158 adds the chart
+      - the project length as a RANGE — `optimisticDurationDays` …
+        `pessimisticDurationDays` around `expectedDurationDays`, with
+        `projectDurationDays` labelled as the risk-loaded plan that sits at the
+        TOP of the band, never as its midpoint (task-155)
+      - a plain list of the computed per-node durations, so the task is useful
+        before task-158 adds the chart
+      - every number through `$lib/format.ts` — `.toFixed()`/`toLocale*()` and a
+        hardcoded locale are banned
       - read-only for a submitted version, like the rest of the editor
+
+    Any `try`/`catch` surfaces failure through `ErrorBanner` as well as `log` —
+    logging is in addition to, never instead of, user-facing surfacing.
   - |
     Add every new visible string to **both** `src/frontend/src/lib/i18n/de.json`
     and `en.json`, key-for-key, under a `schedule.*` prefix: the section title,
     the team-FTE label and its hint, the editor's empty state, the edge-delete
-    tooltip, the cycle error, the project-length label, and the `aria-label`s on
-    the drag handle and the edges. Real German, not the English sentence pasted
-    across. Never inline a literal — render via `$_('key')`.
+    tooltip, **both** error kinds as `schedule.error.cycle` and
+    `schedule.error.invalidTeamFte` (the names task-155 chose when it made the
+    error structured), the project-length and range labels, and the
+    `aria-label`s on the drag handle, the edges, and the group expand/collapse
+    control. Real German, not the English sentence pasted across. Never inline a
+    literal — render via `$_('key')`.
   - |
     Add `src/frontend/e2e/schedule.test.ts`: seed a draft with at least two root
     groups through the REST API (the pattern the other specs use), open the
     draft, set the team FTE, drag one dependency, and assert the computed
     project length changes and survives a reload.
 
+    Also assert that a group collapses and expands, and that an edge drawn to a
+    collapsed group survives expanding it.
+
     Mouse-driven drag in this codebase is timing-sensitive: re-read the target's
-    `boundingBox()` between moves and release only once it has settled, exactly
-    as `settleAndDrop` in `e2e/bucket-views.test.ts` does. A fixed number of
-    passes races the layout and produces a ~1-in-3 flake.
+    `boundingBox()` between moves and release only once it has settled, as
+    `settleAndDrop` in `e2e/bucket-views.test.ts` does — note it is now
+    DEADLINE-based, not a fixed pass count, so copy the current shape rather
+    than the one earlier tasks described.
+
+    Be aware this is not a solved problem: **task-163 is open** on a drag that
+    settles and releases correctly and still lands as a silent no-op. If this
+    spec flakes the same way, report it against task-163 rather than papering
+    over it here — and do NOT add Playwright `retries`, which `playwright.config.ts`
+    argues against at length.
   - |
     Document the new bridge and component in `src/frontend/CLAUDE.md`. That file
     already enumerates `adapter.ts`'s entry points — `computeEstimation(...)`
@@ -124,29 +224,48 @@ steps:
 
 validation:
   - |
-    The bridge exists and the frontend does not re-derive the schedule:
+    The bridge exists and the frontend does not re-derive the schedule.
+    NOTE the ordering: these blocks run without `set -e`, so only the LAST
+    command's status counts — a block that ends on a negation passes whenever
+    the directory is simply absent, which is how this check used to succeed
+    before any work was done. Positive assertions go last.
       F=src/frontend/src
-      grep -q "computeSchedule" "$F/lib/adapter.ts"
       test -f "$F/lib/components/schedule/DependencyEditor.svelte"
-      ! grep -rqi "criticalpath\s*=" "$F/lib/components/schedule/"
+      if grep -rqiE "criticalpath[[:space:]]*=" "$F/lib/components/schedule/"; then echo "unexpected match in $F/lib/components/schedule/"; exit 1; fi
+      # scheduleVersion is the real factory, and it must be reached from the
+      # SINGLE existing build+calculate, not a second one.
+      grep -q "scheduleVersion" "$F/lib/adapter.ts"
   - |
     The component obeys the frontend hard rules:
+      # set -e: without it only the LAST command's status counts, so a block
+      # ending on a negation passes whenever the files are simply absent.
+      set -e
       S=src/frontend/src/lib/components/schedule
-      ! grep -rq "console\." "$S"
+      if grep -rq "console\." "$S"; then echo "unexpected match in the target"; exit 1; fi
       grep -rq "log\." "$S"
-      ! grep -rqE "bg-\[#" "$S"
-      ! grep -rqE "toFixed\(|toLocale" "$S"
+      if grep -rqE "bg-\[#" "$S"; then echo "unexpected match in the target"; exit 1; fi
+      if grep -rqE "toFixed\(|toLocale" "$S"; then echo "unexpected match in the target"; exit 1; fi
       grep -rq "aria-label" "$S"
   - |
     The route owns the state, saves it, and re-hydrates it:
+      # set -e: without it only the LAST command's status counts, so a block
+      # ending on a negation passes whenever the files are simply absent.
+      set -e
       P="src/frontend/src/routes/estimations/[id]/versions/[versionNumber]/+page.svelte"
       grep -q "DependencyEditor" "$P"
       grep -q "teamFte" "$P"
       grep -q "dependencies" "$P"
+      # numbers go through format.ts; toFixed/toLocale* are banned app-wide
+      if grep -qE "toFixed\(|toLocale" "$P"; then echo "unexpected match in the target"; exit 1; fi
   - |
     Both catalogs carry the new keys, key-for-key, and the German ones are
     translated rather than copied:
-      python3 - <<'PY'
+      # python3 -c, NOT a heredoc: inside a YAML block scalar the heredoc body
+      # keeps its indentation and python dies with IndentationError (verified).
+      # set -e: without it only the LAST command's status counts, so a block
+      # ending on a negation passes whenever the files are simply absent.
+      set -e
+      python3 -c "
       import json, pathlib, sys
       d = pathlib.Path('src/frontend/src/lib/i18n')
       cats = {p.stem: json.loads(p.read_text()) for p in d.glob('*.json')}
@@ -161,22 +280,51 @@ validation:
       bad = {l: sorted(ref - set(x)) for l, x in f.items() if ref - set(x)}
       no_sched = [l for l, x in f.items() if not any(k.startswith('schedule.') for k in x)]
       de, en = f.get('de', {}), f.get('en', {})
-      copied = [k for k in de if k.startswith('schedule.')
-                and len(str(de[k])) > 3 and de[k] == en.get(k)]
-      print('catalogs:', sorted(cats))
-      print('key mismatch:', bad or 'none')
-      print('missing schedule.*:', no_sched or 'none')
-      print('untranslated:', copied or 'none')
-      sys.exit(1 if (bad or no_sched or copied) else 0)
-      PY
+      copied = [k for k in de if k.startswith('schedule.') and len(str(de[k])) > 3 and de[k] == en.get(k)]
+      need = ['schedule.error.cycle', 'schedule.error.invalidTeamFte']
+      absent = [k for k in need if k not in de or k not in en]
+      print('catalogs:', sorted(cats), '| mismatch:', bad or 'none', '| no schedule.*:', no_sched or 'none')
+      print('untranslated:', copied or 'none', '| missing error keys:', absent or 'none')
+      sys.exit(1 if (bad or no_sched or copied or absent) else 0)
+      "
+  - |
+    The editor is a TREE over task-164's shape, not a flat root list — this is
+    what the revision is for:
+      # set -e: without it only the LAST command's status counts, so a block
+      # ending on a negation passes whenever the files are simply absent.
+      set -e
+      S=src/frontend/src/lib/components/schedule/DependencyEditor.svelte
+      grep -q "parentLogicalId" "$S"
+      grep -q "isGroup" "$S"
+      grep -qiE "collaps|expand" "$S"
+      # collapse is a view rule, never persisted or sent to the backend
+      if grep -qiE "collapsed.*(PUT|save|dependencies:)" "$S"; then echo "unexpected match in the target"; exit 1; fi
+  - |
+    Both error kinds are handled — the team-FTE field this task adds is exactly
+    what produces INVALID_TEAM_FTE:
+      # set -e: without it only the LAST command's status counts, so a block
+      # ending on a negation passes whenever the files are simply absent.
+      set -e
+      P="src/frontend/src/routes/estimations/[id]/versions/[versionNumber]/+page.svelte"
+      S=src/frontend/src/lib/components/schedule
+      grep -rqE "schedule\.error\.cycle" "$S" "$P"
+      grep -rqE "schedule\.error\.invalidTeamFte" "$S" "$P"
+      # and the range is presented, not just the loaded figure
+      grep -qE "optimisticDurationDays|pessimisticDurationDays" "$P"
   - |
     The e2e spec exists and does not reintroduce the fixed-pass drag race:
+      # set -e: without it only the LAST command's status counts, so a block
+      # ending on a negation passes whenever the files are simply absent.
+      set -e
       T=src/frontend/e2e/schedule.test.ts
       test -f "$T"
       grep -qi "boundingBox" "$T"
   - |
     The new adapter entry point is documented where the others are — an
     undocumented second bridge is how `adapter.ts` drifts:
+      # set -e: without it only the LAST command's status counts, so a block
+      # ending on a negation passes whenever the files are simply absent.
+      set -e
       grep -q "computeSchedule" src/frontend/CLAUDE.md
   - |
     ./gradlew :frontend:check
@@ -184,6 +332,9 @@ validation:
     ./gradlew build
   - |
     With the dev stack running (`./scripts/dev.sh`, backend :8090, Vite :5173):
+      # set -e: without it only the LAST command's status counts, so a block
+      # ending on a negation passes whenever the files are simply absent.
+      set -e
       cd src/frontend && npm run test:e2e
 
 outputs:

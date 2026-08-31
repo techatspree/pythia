@@ -5,7 +5,8 @@ Review and improve the planning task whose ID is given in $ARGUMENTS (e.g. `task
 ### 1. Read context (all in parallel)
 
 - `planning/tasks/$ARGUMENTS.yaml` — the task under review
-- `planning/plan.yaml` — architecture, stack, phases, task index
+- `planning/plan.yaml` — architecture, stack, phases (phase `id`/`name` only; it
+  is not a task index — a task's phase lives in its own `phase:` field)
 - `planning/status.json` — task statuses and declared dependencies
 - Any `CLAUDE.md` files at the project root or module level (use `find . -maxdepth 3 -name CLAUDE.md`)
 

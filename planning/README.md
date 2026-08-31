@@ -7,7 +7,7 @@ This directory contains the development plan for the project effort estimation t
 ```
 estimation-tool-plan/
 ├── README.md              # This file
-├── plan.yaml              # High-level plan: stack, domain, phases, task index
+├── plan.yaml              # High-level plan: stack, domain, phases (NOT a task index)
 ├── status.json            # Mutable progress tracker (modified by the executor)
 ├── tasks/                 # 32 task definitions, one YAML file each
 │   ├── task-001.yaml      # Initialize repository structure
@@ -91,7 +91,14 @@ Tasks are deliberately written at a level that a developer (or another Claude se
 The plan is a starting point, not a contract. If you discover a task should be split, merged, reordered, or replaced:
 
 1. Edit or add the task YAML file in `tasks/`
-2. Update `plan.yaml` if phases or task lists change
+2. Update `plan.yaml` only if the PHASES themselves change — it holds each
+   phase's `id`, `name` and `duration_weeks` and deliberately carries no task
+   lists (task-165). A task's phase lives in its own `phase:` field, and
+   `./scripts/status.sh` groups the plan by it; the lists that used to sit in
+   `plan.yaml` were a second copy nothing read, and 37 had gone stale.
+   `./scripts/phase-check.sh` audits the phase data: it reports any task naming
+   a phase that does not exist (an error) and any task depending on a later
+   phase (informational).
 3. Update `status.json` to add/remove the corresponding entry
 4. Commit the change with a note explaining why
 

@@ -89,3 +89,17 @@ patches:
       - op: replace
         path: /data/QUARKUS_OIDC_TOKEN_AUDIENCE
         value: ${OIDC_TOKEN_AUDIENCE}
+
+  # The database password is a real secret and must not come from the base's
+  # committed local-development value. scripts/deploy.sh discovers this
+  # placeholder in the rendered manifests and refuses to deploy when it is
+  # unset, so there is no path by which a deploy quietly uses `estimation`.
+  # The substituted value never touches disk: deploy.sh renders to a temp file
+  # BEFORE envsubst and pipes the substituted output straight into kubectl.
+  - target:
+      kind: Secret
+      name: postgres-credentials
+    patch: |-
+      - op: replace
+        path: /stringData/POSTGRES_PASSWORD
+        value: ${POSTGRES_PASSWORD}

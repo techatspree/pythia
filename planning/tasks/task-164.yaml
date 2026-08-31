@@ -1,0 +1,265 @@
+id: task-164
+phase: phase-19
+title: "Hierarchical scheduling units: groups as derived roll-ups"
+depends_on: [task-155, task-156]
+description: |
+  **This supersedes task-155's "scheduling units are the ROOT nodes" rule.**
+  task-155 is implemented and committed; this task changes the decision it made,
+  and the reasoning below replaces the corresponding section there.
+
+  ## Why roots-only fails on the tool's main input
+
+  `computeSchedule` currently does `version.roots.map { unitOf(it, teamFte) }`
+  and then drops every edge whose ids are not roots:
+
+      val edges = dependencies
+          .filter { it.fromLogicalId in byId && it.toLogicalId in byId }
+
+  task-155 argued that a dependency editor over every leaf of a 200-item tree is
+  unusable, which is true. But the conclusion — one level, the roots — breaks on
+  the input this tool is built to consume. `MerlinImporter` reconstructs
+  Merlin's whole WBS as nested `EstimationGroup`s, so **a Merlin import whose
+  project has one top-level activity arrives as a single root**, collapses to
+  ONE scheduling unit, and the dependency editor has nothing to connect. That is
+  not an edge case; it is the main import path.
+
+  The hierarchy is already in the model (`EstimationGroup.children`,
+  `EstimationNode.leaves()`) and already collapsible in the UI — `TreeTable`
+  treats `defaultCollapsed` as a *rule* consulted per row, not a seed. The
+  target is Merlin's own **Flow** (net plan) view: a network diagram over the
+  project structure, where summary activities roll their children up.
+
+  ## The model: a group is a ROLL-UP, never a competing unit
+
+  The reason "any node is schedulable" looks impossible is double counting —
+  schedule a group *and* its child and the same `offerPT` lands twice. Merlin
+  does not have that problem because a summary activity is **not independently
+  scheduled**: its dates are derived from its children. Copy that.
+
+  - **Leaves are the atomic scheduling units.** Duration stays
+    `offerPT / teamFte` per leaf, exactly as now.
+  - **A group's dates are DERIVED**: `earliestStart` = min over its subtree's
+    leaves, `earliestFinish` = max over them. A group contributes no duration of
+    its own and can never double-count, because it is not in the graph.
+  - **Edges may name ANY node** — group or leaf — and are *lowered* to leaf
+    constraints before scheduling: `A → B` becomes "every leaf of B starts after
+    the last leaf of A finishes". This is standard summary-task semantics.
+  - **The critical path stays a leaf property.** A group is reported
+    `onCriticalPath` when ANY leaf in its subtree is.
+  - The mean/variance accumulation task-155 built is unchanged: it runs on the
+    lowered leaf graph, so the duration band keeps its meaning.
+
+  ## What this fixes as a side effect
+
+  task-156 deliberately ACCEPTS an edge naming an unknown `logicalId` on write
+  (so deleting a root does not fail a later save), while task-155 DISCARDS it on
+  read. Today an edge drawn to a child node therefore saves successfully and
+  then silently affects nothing. After this task such an edge is meaningful, and
+  the filter narrows to its original purpose: ignoring ids that no longer exist
+  in the tree at all.
+
+  ## Shape of the result
+
+  `ProjectSchedule.tasks` becomes a **flat list covering every node** — groups
+  and leaves — each carrying its `parentLogicalId` and `depth` so a consumer can
+  rebuild the tree without walking `EstimationVersion` again. Keep it flat
+  rather than nesting `ScheduledTask`: `@JsExport`ed recursive data classes
+  reach JavaScript as nested Kotlin `List`s and every consumer would have to
+  walk them, where a flat list with a parent pointer is one pass.
+
+  `ScheduledTask` gains `parentLogicalId: String?`, `depth: Int` and
+  `isGroup: Boolean`. A group's `durationDays` is its rolled-up span
+  (`earliestFinish - earliestStart`), NOT `effortPT / teamFte` — those differ
+  whenever its children run in parallel, and reporting the effort-derived number
+  on a summary row is how a Gantt ends up with bars that do not match their
+  children.
+
+  ## Scope boundaries — set deliberately
+
+  - **Finish-to-start only.** Merlin offers FS/FF/SS/SF; this stays FS, as
+    task-155 decided. Do not add the other three.
+  - **No auto-layout, no positions.** Layout is task-157's concern and position
+    is still not part of the model.
+  - **A cycle is still a reported result**, never a throw. Detect it on the
+    LOWERED leaf graph — an edge between two groups can close a cycle that is
+    invisible at group level — and report the ids the user drew (the group ids),
+    not the lowered leaf ids, or the error names nodes the user never touched.
+
+  ## KMP constraints
+
+  - `schedule(...)` stays a **member** on `EstimationVersion` — `@JsExport` does
+    not export extension functions, so an extension compiles, passes
+    `:domain:build`, and is then missing from `domain.d.mts`.
+  - `ScheduledTask` is `@JsExport`ed, so its new fields reach `domain.d.mts`;
+    `parentLogicalId` must be `String?` (nullable), which crosses as
+    `Nullable<string>`.
+  - Never call `super.<computed property>` in an override — infinite recursion
+    on Kotlin/JS while the JVM tests pass.
+
+steps:
+  - |
+    Extend the exported shape in
+    `src/domain/core/src/main/kotlin/io/pythia/model/ProjectSchedule.kt`:
+
+      @JsExport data class ScheduledTask(
+          val logicalId: String,
+          val title: String,
+          /** Null for a top-level node. */
+          val parentLogicalId: String?,
+          /** 0 for a root; +1 per level. */
+          val depth: Int,
+          /** True when this node has children and its dates are a ROLL-UP. */
+          val isGroup: Boolean,
+          val effortPT: Double,
+          val meanPT: Double,
+          val effortVariance: Double,
+          /** A group's span (finish - start), NOT effortPT / teamFte. */
+          val durationDays: Double,
+          val earliestStart: Double,
+          val earliestFinish: Double,
+          val onCriticalPath: Boolean
+      )
+  - |
+    Rework `computeSchedule` so leaves are the atomic units and groups roll up.
+
+    1. Walk `version.roots` to build the node index: every node with its parent
+       and depth, and the leaf set (reuse `EstimationNode.leaves()`).
+    2. **Lower the edges.** An edge naming a node expands to the leaves of that
+       node's subtree: `A → B` becomes an edge from every leaf of A to every
+       leaf of B. Drop an edge whose id is in neither index — that filter now
+       means "the node was deleted", which is its original purpose.
+    3. Schedule the LEAF graph with the existing passes — topological sort,
+       forward pass carrying `(meanAccum, varianceAccum)`, backward pass,
+       `onCriticalPath` by slack < 1e-9. That logic is correct and stays.
+    4. **Roll groups up**: `earliestStart` = min over subtree leaves,
+       `earliestFinish` = max, `durationDays` = the difference,
+       `onCriticalPath` = any leaf critical, `effortPT`/`meanPT`/`effortVariance`
+       = the subtree sums (`EstimationNode` already accumulates these).
+    5. Emit `tasks` in **tree order** (depth-first, root order) so a consumer can
+       render it without sorting.
+
+    Beware the lowering blow-up: a group-to-group edge between two 50-leaf
+    groups is 2500 lowered edges. Collapse it to a **single synthetic
+    constraint** per drawn edge — the successor's leaves start after the
+    predecessor subtree's LATEST finish — rather than materialising the cross
+    product, or a large import will hang.
+
+    `logger.debug { … }` the node count, leaf count, drawn-vs-lowered edge
+    counts and the resulting length.
+  - |
+    Report a cycle in the USER'S terms. Detect it on the lowered graph, then map
+    the stuck leaves back to the ids that were actually drawn, so
+    `ScheduleError.involvedLogicalIds` names the nodes the user connected — a
+    group id when they drew a group edge — and never a leaf they never saw.
+  - |
+    Update `src/domain/src/test/kotlin/io/pythia/model/ProjectScheduleTest.kt`.
+    The existing cases stay meaningful (a chain, parallel branches, a diamond,
+    an unknown id, `teamFte = 0`, a self-edge, a duplicate edge, the range and
+    the teamFte-squared check) — every one of them now uses single-leaf groups,
+    so assert they still produce the same numbers.
+
+    Add the cases this task exists for:
+      - a Merlin-shaped tree: ONE root group with several child leaves, edges
+        drawn between the CHILDREN — under the old rule this had one unit and no
+        schedule at all
+      - a group's dates are the roll-up of its children: start = earliest child
+        start, finish = latest child finish
+      - a group's `durationDays` is its SPAN, not `effortPT / teamFte` — assert
+        they differ for a group whose children run in parallel
+      - an edge between two GROUPS orders every leaf of one after every leaf of
+        the other
+      - a group is `onCriticalPath` when only one of its leaves is
+      - a cycle drawn between two groups is reported with the GROUP ids
+      - `depth` and `parentLogicalId` describe the tree for a two-level nesting
+
+    Assert exact numbers, not merely that the call returns.
+  - |
+    Check the consumers. `scheduleVersion(...)` in
+    `src/domain/src/main/kotlin/io/pythia/DomainFactory.kt` still takes an
+    `Array<ScheduleDependency>` and needs no signature change, but confirm it
+    compiles against the widened `ScheduledTask`. Nothing in the backend reads
+    `ProjectSchedule` (task-156 persists only the inputs), so there is no
+    backend change — verify that rather than assume it.
+  - |
+    Update `src/domain/CLAUDE.md`: replace the "scheduling unit = root node"
+    paragraph with the roll-up model — leaves are atomic, groups derive their
+    dates, edges are lowered, a group's duration is a span not an effort
+    quotient — and say that this supersedes task-155's rule so the next reader
+    does not follow the old one. Note the flat-list-with-parent-pointer shape
+    and why it is not nested.
+  - |
+    Run the gate: `./gradlew :domain:build`, then `./gradlew :frontend:check`
+    (the frontend consumes the generated TypeScript, so a widened `@JsExport`
+    class can break its type-check even with no frontend edit), then
+    `./gradlew build`.
+
+validation:
+  - |
+    The exported shape carries the tree, and the roll-up flag:
+      # set -e: without it only the LAST command's status counts, so a block
+      # ending on a negation passes whenever the files are simply absent.
+      set -e
+      D=src/domain/core/src/main/kotlin/io/pythia/model/ProjectSchedule.kt
+      grep -q "parentLogicalId" "$D"
+      grep -q "depth" "$D"
+      grep -q "isGroup" "$D"
+      grep -q "fun schedule(" src/domain/core/src/main/kotlin/io/pythia/model/EstimationVersion.kt
+  - |
+    Units are no longer roots-only — this is the rule the task exists to
+    replace, so its removal is the load-bearing check:
+      # set -e: without it only the LAST command's status counts, so a block
+      # ending on a negation passes whenever the files are simply absent.
+      set -e
+      D=src/domain/core/src/main/kotlin/io/pythia/model/ProjectSchedule.kt
+      if grep -q "version.roots.map { unitOf" "$D"; then echo "unexpected match in the target"; exit 1; fi
+      grep -q "leaves()" "$D"
+  - |
+    The generated TypeScript surface actually carries the new fields — an
+    @JsExport change that does not reach domain.d.mts is the failure mode this
+    project keeps hitting:
+      # set -e: without it only the LAST command's status counts, so a block
+      # ending on a negation passes whenever the files are simply absent.
+      set -e
+      T=src/frontend/src/lib/domain/domain.d.mts
+      grep -q "parentLogicalId" "$T"
+      grep -q "isGroup" "$T"
+      grep -q "scheduleVersion" "$T"
+  - |
+    The domain logs the operation through the kotlin-logging facade, lambda form:
+      # set -e: without it only the LAST command's status counts, so a block
+      # ending on a negation passes whenever the files are simply absent.
+      set -e
+      D=src/domain/core/src/main/kotlin/io/pythia/model/ProjectSchedule.kt
+      grep -q "KotlinLogging.logger" "$D"
+      grep -qE "logger\.debug \{" "$D"
+  - |
+    The cases this task exists for are actually tested:
+      # set -e: without it only the LAST command's status counts, so a block
+      # ending on a negation passes whenever the files are simply absent.
+      set -e
+      T=src/domain/src/test/kotlin/io/pythia/model/ProjectScheduleTest.kt
+      grep -qi "roll.up\|rollup" "$T"
+      grep -qi "group" "$T"
+      grep -qi "span" "$T"
+      grep -q "depth" "$T"
+      grep -q "StandardMethods.installAll()" "$T"
+  - |
+    The superseded rule is corrected where the domain model is documented — a
+    reader who follows the old paragraph builds the wrong thing:
+      # set -e: without it only the LAST command's status counts, so a block
+      # ending on a negation passes whenever the files are simply absent.
+      set -e
+      grep -qi "roll-up\|rollup" src/domain/CLAUDE.md
+      grep -q "task-164" src/domain/CLAUDE.md
+      if grep -q "scheduling units are exactly .EstimationVersion.roots" src/domain/CLAUDE.md; then echo "unexpected match in src/domain/CLAUDE.md"; exit 1; fi
+  - |
+    ./gradlew :domain:build
+  - |
+    ./gradlew :frontend:check
+  - |
+    ./gradlew build
+
+outputs:
+  - modified: src/domain/core/src/main/kotlin/io/pythia/model/ProjectSchedule.kt
+  - modified: src/domain/src/test/kotlin/io/pythia/model/ProjectScheduleTest.kt
+  - modified: src/domain/CLAUDE.md

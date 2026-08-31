@@ -1,0 +1,219 @@
+id: task-165
+phase: phase-10
+title: "Delete plan.yaml's stale, unread phase task lists"
+depends_on: []
+description: |
+  `planning/plan.yaml` carries a `tasks:` list under every phase. **37 task
+  files (as of writing) declare a phase whose list does not contain them**, spanning phase-2
+  through phase-19 — including task-143 (the module split), task-139, task-136,
+  task-137, and task-161/task-162 from the most recent work.
+
+  The obvious reading is "the index has drifted, backfill it". That is the wrong
+  fix, because of what the audit turned up next.
+
+  ## The lists are not merely stale — nothing reads them
+
+  `scripts/status.sh` is the only consumer of `plan.yaml`, and its
+  `parse_plan_phases()` extracts **phase id → name only**:
+
+      /- id:/   { id = $0; sub(/.*id:[[:space:]]*/, "", id); next }
+      /name:/   { name = $0; ... print id "\t" name ... }
+
+  Phase MEMBERSHIP is then grouped from each task file's own `phase:` field, and
+  the script even renders "`<phase>` (not in plan.yaml)" for a phase that only a
+  task declares. So the per-task field is *already* the single source of truth
+  and the tooling already behaves that way.
+
+  The measurable proof: `plan.yaml` lists **7** tasks under phase-2;
+  `./scripts/status.sh` renders **13** — correctly, including task-034,
+  task-079, task-080 and task-091..093. Nothing consulted the list.
+
+  `scripts/task.sh` touches only `status.json`. The `add-task` and
+  `improve-task` commands read `plan.yaml` for phase **ids** ("the `phase` field
+  must match a phase ID in `plan.yaml`"), which the `id:`/`name:` entries keep
+  satisfying.
+
+  ## Target state
+
+  Delete `tasks:` from every phase in `plan.yaml`. A phase keeps `id`, `name`
+  and `duration_weeks` — the actual planning content. Phase membership is
+  derived, on demand, by `./scripts/status.sh`, which already does it.
+
+  This is the same reasoning that took `%prod` stage config out of the image in
+  task-161: a fact written down twice, where only one copy is consulted, is not
+  redundancy — it is a second copy that silently goes wrong. Backfilling would
+  restore 37 entries that no code reads and that the next task would begin
+  desynchronising again.
+
+  ## Do NOT backfill, and do NOT change any task's `phase:` field
+
+  Making the per-task field authoritative de jure (it already is de facto) means
+  a wrong `phase:` becomes a wrong answer rather than a disagreement. This task
+  deliberately does **not** audit or correct those fields — that would be a
+  different change with real judgement in it, and bundling it here would hide a
+  behaviour change inside a deletion.
+
+  What it DOES add is the cheap mechanical check that surfaces a suspect field:
+  a task must not depend on a task in a LATER phase (the ordering rule
+  `improve-task` already applies per task, here applied across the whole plan).
+  Report violations; fix none.
+
+  ## Interaction with task-159
+
+  task-159 ("Move open tasks to GitHub Issues") is pending and would make
+  `planning/tasks/` + `status.json` a frozen archive, generating `phase:N`
+  labels from `plan.yaml`'s `phases:` list. The two are compatible — task-159
+  reads phase **ids**, not the `tasks:` lists this task deletes — but note the
+  sequencing: if task-159 lands first, `phase-check.sh` audits archived data
+  rather than live plan state. Both also edit `.claude/commands/*.md`
+  (task-159 rewrites `add-task.md`, this task touches `improve-task.md`), so
+  whichever runs second should expect a conflict there. No `depends_on` either
+  way: this task stands alone.
+
+steps:
+  - |
+    Remove the `tasks:` key from every phase entry in `planning/plan.yaml`.
+    Keep `id`, `name` and `duration_weeks`. Add a short comment above `phases:`
+    recording that membership is derived from each task file's `phase:` field
+    and rendered by `./scripts/status.sh`, so nobody re-adds the lists as an
+    obvious omission.
+  - |
+    Prove `scripts/status.sh` is unaffected. Its output with the lists and
+    without them must be **identical** — the script reads only `id`/`name` from
+    `plan.yaml`, so deleting the lists cannot change what it renders.
+
+    Reconstruct the "before" from git rather than capturing it by hand first.
+    A hand-captured file is order-dependent: taken AFTER the edit it matches the
+    "after" trivially and the check passes while proving nothing.
+
+      git stash push --quiet planning/plan.yaml
+      ./scripts/status.sh > /tmp/status-before.txt   # plan.yaml as committed
+      git stash pop --quiet
+      ./scripts/status.sh > /tmp/status-after.txt    # plan.yaml with the lists gone
+      diff /tmp/status-before.txt /tmp/status-after.txt
+
+    (Assumes the pre-commit working state `implement-task` requires: the stash
+    is what supplies the "before". If the change is already committed the stash
+    is empty and the comparison is vacuous.)
+
+    If the two differ, the premise of this task is wrong: stop, restore the
+    lists, and report that rather than adjusting the script to match.
+  - |
+    Add `./scripts/phase-check.sh`: a read-only audit that reports, without
+    changing anything and without failing the build,
+
+      - every task file whose `phase:` names a phase absent from `plan.yaml`
+      - every task that depends on a task in a LATER phase (the ordering rule
+        `improve-task` applies per task; running it across the plan is what
+        surfaces a mis-declared `phase:`)
+
+    Exit non-zero only on the first class — a phase id that does not exist is
+    unambiguously wrong, whereas an ordering violation may be a deliberate
+    exception and is reported for a human to judge.
+
+    Follow the existing script conventions: `#!/usr/bin/env bash`,
+    `set -euo pipefail`, resolve `PROJECT_ROOT` the way `status.sh` and
+    `task.sh` do, and make it executable. Keep it dependency-free apart from the
+    `jq` the other scripts already require.
+  - |
+    Correct the two places that describe `plan.yaml` as a task index:
+
+      - `planning/README.md` — line ~10 calls it "High-level plan: stack,
+        domain, phases, task index", and the workflow section says to "Update
+        `plan.yaml` if phases or task lists change". Both are now wrong. Say
+        that a task's phase lives in its own file and that `./scripts/status.sh`
+        renders the plan by phase; mention `./scripts/phase-check.sh`.
+      - the root `CLAUDE.md`, line ~110: "`planning/plan.yaml` — stack, domain,
+        phases, task index."
+      - `.claude/commands/improve-task.md`, line ~8: "`planning/plan.yaml` —
+        architecture, stack, phases, task index" — the review protocol reads
+        this line to decide what `plan.yaml` is for.
+
+    Do NOT go hunting for "add this task to plan.yaml's phase list" steps in
+    other task files: every task carrying one is already `done`, and a done
+    task's file records what was actually carried out. Leave them.
+  - |
+    Run `./scripts/phase-check.sh` and record its output in the task report —
+    both the unknown-phase list (which must be empty once the lists are gone,
+    since every phase id still exists) and the ordering violations, which are
+    informational and are NOT fixed here.
+  - |
+    Run the gate. This task changes no compiled code, so the build is a
+    regression check rather than the point: `./gradlew build`.
+
+validation:
+  - |
+    The duplicated lists are gone and the planning content is not:
+      set -e
+      if grep -qE "^    tasks: \[task-" planning/plan.yaml; then echo "unexpected match in planning/plan.yaml"; exit 1; fi
+      grep -q "id: phase-19" planning/plan.yaml
+      grep -q "duration_weeks:" planning/plan.yaml
+      ruby -ryaml -e 'p YAML.load_file("planning/plan.yaml")["phases"].size' > /dev/null
+  - |
+    Every phase still carries id + name + duration_weeks, so status.sh's
+    id/name parser and improve-task's "phase must exist" check keep working:
+      set -e
+      ruby -ryaml -e '
+        ph = YAML.load_file("planning/plan.yaml")["phases"]
+        bad = ph.reject { |p| p["id"] && p["name"] && p["duration_weeks"] }
+        abort("phases missing id/name/duration_weeks: #{bad.inspect}") unless bad.empty?
+        abort("a phase still carries a tasks list") if ph.any? { |p| p.key?("tasks") }
+        puts "#{ph.size} phases, all well-formed, none carrying a task list"
+      '
+  - |
+    status.sh renders the SAME plan as before the deletion — this is the check
+    that proves the lists were unread, and it is the whole premise of the task:
+      set -e
+      # Reconstruct "before" from git so the check cannot be satisfied by
+      # capturing it late. Assumes the pre-commit state implement-task requires.
+      git stash push --quiet planning/plan.yaml
+      ./scripts/status.sh > /tmp/status-before.txt
+      git stash pop --quiet
+      ./scripts/status.sh > /tmp/status-after.txt
+      diff -q /tmp/status-before.txt /tmp/status-after.txt
+      # and prove the stash actually reverted something — an empty stash would
+      # make the diff vacuous
+      grep -qE "^    tasks: \[task-" /tmp/status-before.txt || true
+      test -s /tmp/status-before.txt
+  - |
+    The audit script exists, is executable, and is read-only:
+      set -e
+      test -x scripts/phase-check.sh
+      bash -n scripts/phase-check.sh
+      grep -q "set -euo pipefail" scripts/phase-check.sh
+      # read-only: it must not write to the plan or the task files
+      if grep -qE ">[[:space:]]*(planning/|\"?\\\$PLAN)" scripts/phase-check.sh; then echo "unexpected match in scripts/phase-check.sh"; exit 1; fi
+      if grep -qE "\bsed -i\b|\bmv \b.*planning/" scripts/phase-check.sh; then echo "unexpected match in scripts/phase-check.sh"; exit 1; fi
+  - |
+    It reports both classes and exits non-zero only for an unknown phase:
+      set -e
+      ./scripts/phase-check.sh > /tmp/phase-check.txt 2>&1 || true
+      grep -qiE "phase" /tmp/phase-check.txt
+      # with every phase id still present, the unknown-phase class is empty and
+      # the script succeeds
+      ./scripts/phase-check.sh > /dev/null
+  - |
+    The docs no longer call plan.yaml a task index:
+      set -e
+      # Assert the CORRECTION landed, rather than forbidding the phrase: the
+      # natural fix is to say "not a task index", which a bare ban would reject.
+      grep -qi "not a task index" planning/README.md
+      grep -qi "not a task index" CLAUDE.md
+      grep -qi "not a task index" .claude/commands/improve-task.md
+      # and none of them still describes it as one WITHOUT the negation
+      for f in planning/README.md CLAUDE.md .claude/commands/improve-task.md; do
+        if grep -i "task index" "$f" | grep -qiv "not a task index"; then
+          echo "still calls plan.yaml a task index: $f"; exit 1
+        fi
+      done
+      grep -q "status.sh" planning/README.md
+      grep -q "phase-check.sh" planning/README.md
+  - |
+    ./gradlew build
+
+outputs:
+  - modified: planning/plan.yaml
+  - created: scripts/phase-check.sh
+  - modified: planning/README.md
+  - modified: CLAUDE.md
+  - modified: .claude/commands/improve-task.md

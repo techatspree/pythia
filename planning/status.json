@@ -967,6 +967,18 @@
       "started_at": null,
       "completed_at": null,
       "notes": "e2e flake in bucket-views.test.ts 'a leaf can be dragged into an EMPTY bucket': the drag settles and releases, but the leaf keeps its old bucket for the full 5s assertion — a silent no-op drop, a different mechanism from the settle-budget exhaustion already addressed"
+    },
+    "task-164": {
+      "status": "pending",
+      "started_at": null,
+      "completed_at": null,
+      "notes": "Scheduling units are roots-only, so a Merlin-imported estimate (whose whole WBS arrives as one top-level group) collapses to a single box and the dependency editor is useless; make any node schedulable with groups as derived roll-ups, Merlin-style"
+    },
+    "task-165": {
+      "status": "done",
+      "started_at": "2026-08-31T09:57:38+00:00",
+      "completed_at": "2026-08-31T10:01:51+00:00",
+      "notes": "plan.yaml's phases[].tasks lists are stale in 37 places and read by nothing — scripts/status.sh already derives phase membership from each task's own phase: field; delete the duplicated lists and correct the docs that call plan.yaml a task index"
     }
   }
 }

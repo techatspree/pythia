@@ -66,6 +66,10 @@ Descriptions only — never record a value in this file.
 | `OIDC_AUTH_SERVER_URL` | Issuer URL of the identity provider realm. |
 | `OIDC_CLIENT_ID` | Client id registered for that environment. |
 | `OIDC_TOKEN_AUDIENCE` | Accepted token audience(s), comma-separated. See "Configuration is not in the image" below. |
+| `OIDC_TENANT_ID` | Identity-provider tenant id, for the SPA's `config.json` (task-162). |
+| `OIDC_SPA_CLIENT_ID` | Client id of the **SPA** registration — distinct from `OIDC_CLIENT_ID`, which is the API's. |
+| `OIDC_REDIRECT_URI` | Where the identity provider returns the browser. Must be a **registered** redirect URI on the SPA registration and match how the SPA is opened. |
+| `POSTGRES_PASSWORD` | Database password for the stage. See "Rotating the database password" below. |
 | `DEPLOY_HOST` | SSH target of the server (`user@host`). |
 | `DEPLOY_SSH_KEY` | Private key for that SSH user. File-type variable. |
 | `REGISTRY_USER` / `REGISTRY_PASSWORD` | Credentials for the image pull secret and for `docker login` on the runner. |
@@ -148,11 +152,41 @@ application reads these names directly.
 | `APP_AUTH_PROVIDER` | ConfigMap | `dev` \| `entra` \| `keycloak`. Was baked as `%prod.app.auth.provider`. |
 | `QUARKUS_DATASOURCE_JDBC_URL` | ConfigMap | JDBC URL of the stage's database. |
 | `QUARKUS_DATASOURCE_USERNAME` | Secret `postgres-credentials` | Database user. |
-| `QUARKUS_DATASOURCE_PASSWORD` | Secret `postgres-credentials` | Database password. A default one used to be committed in `application.properties`. |
+| `QUARKUS_DATASOURCE_PASSWORD` | Secret `postgres-credentials` | Database password. Placeholder `${POSTGRES_PASSWORD}` in the staging and production overlays. A default one used to be committed in `application.properties`, and then in the base Secret; the base still carries the local-minikube value. |
 | `QUARKUS_OIDC_AUTH_SERVER_URL` | ConfigMap | Issuer URL. Placeholder `${OIDC_AUTH_SERVER_URL}`. |
 | `QUARKUS_OIDC_CLIENT_ID` | ConfigMap | Client id. Placeholder `${OIDC_CLIENT_ID}`. |
 | `QUARKUS_OIDC_TOKEN_AUDIENCE` | ConfigMap | Accepted audiences. Placeholder `${OIDC_TOKEN_AUDIENCE}`. |
 | `config.json` | ConfigMap `frontend-config` | The SPA's runtime config (task-162). Placeholders `${OIDC_TENANT_ID}`, `${OIDC_SPA_CLIENT_ID}`, `${OIDC_REDIRECT_URI}`, and `${OIDC_CLIENT_ID}` reused as `apiClientId`. |
+
+### Rotating the database password
+
+The base `postgres-credentials` Secret carries `estimation` — the local-minikube
+value, matching `%dev-minikube.quarkus.datasource.password`. The staging and
+production overlays replace it with `${POSTGRES_PASSWORD}`, which `deploy.sh`
+refuses to leave unset, so a deployed stage cannot fall back to it.
+
+**`POSTGRES_PASSWORD` only takes effect when the data directory is
+initialised.** The `postgres` image runs `initdb` on an empty PVC and ignores
+the variable on every later start. So applying a new password against a
+database that already exists changes only what the *backend* presents, and the
+next backend restart fails to authenticate — with a healthy-looking PostgreSQL
+next to it.
+
+On a database that already has data, change it in PostgreSQL first, then deploy:
+
+```bash
+kubectl -n estimation exec -it statefulset/postgres -- \
+    psql -U estimation -c "ALTER USER estimation PASSWORD 'the-new-one';"
+# then set POSTGRES_PASSWORD in CI/CD and redeploy, or for a config-only change:
+kubectl -n estimation rollout restart deployment/backend
+```
+
+The rollout restart is needed because a Secret change alone does not restart a
+pod: the Deployment spec is unchanged, so `rollout status` reports success
+immediately while the pods keep the old value.
+
+On a **fresh** cluster none of this applies — set the variable before the first
+deploy and `initdb` picks it up.
 
 ### The frontend needs a FILE, not environment variables
 
