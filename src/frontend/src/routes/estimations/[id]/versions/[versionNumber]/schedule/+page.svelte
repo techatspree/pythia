@@ -11,7 +11,7 @@
 	import ErrorBanner from '$lib/components/ErrorBanner.svelte';
 	import DependencyEditor from '$lib/components/schedule/DependencyEditor.svelte';
 	import { computeEstimation, type ScheduleEdge } from '$lib/adapter.js';
-	import { normalizeRoots } from '$lib/estimationNodes';
+	import { normalizeRoots, labelsByLogicalId, type Node } from '$lib/estimationNodes';
 	import type { ApiVersionResponse } from '$lib/api/types.js';
 
 	// The dependency graph on its own route (task-167). It was a collapsible
@@ -45,6 +45,12 @@
 	let saveTimer: ReturnType<typeof setTimeout> | null = null;
 
 	const editable = $derived(versionData?.isDraft === true);
+
+	// Display names for the dependency rows, taken from the TREE rather than the
+	// schedule: a failed schedule comes back with an empty `tasks` list, so the
+	// cycle notice — the one place that most needs to name an item — is exactly
+	// where the schedule can name nothing (task-171).
+	const labels = $derived(labelsByLogicalId(currentRoots as Node[]));
 
 	// The schedule comes off the domain, from the same single build+calculate
 	// the version editor uses — this page computes no numbers of its own.
@@ -244,6 +250,6 @@
 			{/if}
 		</div>
 
-		<DependencyEditor {schedule} bind:dependencies={currentDependencies} {editable} />
+		<DependencyEditor {schedule} bind:dependencies={currentDependencies} {editable} {labels} />
 	{/if}
 </Page>

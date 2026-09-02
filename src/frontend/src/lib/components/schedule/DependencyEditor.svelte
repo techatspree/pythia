@@ -16,15 +16,35 @@
 	// No charting or graph library, deliberately: this repo hand-rolls TreeTable
 	// and its drop-zone geometry, and a library would own the interaction model
 	// task-158's Gantt has to match.
+	// A module-level constant, not an inline `new Map()` default: a fresh map per
+	// render would be a new prop identity every time.
+	const NO_LABELS: ReadonlyMap<string, string> = new Map();
+
 	let {
 		schedule,
 		dependencies = $bindable(),
-		editable = true
+		editable = true,
+		labels = NO_LABELS
 	}: {
 		schedule: ProjectScheduleView | null;
 		dependencies: ScheduleEdge[];
 		editable?: boolean;
+		labels?: ReadonlyMap<string, string>;
 	} = $props();
+
+	/**
+	 * One logical id → the name to show a user.
+	 *
+	 * Deliberately NOT `byId` (which is built from `schedule.tasks`): a failed
+	 * schedule returns an EMPTY task list, so at the moment the cycle notice
+	 * renders the schedule can name nothing. The caller passes names read off
+	 * the estimation tree instead (task-171). A miss is reachable — a
+	 * dependency outlives the item it referenced, because the version editor's
+	 * PUT omits `dependencies` — so it gets a placeholder, never a raw id.
+	 */
+	function nameOf(logicalId: string): string {
+		return labels.get(logicalId) ?? $_('schedule.editor.unknownItem');
+	}
 
 	const CARD_W = 200;
 	const CARD_H = 62;
@@ -316,15 +336,18 @@
 	</p>
 	<ul class="text-sm text-gray-700" data-testid="schedule-cycle-edges">
 		{#each dependencies as edge (edge.fromLogicalId + '->' + edge.toLogicalId)}
-			<li class="flex items-center gap-2 py-0.5">
-				<span class="font-mono text-xs">{edge.fromLogicalId.slice(0, 8)} → {edge.toLogicalId.slice(0, 8)}</span>
+			<li
+				class="flex items-center gap-2 py-0.5"
+				title="{edge.fromLogicalId} → {edge.toLogicalId}"
+			>
+				<span>{nameOf(edge.fromLogicalId)} → {nameOf(edge.toLogicalId)}</span>
 				{#if editable}
 					<button
 						type="button"
 						class="text-xs text-gray-500 underline hover:text-brand-green"
 						data-testid="schedule-cycle-remove"
 						aria-label={$_('schedule.editor.edgeAria', {
-							values: { from: edge.fromLogicalId, to: edge.toLogicalId }
+							values: { from: nameOf(edge.fromLogicalId), to: nameOf(edge.toLogicalId) }
 						})}
 						onclick={() => removeEdge(edge)}>{$_('common.delete')}</button
 					>

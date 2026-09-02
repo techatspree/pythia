@@ -142,6 +142,7 @@
       "expandAria": "Expand group",
       "collapseAria": "Collapse group",
       "dragAria": "Dragging a new dependency",
+      "unknownItem": "Deleted item",
       "groupBoxAria": "Group {title} with its sub-items"
     },
     "error": {

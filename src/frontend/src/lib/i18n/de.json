@@ -142,6 +142,7 @@
       "expandAria": "Gruppe aufklappen",
       "collapseAria": "Gruppe zuklappen",
       "dragAria": "Neue Abhängigkeit wird gezogen",
+      "unknownItem": "Gelöschter Vorgang",
       "groupBoxAria": "Gruppe {title} mit ihren Untervorgängen"
     },
     "error": {

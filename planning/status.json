@@ -1011,9 +1011,9 @@
       "notes": "The Terminplan panel repeats every estimation item in its own table; remove that table and surface criticality as an 'on critical path' column on the main estimation grid instead"
     },
     "task-171": {
-      "status": "pending",
-      "started_at": null,
-      "completed_at": null,
+      "status": "done",
+      "started_at": "2026-09-02T14:54:42+00:00",
+      "completed_at": "2026-09-02T15:00:56+00:00",
       "notes": "The cycle notice lists offending dependencies as truncated UUID pairs; label them with the estimation items' titles instead"
     }
   }

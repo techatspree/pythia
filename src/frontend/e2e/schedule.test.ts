@@ -203,6 +203,25 @@ test('a cycle is reported rather than prevented, and the figures hide', async ({
 	await expect(page.getByTestId('schedule-cycle')).toBeVisible();
 	await expect(page.getByTestId('schedule-planned-length')).toHaveCount(0);
 
+	// The list has to name the items, or the user cannot tell which dependency
+	// to delete (task-171). The fixture's cycle runs between the two ROOT
+	// GROUPS, so this also proves groups are in the label map, not just leaves.
+	const cycleList = page.getByTestId('schedule-cycle-edges');
+	await expect(cycleList).toContainText('Alpha');
+	await expect(cycleList).toContainText('Beta');
+	// And no truncated logical id, which is what it used to render.
+	expect(await cycleList.innerText()).not.toMatch(/[0-9a-f]{8}/);
+
+	// Naming the rows is only useful if the picked row can be acted on: delete
+	// one and the cycle resolves, bringing the graph back.
+	await page.getByTestId('schedule-cycle-remove').first().click();
+	await expect(page.getByTestId('schedule-cycle')).toHaveCount(0);
+	await expect(page.getByTestId('dependency-editor')).toBeVisible();
+
+	// Re-draw it so the rest of the test still exercises the cycle state.
+	await dragDependency(page, groupA, groupB);
+	await expect(page.getByTestId('schedule-cycle')).toBeVisible();
+
 	// The editor's critical-path column is driven by a set that is EMPTY on a
 	// schedule error (task-170), so a cycle blanks the column rather than
 	// leaving yesterday's dots on screen.

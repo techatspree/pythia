@@ -82,3 +82,31 @@ function initNode(n: RawNode): Node {
 export function normalizeRoots(version: { roots?: RawNode[] } | null | undefined): Node[] {
 	return (version?.roots ?? []).map(initNode);
 }
+
+/**
+ * Every node in the tree, mapped `logicalId` → display name.
+ *
+ * MIRRORS the domain's `labelOf` in `ProjectSchedule.kt` — a group is named by
+ * its `title`, a leaf by its `description` — and must stay in step with it, or
+ * the same node gets one name on a graph card and a different one elsewhere.
+ *
+ * Exists because a FAILED schedule comes back with an empty `tasks` list
+ * (`failedSchedule`), so anything that must name a node while the schedule is
+ * in an error state cannot read the schedule and has to read the tree instead
+ * (task-171). Groups are included: a dependency may run between them.
+ */
+export function labelsByLogicalId(roots: Node[]): Map<string, string> {
+	const out = new Map<string, string>();
+	const walk = (nodes: Node[]) => {
+		for (const n of nodes) {
+			if (n.type === 'GROUP') {
+				out.set(n.logicalId, n.title);
+				walk(n.children);
+			} else {
+				out.set(n.logicalId, n.description);
+			}
+		}
+	};
+	walk(roots);
+	return out;
+}

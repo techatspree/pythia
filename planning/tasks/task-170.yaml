@@ -68,13 +68,23 @@ description: |
   returns empty `tasks` on `CYCLE` — but it must be true for
   `INVALID_TEAM_FTE` too, where `tasks` may be non-empty.
 
-  ### `SvelteSet`, not `Set`
+  ### `SvelteSet`, not `Set` — a choice, not a lint requirement
 
-  The derived set is reactive state read by child components, so it must be
-  `SvelteSet` from `svelte/reactivity`. A plain `Set` in a `$derived` trips the
-  `prefer-svelte-reactivity` ESLint rule, which is an error under
-  `:frontend:check` — task-167 hit exactly this in `DependencyEditor.svelte`
-  and the fix was `SvelteSet`, not a suppression.
+  CORRECTION (recorded after implementation): an earlier draft of this task
+  claimed a plain `Set` in a `$derived` is an ESLint error. **That is wrong.**
+  Verified empirically against this rule version:
+  `svelte/prefer-svelte-reactivity` flags a bare `new Map()` / `new Set()`
+  **initialiser inside a reactive scope** — which is why
+  `DependencyEditor.svelte` carries four justified disables for the transient
+  locals in its `layout` and `drawnEdges` `$derived.by` bodies — but it does
+  NOT flag `$derived(new Set(...))`. `cycleIds` in that same file is a plain
+  `Set` in a `$derived` and lints clean.
+
+  Use `SvelteSet` from `svelte/reactivity` anyway, on its merits: this set is
+  reactive state read by child components, and `SvelteSet` is what `TreeTable`
+  already uses for exactly that shape (`expandedOverrides`,
+  `draggedSubtreeIds`). It is the consistent choice, not a forced one — so if a
+  future change makes a plain `Set` more natural here, lint will not stop it.
 
   ## Both methods need the column, or the information disappears
 
@@ -181,10 +191,11 @@ steps:
         )
       );
 
-    Import `SvelteSet` from `svelte/reactivity` — a plain `Set` here is an
-    ESLint error (`prefer-svelte-reactivity`), not a warning. Add
-    `{criticalPath}` to the `<EditorComponent ... />` prop list alongside
-    `{calcMap}` and `{totals}`.
+    Import `SvelteSet` from `svelte/reactivity` — for consistency with
+    `TreeTable`'s own sets, NOT because lint requires it (see the correction in
+    the description: `prefer-svelte-reactivity` does not flag
+    `$derived(new Set(...))`). Add `{criticalPath}` to the
+    `<EditorComponent ... />` prop list alongside `{calcMap}` and `{totals}`.
   - |
     Accept and forward the prop in `src/frontend/src/lib/methods/pert/EditorModule.svelte`:
     add `criticalPath` to its `$props()` destructuring and its type as
@@ -289,8 +300,8 @@ steps:
     section no longer lists per-item rows and why (it duplicated the grid), so
     the next person does not restore the table as a "missing" feature.
   - |
-    Run the gates: `./gradlew :frontend:check` (svelte-check + ESLint — the
-    `prefer-svelte-reactivity` rule is enforced here), then `./gradlew build`,
+    Run the gates: `./gradlew :frontend:check` (svelte-check + ESLint), then
+    `./gradlew build`,
     then the Playwright suite with the dev stack up (`./scripts/dev.sh`;
     backend :8090, Vite :5173; stop it with SIGTERM, never by killing the child
     JVMs): `cd src/frontend && npm run test:e2e`.
@@ -322,8 +333,9 @@ validation:
       grep -q "onCriticalPath" "$P"
       grep -q "{criticalPath}" "$P"
   - |
-    A plain Set was NOT used for the derived state — this is an ESLint error,
-    not a style preference, and it is the exact rule task-167 tripped:
+    A plain Set was NOT used for the derived state. This pins the deliberate
+    choice of `SvelteSet` (consistency with TreeTable's sets) — it is NOT
+    enforced by lint, so this check is the only thing holding it:
       set -e
       P="src/frontend/src/routes/estimations/[id]/versions/[versionNumber]/+page.svelte"
       if grep -qE '\$derived\(\s*new Set\(|= new Set<' "$P"; then

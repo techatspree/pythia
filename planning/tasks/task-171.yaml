@@ -1,0 +1,354 @@
+id: task-171
+phase: phase-19
+title: "Name the items in the dependency-cycle list"
+depends_on: [task-170]
+description: |
+  When the dependency graph contains a cycle, the editor asks the user to
+  delete one of the offending dependencies — but labels each one with a pair of
+  truncated UUIDs, so there is no way to tell which dependency to delete.
+
+  ## Current state
+
+  `src/frontend/src/lib/components/schedule/DependencyEditor.svelte` renders a
+  cycle branch (`data-testid="schedule-cycle-edges"`) whose rows read:
+
+      <span class="font-mono text-xs">
+        {edge.fromLogicalId.slice(0, 8)} → {edge.toLogicalId.slice(0, 8)}
+      </span>
+
+  so the user sees `3f2a91bc → 7d10e4aa` and a Delete button. The row's
+  `aria-label` is worse — it interpolates the FULL logical ids into
+  `schedule.editor.edgeAria`, so a screen reader hears two complete UUIDs.
+
+  ## Why it was written that way, and what actually blocks the fix
+
+  This is not an oversight that a one-line lookup fixes. The component resolves
+  every other display name through `byId`, which is built from
+  `schedule.tasks`:
+
+      const byId = $derived(new Map(tasks.map((t) => [t.logicalId, t])));
+
+  and on a cycle **`schedule.tasks` is empty**. `ProjectSchedule.kt`'s
+  `failedSchedule(...)` returns `tasks = emptyList()` for both error kinds, so
+  at the exact moment the cycle list renders, the component knows no titles at
+  all. The UUID prefix was the only thing available.
+
+  So the fix is to give the component a name source that does NOT come from the
+  schedule.
+
+  ## Target state
+
+  The cycle list reads `Alpha → Beta` — the titles of the two estimation items
+  the dependency runs between — and the row's `aria-label` says the same. The
+  Delete button, the ordering and the rest of the branch are unchanged.
+
+  ## Where the names come from
+
+  The estimation tree itself, which the caller already has. The schedule page
+  (`routes/estimations/[id]/versions/[versionNumber]/schedule/+page.svelte`) is
+  the ONLY consumer of `DependencyEditor`, and it already holds
+  `currentRoots` — normalised via `normalizeRoots(data)` and passed to
+  `computeEstimation`. A cycle does not empty the tree; only the schedule.
+
+  Thread it as a **`labels: ReadonlyMap<string, string>`** prop (logicalId →
+  display name), derived on the page from `currentRoots`. A prepared map rather
+  than the raw roots, so the component does no tree walking and no second
+  representation of the tree reaches it.
+
+  ### The map must agree with the domain, character for character
+
+  Build the name exactly the way the domain's `labelOf` does, or a card in the
+  graph and a row in the cycle list will name the same node differently:
+
+      private fun labelOf(node: EstimationNode): String = when (node) {
+          is EstimationGroup -> node.title
+          is EstimationItem  -> node.description
+      }
+
+  In frontend terms (`$lib/estimationNodes.ts`): a `Group` contributes its
+  `title`, a `Leaf` its `description`. Every node in the tree gets an entry —
+  groups included, since a dependency may run between groups (and the seeded
+  e2e fixture's cycle does exactly that).
+
+  A domain-side helper was considered and rejected for this task: exporting
+  `labelOf` (or an id→label map) from `:domain` would keep ONE definition of
+  how a node is named, which is what the single-source-of-truth rule would
+  normally ask for. The cost is a bridge — a Kotlin `Map` does not cross to JS
+  cleanly, so it would need an Array-of-pairs factory in `DomainFactory.kt`,
+  the same constraint `src/frontend/CLAUDE.md` already records for `List<T>`
+  parameters. Weighed against that, a TS helper is acceptable here because the
+  frontend already reads `Group.title` / `Leaf.description` directly in
+  `EstimationGrid` and both editor modules: this adds no new knowledge, only a
+  third reader of fields it already reads. If the naming rule ever grows a
+  condition, move it into the domain and bridge it.
+
+  ### An unknown id is reachable, so it needs a real answer
+
+  A dependency can outlive the item it references: the version editor's PUT
+  deliberately OMITS `dependencies` (the schedule route is their single writer,
+  task-167), so deleting a leaf in the editor leaves any dependency naming it
+  behind. The list renders `dependencies` verbatim, so such a row WILL appear.
+
+  Render an i18n'd placeholder for a missing name — not a blank, and not a
+  UUID — and keep the raw logical id reachable in the row's `title` attribute
+  so a support question stays answerable. This is a display fallback only;
+  repairing or pruning dangling dependencies is out of scope.
+
+  ## No reactivity trap here, despite appearances
+
+  The `svelte/prefer-svelte-reactivity` rule flags a bare `new Map()` /
+  `new Set()` **initialiser inside a reactive scope** — which is why
+  `DependencyEditor` carries four justified disables for the transient locals
+  in its `layout` and `drawnEdges` `$derived.by` bodies. It does NOT flag a
+  `$derived(...)` whose expression is a function CALL, and it does not apply to
+  a plain `.ts` module at all. Verified empirically against this rule version.
+
+  So `const labels = $derived(labelsByLogicalId(currentRoots))` on the page
+  needs no `SvelteSet`/`SvelteMap` and no suppression. Do not add one
+  speculatively, and do not add a disable comment that ESLint then reports as
+  unused — that is itself an error under `:frontend:check`.
+
+  ## No new logging
+
+  A display change: no service call, no domain operation, no new `try`/`catch`.
+  Per the CLAUDE.md logging conventions there is nothing here to log, so add
+  nothing — and in particular no bare `console.*`, which is banned outright.
+
+  ## Deliberate non-goals
+
+  - **Do NOT change the domain so a failed schedule still returns `tasks`.**
+    It would make the names available via `byId`, but `failedSchedule` returning
+    an empty list is what hides the duration figures on a cycle and what makes
+    task-170's critical-path set empty on a schedule error. Both are asserted by
+    `e2e/schedule.test.ts`. The tree is the right source; the schedule is not.
+  - **Do NOT narrow the list to the dependencies actually inside the cycle.**
+    Today it lists EVERY dependency, not only the implicated ones, even though
+    `schedule.error.involvedLogicalIds` is available (the component already
+    derives `cycleIds` from it). Marking or filtering the implicated edges is a
+    real improvement and a real behaviour change — it belongs in its own task,
+    with its own thinking about a cycle that spans a group and its child. This
+    task only makes the existing rows readable.
+  - **Do NOT touch the graph's own edge `aria-label`** (the one built from
+    `byId.get(e.from)?.title`). It renders only on the non-cycle path, where
+    `byId` is populated and already correct.
+
+steps:
+  - |
+    Add a `labelsByLogicalId(roots: Node[]): Map<string, string>` export to
+    `src/frontend/src/lib/estimationNodes.ts`, beside `normalizeRoots`.
+
+    Walk the whole tree (groups AND leaves, at every depth) and map each
+    node's `logicalId` to its display name: a `Group` contributes `title`, a
+    `Leaf` contributes `description`. Note in a comment that this mirrors the
+    domain's `labelOf` in `ProjectSchedule.kt` and must stay in step with it,
+    so the graph and the cycle list never name one node two ways.
+  - |
+    In `src/frontend/src/routes/estimations/[id]/versions/[versionNumber]/schedule/+page.svelte`,
+    derive the map and pass it down:
+
+      const labels = $derived(labelsByLogicalId(currentRoots as never));
+
+    then add `{labels}` to the `<DependencyEditor ... />` prop list. Import
+    `labelsByLogicalId` — and the `Node` type — from `$lib/estimationNodes`.
+
+    `currentRoots` is typed `unknown[]` on this page (it is loaded read-only),
+    so the call needs a cast. Prefer `currentRoots as Node[]` over the `as
+    never` used at the adjacent `computeEstimation` site: same effect, and it
+    states what the value actually is.
+  - |
+    In `src/frontend/src/lib/components/schedule/DependencyEditor.svelte`,
+    accept `labels?: ReadonlyMap<string, string>` in `$props()`, defaulting to
+    an empty map declared as a module-level constant (not an inline
+    `new Map()`, which would be a new prop identity every render).
+
+    Add a small helper next to the other derivations that resolves one id to a
+    display name: the `labels` entry when present, otherwise
+    `$_('schedule.editor.unknownItem')`.
+  - |
+    Rewrite the cycle row to use it. The `<span>` becomes the two resolved
+    names joined by the existing `→`, and loses `font-mono` — it is prose now,
+    not an identifier. Put the raw ids in the row's `title` attribute so they
+    stay recoverable.
+
+    Pass the resolved names into the existing `schedule.editor.edgeAria`
+    values for the Delete button's `aria-label`, replacing the full logical
+    ids. Keep `data-testid="schedule-cycle-edges"` and
+    `data-testid="schedule-cycle-remove"` exactly as they are — the e2e suite
+    selects on both.
+  - |
+    Add `schedule.editor.unknownItem` to BOTH catalogs
+    (`src/frontend/src/lib/i18n/de.json`, `src/frontend/src/lib/i18n/en.json`),
+    key-for-key: de `"Gelöschter Vorgang"`, en `"Deleted item"`. A real
+    translation, not the English string in both files.
+  - |
+    Extend the cycle test in `src/frontend/e2e/schedule.test.ts`
+    (`'a cycle is reported rather than prevented, and the figures hide'`) to
+    assert the list is readable: the `schedule-cycle-edges` list must contain
+    the seeded group names `Alpha` and `Beta`, and must NOT contain an
+    8-hex-character id fragment.
+
+    The fixture's cycle is dragged between the two ROOT GROUPS, so this also
+    proves groups are in the map and not just leaves. Assert the absence with a
+    regex over the list's text (`/[0-9a-f]{8}/`), which is what the old
+    `slice(0, 8)` rendering produced.
+
+    Then assert the FLOW the readable label exists to serve, which no test
+    covers today: click the first row's `schedule-cycle-remove` button and
+    confirm the cycle notice disappears and the graph comes back
+    (`dependency-editor` visible). Naming the rows is only useful if the user
+    can act on the row they picked, so the label and the action belong in one
+    test rather than two.
+  - |
+    Record the rule in `src/frontend/CLAUDE.md`, in the "Schedule bridge and
+    dependency editor (task-157)" section and specifically beside the existing
+    paragraph that begins "**The CYCLE branch must render before any
+    empty-state check.**".
+
+    That paragraph already states the governing fact — a failed schedule comes
+    back with an EMPTY `tasks` list. This task is that fact's second
+    consequence, and the one a future reader will otherwise re-derive from a
+    dead end: because `byId` is built from `schedule.tasks`, the component
+    knows no titles at the moment the cycle list renders, so display names for
+    those rows come from the estimation TREE via the `labels` prop, never from
+    the schedule. Note also that `labelsByLogicalId` must mirror the domain's
+    `labelOf` (group → `title`, leaf → `description`) or one node gets two
+    names, and that a `labels` miss renders the `unknownItem` placeholder
+    because a dependency can outlive the item it references (the version
+    editor's PUT omits `dependencies`).
+
+    A clause or two in the existing section — not a new section.
+  - |
+    Run the gates: `./gradlew :frontend:check`, then `./gradlew build`, then
+    the Playwright suite with the dev stack up (`./scripts/dev.sh`; backend
+    :8090, Vite :5173; stop it with SIGTERM, never by killing the child JVMs):
+    `cd src/frontend && npm run test:e2e`.
+
+validation:
+  - |
+    The label helper exists, is exported, and names groups and leaves from the
+    right fields. Prose in these blocks stays at this indent; only shell is
+    indented further, or an extractor cannot tell them apart.
+      set -e
+      E=src/frontend/src/lib/estimationNodes.ts
+      grep -q "export function labelsByLogicalId" "$E"
+      grep -q "labelOf" "$E"
+      # a group is named by title, a leaf by description
+      grep -qE "\.title" "$E"
+      grep -qE "\.description" "$E"
+  - |
+    The helper covers the WHOLE tree, not just the roots — a dependency can
+    name a nested item:
+      set -e
+      E=src/frontend/src/lib/estimationNodes.ts
+      awk '/export function labelsByLogicalId/,/^}/' "$E" | grep -qE "children" \
+        || { echo "labelsByLogicalId does not descend into children"; exit 1; }
+  - |
+    The page derives the map from the tree and passes it to the editor:
+      set -e
+      P="src/frontend/src/routes/estimations/[id]/versions/[versionNumber]/schedule/+page.svelte"
+      grep -q "labelsByLogicalId" "$P"
+      grep -q "{labels}" "$P"
+  - |
+    The editor accepts the prop with a stable empty default rather than an
+    inline new Map:
+      set -e
+      D=src/frontend/src/lib/components/schedule/DependencyEditor.svelte
+      grep -q "labels?: ReadonlyMap<string, string>" "$D"
+      if grep -qE "labels = new Map\(\)" "$D"; then
+        echo "inline new Map() default: use a module-level constant"; exit 1
+      fi
+  - |
+    The cycle row no longer renders truncated ids, in text OR in its aria
+    label. This is the defect, so assert its absence directly:
+      set -e
+      D=src/frontend/src/lib/components/schedule/DependencyEditor.svelte
+      if grep -q "fromLogicalId.slice(0, 8)" "$D"; then
+        echo "the cycle list still renders a truncated logical id"; exit 1
+      fi
+      # the edgeAria call inside the cycle branch must not pass raw ids.
+      # Scoped to that branch and piped, so the check leaves nothing behind.
+      branch=$(awk '/data-testid="schedule-cycle-edges"/,/<\/ul>/' "$D")
+      if printf '%s' "$branch" | grep -qE "from: edge.fromLogicalId, to: edge.toLogicalId"; then
+        echo "the cycle row's aria-label still interpolates raw logical ids"; exit 1
+      fi
+      grep -q "unknownItem" "$D"
+  - |
+    The testids the e2e suite selects on survived the rewrite:
+      set -e
+      D=src/frontend/src/lib/components/schedule/DependencyEditor.svelte
+      grep -q 'data-testid="schedule-cycle-edges"' "$D"
+      grep -q 'data-testid="schedule-cycle-remove"' "$D"
+      grep -q 'data-testid="schedule-cycle"' "$D"
+  - |
+    The domain was NOT changed to return tasks for a failed schedule — that is
+    the shortcut this task deliberately rejects, and two behaviours depend on
+    it staying as it is:
+      set -e
+      S=src/domain/core/src/main/kotlin/io/pythia/model/ProjectSchedule.kt
+      awk '/private fun failedSchedule/,/^\)/' "$S" | grep -q "tasks = emptyList()" \
+        || { echo "failedSchedule no longer returns an empty task list"; exit 1; }
+  - |
+    The new key is in every catalog and genuinely translated:
+      set -e
+      cd src/frontend
+      de=$(python3 -c "import json;print(json.load(open('src/lib/i18n/de.json'))['schedule']['editor']['unknownItem'])")
+      en=$(python3 -c "import json;print(json.load(open('src/lib/i18n/en.json'))['schedule']['editor']['unknownItem'])")
+      test -n "$de" && test -n "$en"
+      test "$de" != "$en"
+  - |
+    The catalogs stay key-for-key identical. Uses python3 -c, not a heredoc: a
+    heredoc inside a YAML block scalar needs its terminator at column 0, which
+    this indent cannot provide.
+      set -e
+      cd src/frontend
+      python3 -c "import json,pathlib,sys;cats={p.stem:json.loads(p.read_text()) for p in pathlib.Path('src/lib/i18n').glob('*.json')};f=lambda o,p='':set().union(*[f(v,(p+'.'+k) if p else k) if isinstance(v,dict) else {(p+'.'+k) if p else k} for k,v in o.items()]) if o else set();keys={l:f(d) for l,d in cats.items()};ref=set().union(*keys.values());bad={l:sorted(ref-k) for l,k in keys.items() if ref-k};print('catalogs:',sorted(cats));print('missing:',bad or 'none');sys.exit(1 if bad else 0)"
+  - |
+    No bare console.*, and no unused eslint-disable added speculatively (an
+    unused disable is itself an error under :frontend:check):
+      set -e
+      D=src/frontend/src/lib/components/schedule/DependencyEditor.svelte
+      P="src/frontend/src/routes/estimations/[id]/versions/[versionNumber]/schedule/+page.svelte"
+      E=src/frontend/src/lib/estimationNodes.ts
+      for f in "$D" "$P" "$E"; do
+        if grep -qE "(^|[^.[:alnum:]_])console\." "$f"; then echo "bare console in $f"; exit 1; fi
+      done
+  - |
+    The e2e suite asserts the list is readable rather than only present:
+      set -e
+      cd src/frontend
+      grep -q "schedule-cycle-edges" e2e/schedule.test.ts \
+        || { echo "no assertion on the cycle list contents"; exit 1; }
+      grep -qE "Alpha" e2e/schedule.test.ts
+  - |
+    The rule is documented where the invariant it follows from already is —
+    the empty-tasks fact is recorded at src/frontend/CLAUDE.md; its
+    consequence for the cycle list must be too:
+      set -e
+      C=src/frontend/CLAUDE.md
+      grep -q "task-171" "$C"
+      grep -qi "labels" "$C"
+      grep -q "labelsByLogicalId" "$C"
+  - |
+    The e2e test covers the delete flow the label exists to serve, not only
+    the text:
+      set -e
+      cd src/frontend
+      grep -q "schedule-cycle-remove" e2e/schedule.test.ts \
+        || { echo "no test clicks the remove button on a cycle row"; exit 1; }
+  - |
+    ./gradlew :frontend:check
+  - |
+    ./gradlew build
+  - |
+    With the dev stack running (./scripts/dev.sh, backend :8090, Vite :5173):
+      cd src/frontend && npm run test:e2e
+
+outputs:
+  - modified: src/frontend/src/lib/estimationNodes.ts
+  - modified: src/frontend/src/routes/estimations/[id]/versions/[versionNumber]/schedule/+page.svelte
+  - modified: src/frontend/src/lib/components/schedule/DependencyEditor.svelte
+  - modified: src/frontend/src/lib/i18n/de.json
+  - modified: src/frontend/src/lib/i18n/en.json
+  - modified: src/frontend/e2e/schedule.test.ts
+  # Records why cycle-row names come from the tree and not from the schedule.
+  - modified: src/frontend/CLAUDE.md
