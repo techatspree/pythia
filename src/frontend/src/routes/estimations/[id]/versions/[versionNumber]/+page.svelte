@@ -5,6 +5,7 @@
 	import { goto } from '$app/navigation';
 	import { resolve } from '$app/paths';
 	import { onMount, type Component } from 'svelte';
+	import { SvelteSet } from 'svelte/reactivity';
 	import { _, locale } from 'svelte-i18n';
 	import { formatFixed } from '$lib/format';
 	import ErrorBanner from '$lib/components/ErrorBanner.svelte';
@@ -168,6 +169,18 @@
 	const calcMap = $derived(estimation.calcMap);
 	const totals = $derived(estimation.totals);
 	const schedule = $derived(estimation.schedule);
+	// Which rows the estimation table marks as critical (task-170). The schedule
+	// section used to list every item itself, duplicating the grid; the grid now
+	// carries the one column that listing added. Empty whenever there is no
+	// schedule or it errored (CYCLE / INVALID_TEAM_FTE), so the column simply
+	// renders blank and no table needs to know why.
+	const criticalPath = $derived(
+		new SvelteSet(
+			schedule && schedule.error == null
+				? schedule.tasks.filter((t) => t.onCriticalPath).map((t) => t.logicalId)
+				: []
+		)
+	);
 
 	async function loadVersion() {
 		loading = true;
@@ -541,29 +554,6 @@
 					>
 						{$_('schedule.page.open')}
 					</Button>
-
-					{#if schedule && schedule.error == null && schedule.tasks.length > 0}
-						<table class="mt-4 w-full text-sm" data-testid="schedule-durations">
-							<thead>
-								<tr class="border-b text-left text-xs text-gray-500 uppercase">
-									<th class="py-1">{$_('schedule.perNode')}</th>
-									<th class="py-1 text-right">{$_('schedule.days')}</th>
-									<th class="py-1 text-right">{$_('schedule.criticalChain')}</th>
-								</tr>
-							</thead>
-							<tbody>
-								{#each schedule.tasks as task (task.logicalId)}
-									<tr class="border-b border-gray-100">
-										<td class="py-1" style="padding-left: {task.depth * 16}px">{task.title}</td>
-										<td class="py-1 text-right"
-											>{formatFixed(task.durationDays, $locale ?? 'de', 1)}</td
-										>
-										<td class="py-1 text-right">{task.onCriticalPath ? '●' : ''}</td>
-									</tr>
-								{/each}
-							</tbody>
-						</table>
-					{/if}
 				</div>
 			{/if}
 		</section>
@@ -580,6 +570,7 @@
 				bind:buckets={currentBuckets}
 				{calcMap}
 				{totals}
+				{criticalPath}
 				editable={versionData.isDraft}
 			/>
 		{:else}

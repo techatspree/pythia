@@ -96,6 +96,32 @@ async function openSchedule(page: Page, estimationId: string) {
 	await expect(page.getByTestId('dependency-editor')).toBeVisible();
 }
 
+/**
+ * The schedule page autosaves on a debounce, so a navigation straight after a
+ * drag can outrun the PUT. Waiting on the API rather than on a fixed timeout
+ * keeps this deterministic — the rest of the spec asserts client state, but
+ * these tests need the OTHER route to load what was just drawn.
+ */
+async function waitForDependencies(
+	request: APIRequestContext,
+	estimationId: string,
+	count: number
+) {
+	await expect
+		.poll(
+			async () => {
+				const res = await request.get(`/api/estimations/${estimationId}/versions/draft`, {
+					headers: AUTH
+				});
+				if (!res.ok()) return -1;
+				const draft = (await res.json()) as { dependencies?: unknown[] };
+				return (draft.dependencies ?? []).length;
+			},
+			{ timeout: 15_000 }
+		)
+		.toBe(count);
+}
+
 const card = (id: string) => `[data-testid="schedule-card"][data-logical-id="${id}"]`;
 
 /**
@@ -164,7 +190,7 @@ test('a group collapses and expands, and an edge on it survives expanding', asyn
 	await expect(page.getByTestId('schedule-edge')).toHaveCount(1);
 });
 
-test('a cycle is reported rather than prevented, and the durations hide', async ({
+test('a cycle is reported rather than prevented, and the figures hide', async ({
 	page,
 	request
 }) => {
@@ -175,7 +201,15 @@ test('a cycle is reported rather than prevented, and the durations hide', async 
 	await dragDependency(page, groupB, groupA);
 
 	await expect(page.getByTestId('schedule-cycle')).toBeVisible();
-	await expect(page.getByTestId('schedule-durations')).toHaveCount(0);
+	await expect(page.getByTestId('schedule-planned-length')).toHaveCount(0);
+
+	// The editor's critical-path column is driven by a set that is EMPTY on a
+	// schedule error (task-170), so a cycle blanks the column rather than
+	// leaving yesterday's dots on screen.
+	await waitForDependencies(request, estimationId, 2);
+	await page.goto(`/estimations/${estimationId}/versions/draft?draft=true`);
+	await page.waitForLoadState('networkidle');
+	await expect(page.getByTestId('grid-critical-dot')).toHaveCount(0);
 });
 
 test('the team size is a worker count, and 0 is refused by the domain', async ({
@@ -202,10 +236,14 @@ test('the version editor links to the schedule page, and keeps the numbers', asy
 	await page.waitForLoadState('networkidle');
 	await page.getByTestId('schedule-section-toggle').click();
 
-	// The numbers stay in the editor; the graph does not.
+	// The numbers stay in the editor; the graph does not — and neither does the
+	// per-item table, which task-170 removed as a second copy of the grid.
 	await expect(page.getByTestId('schedule-planned-length')).toBeVisible();
-	await expect(page.getByTestId('schedule-durations')).toBeVisible();
+	await expect(page.getByTestId('schedule-durations')).toHaveCount(0);
 	await expect(page.getByTestId('dependency-editor')).toHaveCount(0);
+
+	// Criticality moved onto the estimation grid instead.
+	await expect(page.getByText('Krit. Pfad', { exact: true })).toBeVisible();
 
 	// The link opens the dedicated page, which renders the graph.
 	await page.getByRole('link', { name: /Abhängigkeiten bearbeiten/ }).click();
@@ -218,6 +256,29 @@ test('the version editor links to the schedule page, and keeps the numbers', asy
 	await page.waitForLoadState('networkidle');
 	await expect(page.getByTestId('editor-title')).toBeVisible().catch(() => {});
 	expect(page.url()).not.toContain('/schedule');
+});
+
+test('the grid marks exactly the rows the schedule calls critical', async ({ page, request }) => {
+	const { estimationId, groupA, groupB } = await seed(request);
+
+	// Two independent 10-day branches at teamFte 1: levelling serialises them,
+	// so the makespan is 20 and only the branch scheduled SECOND has zero
+	// slack. One leaf plus its group therefore carry the dot, and the other
+	// pair does not — which is what proves the column discriminates rather
+	// than marking everything.
+	await page.goto(`/estimations/${estimationId}/versions/draft?draft=true`);
+	await page.waitForLoadState('networkidle');
+	await expect(page.getByTestId('grid-critical-dot')).toHaveCount(2);
+
+	// Chaining the two groups puts every row on the one critical chain.
+	await openSchedule(page, estimationId);
+	await dragDependency(page, groupA, groupB);
+	await expect(page.getByTestId('schedule-edge')).toHaveCount(1);
+	await waitForDependencies(request, estimationId, 1);
+
+	await page.goto(`/estimations/${estimationId}/versions/draft?draft=true`);
+	await page.waitForLoadState('networkidle');
+	await expect(page.getByTestId('grid-critical-dot')).toHaveCount(4);
 });
 
 test('every edge carries a direction marker', async ({ page, request }) => {

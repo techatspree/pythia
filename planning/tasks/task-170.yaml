@@ -1,0 +1,478 @@
+id: task-170
+phase: phase-19
+title: "Drop the schedule item table; critical path as a column"
+depends_on: [task-167]
+description: |
+  The "Terminplan" section of the version editor renders its own table of every
+  scheduled item, and that table is a second copy of information the estimation
+  grid already shows.
+
+  ## Current state
+
+  `src/frontend/src/routes/estimations/[id]/versions/[versionNumber]/+page.svelte`
+  holds a collapsible `Terminplan` section (task-157, trimmed by task-167 when
+  the graph moved to its own route). What is left inside it is:
+
+    - the team-size input (`data-testid="team-fte"`) and its error line,
+    - two figures — planned length and the uncertainty band — which are
+      deliberately DIFFERENT measurements and must stay,
+    - a link to the dedicated graph page,
+    - and a `<table data-testid="schedule-durations">` with one row per
+      `schedule.tasks` entry: title (indented by `depth * 16px`), duration in
+      days, and a `●` when `task.onCriticalPath`.
+
+  That last table is the redundancy. It re-lists every group and leaf of the
+  estimation — the same tree, in the same order, with the same titles — in a
+  second place on the same page, and it grows linearly with the estimation, so
+  on a real project it pushes the two figures and the graph link far off screen.
+  Only one of its three columns carries information the grid does not already
+  have: `onCriticalPath`.
+
+  ## Target state
+
+  The table is gone. Criticality moves onto the estimation's own table as a
+  narrow column, so the tree is listed once and each row says whether it is on
+  the critical path. The team-size input, the two figures and the graph link
+  stay exactly as they are.
+
+  Duration-in-days is deliberately NOT carried over. It is a per-item figure
+  the grid has no column for, it is derived from effort and team capacity
+  rather than estimated, and the graph page already shows it per card. Adding a
+  second numeric column to a grid that already has eight would cost more than
+  the figure is worth here. If it is wanted later, that is its own task.
+
+  ## The interface between the route and the tables
+
+  The schedule is already computed once on this page — `computeEstimation(...)`
+  returns `{ calcMap, totals, schedule }` from a single domain build — and
+  `schedule.tasks[]` carries `logicalId` and `onCriticalPath`. Nothing new is
+  computed anywhere: this task only routes an existing field to a new place.
+
+  Thread it as a **`criticalPath: ReadonlySet<string>`** prop: route →
+  `EditorComponent` → the method's table(s). A set of logical ids, not the
+  whole `ProjectScheduleView`, because the tables need membership and nothing
+  else, and because a set keeps the tables ignorant of schedule error states.
+
+  **Do NOT fold `onCriticalPath` into `CalcEntry`/`calcMap`.** `calcMap` is the
+  domain calculation's output; the schedule is a separate computation with its
+  own error kinds (`CYCLE`, `INVALID_TEAM_FTE`) and its own inputs
+  (dependencies, `teamFte`). Merging them would make a scheduling failure look
+  like a calculation failure.
+
+  ### Empty-set semantics carry the error cases
+
+  Derive the set as the logical ids of `schedule.tasks` where `onCriticalPath`
+  is true, and an EMPTY set whenever `schedule` is null or
+  `schedule.error != null`. Then the column renders blank everywhere and no
+  table needs to know why. This is already how a cycle behaves — the domain
+  returns empty `tasks` on `CYCLE` — but it must be true for
+  `INVALID_TEAM_FTE` too, where `tasks` may be non-empty.
+
+  ### `SvelteSet`, not `Set`
+
+  The derived set is reactive state read by child components, so it must be
+  `SvelteSet` from `svelte/reactivity`. A plain `Set` in a `$derived` trips the
+  `prefer-svelte-reactivity` ESLint rule, which is an error under
+  `:frontend:check` — task-167 hit exactly this in `DependencyEditor.svelte`
+  and the fix was `SvelteSet`, not a suppression.
+
+  ## Both methods need the column, or the information disappears
+
+  Two method modules render the version editor's table, and the `Terminplan`
+  section is shown for both:
+
+    - **PERT** — `src/lib/methods/pert/EditorModule.svelte` renders
+      `$lib/components/EstimationGrid.svelte`, whose columns are a
+      `TreeColumn<Node>[]` array. `EstimationGrid` has exactly one consumer,
+      so the prop can be added without a compatibility shim.
+    - **Bucket+sampled** — `src/lib/methods/bucketSampled/EditorModule.svelte`
+      renders its own two `TreeTable`s (a bucket-grouped view and a hierarchy
+      view) from ONE shared `columnMeta` array mapped through
+      `columnsFor<T>(cells)`. So the column is one `columnMeta` entry plus one
+      snippet per view.
+
+  Removing the panel table without touching the bucket module would delete
+  criticality outright for bucket+sampled estimations, so both are in scope.
+
+  **Synthetic bucket rows render blank.** The bucket-grouped view's bucket rows
+  carry a synthetic `logicalId` of `bucket:<id>` purely to satisfy
+  `TreeTable.getId`; a bucket is not a scheduled task and has no entry in
+  `schedule.tasks`. Guard with the module's existing `isBucketRow(node)`
+  pattern, exactly as every other cell in that view already does — never look
+  a `bucket:<id>` up in the set and render whatever comes back.
+
+  ## The column's shape, and the header-width trap
+
+  `key: 'criticalPath'`, `align: 'center'`, `collapsible: true`, `width:
+  '6rem'` — matching the numeric columns' track, and `collapsible` so a narrow
+  viewport drops it before the estimates (`collapseBreakpointPx` defaults to
+  900). Render `●` for a member and nothing otherwise, with a `title` naming
+  the state so the glyph is not the only signal.
+
+  **The header label must be SHORT, and no test will tell you if it is not.**
+  `e2e/treetable-header-fit.test.ts` measures `scrollWidth <= clientWidth` per
+  header cell in both locales, but the header cells carry `min-w-0` +
+  `overflow-hidden`, so an over-long header is CLIPPED rather than overflowing
+  — which satisfies that inequality and passes the guard while being
+  unreadable. The guard catches headers that paint over their neighbour, not
+  headers that are too long for their track. Use `Krit. Pfad` / `Crit. path`
+  (10 characters uppercased, the same order as the existing headers) and read
+  the rendered header rather than trusting the suite.
+
+  ## i18n
+
+  Add `grid.colCriticalPath` and `bucket.colCriticalPath` to BOTH catalogs —
+  two keys, not one shared, because each table namespaces its own column
+  headers (`grid.col*` / `bucket.col*`) and that convention is uniform today.
+
+  Removing the table orphans exactly two keys, `schedule.perNode` and
+  `schedule.criticalChain`; each is referenced from the deleted markup and
+  nowhere else in `src/` or `e2e/`. Delete both from both catalogs — a key that
+  no longer renders is drift, and the catalogs must stay key-for-key identical.
+
+  ## No new logging
+
+  This adds no service call, no domain operation and no new `try`/`catch`: the
+  schedule is already fetched, computed and logged where that happens, and this
+  task moves an existing boolean into a table cell. Per the CLAUDE.md logging
+  conventions there is nothing here to log, so add nothing — and in particular
+  do not introduce a bare `console.*`, which is banned outright.
+
+  ## Ordering against task-168 — a caveat, not a dependency
+
+  `depends_on: [task-167]`, which built the section and the schedule view this
+  task edits. task-168 is deliberately NOT a dependency: it is a 250-site
+  token migration, and nothing here needs it.
+
+  It does overlap, though, and the overlap has one hard rule. task-168 touches
+  this same `+page.svelte` (the section's disclosure triangle) and migrates
+  every raw `gray-*` class in `EstimationGrid.svelte` and both editor modules
+  to the new `ink-*`/`surface-*`/`hairline` tokens, behind a gate that FAILS
+  the build on a raw `gray-*`.
+
+  So: if task-168 has NOT landed yet, write this column with the raw
+  `text-gray-*` classes its neighbours use today and task-168's migration will
+  pick it up like any other site. If task-168 HAS landed, use the tokens — a
+  raw `gray-*` added after that gate exists breaks the build. Check which world
+  you are in before writing the cell, with
+  `grep -q "color-ink-muted" src/frontend/src/app.css`.
+
+steps:
+  - |
+    Delete the redundant table from
+    `src/frontend/src/routes/estimations/[id]/versions/[versionNumber]/+page.svelte`:
+    the whole `{#if schedule && schedule.error == null && schedule.tasks.length > 0}`
+    block containing `<table ... data-testid="schedule-durations">`.
+
+    Leave everything else in the section untouched — the `team-fte` input and
+    its error line, the planned-length and uncertainty figures with their
+    hints, and the `Button` linking to the schedule page. Keep the comment
+    above the section explaining why the two figures are not merged into one
+    range; it is still true and still load-bearing.
+  - |
+    In the same file, derive the critical-path membership set and pass it to
+    the editor component:
+
+      const criticalPath = $derived(
+        new SvelteSet(
+          schedule && schedule.error == null
+            ? schedule.tasks.filter((t) => t.onCriticalPath).map((t) => t.logicalId)
+            : []
+        )
+      );
+
+    Import `SvelteSet` from `svelte/reactivity` — a plain `Set` here is an
+    ESLint error (`prefer-svelte-reactivity`), not a warning. Add
+    `{criticalPath}` to the `<EditorComponent ... />` prop list alongside
+    `{calcMap}` and `{totals}`.
+  - |
+    Accept and forward the prop in `src/frontend/src/lib/methods/pert/EditorModule.svelte`:
+    add `criticalPath` to its `$props()` destructuring and its type as
+    `criticalPath?: ReadonlySet<string>` defaulting to an empty set, then pass
+    `{criticalPath}` down to `<EstimationGrid ... />`.
+
+    Do the same in `src/frontend/src/lib/methods/bucketSampled/EditorModule.svelte`
+    ($props only — its tables are in the same file).
+  - |
+    Add the column to `src/frontend/src/lib/components/EstimationGrid.svelte`.
+
+    Accept `criticalPath?: ReadonlySet<string>` in `$props()` with an empty-set
+    default. Add a `{#snippet criticalPathCell(node)}` that renders `●` when
+    `criticalPath.has(node.logicalId)` and nothing otherwise, wrapped so the
+    glyph carries a `title={$_('schedule.onCriticalPath')}` rather than
+    standing alone.
+
+    Register it in the `columns` array as
+    `{ key: 'criticalPath', header: $_('grid.colCriticalPath'), width: '6rem',
+    align: 'center', collapsible: true, cell: criticalPathCell }`. Place it
+    after `pert` and before `assumptions`, so the derived-number columns stay
+    contiguous and the free-text column stays last-but-three.
+
+    `gridTemplateColumns` is built from `columns.map((c) => c.width)`, so the
+    track comes along automatically — do not hand-edit a template string.
+  - |
+    Add the column to `src/frontend/src/lib/methods/bucketSampled/EditorModule.svelte`.
+
+    One entry in the shared `columnMeta` array —
+    `{ key: 'criticalPath', header: $_('bucket.colCriticalPath'), width: '6rem',
+    align: 'center' as const, collapsible: true }` — placed after `mean` to
+    mirror the grid's position, then one snippet per view passed through
+    `columnsFor`: the hierarchy view renders the dot from
+    `criticalPath.has(node.logicalId)`, and the bucket-grouped view wraps the
+    same render in the module's existing `{#if !isBucketRow(node)}` guard so a
+    synthetic `bucket:<id>` row stays blank.
+
+    ## This insertion SHIFTS a positional index a test depends on
+
+    `columnMeta` is `description(0) bucket(1) sample(2) optimistic(3) likely(4)
+    pessimistic(5) mean(6) offerPT(7) cost(8) offerPrice(9)`, and
+    `e2e/summary-panel.test.ts:252` hard-codes `const OFFER_PT_COLUMN = 7`
+    against exactly that order (its `cellText` helper does
+    `nth = columnIndex + 2`, reading the row's grid children positionally).
+
+    Inserting `criticalPath` after `mean` makes it index 7 and pushes `offerPT`
+    to 8, so that test would read the critical-path dot cell and
+    `parseDe('●')` → `NaN`. Update the constant to `8` and its neighbouring
+    comment ("Column 7 of the bucket view's columns is offerPT") in the SAME
+    change — not as a follow-up fix once the suite goes red.
+  - |
+    Update the i18n catalogs, both of them, key-for-key —
+    `src/frontend/src/lib/i18n/de.json` and
+    `src/frontend/src/lib/i18n/en.json`.
+
+    ADD exactly three keys:
+
+      - `grid.colCriticalPath`   — de "Krit. Pfad",  en "Crit. path"
+      - `bucket.colCriticalPath` — de "Krit. Pfad",  en "Crit. path"
+      - `schedule.onCriticalPath` — de "Auf dem kritischen Pfad",
+                                    en "On the critical path"
+
+    Two header keys because each table namespaces its own column headers
+    (`grid.col*` / `bucket.col*`) and that convention is uniform today. But ONE
+    shared tooltip key, in the `schedule.*` namespace, used by the cell
+    snippets in BOTH tables — the sentence is identical and it is schedule
+    semantics, not table semantics, so duplicating it under two namespaces
+    would only create two things to keep in sync. This is decided; do not
+    substitute a per-table variant.
+
+    REMOVE `schedule.perNode` and `schedule.criticalChain` from both catalogs.
+    Verify first that the deleted markup was their only reference.
+  - |
+    Update the two e2e tests in `src/frontend/e2e/schedule.test.ts` that assert
+    on the deleted table, replacing each with an assertion that still means
+    something rather than deleting the coverage:
+
+      - `'a cycle is reported rather than prevented, and the durations hide'`
+        (line ~167) asserts `schedule-durations` has count 0. The table now
+        never exists, so that is vacuous. Assert instead that the cycle notice
+        is visible AND the two figures are gone
+        (`schedule-planned-length` count 0), and that the grid's critical-path
+        column renders no dot for any row. Rename the test if "the durations
+        hide" no longer describes it.
+      - `'the version editor links to the schedule page, and keeps the numbers'`
+        (line ~196) asserts the table is visible. Assert instead that
+        `schedule-durations` has count **0** — the redundancy is gone — while
+        `schedule-planned-length` is still visible and the grid shows the
+        critical-path column.
+
+    Add one new test: with a dependency making a chain critical, exactly the
+    rows on that chain show the dot. Give the column's cells a stable
+    `data-testid` so the assertion does not depend on column order.
+  - |
+    Update `src/frontend/CLAUDE.md`. Its TreeTable section states that
+    `EstimationGrid` "composes TreeTable with **11 column snippets**" — that
+    number is exact today and becomes 12. Correct it, and name the new column
+    alongside the existing description of the grid so a reader knows criticality
+    is displayed there rather than in the schedule section.
+
+    Also record, in a clause rather than a paragraph, that the schedule
+    section no longer lists per-item rows and why (it duplicated the grid), so
+    the next person does not restore the table as a "missing" feature.
+  - |
+    Run the gates: `./gradlew :frontend:check` (svelte-check + ESLint — the
+    `prefer-svelte-reactivity` rule is enforced here), then `./gradlew build`,
+    then the Playwright suite with the dev stack up (`./scripts/dev.sh`;
+    backend :8090, Vite :5173; stop it with SIGTERM, never by killing the child
+    JVMs): `cd src/frontend && npm run test:e2e`.
+
+    The suite covers both method editors, the TreeTable header-fit measurement
+    in both locales, and the schedule section, so it is what proves the column
+    landed without disturbing the existing tables.
+
+validation:
+  - |
+    The redundant table is gone from the version editor, and the parts of the
+    section that must stay are still there. Prose in these blocks stays at this
+    indent; only shell is indented further, or an extractor cannot tell them
+    apart.
+      set -e
+      P="src/frontend/src/routes/estimations/[id]/versions/[versionNumber]/+page.svelte"
+      if grep -q "schedule-durations" "$P"; then echo "the redundant table survives"; exit 1; fi
+      grep -q 'data-testid="team-fte"' "$P"
+      grep -q 'data-testid="schedule-planned-length"' "$P"
+      grep -q 'data-testid="schedule-uncertainty"' "$P"
+      grep -q "schedule.page.open" "$P"
+  - |
+    The membership set is derived on the route, uses SvelteSet, and is passed
+    to the editor component:
+      set -e
+      P="src/frontend/src/routes/estimations/[id]/versions/[versionNumber]/+page.svelte"
+      grep -q "SvelteSet" "$P"
+      grep -q "svelte/reactivity" "$P"
+      grep -q "onCriticalPath" "$P"
+      grep -q "{criticalPath}" "$P"
+  - |
+    A plain Set was NOT used for the derived state — this is an ESLint error,
+    not a style preference, and it is the exact rule task-167 tripped:
+      set -e
+      P="src/frontend/src/routes/estimations/[id]/versions/[versionNumber]/+page.svelte"
+      if grep -qE '\$derived\(\s*new Set\(|= new Set<' "$P"; then
+        echo "plain Set in reactive state; use SvelteSet"; exit 1
+      fi
+  - |
+    The empty-set semantics are real: the set is empty when there is no
+    schedule OR the schedule errored. Assert the error branch is handled rather
+    than only the happy path:
+      set -e
+      P="src/frontend/src/routes/estimations/[id]/versions/[versionNumber]/+page.svelte"
+      grep -qE "schedule\.error == null|schedule\?\.error == null" "$P"
+  - |
+    Both method modules accept and forward the prop:
+      set -e
+      for f in src/frontend/src/lib/methods/pert/EditorModule.svelte \
+               src/frontend/src/lib/methods/bucketSampled/EditorModule.svelte; do
+        grep -q "criticalPath" "$f" || { echo "prop missing: $f"; exit 1; }
+      done
+      grep -q "{criticalPath}" src/frontend/src/lib/methods/pert/EditorModule.svelte
+  - |
+    The grid has the column, registered in the columns array with a narrow
+    centred collapsible track — not hand-written into a grid-template string:
+      set -e
+      G=src/frontend/src/lib/components/EstimationGrid.svelte
+      grep -q "grid.colCriticalPath" "$G"
+      grep -q "criticalPathCell" "$G"
+      grep -qE "key: 'criticalPath'" "$G"
+      grep -q "collapsible: true" "$G"
+      grep -q "criticalPath.has" "$G"
+      # the template is still derived from the column widths
+      grep -q "columns.map((c) => c.width)" "$G"
+  - |
+    The bucket module has it in the SHARED columnMeta, and its bucket-grouped
+    view keeps synthetic bucket rows blank:
+      set -e
+      B=src/frontend/src/lib/methods/bucketSampled/EditorModule.svelte
+      grep -q "bucket.colCriticalPath" "$B"
+      grep -qE "key: 'criticalPath'" "$B"
+      # it must actually READ the set, not just declare the column. Matched on
+      # the call, not on its argument: the two views may share one dot snippet.
+      grep -q "criticalPath.has(" "$B" \
+        || { echo "the bucket module never reads the set"; exit 1; }
+      # and the bucket-grouped view's own cell must guard synthetic bucket:<id>
+      # rows. Scoped to that snippet's body — `isBucketRow` appears all over
+      # this file, so a file-wide grep would pass without the guard existing.
+      awk '/\{#snippet bCriticalPath\(/,/\{\/snippet\}/' "$B" | grep -q "isBucketRow" \
+        || { echo "the bucket view's critical-path cell does not guard bucket rows"; exit 1; }
+  - |
+    The two orphaned schedule keys are gone from BOTH catalogs and are
+    referenced nowhere:
+      set -e
+      cd src/frontend
+      for k in perNode criticalChain; do
+        if grep -q "\"$k\"" src/lib/i18n/de.json src/lib/i18n/en.json; then
+          echo "orphaned key survives: schedule.$k"; exit 1
+        fi
+      done
+      if grep -rq "schedule.perNode\|schedule.criticalChain" src e2e; then
+        echo "a removed key is still referenced"; exit 1
+      fi
+  - |
+    The catalogs stay key-for-key identical and carry the new keys. Uses
+    python3 -c, not a heredoc: a heredoc inside a YAML block scalar needs its
+    terminator at column 0, which this indent cannot provide.
+      set -e
+      cd src/frontend
+      grep -q "colCriticalPath" src/lib/i18n/de.json
+      grep -q "colCriticalPath" src/lib/i18n/en.json
+      python3 -c "import json,pathlib,sys;cats={p.stem:json.loads(p.read_text()) for p in pathlib.Path('src/lib/i18n').glob('*.json')};f=lambda o,p='':set().union(*[f(v,(p+'.'+k) if p else k) if isinstance(v,dict) else {(p+'.'+k) if p else k} for k,v in o.items()]) if o else set();keys={l:f(d) for l,d in cats.items()};ref=set().union(*keys.values());bad={l:sorted(ref-k) for l,k in keys.items() if ref-k};print('catalogs:',sorted(cats));print('missing:',bad or 'none');sys.exit(1 if bad else 0)"
+  - |
+    The German header is actually German and is short enough to read. The
+    header-fit guard does NOT catch an over-long header (header cells are
+    min-w-0 + overflow-hidden, so a long label is clipped, which satisfies
+    scrollWidth <= clientWidth) — so assert the length here:
+      set -e
+      cd src/frontend
+      de=$(python3 -c "import json;print(json.load(open('src/lib/i18n/de.json'))['grid']['colCriticalPath'])")
+      en=$(python3 -c "import json;print(json.load(open('src/lib/i18n/en.json'))['grid']['colCriticalPath'])")
+      test -n "$de" && test -n "$en"
+      test "$de" != "$en"
+      test "${#de}" -le 12 || { echo "German header too long for a 6rem track: $de"; exit 1; }
+      test "${#en}" -le 12 || { echo "English header too long for a 6rem track: $en"; exit 1; }
+  - |
+    No bare console.* was introduced, and no inline UI literal:
+      set -e
+      cd src/frontend
+      for f in src/lib/components/EstimationGrid.svelte \
+               src/lib/methods/pert/EditorModule.svelte \
+               src/lib/methods/bucketSampled/EditorModule.svelte \
+               "src/routes/estimations/[id]/versions/[versionNumber]/+page.svelte"; do
+        if grep -qE "(^|[^.\w])console\." "$f"; then echo "bare console in $f"; exit 1; fi
+      done
+  - |
+    The e2e suite no longer asserts the deleted table exists, and gained
+    coverage for the column:
+      set -e
+      cd src/frontend
+      if grep -q "getByTestId('schedule-durations')).toBeVisible()" e2e/schedule.test.ts; then
+        echo "a test still expects the removed table to be visible"; exit 1
+      fi
+      grep -qi "critical" e2e/schedule.test.ts
+  - |
+    The positional column index that this insertion shifts was updated, so the
+    bucket summary test still reads offerPT and not the new dot column:
+      set -e
+      cd src/frontend
+      grep -qE "OFFER_PT_COLUMN = 8" e2e/summary-panel.test.ts \
+        || { echo "OFFER_PT_COLUMN not moved to 8 after inserting a column"; exit 1; }
+      if grep -q "Column 7 of the bucket view" e2e/summary-panel.test.ts; then
+        echo "the comment still says column 7"; exit 1
+      fi
+  - |
+    The shared tooltip key exists in BOTH catalogs, is genuinely translated,
+    and is the one the cells use — not a per-table variant:
+      set -e
+      cd src/frontend
+      de=$(python3 -c "import json;print(json.load(open('src/lib/i18n/de.json'))['schedule']['onCriticalPath'])")
+      en=$(python3 -c "import json;print(json.load(open('src/lib/i18n/en.json'))['schedule']['onCriticalPath'])")
+      test -n "$de" && test -n "$en" && test "$de" != "$en"
+      grep -q "schedule.onCriticalPath" src/lib/components/EstimationGrid.svelte
+      grep -q "schedule.onCriticalPath" src/lib/methods/bucketSampled/EditorModule.svelte
+  - |
+    The documented column count is no longer stale — it is an exact number in
+    src/frontend/CLAUDE.md and this task changes it:
+      set -e
+      if grep -q "11 column snippets" src/frontend/CLAUDE.md; then
+        echo "CLAUDE.md still says 11 column snippets"; exit 1
+      fi
+      grep -q "12 column snippets" src/frontend/CLAUDE.md
+  - |
+    ./gradlew :frontend:check
+  - |
+    ./gradlew build
+  - |
+    With the dev stack running (./scripts/dev.sh, backend :8090, Vite :5173).
+    Covers both method editors, the header-fit measurement in both locales and
+    the schedule section:
+      cd src/frontend && npm run test:e2e
+
+outputs:
+  - modified: src/frontend/src/routes/estimations/[id]/versions/[versionNumber]/+page.svelte
+  - modified: src/frontend/src/lib/components/EstimationGrid.svelte
+  - modified: src/frontend/src/lib/methods/pert/EditorModule.svelte
+  - modified: src/frontend/src/lib/methods/bucketSampled/EditorModule.svelte
+  - modified: src/frontend/src/lib/i18n/de.json
+  - modified: src/frontend/src/lib/i18n/en.json
+  - modified: src/frontend/e2e/schedule.test.ts
+  # Its OFFER_PT_COLUMN = 7 is a positional index the new column shifts to 8.
+  - modified: src/frontend/e2e/summary-panel.test.ts
+  # Documents EstimationGrid's exact column count (11 -> 12).
+  - modified: src/frontend/CLAUDE.md

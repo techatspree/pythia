@@ -16,18 +16,24 @@
 	} from '$lib/estimationNodes';
 	import { ZERO_TOTALS, type EstimationTotalsView } from '$lib/adapter';
 
+	// A module-level constant, not an inline `new Set()` default: a fresh set per
+	// render would be a new prop identity every time.
+	const EMPTY_CRITICAL_PATH: ReadonlySet<string> = new Set();
+
 	let {
 		roots = $bindable<Node[]>([]),
 		editable,
 		calcMap = new Map<string, CalcEntry>(),
 		phases = [],
-		totals = ZERO_TOTALS
+		totals = ZERO_TOTALS,
+		criticalPath = EMPTY_CRITICAL_PATH
 	}: {
 		roots?: Node[];
 		editable: boolean;
 		calcMap?: Map<string, CalcEntry>;
 		phases?: any[];
 		totals?: EstimationTotalsView;
+		criticalPath?: ReadonlySet<string>;
 	} = $props();
 
 	function pert(o: number | null, m: number | null, p: number | null): number {
@@ -213,6 +219,14 @@
 			cell: pessimisticCell
 		},
 		{ key: 'pert', header: $_('grid.colPert'), width: '6rem', align: 'right', cell: pertCell },
+		{
+			key: 'criticalPath',
+			header: $_('grid.colCriticalPath'),
+			width: '6rem',
+			align: 'center',
+			cell: criticalPathCell,
+			collapsible: true
+		},
 		{ key: 'assumptions', header: $_('grid.colAssumptions'), width: '1fr', cell: assumptionsCell },
 		{
 			key: 'offerPT',
@@ -403,6 +417,19 @@
 		<span class="text-brand-green tabular-nums">
 			{num(pert(node.minEffort, node.expectedEffort, node.maxEffort), 2)}
 		</span>
+	{/if}
+{/snippet}
+
+<!-- Criticality comes from the SCHEDULE, not from calcMap: it is a separate
+     computation with its own error kinds, and the set is empty whenever that
+     computation has none to report (task-170). -->
+{#snippet criticalPathCell(node: Node, _ctx: TreeNodeContext<Node>)}
+	{#if criticalPath.has(node.logicalId)}
+		<span
+			class="text-brand-green"
+			title={$_('schedule.onCriticalPath')}
+			data-testid="grid-critical-dot">●</span
+		>
 	{/if}
 {/snippet}
 

@@ -1005,10 +1005,16 @@
       "notes": "The session socket retries forever with no give-up: a tab left open on a session that no longer exists (a dev.sh restart wipes the throwaway Dev Services DB) re-fetches a ws-ticket every 15s indefinitely, because getWsTicket throws a plain Error and the client cannot tell a permanent 404 from a transient blip"
     },
     "task-170": {
+      "status": "done",
+      "started_at": "2026-09-02T14:03:08+00:00",
+      "completed_at": "2026-09-02T14:17:19+00:00",
+      "notes": "The Terminplan panel repeats every estimation item in its own table; remove that table and surface criticality as an 'on critical path' column on the main estimation grid instead"
+    },
+    "task-171": {
       "status": "pending",
       "started_at": null,
       "completed_at": null,
-      "notes": "The Terminplan panel repeats every estimation item in its own table; remove that table and surface criticality as an 'on critical path' column on the main estimation grid instead"
+      "notes": "The cycle notice lists offending dependencies as truncated UUID pairs; label them with the estimation items' titles instead"
     }
   }
 }

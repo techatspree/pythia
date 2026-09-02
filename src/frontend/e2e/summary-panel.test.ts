@@ -248,8 +248,10 @@ test('summary panel shows a bucket estimation total matching the bucket rows', a
 
 	// …and it equals the sum of what the bucket rows themselves display. Bucket
 	// rows stay visible while collapsed (task-134), so no expansion is needed.
-	// Column 7 of the bucket view's columns is offerPT.
-	const OFFER_PT_COLUMN = 7;
+	// Column 8 of the bucket view's columns is offerPT — it was 7 until task-170
+	// inserted the critical-path column after `mean`. This index is positional
+	// (see `cellText`), so it shifts whenever a column is added to its left.
+	const OFFER_PT_COLUMN = 8;
 	const bucketSum =
 		parseDe(await cellText(page, `bucket:${b1}`, OFFER_PT_COLUMN)) +
 		parseDe(await cellText(page, `bucket:${b2}`, OFFER_PT_COLUMN)) +

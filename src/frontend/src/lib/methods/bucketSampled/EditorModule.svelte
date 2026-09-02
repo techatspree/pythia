@@ -51,6 +51,10 @@
 	// view is the real nested-group tree (drag = restructure). The domain
 	// reducer (task-102) derives each non-sample leaf's mean from its bucket's
 	// samples — no bucket math in the frontend.
+	// A module-level constant, not an inline `new Set()` default: a fresh set per
+	// render would be a new prop identity every time.
+	const EMPTY_CRITICAL_PATH: ReadonlySet<string> = new Set();
+
 	let {
 		roots = $bindable<Node[]>([]),
 		dailyRate = $bindable<number>(800),
@@ -65,6 +69,7 @@
 		// above this module, not here; declared only so the route can pass the
 		// same prop set to every method module.
 		totals: _totals = undefined,
+		criticalPath = EMPTY_CRITICAL_PATH,
 		editable
 	}: {
 		roots: Node[];
@@ -77,6 +82,7 @@
 		buckets: Bucket[];
 		calcMap: Map<string, CalcEntry>;
 		totals?: EstimationTotalsView;
+		criticalPath?: ReadonlySet<string>;
 		editable: boolean;
 	} = $props();
 
@@ -303,6 +309,13 @@
 			align: 'right' as const
 		},
 		{ key: 'mean', header: $_('bucket.colMean'), width: '6rem', align: 'right' as const },
+		{
+			key: 'criticalPath',
+			header: $_('bucket.colCriticalPath'),
+			width: '6rem',
+			align: 'center' as const,
+			collapsible: true
+		},
 		{ key: 'offerPT', header: $_('bucket.colOfferPT'), width: '6rem', align: 'right' as const },
 		{
 			key: 'cost',
@@ -460,6 +473,24 @@
 		{@render leafMean(node)}
 	{/if}
 {/snippet}
+<!-- Criticality comes from the SCHEDULE, keyed by logicalId. A synthetic
+     `bucket:<id>` row is not a scheduled task, so the bucket view's variant
+     renders nothing for one (task-170). -->
+{#snippet criticalDot(logicalId: string)}
+	{#if criticalPath.has(logicalId)}
+		<span
+			class="text-brand-green"
+			title={$_('schedule.onCriticalPath')}
+			data-testid="grid-critical-dot">●</span
+		>
+	{/if}
+{/snippet}
+{#snippet hCriticalPath(node: Node)}
+	{@render criticalDot(node.logicalId)}
+{/snippet}
+{#snippet bCriticalPath(node: BucketViewNode)}
+	{#if !isBucketRow(node)}{@render criticalDot(node.logicalId)}{/if}
+{/snippet}
 {#snippet hOfferPT(node: Node)}
 	{@render aggregate(calcMap.get(node.logicalId), 'offerPT', 2)}
 {/snippet}
@@ -611,6 +642,7 @@
 				likely: hLikely,
 				pessimistic: hPessimistic,
 				mean: hMean,
+				criticalPath: hCriticalPath,
 				offerPT: hOfferPT,
 				cost: hCost,
 				offerPrice: hOfferPrice
@@ -654,6 +686,7 @@
 				likely: bLikely,
 				pessimistic: bPessimistic,
 				mean: bMean,
+				criticalPath: bCriticalPath,
 				offerPT: bOfferPT,
 				cost: bCost,
 				offerPrice: bOfferPrice

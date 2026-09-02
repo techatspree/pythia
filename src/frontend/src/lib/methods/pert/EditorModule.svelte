@@ -12,6 +12,10 @@
 	// autosave and undo/redo; this module is the pure $bindable view over the
 	// editable collections. Each collection is $bindable so child-panel edits
 	// propagate back to the route (the task-081/109 pattern).
+	// A module-level constant, not an inline `new Set()` default: a fresh set per
+	// render would be a new prop identity every time.
+	const EMPTY_CRITICAL_PATH: ReadonlySet<string> = new Set();
+
 	let {
 		roots = $bindable(),
 		dailyRate = $bindable<number>(800),
@@ -26,6 +30,7 @@
 		buckets: _buckets = $bindable(),
 		calcMap,
 		totals = ZERO_TOTALS,
+		criticalPath = EMPTY_CRITICAL_PATH,
 		editable
 	}: {
 		roots: any[];
@@ -38,6 +43,7 @@
 		buckets?: unknown[];
 		calcMap: Map<string, CalcEntry>;
 		totals?: EstimationTotalsView;
+		criticalPath?: ReadonlySet<string>;
 		editable: boolean;
 	} = $props();
 </script>
@@ -50,4 +56,4 @@
 
 <AdditionalCostsPanel bind:costs={additionalCosts} {phases} {editable} />
 
-<EstimationGrid bind:roots {editable} {calcMap} {phases} {totals} />
+<EstimationGrid bind:roots {editable} {calcMap} {phases} {totals} {criticalPath} />
