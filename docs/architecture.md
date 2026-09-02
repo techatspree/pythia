@@ -13,13 +13,16 @@
 
 ```
 src/
-  backend/    — Quarkus REST API
+  backend/    — Quarkus REST API (implementation/ + end2end/)
   frontend/   — SvelteKit SPA
   domain/     — Kotlin Multiplatform: single source of truth for domain logic
-  k8s/        — Kubernetes manifests (Kustomize)
+                (aggregator + core/ + method-threepoint/ + method-bucketsampled/)
+k8s/          — Kubernetes manifests (Kustomize: base/ + overlays/)
 docs/         — Architecture and design documents
-scripts/      — Helper scripts for local development
+scripts/      — Helper scripts for local development and deployment
+config/       — Shared tool configuration (detekt)
 planning/     — Project plan and task definitions
+.github/      — GitHub Actions CI (the public quality gate)
 ```
 
 # Distributed components
@@ -32,7 +35,7 @@ documentation, and each maps directly onto a Kubernetes resource.
 | Component    | What it is                                                | Kubernetes resource(s)                                                              | Port |
 |--------------|-----------------------------------------------------------|-------------------------------------------------------------------------------------|------|
 | **Browser**  | The end user's web browser running the SPA (the client)   | — (not deployed)                                                                    | —    |
-| **Frontend** | nginx serving the SvelteKit SPA and proxying `/api`        | `frontend` Deployment + Service                                                     | 80   |
+| **Frontend** | nginx serving the SvelteKit SPA and proxying `/api`        | `frontend` Deployment + Service, `frontend-config` ConfigMap (mounted as `/config.json`) | 80   |
 | **Backend**  | Quarkus REST API under `/api/…`                            | `backend` Deployment + Service, `backend-config` ConfigMap, `backend` HPA           | 8080 |
 | **Database** | PostgreSQL 16                                              | `postgres` StatefulSet + Service, `postgres-credentials` Secret, `postgres-data` PVC | 5432 |
 
@@ -62,12 +65,22 @@ under the dev module.
 Kubernetes is the deployment and component model: each component above is one
 Kubernetes workload — a Deployment for the stateless Frontend and Backend, a
 StatefulSet for the stateful Database — fronted by a Service, all in the
-`estimation` namespace, with a single Ingress (`estimation.local`) routing
-external traffic to the Frontend. Manifests live under `k8s/` and are composed
-with Kustomize: a `base/` plus overlays (`overlays/minikube` for local,
-`overlays/production` which adds Backend OIDC config and a TLS Ingress). The
+`estimation` namespace, with a single Ingress (`estimation.local` in the base)
+routing external traffic to the Frontend. Manifests live under `k8s/` and are
+composed with Kustomize: a `base/` plus three overlays — `overlays/minikube`
+(local), `overlays/staging` (namespace `estimation-staging`, one replica) and
+`overlays/production` (namespace `estimation`, a TLS Ingress). The
 Backend scales via a HorizontalPodAutoscaler; the Database keeps a persistent
-volume. The Backend and Frontend container images
+volume.
+
+**A stage differs from another stage by its configuration, never by its image**
+(task-161/task-162). One Backend image and one Frontend image serve every stage;
+what differs is the `backend-config` ConfigMap, the `postgres-credentials`
+Secret, and the `frontend-config` ConfigMap that the Frontend mounts as
+`/config.json` and the SPA fetches once at boot. See
+[deployment.md](./deployment.md) for the full key table.
+
+The Backend and Frontend container images
 (`pythia/pythia-backend`, `pythia/pythia-frontend`) are produced by
 the Gradle build (Jib for the Backend) and deployed locally with
 `./scripts/minikube-deploy.sh`.
@@ -77,7 +90,24 @@ the Gradle build (Jib for the Backend) and deployed locally with
 The `domain` module is a Kotlin Multiplatform project that contains **all
 business logic and domain models** shared between frontend and backend.
 
-- **Backend** consumes it as a regular JVM dependency via
+Since task-143 it is **four** Gradle projects rather than one, so the
+estimation-method boundary is compiler-enforced instead of a convention:
+
+| Project | Directory | Holds |
+|---|---|---|
+| `:domain:core` | `src/domain/core` | the model, i18n, services, and the estimation-method SPI + registry. Depends on **no** method module. |
+| `:domain:method-threepoint` | `src/domain/method-threepoint` | the PERT three-point method. Depends only on `:domain:core`. |
+| `:domain:method-bucketsampled` | `src/domain/method-bucketsampled` | the bucket+sampled method. Depends only on `:domain:core`. |
+| `:domain` | `src/domain` | the **aggregator** — depends on all three and is what the backend and frontend consume. |
+
+A cross-method import is therefore an "Unresolved reference" compile error, not
+merely a review comment. Package names are unchanged; only *which project*
+compiles them. Every one of the aggregator's dependencies must be `api(...)`,
+never `implementation(...)` — the backend imports `io.pythia.model.*` from the
+aggregator, and `implementation` dependencies do not reach a consumer's compile
+classpath.
+
+- **Backend** consumes the aggregator as a regular JVM dependency via
   `implementation(project(":domain"))` (the KMP JVM target).
 - **Frontend** consumes it as TypeScript, compiled to JS/TS by the
   Kotlin/JS compiler and unpacked into `src/lib/domain` from the domain's
@@ -92,16 +122,18 @@ reimplement domain rules — they only call into the shared domain code.
 The whole repo is one **Gradle** build (`./gradlew build`, `./gradlew detekt`,
 …). The Gradle wrapper at the repo root (`gradlew`, `gradlew.bat`,
 `gradle/wrapper/`) pins the Gradle version, so contributors don't need a
-system `gradle`. `settings.gradle.kts` includes four projects mapped onto the
-`src/` layout: `:domain`, `:backend:implementation`, `:backend:end2end`, and
-`:frontend`. Plugin versions are declared once in the root `build.gradle.kts`
+system `gradle`. `settings.gradle.kts` includes seven projects mapped onto the
+`src/` layout: `:domain` and its three sub-projects (`:domain:core`,
+`:domain:method-threepoint`, `:domain:method-bucketsampled`),
+`:backend:implementation`, `:backend:end2end`, and `:frontend`. Plugin versions
+are declared once in the root `build.gradle.kts`
 with `apply false` so every subproject applies the same version — in
 particular the Kotlin Gradle plugin, which is one shared artifact across
 `:domain` (multiplatform) and `:backend:implementation` (jvm) and must not
 diverge.
 
-`src/domain/` is the only Kotlin Multiplatform module, producing **two**
-artefacts from one source tree:
+`src/domain/` is the only Kotlin Multiplatform source tree, producing **two**
+artefacts from it:
 
 1. a JVM jar consumed by the backend via `implementation(project(":domain"))`,
    and
@@ -110,7 +142,11 @@ artefacts from one source tree:
 The KMP toolchain — `kotlin("multiplatform")` + `binaries.library()` +
 `generateTypeScriptDefinitions()` + the `prepareTypescriptArtifacts` /
 `packageTypescript` tasks — produces `domain.mjs` / `domain.d.mts` and packages
-them into a zip. The domain exposes that zip as a consumable `typescriptDist`
+them into a zip. Because the domain is split across four Gradle projects,
+`gradle.properties` sets `kotlin.js.ir.output.granularity=whole-program` so the
+JS output is **one** `domain.mjs` covering every module rather than a bundle per
+project — without it the aggregator emits only its own code and the frontend
+cannot import core types. The domain exposes that zip as a consumable `typescriptDist`
 configuration; `:frontend` declares a dependency on it and a `Sync` task
 (`unpackDomainTypescript`) unpacks it into `src/lib/domain` before the
 SvelteKit build, so there is no published npm package or Maven classifier

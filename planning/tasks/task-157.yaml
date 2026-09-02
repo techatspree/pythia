@@ -1,7 +1,7 @@
 id: task-157
 phase: phase-19
 title: Graphical dependency editor for the project schedule
-depends_on: [task-156, task-164]
+depends_on: [task-156, task-164, task-166]
 description: |
   Third task of phase-19. task-155 computes a schedule and task-156 stores its
   inputs; both are invisible. This task adds the way a user actually declares
@@ -69,6 +69,11 @@ description: |
   precisely so THIS task maps `kind` to an i18n key rather than rendering a
   domain-composed English sentence.
 
+  Note also that after task-166 `onCriticalPath` means a **critical chain**: a
+  card can be critical because the team was busy, not only because of a
+  dependency. Word any tooltip or legend accordingly — "critical" alone will be
+  read as "longest dependency chain" and be wrong.
+
   - **`CYCLE`** — let the user draw it. Render the error inline, highlight the
     cards in `involvedLogicalIds` (task-164 reports the ids the user actually
     drew, group ids included), and hide the computed durations until it is
@@ -89,11 +94,22 @@ description: |
   band by construction** — `offerPT` already carries a `stdDevFactor` loading —
   so show the range and never present the loaded figure as the band's midpoint.
 
-  ## The optimism caveat is part of the UI
+  ## teamFte is a WORKER COUNT, and the caveat has changed
 
-  `duration = effort / teamFte` gives every branch the full team, so parallel
-  branches are optimistic. Render that as an i18n'd hint under the team-FTE
-  field. A number this easy to over-trust must carry its assumption.
+  task-166 redefines `teamFte`: it is the number of people working
+  concurrently, not a divisor on effort. A leaf takes `effortPT` days worked by
+  one person, and the scheduler never runs more than `floor(teamFte)` items at
+  once.
+
+  So the field is "how many people", not "how much team" — label and hint it
+  that way, and make it an integer-ish input (a fractional value rounds DOWN,
+  with a floor of one; say so in the hint rather than silently truncating).
+
+  The old caveat — "every branch gets the full team, so parallel branches are
+  optimistic" — is **obsolete**: after task-166 the plan cannot over-commit the
+  team. Do NOT render it. The honest hint now is the remaining limitation: one
+  person per item, so a single large item cannot be shortened by adding people —
+  it has to be broken down.
 
 steps:
   - |
@@ -115,7 +131,9 @@ steps:
     a sibling bridge can schedule it. One build+calculate per render, not two.
 
     `ProjectSchedule.tasks` arrives as a Kotlin `KtList`, not a JS array — walk
-    it the way `adapter.ts` already walks the result tree. Reimplementing any
+    it via `.asJsReadonlyArrayView()`, the same call `adapter.ts` already makes
+    on `calculated.roots` and `children` (lines ~208, ~212) to read a Kotlin
+    `List` from TypeScript. Reimplementing any
     part of the critical path, the roll-up or the layering maths in TypeScript is
     out of bounds; the domain is the single source of truth. Layout POSITIONS
     are the editor's own concern and are not domain data.
@@ -162,13 +180,23 @@ steps:
       - `currentTeamFte` from `EstimationVersionDto.teamFte` and
         `currentDependencies` from `.dependencies`, PUT back as `DraftUpdateDto`'s
         optional `teamFte` / `dependencies` (task-156's wire shape)
-      - a team-FTE number field with the optimism hint beneath it, rendering
-        `error.kind == INVALID_TEAM_FTE` on the field itself
+      - a team-size number field ("how many people work concurrently") with the
+        rounding hint beneath it, rendering `error.kind == INVALID_TEAM_FTE` on
+        the field itself
       - `DependencyEditor` bound to the state
-      - the project length as a RANGE — `optimisticDurationDays` …
-        `pessimisticDurationDays` around `expectedDurationDays`, with
-        `projectDurationDays` labelled as the risk-loaded plan that sits at the
-        TOP of the band, never as its midpoint (task-155)
+      - TWO separate facts, not one range with a labelled point inside it:
+        (1) the LEVELLED plan length, `projectDurationDays` — what the team, at
+        its capacity, actually delivers; and (2) the ESTIMATE-UNCERTAINTY band,
+        `optimisticDurationDays` … `pessimisticDurationDays` around
+        `expectedDurationDays`, measured along the critical CHAIN with capacity
+        ignored (task-166). **Do not present `projectDurationDays` as a point
+        inside the band, and do not call it the top of it** — that was true
+        under task-155's `offerPT / teamFte` formula, where the two were the
+        same scale; after levelling they measure different things and the
+        makespan can fall entirely outside the band (three independent 10-day
+        leaves at `teamFte = 1`: makespan 30, band [10, 10]). Label each for
+        what it is: "planned length" and "estimate uncertainty on the critical
+        chain", not one merged range
       - a plain list of the computed per-node durations, so the task is useful
         before task-158 adds the chart
       - every number through `$lib/format.ts` — `.toFixed()`/`toLocale*()` and a
@@ -312,13 +340,24 @@ validation:
       # and the range is presented, not just the loaded figure
       grep -qE "optimisticDurationDays|pessimisticDurationDays" "$P"
   - |
-    The e2e spec exists and does not reintroduce the fixed-pass drag race:
-      # set -e: without it only the LAST command's status counts, so a block
-      # ending on a negation passes whenever the files are simply absent.
+    The e2e spec exists and does not reintroduce the fixed-pass drag race.
+    Two shapes are acceptable, because the race depends on the DnD mechanism.
+    NATIVE HTML5 drag (`draggable` + `ondrop`, driven by Playwright's `dragTo`)
+    has no cursor geometry to race, so there is nothing to settle — that is what
+    this editor uses, since svelte-dnd-action's `useCursorForDetection` is a
+    TreeTable concern rather than this component's. A MOUSE-driven drag instead
+    must re-read the target's `boundingBox()` between moves, deadline-based, as
+    `settleAndDrop` now does. Note all prose in these blocks stays at this
+    indent; only shell is indented further, or an extractor cannot tell them
+    apart.
       set -e
       T=src/frontend/e2e/schedule.test.ts
       test -f "$T"
-      grep -qi "boundingBox" "$T"
+      if grep -q "page.mouse" "$T"; then
+        grep -qi "boundingBox" "$T" || { echo "mouse drag without boundingBox re-read"; exit 1; }
+      else
+        grep -q "dragTo" "$T" || { echo "neither native dragTo nor a settled mouse drag"; exit 1; }
+      fi
   - |
     The new adapter entry point is documented where the others are — an
     undocumented second bridge is how `adapter.ts` drifts:

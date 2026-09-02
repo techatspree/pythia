@@ -28,6 +28,8 @@ class ProjectScheduleTest {
         StandardMethods.installAll()
     }
 
+    private fun leafId(id: String) = "leaf-$id"
+
     private fun leaf(id: String, min: Double, expected: Double, max: Double) = FixedEstimationItem(
         _description = "leaf $id",
         _minEffort = min,
@@ -58,6 +60,13 @@ class ProjectScheduleTest {
         roots = roots.toList()
     ).calculate()
 
+    /** A group with several leaves — the Merlin shape task-164 exists for. */
+    private fun groupOf(id: String, vararg efforts: Pair<String, Double>) = EstimationGroup(
+        title = "Group $id",
+        children = efforts.map { (childId, e) -> leaf(childId, e, e, e) },
+        _logicalId = id
+    )
+
     private fun dep(from: String, to: String) = ScheduleDependency(from, to)
 
     private fun ProjectSchedule.task(logicalId: String) = tasks.single { it.logicalId == logicalId }
@@ -78,20 +87,93 @@ class ProjectScheduleTest {
     }
 
     @Test
-    fun `the team size divides every duration`() {
+    fun `more workers do not shorten a dependency CHAIN`() {
+        // teamFte is a worker COUNT (task-166), not a divisor: a leaf takes its
+        // effortPT in days no matter how many people are on the team, and a
+        // chain is dependency-bound, so extra workers buy nothing here.
         val schedule = versionOf(unit("a", 10.0), unit("b", 20.0), unit("c", 30.0))
             .schedule(listOf(dep("a", "b"), dep("b", "c")), teamFte = 2.0)
 
-        assertEquals(30.0, schedule.projectDurationDays, delta)
-        assertEquals(5.0, schedule.task("a").durationDays, delta)
+        assertEquals(60.0, schedule.projectDurationDays, delta)
+        assertEquals(10.0, schedule.task(leafId("a")).durationDays, delta)
     }
 
     @Test
-    fun `two parallel branches of equal length are BOTH critical`() {
+    fun `capacity is respected — independent work queues behind the workers`() {
+        val three = arrayOf(unit("a", 10.0), unit("b", 10.0), unit("c", 10.0))
+
+        // One worker: 30 person-days take 30 days.
+        assertEquals(30.0, versionOf(*three).schedule(emptyList(), teamFte = 1.0).projectDurationDays, delta)
+        // Three workers: all three run at once.
+        assertEquals(10.0, versionOf(*three).schedule(emptyList(), teamFte = 3.0).projectDurationDays, delta)
+    }
+
+    @Test
+    fun `a fractional team rounds DOWN to whole workers`() {
+        val three = arrayOf(unit("a", 10.0), unit("b", 10.0), unit("c", 10.0))
+        val twoAndAHalf = versionOf(*three).schedule(emptyList(), teamFte = 2.5)
+        val two = versionOf(*three).schedule(emptyList(), teamFte = 2.0)
+
+        assertEquals(two.projectDurationDays, twoAndAHalf.projectDurationDays, delta)
+        assertEquals(20.0, twoAndAHalf.projectDurationDays, delta) // 2 slots: 10 + 10, then 10
+    }
+
+    @Test
+    fun `no worker is ever double-booked`() {
+        val slots = 2
+        val schedule = versionOf(
+            unit("a", 10.0), unit("b", 4.0), unit("c", 7.0), unit("d", 3.0), unit("e", 6.0)
+        ).schedule(listOf(dep("a", "d")), teamFte = slots.toDouble())
+
+        val leaves = schedule.tasks.filterNot { it.isGroup }
+        // Sample every boundary: capacity can only be exceeded at a start.
+        leaves.map { it.earliestStart }.distinct().forEach { t ->
+            val running = leaves.count { it.earliestStart <= t + delta && it.earliestFinish > t + delta }
+            assertTrue(running <= slots, "at t=$t, $running leaves ran with only $slots worker(s)")
+        }
+    }
+
+    @Test
+    fun `a dependency still wins over an idle worker`() {
+        // Two workers, but b cannot start early: it waits for a.
+        val schedule = versionOf(unit("a", 10.0), unit("b", 5.0))
+            .schedule(listOf(dep("a", "b")), teamFte = 2.0)
+
+        assertEquals(10.0, schedule.task(leafId("b")).earliestStart, delta)
+        assertEquals(15.0, schedule.projectDurationDays, delta)
+    }
+
+    @Test
+    fun `scheduling is deterministic — the same inputs give the same dates`() {
+        val roots = arrayOf(unit("a", 3.0), unit("b", 5.0), unit("c", 2.0), unit("d", 8.0))
+        val deps = listOf(dep("a", "d"), dep("b", "c"))
+        val first = versionOf(*roots).schedule(deps, teamFte = 2.0)
+        val second = versionOf(*roots).schedule(deps, teamFte = 2.0)
+
+        assertEquals(first.tasks.map { it.logicalId }, second.tasks.map { it.logicalId })
+        assertEquals(first.tasks.map { it.earliestStart }, second.tasks.map { it.earliestStart })
+        assertEquals(first.projectDurationDays, second.projectDurationDays, delta)
+    }
+
+    @Test
+    fun `a group's milestones consume no worker`() {
+        // Two 10-day leaves, two workers: they run together and finish at 10.
+        // If the group's #start/#finish milestones took slots, the leaves would
+        // queue behind them.
+        val schedule = versionOf(groupOf("g", "a" to 10.0, "b" to 10.0))
+            .schedule(emptyList(), teamFte = 2.0)
+
+        assertEquals(10.0, schedule.projectDurationDays, delta)
+        assertEquals(0.0, schedule.task(leafId("a")).earliestStart, delta)
+        assertEquals(0.0, schedule.task(leafId("b")).earliestStart, delta)
+    }
+
+    @Test
+    fun `two parallel branches are BOTH critical when there are workers for both`() {
         // The case a "trace one longest chain" implementation silently gets
         // wrong: it reports only one of the two branches.
         val schedule = versionOf(unit("s", 5.0), unit("x", 10.0), unit("y", 10.0))
-            .schedule(listOf(dep("s", "x"), dep("s", "y")), teamFte = 1.0)
+            .schedule(listOf(dep("s", "x"), dep("s", "y")), teamFte = 2.0)
 
         assertEquals(15.0, schedule.projectDurationDays, delta)
         assertTrue(schedule.task("x").onCriticalPath)
@@ -100,17 +182,41 @@ class ProjectScheduleTest {
     }
 
     @Test
+    fun `the over-commitment is gone — one worker cannot deliver 25 PT in 15 days`() {
+        // THE regression this task exists for. This exact shape asserted 15.0
+        // before levelling: 25 person-days delivered by one person in 15 days.
+        val schedule = versionOf(unit("s", 5.0), unit("x", 10.0), unit("y", 10.0))
+            .schedule(listOf(dep("s", "x"), dep("s", "y")), teamFte = 1.0)
+
+        val totalEffort = schedule.tasks.filterNot { it.isGroup }.sumOf { it.effortPT }
+        assertEquals(25.0, totalEffort, delta)
+        assertEquals(25.0, schedule.projectDurationDays, delta)
+    }
+
+    @Test
     fun `a diamond takes the longest path, not the sum of everything`() {
         val schedule = versionOf(unit("a", 10.0), unit("b", 20.0), unit("c", 5.0), unit("d", 10.0))
-            .schedule(listOf(dep("a", "b"), dep("a", "c"), dep("b", "d"), dep("c", "d")), teamFte = 1.0)
+            .schedule(listOf(dep("a", "b"), dep("a", "c"), dep("b", "d"), dep("c", "d")), teamFte = 3.0)
 
-        // Sum of all four would be 45; the longest path a→b→d is 40.
+        // With enough workers the dependency path decides: a→b→d is 40, while
+        // the sum of all four is 45.
         assertEquals(40.0, schedule.projectDurationDays, delta)
         assertEquals(30.0, schedule.task("d").earliestStart, delta)
         assertTrue(schedule.task("a").onCriticalPath)
         assertTrue(schedule.task("b").onCriticalPath)
         assertTrue(schedule.task("d").onCriticalPath)
         assertFalse(schedule.task("c").onCriticalPath, "c has 15 days of slack")
+    }
+
+    @Test
+    fun `with ONE worker the diamond costs its total effort, not its longest path`() {
+        // Nothing is ever idle here, so the makespan is the whole 45 PT — the
+        // team, not the dependency graph, is the constraint. That is a critical
+        // CHAIN rather than a critical path.
+        val schedule = versionOf(unit("a", 10.0), unit("b", 20.0), unit("c", 5.0), unit("d", 10.0))
+            .schedule(listOf(dep("a", "b"), dep("a", "c"), dep("b", "d"), dep("c", "d")), teamFte = 1.0)
+
+        assertEquals(45.0, schedule.projectDurationDays, delta)
     }
 
     @Test
@@ -190,18 +296,21 @@ class ProjectScheduleTest {
     }
 
     @Test
-    fun `the band divides effort variance by teamFte SQUARED`() {
+    fun `the band does NOT scale with team size`() {
+        // task-166: a leaf takes effortPT days, so the band is already in days
+        // and no longer divides by teamFte. It describes ESTIMATE uncertainty
+        // along the dependency path — adding people does not make an estimate
+        // more certain.
         val version = versionOf(spreadUnit("a", 0.0, 3.0, 6.0), spreadUnit("b", 0.0, 6.0, 12.0))
         val deps = listOf(dep("a", "b"))
 
         val solo = version.schedule(deps, teamFte = 1.0)
-        val pair = version.schedule(deps, teamFte = 2.0)
+        val crowd = version.schedule(deps, teamFte = 3.0)
 
-        // sqrt(v / fte^2) == sqrt(v) / fte, so doubling the team HALVES the
-        // spread. Dividing the variance by fte once would give sqrt(5)/sqrt(2).
-        assertEquals(solo.durationStdDevDays / 2.0, pair.durationStdDevDays, delta)
-        assertEquals(sqrt(5.0) / 2.0, pair.durationStdDevDays, delta)
-        assertEquals(4.5, pair.expectedDurationDays, delta)
+        assertEquals(9.0, solo.expectedDurationDays, delta)
+        assertEquals(sqrt(5.0), solo.durationStdDevDays, delta)
+        assertEquals(solo.expectedDurationDays, crowd.expectedDurationDays, delta)
+        assertEquals(solo.durationStdDevDays, crowd.durationStdDevDays, delta)
     }
 
     @Test
@@ -209,7 +318,7 @@ class ProjectScheduleTest {
         // Equal means (3.0) so both are critical; different variances (1 and
         // 4/9) so the tie-break is observable.
         val schedule = versionOf(spreadUnit("p", 0.0, 3.0, 6.0), spreadUnit("q", 1.0, 3.0, 5.0))
-            .schedule(emptyList(), teamFte = 1.0)
+            .schedule(emptyList(), teamFte = 2.0)
 
         assertTrue(schedule.tasks.all { it.onCriticalPath })
         assertEquals(3.0, schedule.expectedDurationDays, delta)
@@ -248,5 +357,127 @@ class ProjectScheduleTest {
         assertNull(schedule.error)
         assertTrue(schedule.tasks.isEmpty())
         assertEquals(0.0, schedule.projectDurationDays, delta)
+    }
+
+    // ---------------------------------------------------- task-164: hierarchy
+
+    @Test
+    fun `every node is scheduled, not only the roots — the Merlin shape`() {
+        // ONE root group with three children, edges drawn between the CHILDREN.
+        // Under the roots-only rule this had a single unit and no schedule at all.
+        val schedule = versionOf(groupOf("g", "a" to 10.0, "b" to 20.0, "c" to 30.0))
+            .schedule(listOf(dep(leafId("a"), leafId("b")), dep(leafId("b"), leafId("c"))), teamFte = 1.0)
+
+        assertNull(schedule.error)
+        // 4 nodes: the group plus its three leaves.
+        assertEquals(4, schedule.tasks.size)
+        assertEquals(60.0, schedule.projectDurationDays, delta)
+        assertEquals(0.0, schedule.task(leafId("a")).earliestStart, delta)
+        assertEquals(30.0, schedule.task(leafId("c")).earliestStart, delta)
+    }
+
+    @Test
+    fun `a group's dates ROLL UP from its children`() {
+        val schedule = versionOf(groupOf("g", "a" to 10.0, "b" to 20.0))
+            .schedule(listOf(dep(leafId("a"), leafId("b"))), teamFte = 1.0)
+
+        val g = schedule.task("g")
+        assertTrue(g.isGroup)
+        assertEquals(0.0, g.earliestStart, delta)   // earliest child start
+        assertEquals(30.0, g.earliestFinish, delta) // latest child finish
+    }
+
+    @Test
+    fun `a group's durationDays is its SPAN, not an effort quotient`() {
+        // Three workers, no edges: the children genuinely run together, so the
+        // span is the longest child while the effort is their sum.
+        val schedule = versionOf(groupOf("g", "a" to 10.0, "b" to 20.0, "c" to 30.0))
+            .schedule(emptyList(), teamFte = 3.0)
+
+        val g = schedule.task("g")
+        assertEquals(30.0, g.durationDays, delta)   // span  = max(child)
+        assertEquals(60.0, g.effortPT, delta)       // effort = sum(child)
+        assertEquals(30.0, schedule.projectDurationDays, delta)
+
+        // With ONE worker the same group takes its whole effort — capacity, not
+        // the tree, decides. This is what levelling bought (task-166).
+        val levelled = versionOf(groupOf("g", "a" to 10.0, "b" to 20.0, "c" to 30.0))
+            .schedule(emptyList(), teamFte = 1.0)
+        assertEquals(60.0, levelled.task("g").durationDays, delta)
+        assertEquals(60.0, levelled.projectDurationDays, delta)
+    }
+
+    @Test
+    fun `an edge between two GROUPS orders every leaf of one after the other`() {
+        val schedule = versionOf(groupOf("g1", "a" to 10.0, "b" to 20.0), groupOf("g2", "c" to 5.0))
+            .schedule(listOf(dep("g1", "g2")), teamFte = 2.0)
+
+        assertNull(schedule.error)
+        // g1 spans 0..20 (its leaves overlap); g2's leaf waits for ALL of g1.
+        assertEquals(20.0, schedule.task("g1").earliestFinish, delta)
+        assertEquals(20.0, schedule.task(leafId("c")).earliestStart, delta)
+        assertEquals(25.0, schedule.projectDurationDays, delta)
+    }
+
+    @Test
+    fun `a group is critical when only ONE of its leaves is`() {
+        val schedule = versionOf(groupOf("g1", "a" to 10.0, "b" to 1.0), groupOf("g2", "c" to 5.0))
+            .schedule(listOf(dep("g1", "g2")), teamFte = 2.0)
+
+        assertTrue(schedule.task(leafId("a")).onCriticalPath, "the long leaf drives the group")
+        assertFalse(schedule.task(leafId("b")).onCriticalPath, "the short leaf has slack")
+        assertTrue(schedule.task("g1").onCriticalPath, "so the group is critical")
+    }
+
+    @Test
+    fun `a cycle drawn between two GROUPS is reported with the GROUP ids`() {
+        val schedule = versionOf(groupOf("g1", "a" to 10.0), groupOf("g2", "b" to 5.0))
+            .schedule(listOf(dep("g1", "g2"), dep("g2", "g1")), teamFte = 1.0)
+
+        assertEquals(ScheduleErrorKind.CYCLE, schedule.error?.kind)
+        // The user drew group ids; they must not be told about lowered milestones
+        // or leaves they never touched.
+        assertEquals(listOf("g1", "g2"), schedule.error?.involvedLogicalIds)
+        assertTrue(schedule.tasks.isEmpty())
+    }
+
+    @Test
+    fun `depth and parentLogicalId describe a two-level nesting`() {
+        val inner = EstimationGroup(
+            title = "Inner",
+            children = listOf(leaf("x", 4.0, 4.0, 4.0)),
+            _logicalId = "inner"
+        )
+        val outer = EstimationGroup(title = "Outer", children = listOf(inner), _logicalId = "outer")
+        val schedule = versionOf(outer).schedule(emptyList(), teamFte = 1.0)
+
+        assertEquals(0, schedule.task("outer").depth)
+        assertNull(schedule.task("outer").parentLogicalId)
+        assertEquals(1, schedule.task("inner").depth)
+        assertEquals("outer", schedule.task("inner").parentLogicalId)
+        assertEquals(2, schedule.task(leafId("x")).depth)
+        assertEquals("inner", schedule.task(leafId("x")).parentLogicalId)
+    }
+
+    @Test
+    fun `tasks are emitted in TREE order, and no milestone leaks out`() {
+        // task-157 and task-158 rebuild the tree from this list WITHOUT sorting,
+        // so the ordering is a contract, not an implementation detail.
+        val schedule = versionOf(
+            groupOf("g1", "a" to 1.0, "b" to 2.0),
+            groupOf("g2", "c" to 3.0)
+        ).schedule(emptyList(), teamFte = 1.0)
+
+        val seen = mutableSetOf<String>()
+        var previousDepth = -1
+        schedule.tasks.forEach { t ->
+            t.parentLogicalId?.let { assertTrue(it in seen, "\${t.logicalId} precedes its parent") }
+            assertTrue(t.depth <= previousDepth + 1, "depth jumped by more than one at \${t.logicalId}")
+            // Milestones are an internal scheduling device and never reach the wire.
+            assertFalse(t.logicalId.contains("#"), "milestone leaked: \${t.logicalId}")
+            seen.add(t.logicalId)
+            previousDepth = t.depth
+        }
+        assertEquals(listOf("g1", leafId("a"), leafId("b"), "g2", leafId("c")), schedule.tasks.map { it.logicalId })
     }
 }

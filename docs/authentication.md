@@ -114,14 +114,19 @@ can distinguish `dev-viewer` (403) from `dev-admin` (200).
 rejection (no header, unknown `Dev` subject, and a `Bearer` token) plus
 the SPA dev-login-dialog gate, all against the dev backend on :8090.
 
-Run the full suite (dev backend on :8090 must be up):
+Run the full suite (dev backend on :8090 must be up — `./scripts/dev.sh`, with
+Docker running):
 
 ```bash
-cd src/frontend && npx playwright test
+cd src/frontend && npm run test:e2e
 ```
 
-Expected count: **27 passing** (smoke 13 + tree-table 5 + auth-gate 4 +
-auth 5); all run against the dev backend on :8090, Docker up.
+The suite covers far more than auth; the auth-specific files are
+`auth.test.ts` (5 cases), `auth-gate.test.ts` (4) and
+`endpoint-authorization.test.ts` (4). No absolute pass count is recorded here on
+purpose — it goes stale on every new spec. The authoritative gate is the `e2e`
+job in `.github/workflows/ci.yaml`, which runs the whole directory against a
+`dev.sh` stack.
 
 
 ## What NOT to do
@@ -137,7 +142,24 @@ auth 5); all run against the dev backend on :8090, Docker up.
 
 # Entra auth module
 
-TODO: add documentation
+The production-grade module, backed by Microsoft Entra ID: `quarkus-oidc`
+validates a signed `Bearer` access token on the backend, and MSAL
+(`@azure/msal-browser`) acquires it in the SPA. **[entra-setup.md](./entra-setup.md)
+is the reference** — tenant setup and the two app registrations, the role
+mapping, the backend and frontend wiring, where each coordinate comes from, and
+a troubleshooting section for the 401s this module produces.
+
+Two things are worth repeating here:
+
+- **Roles come from `estimation-api` only** (task-120). The backend enforces
+  `@RolesAllowed` from the access token, and the UI reads the same roles back via
+  `GET /api/auth/me` — so the two can never disagree, and app roles do not need
+  to be assigned on the SPA registration.
+- **Neither side is configured at build time any more** (task-161/task-162). The
+  backend's issuer, client id and audience arrive as `QUARKUS_OIDC_*` environment
+  variables from the `backend-config` ConfigMap; the SPA's coordinates arrive as
+  `/config.json` from the `frontend-config` ConfigMap. See
+  [deployment.md](./deployment.md).
 
 ## Manual checklist for verification
 

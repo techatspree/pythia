@@ -111,9 +111,10 @@ then advance the wrapper to Gradle 10.
 ## Static code analysis
 
 `./gradlew staticAnalysis` is the single goal that runs **every** static-analysis
-tool across all modules in one invocation: detekt over the Kotlin modules
-(`:domain`, `:backend:implementation`) plus svelte-check and ESLint over the
-frontend (via the `lint:report` script). It runs no tests and needs no Docker.
+tool across all modules in one invocation: detekt over every Kotlin module
+(`:domain` and its three sub-projects, plus `:backend:implementation`) and
+svelte-check + ESLint over the frontend (via the `lint:report` script). It runs
+no tests and needs no Docker.
 
 It also produces a **consolidated, project-wide report** at
 `build/reports/static-analysis/static-analysis.html` (plus a merged
@@ -135,7 +136,10 @@ once the existing backlog has been triaged.
 | Layer              | Tool   | Task                  | Reports                                                       |
 |--------------------|--------|-----------------------|---------------------------------------------------------------|
 | Kotlin — backend   | detekt | `:backend:implementation:detekt` | `src/backend/implementation/build/reports/detekt/detekt.{xml,html}` |
-| Kotlin — domain    | detekt | `:domain:detekt`      | `src/domain/build/reports/detekt/detekt.{xml,html}`           |
+| Kotlin — domain (aggregator) | detekt | `:domain:detekt` | `src/domain/build/reports/detekt/detekt.{xml,html}`  |
+| Kotlin — domain core | detekt | `:domain:core:detekt` | `src/domain/core/build/reports/detekt/detekt.{xml,html}` |
+| Kotlin — three-point method | detekt | `:domain:method-threepoint:detekt` | `src/domain/method-threepoint/build/reports/detekt/detekt.{xml,html}` |
+| Kotlin — bucket-sampled method | detekt | `:domain:method-bucketsampled:detekt` | `src/domain/method-bucketsampled/build/reports/detekt/detekt.{xml,html}` |
 | TS / Svelte / HTML | ESLint | `:frontend:npmLintReport` | `src/frontend/reports/eslint.{json,html}`                 |
 | All (consolidated) | Node   | `:frontend:sarifHtmlReport` | `build/reports/static-analysis/static-analysis.{html,sarif}` |
 
@@ -154,8 +158,9 @@ Fastest iteration loops during a focused fix:
 # Backend Kotlin only
 ./gradlew :backend:implementation:detekt
 
-# Domain Kotlin only
-./gradlew :domain:detekt
+# Domain Kotlin only (the aggregator; add :core / :method-* for one sub-project)
+./gradlew :domain:detekt :domain:core:detekt \
+          :domain:method-threepoint:detekt :domain:method-bucketsampled:detekt
 
 # Frontend (TS + Svelte + HTML)
 cd src/frontend && npm run lint          # console output, exits non-zero on findings
@@ -201,10 +206,24 @@ be set when the image is built, not just at runtime:
 | `dev-minikube`   | Entra (OIDC)       | `entra`             |
 | `prod`           | Entra (OIDC)       | `entra`             |
 
-`scripts/minikube-deploy.sh` selects Entra by exporting
-`APP_AUTH_PROVIDER=entra` / `VITE_AUTH_PROVIDER=entra` before the Gradle image
-build (`./gradlew :backend:implementation:imageBuild`). The mapping is
-regression-guarded by `AuthProviderProfileTest`.
+`prod` is the subtle one: `%prod` deliberately bakes **no** provider (task-161),
+because `APP_AUTH_PROVIDER` is a stage coordinate that arrives from the
+`backend-config` ConfigMap. But bean selection is still `@IfBuildProperty`, so a
+production image must *also* be augmented with `APP_AUTH_PROVIDER=entra` or it
+contains neither module's beans — and it will start anyway. See
+[deployment.md](./deployment.md), pipeline stage 1.
+
+`scripts/minikube-deploy.sh` selects Entra by exporting `APP_AUTH_PROVIDER=entra`
+before the Gradle image build (`./gradlew :backend:implementation:imageBuild`).
+The mapping is regression-guarded by `AuthProviderProfileTest`.
+
+The **frontend** no longer takes an auth provider at build time: the
+`VITE_AUTH_PROVIDER` / `VITE_ENTRA_*` variables are gone (task-162). The SPA
+image is stage-independent and fetches `/config.json`, which in a cluster comes
+from the `frontend-config` ConfigMap and locally from the `predev`-generated
+`src/frontend/static/config.json`. `config.json`'s `authProvider` **must match**
+the backend's `APP_AUTH_PROVIDER`; if they disagree the SPA sends a `Dev` header
+to an Entra backend and every call 401s.
 
 ### dev — Local with PostgreSQL via Dev Services
 
@@ -230,7 +249,27 @@ cd src/frontend
 npm run dev
 ```
 
-The backend is available at http://localhost:8080, the frontend at http://localhost:5173. The frontend proxies API requests to the locally running backend. No Docker or container image is needed.
+The backend is available at **http://localhost:8090**, the frontend at
+http://localhost:5173. The frontend proxies API requests to the locally running
+backend.
+
+**:8090, not Quarkus' default 8080** (`%dev.quarkus.http.port`, task-137). 8080
+is deliberately left free for `kubectl -n estimation port-forward svc/frontend
+8080:80`: both can bind at once (the port-forward takes `127.0.0.1`, Quarkus
+`0.0.0.0`), the loopback binding wins for `localhost`, and the Vite proxy plus
+the Playwright suite would then silently reach the **cluster** — which rejects
+`Authorization: Dev …` with a 401 while both stacks look healthy. Do not move it
+back. The setting is profile-scoped on purpose: the generated OpenAPI `servers`
+block comes from the augmentation-time port, and `prod` augmentation must keep
+emitting 8080 so the committed `src/frontend/src/lib/api/openapi.json` does not
+churn.
+
+The SPA reads its auth coordinates from `/config.json` at boot (task-162), so
+`npm run dev` has a `predev` script that writes `src/frontend/static/config.json`
+with `{"authProvider":"dev"}`. The file is git-ignored and never baked into the
+image; `static/config.example.json` documents the shape. A bare `npx vite dev`
+skips `predev` and the SPA then fails closed with a "configuration could not be
+loaded" error rather than silently defaulting to dev auth.
 
 The authentication is done using a static authentication provider described in [authentication.md](./authentication.md).
 

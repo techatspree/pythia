@@ -2,11 +2,14 @@
 
 The `entra` auth module is the production-grade concrete implementation
 of the modular auth SPI declared by task-005. Activation is purely
-config-driven: set `APP_AUTH_PROVIDER=entra` on the backend and
-`VITE_AUTH_PROVIDER=entra` on the frontend; everything else flows
-through the SPI. For local development the `dev` module
-(see `docs/auth-dev.md`) stays the default; this document covers
-production and the optional "developer-Entra" workflow.
+config-driven and happens at **runtime on both sides** (task-161/task-162): set
+`APP_AUTH_PROVIDER=entra` on the backend and `"authProvider": "entra"` in the
+SPA's `/config.json`; everything else flows through the SPI. Neither side needs
+a rebuild to change stage, and the two values **must agree** — a `dev`
+`config.json` against an `entra` backend 401s every call. For local development
+the `dev` module (see [authentication.md](./authentication.md)) stays the
+default; this document covers production and the optional "developer-Entra"
+workflow.
 
 ## One-time tenant setup (manual, performed by the tenant admin)
 
@@ -64,9 +67,9 @@ Two app registrations under the same Entra tenant:
    - Redirect URIs (all under the Single-page application platform):
      - `http://localhost:5173` (local Entra mode + smoke runs)
      - `http://localhost:8080` (minikube — the default port-forward URL
-       `minikube-deploy.sh` bakes in as `VITE_ENTRA_REDIRECT_URI`; if you
-       access the SPA via the Ingress host or a different port, register
-       and export that URL instead)
+       `minikube-deploy.sh` uses for `OIDC_REDIRECT_URI`; if you access the
+       SPA via the Ingress host or a different port, register and export
+       that URL instead)
      - `https://estimation.<your-domain>` (production)
    - **API permissions** → Add → My APIs → `estimation-api` →
      Delegated `access`. Grant admin consent.
@@ -138,17 +141,35 @@ The `entra` module is implemented in
 - `EntraRoleMapper` — shared `entraRolesToDomain(...)` helper, called
   by both the filter and the augmentor.
 
-The Quarkus OIDC config is wired per profile in
-`src/backend/implementation/src/main/resources/application.properties`.
-Under `%prod` and `%dev-minikube`:
+### Where the OIDC coordinates come from
+
+`%dev-minikube` in
+`src/backend/implementation/src/main/resources/application.properties` still
+carries a full local set, expanded from the `ENTRA_*` variables at startup:
 
 ```
-quarkus.oidc.auth-server-url=https://login.microsoftonline.com/${ENTRA_TENANT_ID}/v2.0
-quarkus.oidc.client-id=${ENTRA_API_CLIENT_ID}
-quarkus.oidc.application-type=service
-quarkus.oidc.token.audience=api://${ENTRA_API_CLIENT_ID},${ENTRA_API_CLIENT_ID}
-quarkus.oidc.roles.role-claim-path=roles
+%dev-minikube.quarkus.oidc.auth-server-url=https://login.microsoftonline.com/${ENTRA_TENANT_ID}/v2.0
+%dev-minikube.quarkus.oidc.client-id=${ENTRA_API_CLIENT_ID}
+%dev-minikube.quarkus.oidc.application-type=service
+%dev-minikube.quarkus.oidc.token.audience=api://${ENTRA_API_CLIENT_ID},${ENTRA_API_CLIENT_ID}
+%dev-minikube.quarkus.oidc.roles.role-claim-path=roles
 ```
+
+**`%prod` does not** (task-161). A stage differs from another stage by its
+configuration, never by its image, so every stage-varying value left the
+properties file and arrives as an environment variable from the `backend-config`
+ConfigMap instead — `APP_AUTH_PROVIDER`, `QUARKUS_OIDC_AUTH_SERVER_URL`,
+`QUARKUS_OIDC_CLIENT_ID`, `QUARKUS_OIDC_TOKEN_AUDIENCE` and the datasource
+coordinates. `%prod` keeps only the stage-invariant remainder
+(`application-type`, `roles.role-claim-path`, `db-kind`, the Flyway and schema
+flags, JSON logging), and **no property there may contain a `${...}`
+placeholder** — expanding one from the pod environment would be a second
+configuration mechanism, which is how production once came to reference an
+`ENTRA_API_CLIENT_ID` that no production manifest supplied. Note also that
+`quarkus.oidc.enabled` is build-time (`OidcBuildTimeConfig`) and therefore inert
+as an env var; the runtime lever is `quarkus.oidc.tenant-enabled`, and whether
+OIDC is *used* is governed by `APP_AUTH_PROVIDER`. See
+[deployment.md](./deployment.md) for the full key table.
 
 The audience is listed **twice on purpose**: v1.0 access tokens carry
 `aud=api://<api-client-id>`, but v2.0 tokens (`accessTokenAcceptedVersion: 2`)
@@ -166,86 +187,152 @@ The MSAL-based provider lives in
 `@azure/msal-browser` (NOT msal-react — this project is Svelte 5).
 Flow:
 
+Its coordinates come from the **runtime** config (task-162), not from
+`VITE_*` inlined at build time: `$lib/config/runtimeConfig.ts` fetches
+`/config.json` once from the root `+layout.ts` load and validates it, so
+`getRuntimeConfig().entra` is available before any component initialises. All
+four fields — `tenantId`, `spaClientId`, `apiClientId`, `redirectUri` — are
+**required**; the loader fails closed with a translated error rather than
+falling back to `dev` or to `http://localhost:5173`.
+
 - `init()` → instantiate `PublicClientApplication` with
-  `clientId=VITE_ENTRA_SPA_CLIENT_ID`,
-  `authority=https://login.microsoftonline.com/<tenant>`, the redirect
-  URI from env, and `cache.cacheLocation: 'localStorage'`. Calls
+  `clientId=entra.spaClientId`,
+  `authority=https://login.microsoftonline.com/<entra.tenantId>`, the redirect
+  URI `entra.redirectUri`, and `cache.cacheLocation: 'localStorage'`. Calls
   `msal.initialize()` and `handleRedirectPromise()` so the post-login
   redirect is processed.
-- `login()` → `msal.loginRedirect({ scopes: ['api://<api-client-id>/access'] })`.
+- `login()` → `msal.loginRedirect({ scopes: ['api://<entra.apiClientId>/access'] })`.
   Redirect (not popup) for robustness against popup blockers.
 - `logout()` → `msal.logoutRedirect()`.
-- `getAccount()` → maps the active account's id-token claims into the
-  provider-agnostic `AuthAccount` shape (subjectId from
-  `oid`/`sub`, email from `email`/`preferred_username`,
-  displayName from `name`, roles from the `roles` claim — only
-  recognised values pass through the filter).
+- `loadAccount()` → returns `null` when MSAL holds no account (so `RequireAuth`
+  triggers the login redirect); otherwise fetches `GET /api/auth/me` through
+  `fetchCurrentUserAccount()` and caches the result. **Roles come from the
+  backend, not from the id token** (task-120) — which is why app roles only need
+  to be defined and assigned on `estimation-api`, and why the UI can never
+  disagree with backend enforcement.
+- `getAccount()` → returns that cached `AuthAccount` synchronously.
 - `getAuthorizationHeader()` → `msal.acquireTokenSilent` for the API
   scope; on `InteractionRequiredAuthError` falls back to
   `acquireTokenRedirect`. Returns `"Bearer <accessToken>"`.
 
-## Environment variables
+## Where each coordinate lives
 
-| variable                     | side     | description                                            |
-|------------------------------|----------|--------------------------------------------------------|
-| `APP_AUTH_PROVIDER`          | backend  | `entra` to activate this module                        |
-| `ENTRA_TENANT_ID`            | backend  | resolves `${ENTRA_TENANT_ID}` in application.properties|
-| `ENTRA_API_CLIENT_ID`        | backend  | API app's client id; drives `client-id` + audience     |
-| `ENTRA_SPA_CLIENT_ID`        | deploy   | SPA app's client id; prechecked by `minikube-deploy.sh` and used to source `VITE_ENTRA_SPA_CLIENT_ID` — not read by the backend at runtime |
-| `VITE_AUTH_PROVIDER`         | frontend | `entra` to activate this module                        |
-| `VITE_ENTRA_TENANT_ID`       | frontend | mirrors the backend tenant id                          |
-| `VITE_ENTRA_SPA_CLIENT_ID`   | frontend | SPA app's client id (MSAL `clientId`)                  |
-| `VITE_ENTRA_API_CLIENT_ID`   | frontend | API app's client id (used to derive the access scope)  |
-| `VITE_ENTRA_REDIRECT_URI`    | frontend | redirect URI — **optional**, default `http://localhost:5173` |
+**What a developer supplies.** `scripts/minikube-deploy.sh` prechecks the three
+`ENTRA_*` ids and refuses to deploy without them, so a deploy can never ship an
+unresolved placeholder. Keep them outside the repository (see step 4 of the
+tenant setup); none of them is a secret, but none belongs in a public history
+either.
 
-`ENTRA_SPA_CLIENT_ID` is also enforced by `scripts/minikube-deploy.sh`
-as a precheck so deploys cannot silently ship unresolved placeholders.
+| variable              | description                                          |
+|-----------------------|------------------------------------------------------|
+| `ENTRA_TENANT_ID`     | the tenant GUID                                       |
+| `ENTRA_API_CLIENT_ID` | `estimation-api`'s client id — drives `client-id` + audience |
+| `ENTRA_SPA_CLIENT_ID` | `estimation-spa`'s client id (MSAL `clientId`); not read by the backend |
+| `OIDC_REDIRECT_URI`   | **optional**; defaults to the port-forward URL `http://localhost:8080` |
+
+**What the manifests consume.** Every overlay uses one provider-neutral
+`${OIDC_*}` convention carrying **full values**, never identity-provider-specific
+fragments a manifest then composes into a URL — the auth layer is modular
+(`dev` | `entra` | `keycloak`), so the manifests are not named after one
+provider. `minikube-deploy.sh` derives these from the `ENTRA_*` ids above; the
+internal GitLab pipeline supplies them as masked CI/CD variables.
+
+| name | goes into | becomes |
+|---|---|---|
+| `APP_AUTH_PROVIDER` | `backend-config` ConfigMap | `app.auth.provider` |
+| `OIDC_AUTH_SERVER_URL` | `backend-config` | `QUARKUS_OIDC_AUTH_SERVER_URL` — `https://login.microsoftonline.com/<tenant>/v2.0` |
+| `OIDC_CLIENT_ID` | `backend-config` **and** `frontend-config` | `QUARKUS_OIDC_CLIENT_ID`; reused as the SPA's `apiClientId` |
+| `OIDC_TOKEN_AUDIENCE` | `backend-config` | `QUARKUS_OIDC_TOKEN_AUDIENCE` — both audience forms, comma-separated |
+| `OIDC_TENANT_ID` | `frontend-config` | `config.json` → `entra.tenantId` |
+| `OIDC_SPA_CLIENT_ID` | `frontend-config` | `config.json` → `entra.spaClientId` |
+| `OIDC_REDIRECT_URI` | `frontend-config` | `config.json` → `entra.redirectUri` |
+
+There are **no `VITE_*` variables any more** (task-162). Vite inlined them at
+build time, which made the frontend image *be* the configuration: a stage needed
+its own build and an image could not be promoted. `src/frontend/src/vite-env.d.ts`
+still declares the old names, but nothing reads them.
 
 ## Running Entra locally (optional)
 
-To test the Entra wiring against a real tenant from a local checkout
-(no minikube), stop `dev.sh`, export the variables above (all except the
-optional `VITE_ENTRA_REDIRECT_URI`, which defaults to `http://localhost:5173`),
-and start Quarkus + Vite manually:
+To test the Entra wiring against a real tenant from a local checkout (no
+minikube), stop `dev.sh` and start Quarkus + Vite manually.
+**`./scripts/minikube-deploy.sh` is the supported path; this local variant is
+covered by no test and needs both sides overridden by hand.**
+
+**Backend.** `%dev` runs the dev module and sets `quarkus.oidc.enabled=false`,
+and it carries no issuer of its own — so switching the provider alone is not
+enough. `quarkusDev` augments in-process, so the build-time OIDC keys can be
+supplied as environment variables at launch:
 
 ```bash
 export APP_AUTH_PROVIDER=entra
-export ENTRA_TENANT_ID=<tenant-guid>
-export ENTRA_API_CLIENT_ID=<api-client-id>
-export ENTRA_SPA_CLIENT_ID=<spa-client-id>
-export VITE_AUTH_PROVIDER=entra
-export VITE_ENTRA_TENANT_ID="$ENTRA_TENANT_ID"
-export VITE_ENTRA_SPA_CLIENT_ID="$ENTRA_SPA_CLIENT_ID"
-export VITE_ENTRA_API_CLIENT_ID="$ENTRA_API_CLIENT_ID"
+export QUARKUS_OIDC_ENABLED=true
+export QUARKUS_OIDC_AUTH_SERVER_URL="https://login.microsoftonline.com/<tenant-guid>/v2.0"
+export QUARKUS_OIDC_CLIENT_ID=<api-client-id>
+export QUARKUS_OIDC_TOKEN_AUDIENCE="api://<api-client-id>,<api-client-id>"
 
 QUARKUS_PROFILE=dev ./gradlew :backend:implementation:quarkusDev
-# in another shell:
-cd src/frontend && npm run dev
 ```
 
-`http://localhost:5173` must be a registered redirect URI on
-`estimation-spa` for this to work.
+Do **not** `export` these into the shell you then run `./gradlew build` in:
+`APP_AUTH_PROVIDER=entra` augments the OIDC-less test profile with the Entra
+provider and the build fails with a cryptic ArC `UnsatisfiedResolutionException`.
+(This is the same trap `minikube-deploy.sh` refuses to be `source`d over.)
 
-## How env vars flow into the minikube backend Pod
+**Frontend.** Overwrite the `predev`-generated `src/frontend/static/config.json`
+— it is git-ignored, and `static/config.example.json` documents the shape.
+`npm run dev` regenerates it as `{"authProvider":"dev"}` on every start, so write
+it *after* starting Vite, or start Vite with `npx vite dev`:
 
-`scripts/minikube-deploy.sh` exports `APP_AUTH_PROVIDER=entra`,
-`VITE_AUTH_PROVIDER=entra`, and prechecks the three `ENTRA_*` ids before
-building the backend and frontend container images with Gradle
-(`./gradlew :backend:implementation:imageBuild -Dquarkus.container-image.build=true
-:frontend:dockerBuildImage -x test` — backend image via Quarkus/Jib, frontend
-via the Gradle Docker task), loading them into minikube via
-`docker save <img> | minikube ssh -- docker load` (deliberately **not**
-`minikube image load`, which caches the exported tarball and, for a
-fixed tag like `1.0.0-SNAPSHOT`, silently reuses the STALE copy so a
-rebuilt image never reaches the cluster), then applying the Kustomize
-overlay (`kubectl apply -k`) and forcing a `kubectl rollout restart` so
-pods pick up the reloaded image and current config. The Pod
-inherits these env vars via the existing Deployment manifest's `env:`
-forwarding (no manifest edits required); Quarkus resolves
-`${ENTRA_TENANT_ID}` etc. in `application.properties` at startup from
-process env. If you operate a non-minikube cluster, set the same env
-vars on the backend Deployment via your cluster's Secret / ConfigMap
-plumbing and the substitution still happens at runtime.
+```json
+{
+  "authProvider": "entra",
+  "entra": {
+    "tenantId": "<tenant-guid>",
+    "spaClientId": "<spa-client-id>",
+    "apiClientId": "<api-client-id>",
+    "redirectUri": "http://localhost:5173"
+  }
+}
+```
+
+`http://localhost:5173` must be a registered redirect URI on `estimation-spa`
+under the **Single-page application** platform for this to work. All four
+`entra` fields are required — the loader rejects a missing one rather than
+guessing a default.
+
+## How the configuration reaches the minikube Pods
+
+`scripts/minikube-deploy.sh` prechecks the three `ENTRA_*` ids, derives the
+`OIDC_*` names from them, exports `APP_AUTH_PROVIDER=entra` for the backend
+image build, and then:
+
+1. builds both container images with Gradle
+   (`./gradlew :backend:implementation:imageBuild -Dquarkus.container-image.build=true
+   :frontend:dockerBuildImage -x test` — backend via Quarkus/Jib, frontend via
+   the Gradle Docker task);
+2. loads them into minikube with `docker save <img> | minikube ssh -- docker load`
+   — deliberately **not** `minikube image load`, which caches the exported
+   tarball and, for a fixed tag like `1.0.0-SNAPSHOT`, silently reuses the STALE
+   copy so a rebuilt image never reaches the cluster;
+3. renders `k8s/overlays/minikube` and resolves the `${OIDC_*}` placeholders
+   with `envsubst` before `kubectl apply` — kustomize cannot read the
+   environment, and these are per-user ids that are not committed;
+4. forces a `kubectl rollout restart` so pods pick up the reloaded image and the
+   current ConfigMaps.
+
+**Nothing is baked into the image and no `ENTRA_*` variable reaches a Pod.** The
+backend Deployment pulls its whole environment from the `backend-config`
+ConfigMap via `envFrom` (plus `QUARKUS_DATASOURCE_USERNAME`/`PASSWORD` from the
+`postgres-credentials` Secret), and the frontend Deployment mounts
+`frontend-config`'s `config.json` at `/usr/share/nginx/html/config.json` with
+`subPath`. `subPath` means the file does not update without a pod restart —
+which is what we want, since the SPA reads it once at boot.
+
+On a non-minikube cluster, supply the same ConfigMap/Secret keys; the
+`overlays/staging` and `overlays/production` overlays show the shape, and
+`scripts/deploy.sh` discovers every `${...}` placeholder in the rendered
+manifests and refuses to deploy while one is unset.
 
 ## Troubleshooting
 
@@ -316,5 +403,5 @@ Common failures seen during setup:
 
 - Modular SPI: `src/backend/implementation/src/main/kotlin/io/pythia/auth/`
   + `src/frontend/src/lib/auth/`.
-- Dev module (default for local development): `docs/auth-dev.md`.
+- Dev module (default for local development): [`docs/authentication.md`](./authentication.md).
 - Keycloak module (planned): `task-060`.

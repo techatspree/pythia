@@ -118,6 +118,31 @@
     "totalOfferPrice": "Angebotspreis gesamt (EUR)",
     "recurringWithoutPhase": "{count, plural, one {# laufende Zusatzkosten-Position hat} other {# laufende Zusatzkosten-Positionen haben}} kein Paket und {count, plural, one {geht} other {gehen}} deshalb mit 0 EUR in die Summe ein."
   },
+  "schedule": {
+    "title": "Terminplan",
+    "days": "Tage",
+    "teamSize": {
+      "label": "Teamgröße (parallel arbeitende Personen)",
+      "hint": "Anzahl der Personen, die gleichzeitig arbeiten. Ein Vorgang wird von einer Person bearbeitet und dauert so viele Tage, wie er Personentage umfasst. Nachkommastellen werden abgerundet, mindestens eine Person."
+    },
+    "plannedLength": "Geplante Dauer",
+    "plannedLengthHint": "Ergebnis der Kapazitätsplanung: was das Team in dieser Größe tatsächlich liefert.",
+    "uncertainty": "Schätzunsicherheit auf der kritischen Kette",
+    "uncertaintyHint": "Streuung der Schätzung entlang der längsten Abhängigkeitskette, ohne Kapazitätsgrenzen. Deshalb liegt die geplante Dauer nicht zwangsläufig in diesem Bereich.",
+    "perNode": "Dauer je Vorgang",
+    "criticalChain": "Kritische Kette",
+    "editor": {
+      "empty": "Für einen Terminplan braucht es mindestens zwei Vorgänge — es gibt hier nichts zu verknüpfen.",
+      "handleAria": "Abhängigkeit ausgehend von {title} ziehen",
+      "edgeAria": "Abhängigkeit von {from} nach {to} — zum Entfernen anklicken",
+      "expandAria": "Gruppe aufklappen",
+      "collapseAria": "Gruppe zuklappen"
+    },
+    "error": {
+      "cycle": "Die Abhängigkeiten enthalten einen Zyklus. Die hervorgehobenen Vorgänge verweisen im Kreis aufeinander; entfernen Sie eine Verknüpfung, um wieder einen Terminplan zu erhalten.",
+      "invalidTeamFte": "Die Teamgröße muss mindestens eine Person betragen."
+    }
+  },
   "grid": {
     "colDescription": "Beschreibung",
     "colType": "Typ",

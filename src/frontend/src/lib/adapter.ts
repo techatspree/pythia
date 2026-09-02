@@ -9,7 +9,9 @@ import {
 	AdditionalCost,
 	AdditionalCostType,
 	type EstimationNode,
-	EstimationGroup
+	EstimationGroup,
+	ScheduleDependency,
+	scheduleVersion
 } from './domain/domain.mjs';
 
 export interface CalcEntry {
@@ -101,9 +103,57 @@ interface EditingAdditionalCost {
 	phaseAbbreviation: string | null;
 }
 
+/** One finish-to-start edge, in the plain shape the route owns and PUTs. */
+export interface ScheduleEdge {
+	fromLogicalId: string;
+	toLogicalId: string;
+}
+
+/** One node of the schedule, flattened out of the domain's Kotlin list. */
+export interface ScheduledTaskView {
+	logicalId: string;
+	title: string;
+	parentLogicalId: string | null;
+	depth: number;
+	isGroup: boolean;
+	effortPT: number;
+	meanPT: number;
+	effortVariance: number;
+	durationDays: number;
+	earliestStart: number;
+	earliestFinish: number;
+	onCriticalPath: boolean;
+}
+
+export type ScheduleErrorKindView = 'CYCLE' | 'INVALID_TEAM_FTE';
+
+export interface ScheduleErrorView {
+	kind: ScheduleErrorKindView;
+	involvedLogicalIds: string[];
+}
+
+/**
+ * The domain's `ProjectSchedule`, flattened. `projectDurationDays` is the
+ * LEVELLED makespan and the optimistic…pessimistic band is estimate uncertainty
+ * along the critical chain with capacity ignored (task-166) — two different
+ * measurements, so the makespan is NOT a point inside the band.
+ */
+export interface ProjectScheduleView {
+	tasks: ScheduledTaskView[];
+	projectDurationDays: number;
+	expectedDurationDays: number;
+	durationStdDevDays: number;
+	optimisticDurationDays: number;
+	pessimisticDurationDays: number;
+	teamFte: number;
+	error: ScheduleErrorView | null;
+}
+
 export interface EstimationComputation {
 	calcMap: Map<string, CalcEntry>;
 	totals: EstimationTotalsView;
+	/** Present only when schedule inputs were passed in. */
+	schedule: ProjectScheduleView | null;
 }
 
 /**
@@ -116,7 +166,12 @@ export function computeEstimation(
 	params: { dailyRate: number; stdDevFactor: number; salesSurcharge: number },
 	drivers: EditingDriver[],
 	phases: EditingPhase[],
-	additionalCosts: EditingAdditionalCost[] = []
+	additionalCosts: EditingAdditionalCost[] = [],
+	// Schedule inputs ride along so the schedule comes off the SAME
+	// build+calculate as the calc map and totals (task-157). A separate
+	// computeSchedule(roots, …) would rebuild and recalculate the whole version
+	// on every keystroke — the double-compute task-139 removed.
+	scheduleInputs: { dependencies: ScheduleEdge[]; teamFte: number } | null = null
 ): EstimationComputation {
 	const phaseByAbbr = new Map(
 		phases.map((p) => [
@@ -215,6 +270,7 @@ export function computeEstimation(
 	const t = calculated.totals();
 	return {
 		calcMap: m,
+		schedule: scheduleInputs === null ? null : toScheduleView(calculated, scheduleInputs),
 		totals: {
 			leafCount: t.leafCount,
 			meanPT: t.meanPT,
@@ -229,5 +285,57 @@ export function computeEstimation(
 			totalOfferPrice: t.totalOfferPrice,
 			recurringWithoutPhase: t.recurringWithoutPhase
 		}
+	};
+}
+
+/**
+ * Flattens the domain's `ProjectSchedule` into plain objects. Everything here
+ * is READ from the domain — no duration, roll-up, critical chain or layering
+ * maths is recomputed in TypeScript; the domain is the single source of truth.
+ *
+ * `tasks` and `involvedLogicalIds` cross as Kotlin `List`s, so they are read
+ * with `.asJsReadonlyArrayView()` — the same call this file already makes on
+ * `calculated.roots` and a group's `children`.
+ */
+function toScheduleView(
+	calculated: ReturnType<typeof createVersion>,
+	inputs: { dependencies: ScheduleEdge[]; teamFte: number }
+): ProjectScheduleView {
+	const edges = inputs.dependencies.map(
+		(d) => new ScheduleDependency(d.fromLogicalId, d.toLogicalId)
+	);
+	const s = scheduleVersion(calculated, edges, inputs.teamFte);
+	const err = s.error;
+	return {
+		tasks: s.tasks.asJsReadonlyArrayView().map((task) => ({
+			logicalId: task.logicalId,
+			title: task.title,
+			// Kotlin's Nullable<T> is `T | null | undefined`; normalise to null so
+			// the view type stays a plain `string | null`.
+			parentLogicalId: task.parentLogicalId ?? null,
+			depth: task.depth,
+			isGroup: task.isGroup,
+			effortPT: task.effortPT,
+			meanPT: task.meanPT,
+			effortVariance: task.effortVariance,
+			durationDays: task.durationDays,
+			earliestStart: task.earliestStart,
+			earliestFinish: task.earliestFinish,
+			onCriticalPath: task.onCriticalPath
+		})),
+		projectDurationDays: s.projectDurationDays,
+		expectedDurationDays: s.expectedDurationDays,
+		durationStdDevDays: s.durationStdDevDays,
+		optimisticDurationDays: s.optimisticDurationDays,
+		pessimisticDurationDays: s.pessimisticDurationDays,
+		teamFte: s.teamFte,
+		error:
+			err == null
+				? null
+				: {
+						// The enum crosses as an object; its `name` is the constant.
+						kind: (err.kind as unknown as { name: ScheduleErrorKindView }).name,
+						involvedLogicalIds: err.involvedLogicalIds.asJsReadonlyArrayView().slice()
+					}
 	};
 }

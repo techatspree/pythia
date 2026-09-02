@@ -5,12 +5,15 @@
 	import { goto } from '$app/navigation';
 	import { resolve } from '$app/paths';
 	import { onMount, type Component } from 'svelte';
-	import { _ } from 'svelte-i18n';
+	import { _, locale } from 'svelte-i18n';
+	import { formatFixed } from '$lib/format';
 	import ErrorBanner from '$lib/components/ErrorBanner.svelte';
 	import UndoHistoryPanel, { relativeTime } from '$lib/components/UndoHistoryPanel.svelte';
 	import UndoConflictDialog from '$lib/components/UndoConflictDialog.svelte';
 	import { computeEstimation, ZERO_TOTALS } from '$lib/adapter.js';
+	import type { ScheduleEdge } from '$lib/adapter.js';
 	import EstimationSummaryPanel from '$lib/components/EstimationSummaryPanel.svelte';
+	import DependencyEditor from '$lib/components/schedule/DependencyEditor.svelte';
 	import { normalizeRoots, type CalcEntry } from '$lib/estimationNodes';
 	import { log } from '$lib/log';
 	import type { ApiVersionResponse, ApiAdditionalCost } from '$lib/api/types.js';
@@ -43,6 +46,11 @@
 	let currentDrivers = $state<any[]>([]);
 	let currentPhases = $state<any[]>([]);
 	let currentAdditionalCosts = $state<ApiAdditionalCost[]>([]);
+	// Schedule inputs (task-156's wire shape). teamFte is a WORKER COUNT since
+	// task-166, not a divisor on effort.
+	let currentTeamFte = $state(1);
+	let currentDependencies = $state<ScheduleEdge[]>([]);
+	let scheduleOpen = $state(false);
 	// Buckets of the bucket+sampled method; empty for PERT estimations (task-104).
 	let currentBuckets = $state<Bucket[]>([]);
 
@@ -147,16 +155,20 @@
 				},
 				currentDrivers,
 				currentPhases,
-				currentAdditionalCosts
+				currentAdditionalCosts,
+				// Same round-trip: the schedule is read off the version this call
+				// already builds and calculates.
+				{ dependencies: currentDependencies, teamFte: currentTeamFte }
 			);
 		} catch (e: any) {
 			log.error('estimation computation failed:', e);
 			bannerMessage = $_('editor.calculationFailed', { values: { message: e?.message ?? e } });
-			return { calcMap: new Map<string, CalcEntry>(), totals: ZERO_TOTALS };
+			return { calcMap: new Map<string, CalcEntry>(), totals: ZERO_TOTALS, schedule: null };
 		}
 	});
 	const calcMap = $derived(estimation.calcMap);
 	const totals = $derived(estimation.totals);
+	const schedule = $derived(estimation.schedule);
 
 	async function loadVersion() {
 		loading = true;
@@ -233,6 +245,13 @@
 			amountPerWeek: c.amountPerWeek ?? null,
 			phaseAbbreviation: c.phaseAbbreviation ?? null
 		}));
+		// Hydrated here, like every other editable field, so an undo or reload
+		// does not resurrect stale values or trigger a spurious autosave.
+		currentTeamFte = (data as any).teamFte ?? 1;
+		currentDependencies = ((data as any).dependencies ?? []).map((d: any) => ({
+			fromLogicalId: d.fromLogicalId,
+			toLogicalId: d.toLogicalId
+		}));
 		// Baseline for the autosave effect: any subsequent change to the
 		// editable state (and only those) triggers a save.
 		lastSavedSnapshot = editableSnapshot();
@@ -265,7 +284,9 @@
 			phases: $state.snapshot(currentPhases),
 			additionalCosts: $state.snapshot(currentAdditionalCosts),
 			buckets: $state.snapshot(currentBuckets),
-			roots: $state.snapshot(currentRoots)
+			roots: $state.snapshot(currentRoots),
+			teamFte: currentTeamFte,
+			dependencies: $state.snapshot(currentDependencies)
 		});
 	}
 
@@ -299,7 +320,9 @@
 						stdDevFactor: currentStdDevFactor,
 						salesSurcharge: currentSalesSurcharge,
 						effortDrivers: currentDrivers,
-						additionalCosts: currentAdditionalCosts
+						additionalCosts: currentAdditionalCosts,
+						teamFte: currentTeamFte,
+						dependencies: currentDependencies
 					})
 				});
 				await assertOk(res, $_('editor.saveFailed'));
@@ -436,6 +459,103 @@
 		{/if}
 
 		<EstimationSummaryPanel {totals} />
+
+		<!-- Schedule (task-157). The two figures below are DIFFERENT
+		     measurements and are deliberately not merged into one range: the
+		     planned length is the resource-levelled makespan, while the band is
+		     estimate uncertainty along the critical chain with capacity ignored
+		     (task-166). At one worker with three independent 10-day items the
+		     makespan is 30 while the band is [10, 10] — outside it entirely. -->
+		<section class="mb-4 rounded-lg border">
+			<button
+				type="button"
+				class="flex w-full items-center justify-between bg-brand-green/10 px-4 py-2 text-left text-xs font-semibold tracking-wide text-brand-green uppercase"
+				data-testid="schedule-section-toggle"
+				onclick={() => (scheduleOpen = !scheduleOpen)}
+			>
+				<span>{$_('schedule.title')}</span>
+				<span aria-hidden="true">{scheduleOpen ? '▾' : '▸'}</span>
+			</button>
+			{#if scheduleOpen}
+				<div class="p-4">
+					<div class="mb-4 max-w-md">
+						<label class="mb-1 block text-sm font-medium" for="team-fte"
+							>{$_('schedule.teamSize.label')}</label
+						>
+						<input
+							id="team-fte"
+							type="number"
+							min="1"
+							step="1"
+							class="w-full rounded border border-gray-300 px-2 py-1 text-sm focus:border-brand-green focus:ring-1 focus:ring-brand-green/40 focus:outline-none"
+							data-testid="team-fte"
+							disabled={!versionData.isDraft}
+							bind:value={currentTeamFte}
+						/>
+						<p class="mt-1 text-xs text-gray-500">{$_('schedule.teamSize.hint')}</p>
+						{#if schedule?.error?.kind === 'INVALID_TEAM_FTE'}
+							<p class="mt-1 text-xs text-red-700" data-testid="team-fte-error">
+								{$_('schedule.error.invalidTeamFte')}
+							</p>
+						{/if}
+					</div>
+
+					{#if schedule && schedule.error == null}
+						<div class="mb-4 grid gap-4 sm:grid-cols-2">
+							<div>
+								<p class="text-xs text-gray-500 uppercase">{$_('schedule.plannedLength')}</p>
+								<p class="text-lg font-semibold" data-testid="schedule-planned-length">
+									{formatFixed(schedule.projectDurationDays, $locale ?? 'de', 1)}
+									{$_('schedule.days')}
+								</p>
+								<p class="text-xs text-gray-500">{$_('schedule.plannedLengthHint')}</p>
+							</div>
+							<div>
+								<p class="text-xs text-gray-500 uppercase">{$_('schedule.uncertainty')}</p>
+								<p class="text-lg font-semibold" data-testid="schedule-uncertainty">
+									{formatFixed(schedule.optimisticDurationDays, $locale ?? 'de', 1)}–{formatFixed(
+										schedule.pessimisticDurationDays,
+										$locale ?? 'de',
+										1
+									)}
+									{$_('schedule.days')}
+								</p>
+								<p class="text-xs text-gray-500">{$_('schedule.uncertaintyHint')}</p>
+							</div>
+						</div>
+					{/if}
+
+					<DependencyEditor
+						{schedule}
+						bind:dependencies={currentDependencies}
+						editable={versionData.isDraft}
+					/>
+
+					{#if schedule && schedule.error == null && schedule.tasks.length > 0}
+						<table class="mt-4 w-full text-sm" data-testid="schedule-durations">
+							<thead>
+								<tr class="border-b text-left text-xs text-gray-500 uppercase">
+									<th class="py-1">{$_('schedule.perNode')}</th>
+									<th class="py-1 text-right">{$_('schedule.days')}</th>
+									<th class="py-1 text-right">{$_('schedule.criticalChain')}</th>
+								</tr>
+							</thead>
+							<tbody>
+								{#each schedule.tasks as task (task.logicalId)}
+									<tr class="border-b border-gray-100">
+										<td class="py-1" style="padding-left: {task.depth * 16}px">{task.title}</td>
+										<td class="py-1 text-right"
+											>{formatFixed(task.durationDays, $locale ?? 'de', 1)}</td
+										>
+										<td class="py-1 text-right">{task.onCriticalPath ? '●' : ''}</td>
+									</tr>
+								{/each}
+							</tbody>
+						</table>
+					{/if}
+				</div>
+			{/if}
+		</section>
 
 		{#if EditorComponent}
 			<EditorComponent

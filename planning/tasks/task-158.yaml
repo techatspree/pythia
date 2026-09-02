@@ -1,7 +1,7 @@
 id: task-158
 phase: phase-19
 title: Gantt chart view and Mermaid export
-depends_on: [task-157]
+depends_on: [task-157, task-166]
 description: |
   Last task of phase-19. task-157 leaves the schedule editable and saved, shown
   as a list of durations. This task makes it a **Gantt chart** on screen and an
@@ -40,26 +40,50 @@ description: |
   ## The chart
 
   One row per `ScheduledTask`: a bar positioned by `earliestStart` and sized by
-  `durationDays`, against a working-day axis. Critical-path bars in the brand
-  colour, the rest muted — the critical path is the answer to "what makes the
-  project this long", so it must be the thing the eye lands on. Colours come
-  from `@theme` tokens in `app.css`; an arbitrary `bg-[#…]` fails
-  `:frontend:check`.
+  `durationDays`, against a working-day axis. Colours come from `@theme` tokens
+  in `app.css`; an arbitrary `bg-[#…]` fails `:frontend:check`.
 
-  When task-155 reports a `cycleError`, render that instead of a chart — a Gantt
-  drawn from an empty task list would read as "zero days".
+  **It is a tree** (task-164). `ProjectSchedule.tasks` is a flat list covering
+  every node with `parentLogicalId`, `depth` and `isGroup`, in tree order —
+  indent rows by `depth`, and draw a group's bar as its rolled-up SPAN
+  (`earliestFinish - earliestStart`), which is deliberately not an effort
+  quotient and will not equal the sum of its children when they overlap. Mirror
+  task-157's collapse state if it is cheap; do not persist it either way.
+
+  **The plan is resource-levelled** (task-166). `teamFte` is a worker count and
+  the scheduler never runs more than `floor(teamFte)` leaves at once, so the
+  bars are a plan the team can actually deliver — that is the whole reason this
+  chart is worth drawing. Two consequences for the UI:
+
+  - `onCriticalPath` is a **critical chain**: a bar can be critical because the
+    team was busy, not only because of a dependency. Highlight it as the answer
+    to "what makes the project this long" — that is still true — but do not
+    label it "longest dependency chain" anywhere.
+  - The duration BAND (`optimisticDurationDays` … `pessimisticDurationDays`)
+    follows the dependency path, not the levelled makespan. If the chart shows
+    it, say what it is: estimate uncertainty, not a confidence interval on the
+    levelled dates.
+
+  **There is no `cycleError` field.** task-155 shipped a structured
+  `error: ScheduleError?` with `kind` — `CYCLE` or `INVALID_TEAM_FTE`. Render
+  the error in place of the chart for either kind, mapped through the
+  `schedule.error.*` i18n keys task-157 adds: a Gantt drawn from an empty task
+  list would read as "zero days".
 
 steps:
   - |
     Add `src/frontend/src/lib/components/schedule/GanttChart.svelte`:
       - a `schedule: ProjectSchedule` prop (read-only; this component computes
         nothing)
-      - one row per task: label plus a bar offset by `earliestStart` and sized
-        by `durationDays`, both as a percentage of `projectDurationDays`
-      - critical-path bars in the brand colour, others muted, with the
+      - one row per task in TREE order, indented by `depth`, with a group's bar
+        drawn from its rolled-up span (`isGroup`)
+      - a bar offset by `earliestStart` and sized by `durationDays`, both as a
+        percentage of `projectDurationDays`
+      - critical-CHAIN bars in the brand colour, others muted, with the
         distinction also carried by an `aria-label` so it is not colour-only
       - a working-day axis with a handful of ticks
-      - the `cycleError` rendered in place of the chart when present
+      - `schedule.error` rendered in place of the chart for EITHER kind
+        (`CYCLE`, `INVALID_TEAM_FTE`), via the `schedule.error.*` keys
       - horizontal overflow scrolls inside the component rather than widening
         the page
   - |

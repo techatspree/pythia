@@ -927,9 +927,9 @@
       "notes": "Persist and expose the project schedule inputs: team FTE and dependencies"
     },
     "task-157": {
-      "status": "pending",
-      "started_at": null,
-      "completed_at": null,
+      "status": "done",
+      "started_at": "2026-09-02T07:17:17+00:00",
+      "completed_at": "2026-09-02T07:32:35+00:00",
       "notes": "Graphical dependency editor for the project schedule"
     },
     "task-158": {
@@ -969,9 +969,9 @@
       "notes": "e2e flake in bucket-views.test.ts 'a leaf can be dragged into an EMPTY bucket': the drag settles and releases, but the leaf keeps its old bucket for the full 5s assertion — a silent no-op drop, a different mechanism from the settle-budget exhaustion already addressed"
     },
     "task-164": {
-      "status": "pending",
-      "started_at": null,
-      "completed_at": null,
+      "status": "done",
+      "started_at": "2026-08-31T15:11:45+00:00",
+      "completed_at": "2026-08-31T15:18:14+00:00",
       "notes": "Scheduling units are roots-only, so a Merlin-imported estimate (whose whole WBS arrives as one top-level group) collapses to a single box and the dependency editor is useless; make any node schedulable with groups as derived roll-ups, Merlin-style"
     },
     "task-165": {
@@ -979,6 +979,18 @@
       "started_at": "2026-08-31T09:57:38+00:00",
       "completed_at": "2026-08-31T10:01:51+00:00",
       "notes": "plan.yaml's phases[].tasks lists are stale in 37 places and read by nothing — scripts/status.sh already derives phase membership from each task's own phase: field; delete the duplicated lists and correct the docs that call plan.yaml a task index"
+    },
+    "task-166": {
+      "status": "done",
+      "started_at": "2026-08-31T15:31:07+00:00",
+      "completed_at": "2026-08-31T15:38:13+00:00",
+      "notes": "Resource levelling: teamFte becomes the number of concurrent workers, a leaf takes effortPT days worked by one person, and the scheduler never runs more than teamFte items at once — so the Gantt shows a plan the team can actually deliver"
+    },
+    "task-167": {
+      "status": "pending",
+      "started_at": null,
+      "completed_at": null,
+      "notes": "The dependency editor needs its own route (too large for a subpanel), a live drag arrow from source to target, and visible group membership (indentation plus a container outline) so a subitem's parent is always recognisable"
     }
   }
 }

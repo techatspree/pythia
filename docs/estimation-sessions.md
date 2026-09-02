@@ -101,6 +101,34 @@ first `POST`s `/api/sessions/{id}/ws-ticket` to mint a short-lived, single-use
 opaque ticket, then opens `…/ws/sessions/{id}?ticket=…`. See the "Realtime
 session channel" note in `CLAUDE.md` (task-065) for the server-side detail.
 
+**The socket is the only writer of live session state** (task-160). A
+mutation's REST response must **never** be applied to the `SessionStore`: that
+DTO is built inside the mutation's own transaction, so it is blind to anything a
+concurrent participant committed — applying it makes the client a second,
+unordered writer into the slot the socket owns, which can roll the room back to
+a state the socket has already superseded. It did: an estimator's `POST /votes`
+overlapping the moderator's `POST /end-early` left that estimator's room showing
+`RUNNING` over an `ENDED_EARLY` session, with a live socket and a green
+indicator, indefinitely. Mutations now `await` their call **only** for its
+errors and let the broadcast update the store; the sole legitimate callers of
+`SessionStore.apply` are the socket's `onSession` and the room's initial load,
+which runs before the socket is opened.
+
+**Liveness** (task-147). A healthy but quiet room sends no frames for minutes,
+and the browser can neither send WebSocket protocol pings nor observe pongs — so
+a client watchdog would have nothing to feed it and could not tell "idle" from
+"dead". Two independent mechanisms cover the two directions:
+
+- the server pushes an application-level heartbeat on every open session socket
+  (`app.session.heartbeat-interval`, 20s; 1s under `%test`). The client treats
+  any frame as proof of life and gives up after ~45s, which is what makes the
+  room's connection indicator truthful rather than permanently green.
+- `quarkus.websockets-next.server.auto-ping-interval` (30s) reaps connections
+  whose client has vanished: the browser answers protocol pings automatically,
+  so one that is really gone stops answering. It is deliberately **not** paired
+  with `connection-idle-timeout` — the heartbeat keeps every healthy connection
+  non-idle, so an idle timeout could only ever fire on rooms that are fine.
+
 ## Frontend layout
 
 - Route group `src/frontend/src/routes/sessions/`. Since task-141 it has NO
@@ -143,3 +171,16 @@ socket broadcast (participant list mirrors in both), the blind phase-1 count,
 the phase-2 reveal with the domain aggregate matching the backend `AggregateDto`,
 the divergence highlight, agree + finalize, the FINALIZED summary, and that the
 finalized triples were written back onto the draft leaves.
+
+Two more specs cover the surrounding surface:
+
+- `e2e/session-setup.test.ts` — the moderator setup page: the open-sessions
+  list, the pre-selection from `?estimationId=&projectId=`, and the item
+  picker's not-yet-estimated default.
+- `e2e/session-connection.test.ts` — the connection indicator in both
+  directions (green when the socket is up, grey again when it dies), the
+  regression task-147 fixed.
+
+`session.test.ts` also pins the single-writer rule above, by ending the session
+while an estimator's vote is deliberately still in flight and re-asserting the
+room after that response lands.

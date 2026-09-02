@@ -1,0 +1,282 @@
+id: task-166
+phase: phase-19
+title: "Resource levelling: teamFte is workers, not a divisor"
+depends_on: [task-164]
+description: |
+  The scheduler currently produces plans the team cannot deliver. This task
+  makes it honour its own capacity, which is what a Gantt chart has to do before
+  anyone can act on it.
+
+  ## The contradiction being fixed
+
+  `ProjectSchedule.kt` places a unit with exactly one rule:
+
+      val start = best?.earliestFinish ?: 0.0   // latest predecessor, else day 0
+
+  There is no capacity check anywhere. Two items with no edge between them
+  simply overlap. Meanwhile the duration formula is `offerPT / teamFte`, which
+  task-155 documents as modelling "a team working on **one scheduling unit at a
+  time**". So the formula says the whole team is on this item while the
+  placement lets N items run at once — the team is silently cloned N times.
+
+  It is measurable in the committed tests. `two parallel branches of equal
+  length are BOTH critical` schedules `s(5) → x(10)`, `s(5) → y(10)` at
+  `teamFte = 1.0` and asserts a project length of **15 days** for **25
+  person-days** of effort. One person, 25 person-days, 15 days.
+
+  task-164 makes this worse rather than better: with every leaf a unit, a
+  200-leaf Merlin import runs 200 items concurrently by default.
+
+  ## The model: one person per item, teamFte people
+
+  **`teamFte` stops being a divisor and becomes a count of concurrent workers.**
+
+  - A leaf's duration is `effortPT` **days** — person-days worked by one person
+    is days. The `/ teamFte` division disappears.
+  - `slots = max(1, floor(teamFte))` items may run at once. A fractional FTE
+    rounds down, with a floor of one, and that rounding is documented rather
+    than silently applied.
+  - A group stays a roll-up (task-164): `min` start, `max` finish over its
+    leaves. Levelling operates only on leaves.
+
+  This is the model that yields a realistic chart: a 5-worker team shows five
+  lanes of work, not one chain and not 200 simultaneous bars.
+
+  The alternative — keep `effort / teamFte` and run strictly one item at a time
+  — was considered and rejected. It is marginally simpler and it would make the
+  code honour the existing formula, but a Gantt in which a five-person team
+  never parallelises is not a plan anyone recognises.
+
+  ## The algorithm: serial schedule generation
+
+  Standard list scheduling under precedence + capacity. Optimal makespan is
+  NP-hard; this greedy approximation is what lightweight planners use, it is
+  deterministic, and it is about forty lines:
+
+      slots  = max(1, floor(teamFte))
+      freeAt = DoubleArray(slots) { 0.0 }      // when each worker next frees
+
+      for node in topologicalOrder(graph):     // ALL graph nodes, not just leaves
+          depsReady = max(finish[p] for p in predecessors(node)) or 0.0
+          if node.isMilestone:                 // zero work, occupies NOBODY
+              start = depsReady
+          else:
+              s         = index of the slot with the smallest freeAt
+              start     = max(depsReady, freeAt[s])
+              freeAt[s] = start + node.durationDays
+          finish = start + node.durationDays
+
+  **Milestones must not consume a slot.** task-164 lowers group edges through
+  two zero-duration milestones per group (`g#start`, `g#finish`), so the
+  scheduling graph is leaves PLUS milestones — not leaves alone. Walking every
+  node and handing each a worker would let a group burn two workers for no work.
+  Flag them explicitly on the graph node rather than inferring from
+  `durationDays == 0.0`: a real leaf may legitimately have zero effort.
+
+  Two properties to state in the code, because they are the point:
+
+  - **Capacity is never exceeded** — at most `slots` items are in flight at any
+    instant, by construction.
+  - **It is deterministic** — the topological sort in `ProjectSchedule.kt`
+    already seeds ready nodes in `logicalId` order; tie-break by TREE order so
+    the result matches the order the user sees in the editor. A scheduler whose
+    output depends on map iteration order is untestable.
+
+  ## What this changes, and must be decided rather than discovered
+
+  **The critical path becomes a critical CHAIN.** An item can now be late
+  because the team was busy, not because a predecessor was. The existing
+  backward pass computes slack against the levelled dates, so it reports
+  resource-driven lateness as critical — which is correct behaviour but no
+  longer "the longest dependency chain". Keep the computation, rename the
+  concept in the docs and the i18n keys task-157/158 use, and say plainly that a
+  bar can be critical for either reason.
+
+  **The uncertainty band stays on the DEPENDENCY path, and its SCALE changes.**
+  task-155's mean/variance accumulation is an *estimate*-uncertainty band, not a
+  resource one: keep accumulating it along the longest logical path and do not
+  propagate variance through queueing — a different and much harder model.
+
+  Two concrete consequences, both easy to miss:
+
+  - **Drop the `/ teamFte` from the band.** `expectedDurationDays` and
+    `durationStdDevDays` currently divide by `teamFte`, which is only consistent
+    while durations do too. Once a leaf takes `effortPT` days the band is
+    already in days; leaving the division would report a band `teamFte` times
+    too small — one fifth its true size on a five-person team.
+  - **Select the band's path by the DEPENDENCY finish, not the levelled one.**
+    `longestLeafState` picks the leaf with the greatest `earliestFinish`, which
+    after levelling can be last because the team was busy rather than because it
+    ends the longest logical chain. Carry an unlevelled `dependencyFinish`
+    alongside — capacity ignored — and choose on that, so the band still
+    describes the estimate rather than the queue.
+
+  **Every existing schedule test changes.** All of `ProjectScheduleTest` asserts
+  exact numbers under `effort / teamFte`. Rewriting them is the bulk of this
+  task and is expected, not a regression.
+
+  **A single large leaf cannot be split across people.** One person per item
+  means a 100 PT leaf is 100 days, with no way to say "put three people on it"
+  absent per-item resource assignment. That is a stated limitation — and
+  arguably useful feedback that the item needs breaking down — not a defect.
+
+  ## The global floor idea is retired
+
+  An earlier suggestion was to floor `projectDurationDays` at
+  `totalEffort / teamFte`. Real levelling makes that redundant: the makespan can
+  no longer fall below what the workers can deliver, because no worker is ever
+  double-booked. Do not add the floor as well.
+
+  ## KMP constraints
+
+  - `schedule(...)` stays a **member** on `EstimationVersion`: `@JsExport` does
+    not export extension functions, so an extension compiles, passes
+    `:domain:build`, and is then missing from `domain.d.mts`.
+  - `ProjectSchedule.teamFte` keeps its name and `Double` type — only its
+    MEANING changes — so the exported surface is unchanged and task-156's
+    persisted column needs no migration.
+  - Never call `super.<computed property>` in an override: infinite recursion on
+    Kotlin/JS while the JVM tests pass.
+
+steps:
+  - |
+    Redefine the duration in
+    `src/domain/core/src/main/kotlin/io/pythia/model/ProjectSchedule.kt`.
+
+    A leaf's `durationDays` becomes its `effortPT` — drop the `/ teamFte`
+    division. It is set in `buildGraph` (task-164 replaced the old `unitOf`
+    helper, which no longer exists). Add `slots = max(1, floor(teamFte))` and record in a comment that
+    `teamFte` is now a WORKER COUNT, that a fractional value rounds down, and
+    that the old divisor semantics were what let the team be cloned.
+
+    Keep the `teamFte <= 0.0` guard returning
+    `ScheduleError(INVALID_TEAM_FTE, emptyList())` — it is still the one value
+    that cannot produce a schedule.
+  - |
+    Replace the forward placement in `forwardPass` with serial schedule
+    generation. Where the code today does
+
+        val start = best?.earliestFinish ?: 0.0
+
+    it must instead take the later of (a) the latest predecessor finish and
+    (b) the earliest moment a worker is free, then occupy that worker:
+
+        start = max(depsReady, freeAt.min())
+        finish = start + leaf.durationDays
+        freeAt[argmin] = finish
+
+    Walk leaves in the existing deterministic topological order, tie-broken by
+    TREE order. Groups are not placed — they roll up afterwards (task-164).
+
+    Keep carrying `(meanAccum, varianceAccum)` from the predecessor that won on
+    DEPENDENCY finish, not from the worker slot: the band follows the logical
+    path, not the queue.
+
+    `logger.debug { … }` the slot count, the leaf count, the makespan and the
+    total effort, so an over-committed plan is visible in the log.
+  - |
+    Rename the concept where it is user- and reader-facing. **`onCriticalPath`
+    keeps its exported field name** — renaming it is an `@JsExport` surface
+    change that would ripple into task-157 and task-158 for no behavioural gain
+    — and keeps its computation (slack against the levelled dates). Only the
+    docs and any i18n key say **critical chain** and state that a bar can
+    be critical because the team was busy, not only because of a dependency.
+    Do not add a second flag distinguishing the two causes — that is a
+    refinement, not this task.
+  - |
+    Rewrite `src/domain/src/test/kotlin/io/pythia/model/ProjectScheduleTest.kt`
+    for the new semantics. Every existing case asserts numbers derived from
+    `effort / teamFte`; recompute them.
+
+    The cases that must exist, because they are what levelling means:
+      - **capacity is respected**: three independent 10-day leaves at
+        `teamFte = 1` finish at 30, not 10 — and at `teamFte = 3` finish at 10
+      - **the committed over-commitment is gone**: the old `s(5) → x(10)`,
+        `s(5) → y(10)` shape at `teamFte = 1` now reports 25 days for 25
+        person-days, not 15
+      - **a worker is never double-booked**: for a generated tree, assert that
+        at no instant do more than `slots` leaves overlap
+      - **fractional teamFte rounds down**: `teamFte = 2.5` behaves as 2 slots
+      - **`teamFte = 0`** still returns `INVALID_TEAM_FTE`
+      - **determinism**: the same inputs produce identical dates across runs
+      - **a dependency still wins over free capacity**: an item with an
+        unfinished predecessor waits even when a worker is idle
+      - **groups still roll up** (task-164): min start, max finish over leaves
+      - **milestones consume no slot**: a group of two 10-day leaves at
+        `teamFte = 2` finishes at 10, not later — if the group's two milestones
+        took workers, the leaves would queue behind them
+      - **the band does not scale with team size**: identical
+        `expectedDurationDays` / `durationStdDevDays` at `teamFte = 1` and
+        `teamFte = 3`, since the band is estimate uncertainty in days
+
+    Assert exact numbers, not merely that the call returns.
+  - |
+    Update `src/domain/CLAUDE.md`: `teamFte` is a worker count, a leaf takes
+    `effortPT` days, the scheduler levels with serial schedule generation, the
+    critical path is a critical chain, and the uncertainty band deliberately
+    stays on the dependency path. State that this supersedes task-155's
+    `offerPT / teamFte` formula and task-164's inherited version of it, so a
+    reader does not follow the old one. Note the one-person-per-item limitation.
+
+    **Delete the "Known intermediate state" paragraph task-164 left there** — it
+    describes the missing capacity model this task adds, so leaving it would
+    tell the next reader the schedule is still optimistic when it no longer is.
+  - |
+    Run the gate: `./gradlew :domain:build`, then `./gradlew :frontend:check`
+    (the frontend consumes the generated TypeScript), then `./gradlew build`.
+
+validation:
+  - |
+    The divisor is gone and capacity is modelled:
+      set -e
+      D=src/domain/core/src/main/kotlin/io/pythia/model/ProjectSchedule.kt
+      # task-164 renamed this to effortPT / teamFte; grepping the old spelling
+      # would never match and the check would prove nothing.
+      if grep -q "effortPT / teamFte" "$D"; then echo "unexpected match in $D"; exit 1; fi
+      grep -q "isMilestone" "$D"
+      grep -qE "slots" "$D"
+      grep -qE "freeAt|workerFree" "$D"
+      grep -q "fun schedule(" src/domain/core/src/main/kotlin/io/pythia/model/EstimationVersion.kt
+  - |
+    The exported surface is unchanged — teamFte keeps its name and type, so
+    task-156's persisted column needs no migration:
+      set -e
+      T=src/frontend/src/lib/domain/domain.d.mts
+      grep -q "teamFte: number" "$T"
+      grep -q "scheduleVersion" "$T"
+  - |
+    The domain logs the levelling through the kotlin-logging facade, lambda form:
+      set -e
+      D=src/domain/core/src/main/kotlin/io/pythia/model/ProjectSchedule.kt
+      grep -q "KotlinLogging.logger" "$D"
+      grep -qE "logger\.debug \{" "$D"
+  - |
+    The cases that define levelling are actually tested — a scheduler that
+    silently double-books is the whole defect being fixed:
+      set -e
+      T=src/domain/src/test/kotlin/io/pythia/model/ProjectScheduleTest.kt
+      grep -qi "capacity" "$T"
+      grep -qi "double-book\|double booked\|overlap" "$T"
+      grep -q "teamFte = 2.5\|teamFte=2.5" "$T"
+      grep -qi "determinis" "$T"
+      grep -qi "milestone" "$T"
+      grep -q "StandardMethods.installAll()" "$T"
+  - |
+    The superseded formula is corrected where the domain is documented:
+      set -e
+      grep -qi "worker" src/domain/CLAUDE.md
+      grep -qi "critical chain" src/domain/CLAUDE.md
+      grep -q "task-166" src/domain/CLAUDE.md
+      if grep -q "duration = offerPT / teamFte" src/domain/CLAUDE.md; then echo "unexpected match in src/domain/CLAUDE.md"; exit 1; fi
+      if grep -qi "Known intermediate state" src/domain/CLAUDE.md; then echo "unexpected match in src/domain/CLAUDE.md"; exit 1; fi
+  - |
+    ./gradlew :domain:build
+  - |
+    ./gradlew :frontend:check
+  - |
+    ./gradlew build
+
+outputs:
+  - modified: src/domain/core/src/main/kotlin/io/pythia/model/ProjectSchedule.kt
+  - modified: src/domain/src/test/kotlin/io/pythia/model/ProjectScheduleTest.kt
+  - modified: src/domain/CLAUDE.md

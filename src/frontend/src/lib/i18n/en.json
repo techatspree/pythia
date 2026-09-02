@@ -118,6 +118,31 @@
     "totalOfferPrice": "Total offer price (EUR)",
     "recurringWithoutPhase": "{count, plural, one {# recurring additional cost has} other {# recurring additional costs have}} no phase and therefore {count, plural, one {counts} other {count}} as 0 EUR in the total."
   },
+  "schedule": {
+    "title": "Schedule",
+    "days": "days",
+    "teamSize": {
+      "label": "Team size (people working concurrently)",
+      "hint": "How many people work at the same time. One item is worked by one person and takes as many days as it has person-days. Fractions round down, with a minimum of one person."
+    },
+    "plannedLength": "Planned length",
+    "plannedLengthHint": "The resource-levelled result: what a team of this size actually delivers.",
+    "uncertainty": "Estimate uncertainty on the critical chain",
+    "uncertaintyHint": "The spread of the estimate along the longest dependency chain, ignoring capacity. The planned length therefore need not fall inside this range.",
+    "perNode": "Duration per item",
+    "criticalChain": "Critical chain",
+    "editor": {
+      "empty": "A schedule needs at least two items — there is nothing to connect here.",
+      "handleAria": "Drag a dependency from {title}",
+      "edgeAria": "Dependency from {from} to {to} — click to remove",
+      "expandAria": "Expand group",
+      "collapseAria": "Collapse group"
+    },
+    "error": {
+      "cycle": "The dependencies contain a cycle. The highlighted items point back at each other; remove one link to get a schedule again.",
+      "invalidTeamFte": "The team size must be at least one person."
+    }
+  },
   "grid": {
     "colDescription": "Description",
     "colType": "Type",

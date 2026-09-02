@@ -37,7 +37,7 @@ description: |
   scheduled**: its dates are derived from its children. Copy that.
 
   - **Leaves are the atomic scheduling units.** Duration stays
-    `offerPT / teamFte` per leaf, exactly as now.
+    `offerPT / teamFte` per leaf **for this task only** — see the note below.
   - **A group's dates are DERIVED**: `earliestStart` = min over its subtree's
     leaves, `earliestFinish` = max over them. A group contributes no duration of
     its own and can never double-count, because it is not in the graph.
@@ -48,6 +48,30 @@ description: |
     `onCriticalPath` when ANY leaf in its subtree is.
   - The mean/variance accumulation task-155 built is unchanged: it runs on the
     lowered leaf graph, so the duration band keeps its meaning.
+
+  ## Sibling ordering is NOT decided here — task-166 decides it
+
+  Making every leaf a unit raises a question roots-only never had: two sibling
+  leaves with no edge between them. Today a group root is ONE unit whose
+  duration is `node.offerPT / teamFte`, and `EstimationGroup.offerPT` sums the
+  whole subtree — so a 50-leaf group is currently scheduled as its TOTAL effort,
+  i.e. its leaves are sequential by construction. Split it into leaves with no
+  edges and they all start at day 0 and run in parallel, collapsing the group's
+  span from `sum(effort)` to `max(effort)`.
+
+  On a freshly imported Merlin project with no dependencies drawn yet, that is a
+  one- to two-order-of-magnitude silent shortening of the project length.
+
+  **Do not paper over it here, and do not invent an implicit sibling order.**
+  The real cause is that the scheduler has no capacity model at all: it places
+  every unit at `max(predecessor finish)` with no check on how many run at once,
+  so the `/ teamFte` divisor is applied per item independently and the team is
+  cloned once per parallel branch. **task-166 fixes that** by making `teamFte` a
+  worker count and levelling the schedule.
+
+  So this task deliberately ships an intermediate state in which parallel leaves
+  overlap freely. Its tests must assert the parallel numbers and say so, rather
+  than pretending the result is a deliverable plan — task-166 rewrites them.
 
   ## What this fixes as a side effect
 
@@ -69,10 +93,10 @@ description: |
 
   `ScheduledTask` gains `parentLogicalId: String?`, `depth: Int` and
   `isGroup: Boolean`. A group's `durationDays` is its rolled-up span
-  (`earliestFinish - earliestStart`), NOT `effortPT / teamFte` — those differ
-  whenever its children run in parallel, and reporting the effort-derived number
-  on a summary row is how a Gantt ends up with bars that do not match their
-  children.
+  (`earliestFinish - earliestStart`), NOT an effort quotient — those differ
+  whenever its children overlap, and reporting the effort-derived number on a
+  summary row is how a Gantt ends up with bars that do not match their children.
+  That stays true after task-166 changes what a LEAF's duration means.
 
   ## Scope boundaries — set deliberately
 
@@ -138,11 +162,27 @@ steps:
     5. Emit `tasks` in **tree order** (depth-first, root order) so a consumer can
        render it without sorting.
 
-    Beware the lowering blow-up: a group-to-group edge between two 50-leaf
-    groups is 2500 lowered edges. Collapse it to a **single synthetic
-    constraint** per drawn edge — the successor's leaves start after the
-    predecessor subtree's LATEST finish — rather than materialising the cross
-    product, or a large import will hang.
+    **Lower through MILESTONE NODES, not a cross product.** Expanding
+    `A → B` into "every leaf of A → every leaf of B" is 2500 edges for two
+    50-leaf groups, and the naive alternative — "start after the predecessor
+    subtree's latest finish" — cannot work as stated, because that finish is
+    unknown until A's leaves are scheduled while the constraint must already be
+    in the graph for the topological sort.
+
+    Give every GROUP two zero-duration synthetic nodes, `start` and `finish`:
+
+      - each leaf of a group: `group.start → leaf → group.finish`
+      - a nested group: `outer.start → inner.start`, `inner.finish → outer.finish`
+      - a drawn edge `A → B` (either end a group or a leaf) lowers to
+        `A.finish → B.start`, where a LEAF's own start/finish is just itself
+
+    That is O(nodes) edges instead of O(leaves²) — 102 rather than 2500 for the
+    example above — it keeps the constraint present before scheduling, and it
+    makes a group's roll-up fall out for free: `group.start` and `group.finish`
+    already carry the min start and max finish.
+
+    Milestones are an internal scheduling device: they are NEVER emitted in
+    `ProjectSchedule.tasks` and never reach the wire.
 
     `logger.debug { … }` the node count, leaf count, drawn-vs-lowered edge
     counts and the resulting length.
@@ -164,13 +204,25 @@ steps:
         schedule at all
       - a group's dates are the roll-up of its children: start = earliest child
         start, finish = latest child finish
-      - a group's `durationDays` is its SPAN, not `effortPT / teamFte` — assert
-        they differ for a group whose children run in parallel
+      - a group's `durationDays` is its SPAN, not an effort quotient — assert
+        they differ for a group whose children overlap
+      - **the sibling-parallelism change is explicit**: a group of N leaves with
+        no edges between them now spans `max(leaf)` where the roots-only code
+        spanned `sum(leaf)`. Assert both numbers and comment that this is the
+        intermediate state task-166 corrects — an unexplained 10x drop in
+        project length is exactly what a reader would otherwise call a bug
       - an edge between two GROUPS orders every leaf of one after every leaf of
         the other
       - a group is `onCriticalPath` when only one of its leaves is
       - a cycle drawn between two groups is reported with the GROUP ids
       - `depth` and `parentLogicalId` describe the tree for a two-level nesting
+      - **`tasks` is in TREE order**: walk the emitted list and assert every
+        node appears after its parent and that consecutive depths never jump by
+        more than +1. task-157 and task-158 both rebuild the tree from this list
+        without sorting, so the ordering is a contract, not an implementation
+        detail
+      - **no milestone leaks**: no emitted `logicalId` belongs to a synthetic
+        start/finish node — they are an internal device
 
     Assert exact numbers, not merely that the call returns.
   - |
@@ -242,6 +294,7 @@ validation:
       grep -qi "group" "$T"
       grep -qi "span" "$T"
       grep -q "depth" "$T"
+      grep -qiE "tree order|treeOrder" "$T"
       grep -q "StandardMethods.installAll()" "$T"
   - |
     The superseded rule is corrected where the domain model is documented — a
