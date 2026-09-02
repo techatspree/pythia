@@ -1,0 +1,375 @@
+id: task-167
+phase: phase-19
+title: "Dependency editor: own page, drag arrow, visible grouping"
+depends_on: [task-157]
+description: |
+  Three usability defects in the editor task-157 shipped, all reported from
+  actually using it.
+
+  ## 1. It is too large for a subpanel — give it its own route
+
+  The editor currently lives in a collapsible `<section>` inside
+  `routes/estimations/[id]/versions/[versionNumber]/+page.svelte`, below the
+  summary panel and four other editor panels. A net plan is a working surface:
+  it needs the full viewport, it scrolls horizontally by layer, and burying it
+  under an accordion three panels down means the user has to scroll past the
+  whole estimation editor to reach it.
+
+  **Target:** a route of its own,
+  `routes/estimations/[id]/versions/[versionNumber]/schedule/+page.svelte`,
+  reached from a button in the version editor where the section is today. The
+  version editor keeps the **numbers** — the team-size field, the planned
+  length and the uncertainty band are a compact summary that belongs with the
+  other totals — and loses only the graph. Put a link back to the editor on the
+  new page, the way `compare/+page.svelte` does with `compare.back`.
+
+  Wrap it in `$lib/ui/Page.svelte` with `width="full"` and **do not add a
+  `max-w-*` to any child**: `Page` is the single definition of content width
+  (task-154), and a child carrying its own width is the defect that component
+  exists to make unrepresentable.
+
+  ### The new page must load and save on its own
+
+  This is the part with real substance. The version editor owns
+  `currentDependencies` / `currentTeamFte` as route `$state` and PUTs them
+  through a debounced autosave built on a `lastSavedSnapshot` baseline. A
+  separate route cannot share that state, so it needs its own load → edit →
+  PUT cycle against the same endpoints:
+
+  - load: `GET /api/estimations/{id}/versions/draft` (or `/{n}` for a submitted
+    version), hydrating `teamFte` and `dependencies` exactly as
+    `applyVersionData` does
+  - save: `PUT /api/estimations/{id}/versions/draft` sending **only**
+    `{ teamFte, dependencies }` — every other `DraftUpdateDto` field is optional
+    and a null field means "leave unchanged" (task-156), so a partial PUT is
+    the correct shape and must NOT resend roots or costs
+  - reuse the same baseline-snapshot guard so no PUT fires on load, and the
+    same `assertOk` + `ErrorBanner` + `log` error path
+
+  Read-only for a submitted version, like the rest of the editor.
+
+  ### Only ONE route may write `dependencies`
+
+  After the split the version editor still *loads* `currentDependencies` — it
+  needs them to compute the planned length, the band and the duration table it
+  keeps — but it no longer edits them. **Remove `dependencies` from the version
+  editor's autosave PUT**, keeping it in the load. Leaving it in is a
+  lost-update path: edit the graph, navigate back, touch any other field, and
+  the editor re-sends its own copy over yours. Normal SvelteKit navigation
+  remounts and re-loads, so the window is narrow — narrow is not closed, and
+  the field buys nothing once the editor cannot change it.
+
+  `teamFte` is the deliberate exception: it stays editable on BOTH routes,
+  because it is one scalar that belongs beside the numbers in the editor and
+  beside the graph on the new page. That is last-write-wins across two routes,
+  accepted knowingly — do not "fix" it by removing either field, and do not
+  extend the same tolerance to `dependencies`, where a lost write costs the user
+  actual work.
+
+  ## 2. No arrow while dragging, and no arrowhead at all
+
+  Edges render as SVG paths with no marker, so direction is invisible on a
+  finished edge; and while dragging, nothing at all is drawn between the source
+  handle and the pointer. The user gets no feedback that a connection is in
+  flight or where it will land.
+
+  **Target:** an arrowhead on every edge (an SVG `<marker>` with `orient="auto"`,
+  defined once in `<defs>` and referenced by `marker-end`), plus a live
+  "rubber-band" path from the source card to the current pointer position while
+  a drag is in flight, visually distinct (dashed) from a committed edge.
+
+  The component already tracks `dragFrom`; it needs the pointer position too.
+  **Native HTML5 drag does not give usable coordinates** — `dragover` fires on
+  the drop target and `drag` events carry `clientX/clientY` that are `0` in some
+  browsers — so track the pointer with a `pointermove` listener on the canvas
+  while `dragFrom != null`, and convert to canvas-local coordinates with
+  `getBoundingClientRect()`. Keep the existing native `draggable`/`ondrop` for
+  the DROP itself: it has no cursor-geometry race, which is why task-157 chose
+  it over the pointer-driven path that task-163 is still open on.
+
+  ## 3. Group membership is invisible
+
+  This is the substantive one. The layout is purely dependency-layered:
+
+      boxes.set(id, { x: layer * (CARD_W + GAP_X), y: row * (CARD_H + GAP_Y) })
+
+  `layer` comes from the edge graph and `row` is just a fill counter, so a
+  child can land in a different layer from its parent with nothing connecting
+  them visually. Expanding a group scatters its children across the canvas and
+  the user cannot tell which group a card belongs to.
+
+  **Target:** group membership always recognisable, by BOTH means the request
+  names, because each covers a case the other does not:
+
+  - **indentation** — a card is inset horizontally by its `depth`, so nesting
+    reads at a glance even for a lone card
+  - **a container outline** — an expanded group draws a dashed rounded rect
+    (an SVG `<rect>` in the same coordinate space) enclosing its own card and
+    all its descendants' cards, labelled with the group title
+
+  The bounding rect is derived from the already-computed child boxes, so it
+  needs no second layout pass.
+
+  A **collapsed** group draws NO outline: it is a single card with no
+  descendants on the canvas, so the card already *is* the group and a rect
+  around one card is noise. Only an expanded group gets one.
+
+  `INDENT` must be small relative to `CARD_W + GAP_X` — a deeply nested card
+  must never drift far enough right to look like it sits in the next dependency
+  layer, because `x` carries both meanings.
+
+  ### Keep children in a contiguous band
+
+  Indentation and an outline are only legible if a group's descendants are
+  actually adjacent. Change the row assignment (NOT the layer assignment — that
+  is the dependency semantics) so rows are allocated in **tree order per
+  subtree**: walk the visible nodes depth-first and assign each the next free
+  row, so a group's descendants occupy a contiguous band of rows. Layers still
+  come from the edge graph, so `x` still encodes dependency order and nothing
+  about the schedule semantics changes.
+
+  ## Out of scope
+
+  No free placement, no zoom, no auto-layout beyond the layering above, and
+  **no persisted positions** — layout stays derived, never model data. Do not
+  add a charting or graph library. The domain still owns every number: this task
+  changes only presentation, so `ProjectSchedule` and `adapter.ts` are
+  untouched.
+
+steps:
+  - |
+    Add `src/frontend/src/routes/estimations/[id]/versions/[versionNumber]/schedule/+page.svelte`.
+
+    Load the version on mount via `apiFetch` + `assertOk`, hydrating `teamFte`
+    and `dependencies` the way `applyVersionData` does in the version editor,
+    and save with a debounced PUT of **only** `{ teamFte, dependencies }` to
+    `/api/estimations/{id}/versions/draft`. Guard the save with the same
+    baseline-snapshot comparison the version editor uses so no PUT fires on
+    load. Failures go through `log.error` from `$lib/log.ts` (never bare
+    `console.*`) AND surface via `ErrorBanner`.
+
+    Wrap the content in `$lib/ui/Page.svelte` with `width="full"`; no child may
+    carry a `max-w-*`. Include a back link to the version editor, mirroring
+    `compare/+page.svelte`'s `compare.back`. Render `DependencyEditor` plus the
+    team-size field so the page is self-sufficient, and make everything
+    read-only when the version is not a draft.
+  - |
+    In `routes/estimations/[id]/versions/[versionNumber]/+page.svelte`, replace
+    the `DependencyEditor` render with a link to the new page (a `$lib/ui/`
+    `Button` with `href`, which renders an `<a>` styled as a button).
+
+    KEEP in the section: the team-size field, the planned length and the
+    uncertainty band, and the per-node duration table. Only the graph moves.
+    Remove the now-unused `DependencyEditor` import.
+
+    Then **drop `dependencies` from this route's PUT body** (it stays in
+    `applyVersionData` and in `computeEstimation`'s inputs — the numbers need
+    it) and from `editableSnapshot`, so a graph edit made on the other route
+    cannot be overwritten from here. See "Only ONE route may write
+    `dependencies`" above. `teamFte` stays in both.
+  - |
+    Add the arrowhead and the live drag arrow in
+    `src/frontend/src/lib/components/schedule/DependencyEditor.svelte`.
+
+    Define one `<marker id="schedule-arrow" orient="auto">` in `<defs>` and
+    reference it with `marker-end` on every edge path, so direction is visible
+    on a committed edge.
+
+    For the in-flight arrow: add `pointerPos` state, set it from a
+    `pointermove` handler on the canvas while `dragFrom != null`, and convert
+    client coordinates to canvas-local ones via the canvas element's
+    `getBoundingClientRect()`. Draw a dashed path (`stroke-dasharray`) from the
+    source card's right edge to that point, with the same arrow marker. Clear
+    both `dragFrom` and `pointerPos` on drop and on `dragend`.
+
+    Do NOT replace the native `draggable`/`ondrop` drop mechanism with a
+    pointer-driven one — it has no cursor-geometry race, which is why task-157
+    chose it, and task-163 is still open on that failure class.
+  - |
+    Make grouping visible in the same component.
+
+    Indent each card by its `depth` (add `depth * INDENT` to its `x`), and give
+    every expanded group a dashed rounded `<rect>` enclosing its own card and
+    all its descendants' cards, derived from the already-computed boxes and
+    labelled with the group's title. Colours come from `@theme` tokens in
+    `app.css` — an arbitrary `bg-[#…]` fails `:frontend:check`.
+
+    Then change ROW assignment so a group's descendants are contiguous: walk
+    the visible nodes depth-first and hand out the next free row, so a subtree
+    occupies a band. Leave LAYER assignment alone — `x` must keep encoding
+    dependency order, and the schedule semantics must not change.
+  - |
+    Add the new visible strings to **both** `src/frontend/src/lib/i18n/de.json`
+    and `en.json`, key-for-key under `schedule.*`, using these names so the
+    validation can assert them:
+
+      - `schedule.page.title` — the schedule page's heading
+      - `schedule.page.open` — the link/button from the version editor
+      - `schedule.page.back` — the back link to the version editor
+      - `schedule.editor.dragAria` — the in-flight drag arrow's `aria-label`
+      - `schedule.editor.groupBoxAria` — the group container outline's label
+
+    Real German, not the English pasted across, and never an inline literal —
+    render via `$_('key')`.
+  - |
+    Extend `src/frontend/e2e/schedule.test.ts` for the new shape. The existing
+    four tests open the graph through the version editor's section, so they must
+    now navigate to the new route instead — update them rather than duplicating.
+
+    Add: the version editor links to the schedule page and the page renders the
+    graph; an edge drawn there is PUT and survives a reload; every edge path
+    carries `marker-end`; an expanded group renders its container outline
+    (give it `data-testid="schedule-group-box"` so the assertion targets an
+    element rather than a word) and its children are indented further than it
+    is; and a COLLAPSED group renders no outline.
+  - |
+    Document it in `src/frontend/CLAUDE.md`, in the "Schedule bridge and
+    dependency editor" section task-157 added: the graph now has its own route
+    with its own partial-PUT load/save cycle (and why a partial `DraftUpdateDto`
+    is correct), the version editor keeps the numbers, layout is layer-by-
+    dependency and row-by-tree-order with indentation plus a container outline,
+    and positions are still never persisted.
+  - |
+    Run the gate: `./gradlew :frontend:check`, then `./gradlew build`, then the
+    Playwright suite with the dev stack up (`./scripts/dev.sh`; backend :8090,
+    Vite :5173; stop it with SIGTERM, never by killing the child JVMs):
+    `cd src/frontend && npm run test:e2e`.
+
+validation:
+  - |
+    The graph has its own route, and it is not merely a copy of the section:
+    prose stays at this indent, shell is indented further, or an extractor
+    cannot tell them apart.
+      set -e
+      P="src/frontend/src/routes/estimations/[id]/versions/[versionNumber]/schedule/+page.svelte"
+      test -f "$P"
+      grep -q "DependencyEditor" "$P"
+      grep -q "Page" "$P"
+      # its own load + partial save cycle
+      grep -q "apiFetch" "$P"
+      grep -q "teamFte" "$P"
+      # a partial DraftUpdateDto: the graph page must not resend the tree
+      if grep -qE "roots:" "$P"; then echo "the schedule page must not PUT roots"; exit 1; fi
+  - |
+    The version editor links to it and no longer renders the graph inline,
+    while keeping the numbers:
+      set -e
+      E="src/frontend/src/routes/estimations/[id]/versions/[versionNumber]/+page.svelte"
+      if grep -q "DependencyEditor" "$E"; then echo "graph still inline in the version editor"; exit 1; fi
+      grep -q "schedule" "$E"
+      grep -q "schedule-planned-length" "$E"
+      grep -q "team-fte" "$E"
+  - |
+    Edges carry a direction marker, and a live arrow is drawn while dragging:
+      set -e
+      S=src/frontend/src/lib/components/schedule/DependencyEditor.svelte
+      grep -q "marker-end" "$S"
+      grep -qE "<marker" "$S"
+      grep -q "orient=\"auto\"" "$S"
+      grep -q "pointermove" "$S"
+      grep -qE "stroke-dasharray" "$S"
+      grep -q "getBoundingClientRect" "$S"
+  - |
+    The native drop mechanism is unchanged — task-157 chose it because it has no
+    cursor-geometry race, and task-163 is open on that failure class:
+      set -e
+      S=src/frontend/src/lib/components/schedule/DependencyEditor.svelte
+      grep -q "draggable=\"true\"" "$S"
+      grep -q "ondrop=" "$S"
+  - |
+    Group membership is visible by BOTH means, and rows are tree-ordered:
+      set -e
+      S=src/frontend/src/lib/components/schedule/DependencyEditor.svelte
+      grep -qE "INDENT|depth \*" "$S"
+      grep -qE "<rect" "$S"
+      grep -qiE "stroke-dasharray" "$S"
+      grep -q "schedule-group-box" "$S"
+      # the row walk is depth-first over the tree, not a flat fill counter
+      grep -qiE "subtree|depth-first|treeOrder|tree order" "$S"
+  - |
+    The component still computes no schedule numbers and obeys the frontend hard
+    rules:
+      set -e
+      S=src/frontend/src/lib/components/schedule
+      if grep -rq "console\." "$S"; then echo "bare console in $S"; exit 1; fi
+      grep -rq "log\." "$S"
+      if grep -rqE "bg-\[#" "$S"; then echo "arbitrary colour in $S"; exit 1; fi
+      if grep -rqE "toFixed\(|toLocale" "$S"; then echo "unformatted number in $S"; exit 1; fi
+      grep -rq "aria-label" "$S"
+  - |
+    Positions are still derived, never persisted — layout is not model data:
+      set -e
+      P="src/frontend/src/routes/estimations/[id]/versions/[versionNumber]/schedule/+page.svelte"
+      # Assert the PAYLOAD, not the word: `position: absolute` is exactly what a
+      # canvas page needs, so grepping for "position" anywhere would fail a
+      # correct implementation. What must not happen is a coordinate reaching a
+      # request body, so check the fields actually sent.
+      python3 -c "
+      import pathlib, re, sys
+      src = pathlib.Path('$P').read_text()
+      # the PUT body: everything between JSON.stringify({ and the matching })
+      bodies = re.findall(r'JSON\.stringify\(\{(.*?)\}\)', src, re.S)
+      sent = set()
+      for b in bodies:
+          sent |= {m.group(1) for m in re.finditer(r'(?m)^\s*(\w+)\s*:', b)}
+      leaked = sent & {'x', 'y', 'posX', 'posY', 'position', 'layout', 'boxes', 'layer'}
+      print('PUT fields:', sorted(sent) or 'none', '| layout leaked:', sorted(leaked) or 'none')
+      sys.exit(1 if leaked else 0)
+      "
+      # and only the two schedule inputs are sent — a partial DraftUpdateDto
+      grep -q "teamFte" "$P"
+  - |
+    Both catalogs carry the new keys, key-for-key, translated rather than
+    copied:
+      set -e
+      python3 -c "
+      import json, pathlib, sys
+      d = pathlib.Path('src/frontend/src/lib/i18n')
+      cats = {p.stem: json.loads(p.read_text()) for p in d.glob('*.json')}
+      def flat(o, p=''):
+          out = {}
+          for k, v in o.items():
+              n = f'{p}.{k}' if p else k
+              out.update(flat(v, n) if isinstance(v, dict) else {n: v})
+          return out
+      f = {l: flat(c) for l, c in cats.items()}
+      ref = set().union(*(set(x) for x in f.values()))
+      bad = {l: sorted(ref - set(x)) for l, x in f.items() if ref - set(x)}
+      de, en = f.get('de', {}), f.get('en', {})
+      copied = [k for k in de if k.startswith('schedule.') and len(str(de[k])) > 3 and de[k] == en.get(k)]
+      need = ['schedule.page.title', 'schedule.page.open', 'schedule.page.back',
+              'schedule.editor.dragAria', 'schedule.editor.groupBoxAria']
+      absent = [k for k in need if k not in de or k not in en]
+      print('catalogs:', sorted(cats), '| mismatch:', bad or 'none', '| untranslated:', copied or 'none')
+      print('missing new keys:', absent or 'none')
+      sys.exit(1 if (bad or copied or absent) else 0)
+      "
+  - |
+    The e2e spec covers the new route and the two visual affordances:
+      set -e
+      T=src/frontend/e2e/schedule.test.ts
+      test -f "$T"
+      grep -q "schedule" "$T"
+      grep -qE "marker-end|arrow" "$T"
+      grep -q "schedule-group-box" "$T"
+  - |
+    The new route and the layout rules are documented where the editor is:
+      set -e
+      grep -qi "schedule" src/frontend/CLAUDE.md
+      grep -q "task-167" src/frontend/CLAUDE.md
+  - |
+    ./gradlew :frontend:check
+  - |
+    ./gradlew build
+  - |
+    With the dev stack running (./scripts/dev.sh, backend :8090, Vite :5173):
+      cd src/frontend && npm run test:e2e
+
+outputs:
+  - created: src/frontend/src/routes/estimations/[id]/versions/[versionNumber]/schedule/+page.svelte
+  - modified: src/frontend/src/routes/estimations/[id]/versions/[versionNumber]/+page.svelte
+  - modified: src/frontend/src/lib/components/schedule/DependencyEditor.svelte
+  - modified: src/frontend/e2e/schedule.test.ts
+  - modified: src/frontend/src/lib/i18n/de.json
+  - modified: src/frontend/src/lib/i18n/en.json
+  - modified: src/frontend/CLAUDE.md
