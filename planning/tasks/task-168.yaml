@@ -1,0 +1,626 @@
+id: task-168
+phase: phase-19
+title: "Disclosure triangle and neutral tokens, adopted and gated"
+depends_on: [task-167]
+description: |
+  Two instances of the same defect: a visual primitive that has no single
+  definition, so it was retyped per site and drifted. The trigger for each was
+  a user report on the schedule editor — a toggle triangle that did not match
+  the app's other triangles, and a group-box label that was unreadable because
+  its colour was a raw palette class chosen ad hoc.
+
+  Both halves follow the task-149 pattern: extract the single definition, adopt
+  it everywhere, and gate the raw form so it cannot come back. They ship
+  together because they share one gate script, one screenshot regeneration and
+  one visual review; keep them as two clearly separated passes inside the task
+  so a screenshot diff stays attributable to one of them.
+
+  ## Defect 1 — the disclosure triangle
+
+  Seven places render a disclosure triangle, and they use two different glyph
+  pairs:
+
+  | glyph pair | codepoints | sites |
+  |---|---|---|
+  | `▼` / `▶` | U+25BC / U+25B6 (full size) | `ParametersPanel`, `EffortDriversPanel`, `PhasesPanel`, `AdditionalCostsPanel`, `TreeTable` |
+  | `▾` / `▸` | U+25BE / U+25B8 (**SMALL** variants) | the schedule section in `routes/estimations/[id]/versions/[versionNumber]/+page.svelte`, and the group toggle in `DependencyEditor.svelte` |
+
+  U+25BE/U+25B8 are the "small triangle" characters — visibly lighter and
+  smaller at the same font size — so the two introduced by task-167 read as a
+  different control from the five that came before. Five sites versus two makes
+  `▼`/`▶` the established pair; the two outliers are the bug.
+
+  ## Why it happened, and what actually fixes it
+
+  The glyph is a **retyped literal at seven sites** with no primitive behind it.
+  `$lib/ui/` has `Button`, `Card`, `Field`, `Page`, `Select` and `Badge` — no
+  disclosure indicator — so there was nothing to reach for and nothing to
+  diverge from. This is precisely the shape task-149 fixed for buttons and
+  brand colours, where the primary-button classes had been retyped at 24 sites
+  and one brand shade existed as an unnamed literal at 38.
+
+  **Target state:** one `$lib/ui/DisclosureTriangle.svelte` owning the glyph
+  pair, used at all seven sites, plus a build gate that fails on a raw triangle
+  glyph anywhere in `src/` outside the primitive — so "this will not happen
+  again" is enforced by the build rather than by review.
+
+  ## The gate is the important half, and the repo already has the model
+
+  `src/frontend/scripts/check-design-tokens.mjs` fails `:frontend:check` on an
+  arbitrary Tailwind colour (`bg-[#…]`). Its own header states the rule this
+  task must follow: **"a token rule that only warns is a rule that decays, and
+  it is enforceable at all only because task-149 first brought the count to
+  zero."** So this task must bring the count to zero *and* exit non-zero
+  thereafter — an informational report would not prevent recurrence, which is
+  the explicit request.
+
+  Extend that existing script rather than adding a second one: it already
+  resolves its root relative to its own file (Gradle runs it with the
+  `:frontend` project dir as cwd while a manual run happens from the repo
+  root — a cwd-relative root would silently scan nothing and still exit 0), and
+  it is already wired into `check` via the `checkDesignTokens` Gradle task. A
+  second script would duplicate both and could drift.
+
+  The primitive's own file must be exempt, or the gate flags the one legitimate
+  definition. Scan `.svelte`/`.ts` under `src/` and skip
+  `src/lib/ui/DisclosureTriangle.svelte`.
+
+  ## The committed README screenshots capture this glyph
+
+  `docs/images/estimation-editor.png` is captured from
+  `…/estimations/{id}/versions/2?draft=true` — the page whose four editor
+  panels each render a triangle — and `docs/images/bucket-editor.png` from the
+  bucket editor, which renders `TreeTable`'s. Both will disagree with the app
+  once the two outliers are corrected and the glyph moves behind a primitive.
+
+  `src/frontend/CLAUDE.md` states the rule: re-run `npm run gen:screenshots`
+  "when the screens they show change materially". Regenerate those images as
+  part of this task, and commit them. The other two (`session-room.png`,
+  `version-compare.png`) show no disclosure triangle, but the script writes all
+  four in one run, so all four may show incidental diffs — that is expected.
+
+  Note the script needs a **RUNNING dev stack** and exits non-zero without one,
+  and it rasterises through Playwright's bundled Chromium: do NOT add `sharp`
+  or any other image dependency.
+
+  ## Defect 2 — the neutral palette has no tokens at all
+
+  `@theme` in `src/frontend/src/app.css` defines five brand colours and two
+  fonts. It defines **no** neutral: no text, surface, border or hairline token.
+  Every grey in the app is therefore a raw Tailwind palette class, chosen per
+  site with nothing to diverge from — the same absence that produced defect 1.
+
+  Measured across `src/frontend/src` (43 files, 250 occurrences, all from the
+  `gray` family — no stray `slate`/`zinc`/`neutral`/`stone`):
+
+  | class | sites | class | sites |
+  |---|---|---|---|
+  | `text-gray-500` | 84 | `border-gray-300` | 5 |
+  | `text-gray-600` | 42 | `border-gray-200` | 5 |
+  | `bg-gray-50`    | 37 | `text-gray-800`   | 4 |
+  | `text-gray-400` | 31 | `text-gray-900`   | 3 |
+  | `text-gray-700` | 21 | `bg-gray-100`     | 3 |
+  | `text-gray-300` | 12 | `bg-gray-200` / `bg-gray-300` / `border-gray-100` | 1 each |
+
+  Two shades serve one role in three places — `text-gray-500` and
+  `text-gray-600` are both "secondary text", `text-gray-300` and `-400` are
+  both "faint", `border-gray-200` and `-300` are both "border". That is the
+  inconsistency, and it is invisible in review because both readings look
+  plausible in isolation.
+
+  **Four of the six `$lib/ui/` primitives are themselves offenders** —
+  `Badge.svelte` (`muted: 'bg-gray-200 text-gray-500'`), `Button.svelte`,
+  `Field.svelte`, `Select.svelte`. The design system does not currently follow
+  its own rule, which is why "use the design system" was not actionable advice.
+
+  ### The token set, and why each merge anchors on the DARKER shade
+
+  Six tokens, each defined as `var(--color-gray-N)` rather than a new hex
+  literal — the Tailwind palette stays the source of truth, and the existing
+  arbitrary-hex rule stays satisfied by construction.
+
+  **The names are `ink-*` / `surface-*` / `hairline`, not `text-*` / `border`,
+  because a Tailwind 4 token `--color-X` generates the utility `text-X`.**
+  `--color-text-muted` would therefore be written `text-text-muted`, and
+  `--color-border` as `border-border`. Category-prefixed names keep the
+  utilities readable (`text-ink-muted`, `bg-surface-subtle`,
+  `border-hairline`) and match how `--color-brand-green` already reads.
+
+  | token | value | replaces | sites |
+  |---|---|---|---|
+  | `--color-ink-strong`     | `var(--color-gray-900)` | `text-gray-900`, `text-gray-800` | 7 |
+  | `--color-ink-body`       | `var(--color-gray-700)` | `text-gray-700` | 21 |
+  | `--color-ink-muted`      | `var(--color-gray-600)` | `text-gray-600`, `text-gray-500` | 126 |
+  | `--color-ink-faint`      | `var(--color-gray-400)` | `text-gray-400`, `text-gray-300` | 43 |
+  | `--color-surface-subtle` | `var(--color-gray-50)`  | `bg-gray-50`, `bg-gray-100` | 40 |
+  | `--color-hairline`       | `var(--color-gray-300)` | `border-gray-300`, `border-gray-200`, `border-gray-100` | 11 |
+
+  Plus one token for the two sites that are neither text, surface nor border —
+  `Badge`'s muted background and the session room's disconnected status dot:
+
+  | `--color-surface-inactive` | `var(--color-gray-200)` | `bg-gray-200`, `bg-gray-300` | 2 |
+
+  7 tokens, 250 replacements. 7 + 21 + 126 + 43 + 40 + 11 + 2 = 250 — the sum
+  must come out exactly, since the gate below requires zero raw greys.
+
+  **Every merge anchors on the darker of the two shades** (500→600, 300→400,
+  200→300, 800→900), except the two backgrounds, which anchor light (100→50,
+  300→200). This direction is deliberate and is the whole point: the report
+  that triggered this task was *unreadable grey text*, so a merge that made
+  126 text sites lighter would re-create the defect at scale. Darker-anchored,
+  the dominant merge improves contrast at 84 sites instead of degrading it at
+  42.
+
+  ### Scope of the visual change — larger than a glance suggests
+
+  **~110 of the 250 sites shift shade**, not the ~60 a first estimate gave:
+  84 (`text-gray-500`→600) + 12 (`text-gray-300`→400) + 5
+  (`border-gray-200`→300) + 4 (`text-gray-800`→900) + 3 (`bg-gray-100`→50)
+  + 1 (`border-gray-100`→300) + 1 (`bg-gray-300`→200). The 84 are the ones a
+  reviewer will actually notice, and they are an intended improvement.
+
+  Two sites to eyeball specifically rather than trust:
+  - the session room's **disconnected** status dot goes `bg-gray-300` →
+    `--color-surface-inactive` (gray-200), i.e. *fainter*. It is a status
+    indicator, so confirm it still reads as "off" beside its connected
+    `bg-green-500` sibling.
+  - `border-gray-100` → `--color-hairline` (gray-300) is a two-step jump on a
+    table row divider in the version editor; confirm the table does not
+    suddenly look heavily ruled.
+
+  ### The gate rule, and the regex trap in it
+
+  A third rule in the same script: fail on
+  `\b(text|bg|border|ring|fill|stroke|divide|placeholder)-gray-\d{2,3}\b`.
+
+  The prefix anchor is load-bearing, not decoration. `.css` is inside the
+  scanned set, and `app.css` will contain `var(--color-gray-600)` — a bare
+  `-gray-\d+` pattern matches that too, so the gate would flag the very token
+  definitions it exists to enforce. Verified: the prefix-anchored form matches
+  `class="text-gray-600"` and does **not** match
+  `--color-ink-muted: var(--color-gray-600);`.
+
+  No exemption file is needed for this rule, unlike the triangle rule — the
+  token definitions use the `var()` form, which the anchored regex cannot see.
+
+  ## Deliberate non-goals
+
+  - **Do NOT switch to an SVG chevron.** `$lib/ui/Select.svelte` draws an SVG
+    chevron, and an SVG would render more consistently than a text glyph (whose
+    weight and baseline depend on the font's coverage). But that changes how
+    five existing toggles LOOK, which is a visual redesign rather than "make
+    them uniform" — and the primitive makes it a one-file change later if
+    wanted. Keep `▼`/`▶`.
+  - **Do NOT fold the four editor panels into `Card`.**
+    `src/frontend/CLAUDE.md` records that they "deliberately still hand-roll
+    their shell" because their strip is a toggle `<button>` with a chevron and
+    their body is `{#if open}`-gated, and that adopting `Card` is "a follow-up,
+    not an oversight". Only the triangle changes here.
+  - **Do NOT internationalise `TreeTable`'s `Collapse`/`Expand`.** Those
+    English literals look like an oversight and are not:
+    `src/frontend/CLAUDE.md` records that "the generic `treetable/TreeTable.svelte`
+    and the `dev/tree-table-demo` fixture are intentionally left
+    un-internationalised (generic / dev-only)". A validation check asserts they
+    survive.
+  - **Do NOT tokenise the non-neutral raw palette colours.** `bg-green-500` on
+    the session status dot (which should arguably be `brand-green`),
+    `ring-amber-400`, and the amber cycle-warning trio
+    (`border-amber-300` / `bg-amber-50` / `text-amber-900`) are the same class
+    of defect and are deliberately left alone: each needs a semantic decision
+    ("is this a status colour or a warning colour?") that the grey merge does
+    not. Naming them here so the next reader knows they were seen, not missed.
+  - **Do NOT introduce a new hex literal for any neutral token.** Define each
+    as `var(--color-gray-N)`. A hand-transcribed hex would both duplicate the
+    palette and risk an oklch→hex transcription error, since Tailwind 4 defines
+    its palette in oklch.
+  - **Do NOT widen the grey gate to `e2e/` or the i18n catalogs.** The script's
+    scan root is `src/`; keep it there, matching the existing rules.
+  - No new i18n keys: the triangle is decorative. It carries
+    `aria-hidden="true"` where the surrounding control already has an
+    accessible name, and an `aria-label` only where it does not — `TreeTable`'s
+    toggle button already labels itself `Collapse`/`Expand`, and
+    `DependencyEditor`'s uses `schedule.editor.expandAria`/`collapseAria`.
+    Preserve each site's existing accessible name exactly; do not move it into
+    the primitive.
+
+steps:
+  - |
+    Add `src/frontend/src/lib/ui/DisclosureTriangle.svelte`: the single
+    definition of the collapse/expand indicator.
+
+    Props: `expanded: boolean`, and `class` for the caller's own text colour or
+    spacing (the four panels colour theirs `text-brand-green` via the parent
+    button, `TreeTable`'s is a plain row control). Render `▼` when expanded and
+    `▶` when not — U+25BC / U+25B6, the pair five of the seven sites already
+    use — inside a `<span>` that is `aria-hidden="true"` by default, with
+    `{...rest}` forwarded so a caller can override `aria-hidden` or add
+    `data-testid` (the `Button` primitive forwards `{...rest}` for exactly this
+    reason: the Playwright suite selects on those attributes).
+
+    Document in a header comment why the glyph lives here and that an SVG
+    chevron was considered and deferred.
+  - |
+    Adopt it at all seven sites, changing ONLY the triangle:
+
+      - `src/lib/components/ParametersPanel.svelte`
+      - `src/lib/components/EffortDriversPanel.svelte`
+      - `src/lib/components/PhasesPanel.svelte`
+      - `src/lib/components/AdditionalCostsPanel.svelte`
+      - `src/lib/components/treetable/TreeTable.svelte`
+      - `src/lib/components/schedule/DependencyEditor.svelte`
+      - `src/routes/estimations/[id]/versions/[versionNumber]/+page.svelte`
+
+    Keep every surrounding class, layout and accessible name exactly as it is —
+    this is a glyph swap, not a restyle. The last two are the outliers being
+    corrected; the first five must render identically to before, which is what
+    makes the change safe to verify by eye.
+  - |
+    Extend `src/frontend/scripts/check-design-tokens.mjs` with a second rule:
+    fail on a raw disclosure-triangle glyph (U+25B6, U+25BC, U+25B8, U+25BE,
+    and the hollow ▷ U+25B7 / ▽ U+25BD for good measure) in any scanned file
+    except `src/lib/ui/DisclosureTriangle.svelte`.
+
+    Follow the existing rule's shape: report every offending file and line,
+    then exit non-zero. Keep the existing colour rule working — do not replace
+    it. Keep `.svg` excluded, as the file header explains.
+
+    Print a message that names the fix (`use $lib/ui/DisclosureTriangle`), not
+    just the violation: the colour rule's message is what makes it actionable.
+  - |
+    Prove the gate actually fails. Temporarily reintroduce a raw `▶` into a
+    component, run `node scripts/check-design-tokens.mjs` from
+    `src/frontend`, confirm it exits non-zero and names that file and line,
+    then revert. A gate that scans nothing also exits 0 and looks healthy — the
+    script's own header warns about exactly this — so an unverified gate is
+    worth nothing.
+  - |
+    PASS 2 STARTS HERE — the neutral tokens. Do this only once pass 1 (the
+    triangle) is green, so a screenshot diff stays attributable.
+
+    Add the seven neutral tokens to the `@theme` block in
+    `src/frontend/src/app.css`, each as `var(--color-gray-N)` and each with a
+    comment naming what it replaced and how many sites:
+
+      --color-ink-strong:       var(--color-gray-900);
+      --color-ink-body:         var(--color-gray-700);
+      --color-ink-muted:        var(--color-gray-600);
+      --color-ink-faint:        var(--color-gray-400);
+      --color-surface-subtle:   var(--color-gray-50);
+      --color-surface-inactive: var(--color-gray-200);
+      --color-hairline:         var(--color-gray-300);
+
+    Do NOT hand-transcribe a hex: Tailwind 4 defines the palette in oklch.
+  - |
+    Replace all 250 raw neutral classes across the 43 files listed in
+    `outputs`. The mapping is total and mechanical:
+
+      text-gray-900  -> text-ink-strong          text-gray-800 -> text-ink-strong
+      text-gray-700  -> text-ink-body
+      text-gray-600  -> text-ink-muted           text-gray-500 -> text-ink-muted
+      text-gray-400  -> text-ink-faint           text-gray-300 -> text-ink-faint
+      bg-gray-50     -> bg-surface-subtle        bg-gray-100   -> bg-surface-subtle
+      bg-gray-200    -> bg-surface-inactive      bg-gray-300   -> bg-surface-inactive
+      border-gray-300 -> border-hairline         border-gray-200 -> border-hairline
+      border-gray-100 -> border-hairline
+
+    Order the substitutions longest-shade-first (900/800 before 90/80 cannot
+    collide here, but `-gray-50` is a prefix of nothing while `-gray-500`
+    contains `-gray-50`: replace `-gray-500` BEFORE `-gray-50`, or 84 muted
+    text sites silently become surfaces).
+
+    Four `$lib/ui/` primitives are in the list — `Badge`, `Button`, `Field`,
+    `Select`. They are offenders like any other file; fix them the same way.
+    Change nothing but the colour class: no layout, no spacing, no markup.
+  - |
+    Extend `src/frontend/scripts/check-design-tokens.mjs` with a THIRD rule:
+    fail on a raw neutral palette class, matched as
+
+      /\b(text|bg|border|ring|fill|stroke|divide|placeholder)-gray-\d{2,3}\b/
+
+    The prefix anchor is required, not stylistic: `.css` is inside the scanned
+    set and `app.css` now contains `var(--color-gray-600)`, which a bare
+    `-gray-\d+` pattern would flag — the gate would reject the very token
+    definitions it enforces. No exemption file is needed because the `var()`
+    form is invisible to the anchored regex.
+
+    Name the fix in the message (`use an ink-*/surface-*/hairline token from
+    @theme`), keep both existing rules working, and keep `.svg` excluded.
+  - |
+    Prove the grey gate fails, in both directions, the same way the triangle
+    rule is proved. Write a probe under `src/lib/zz-gate-probe/` containing
+    `class="text-gray-500"`, confirm `node scripts/check-design-tokens.mjs`
+    exits non-zero and names it, delete the probe, confirm it exits 0.
+
+    Then confirm the anchor specifically: the run that exits 0 must do so with
+    `app.css` containing `var(--color-gray-600)` — that is the case the anchor
+    exists for, and a gate that flagged it would have been "fixed" by deleting
+    the tokens.
+  - |
+    Regenerate the README screenshots, which capture the glyph. With the dev
+    stack running: `cd src/frontend && npm run gen:screenshots`. It needs a live
+    stack (it exits non-zero without one) and rasterises via Playwright's
+    bundled Chromium — do not add an image dependency.
+
+    Commit all four refreshed images. Unlike the triangle, the neutral merge
+    touches every screen, so `session-room.png` and `version-compare.png` now
+    change substantively too — they are no longer "incidental diffs".
+
+    Review the diff screen by screen before committing: the only changes may be
+    triangle glyphs and grey shades. Anything else — moved text, changed
+    spacing, a different layout — means a colour class was replaced with one
+    that also carries geometry, and you must stop and investigate.
+
+    Running the script once after pass 1 and again after pass 2 is the cheapest
+    way to keep the two attributable; only the final images get committed.
+  - |
+    Document BOTH halves in `src/frontend/CLAUDE.md`, in the "UI primitives
+    (`$lib/ui/`)" section beside the `Button`/`Card`/`Select` notes:
+
+      - the triangle is a primitive, the canonical pair is U+25BC/U+25B6, the
+        gate fails the build on a raw glyph, and an SVG chevron is a deferred
+        option rather than an oversight. Mention that the four editor panels
+        still hand-roll their shell on purpose, so a reader does not take this
+        as licence to fold them into `Card`.
+      - the seven neutral tokens, the role each carries, that every merge
+        anchored on the DARKER shade so contrast improved rather than
+        degraded, why the names are `ink-*`/`surface-*`/`hairline` (a
+        `--color-X` token generates `text-X`, so `--color-text-muted` would be
+        written `text-text-muted`), and that the gate now fails on a raw
+        `gray-*` class.
+
+    Also update the root `CLAUDE.md` "Frontend hard rules" bullet, which today
+    bans only arbitrary colour VALUES ("Arbitrary colour values (`bg-[#abc]`)
+    are banned"): raw neutral palette classes are now banned too, and both are
+    enforced by the same script.
+  - |
+    Run the gate: `./gradlew :frontend:check` (which runs `checkDesignTokens`),
+    then `./gradlew build`, then the Playwright suite with the dev stack up
+    (`./scripts/dev.sh`; backend :8090, Vite :5173; stop it with SIGTERM, never
+    by killing the child JVMs): `cd src/frontend && npm run test:e2e`. The
+    suite exercises every collapsible panel, the TreeTable and the schedule
+    section, so it is what proves the swap changed no behaviour.
+
+validation:
+  - |
+    The primitive exists and owns the canonical glyph pair. Prose in these
+    blocks stays at this indent; only shell is indented further, or an
+    extractor cannot tell them apart.
+      set -e
+      P=src/frontend/src/lib/ui/DisclosureTriangle.svelte
+      test -f "$P"
+      grep -q "expanded" "$P"
+      # U+25BC and U+25B6, the pair five of the seven sites already used
+      grep -q "▼" "$P"
+      grep -q "▶" "$P"
+      grep -q "rest" "$P"
+  - |
+    No raw triangle glyph survives anywhere outside the primitive — this is the
+    "will not happen again" half, and it must be true at rest:
+      set -e
+      cd src/frontend
+      hits=$(grep -rln "▶\|▼\|▸\|▾\|▷\|▽" src 2>/dev/null | grep -v "src/lib/ui/DisclosureTriangle.svelte" || true)
+      if [ -n "$hits" ]; then echo "raw triangle glyphs remain:"; echo "$hits"; exit 1; fi
+  - |
+    All seven sites use the primitive:
+      set -e
+      cd src/frontend
+      for f in src/lib/components/ParametersPanel.svelte \
+               src/lib/components/EffortDriversPanel.svelte \
+               src/lib/components/PhasesPanel.svelte \
+               src/lib/components/AdditionalCostsPanel.svelte \
+               src/lib/components/treetable/TreeTable.svelte \
+               src/lib/components/schedule/DependencyEditor.svelte \
+               "src/routes/estimations/[id]/versions/[versionNumber]/+page.svelte"; do
+        grep -q "DisclosureTriangle" "$f" || { echo "not adopted: $f"; exit 1; }
+      done
+  - |
+    The gate is real: it lives in the existing script, it is wired into
+    :frontend:check, and it names the fix rather than only the violation:
+      set -e
+      S=src/frontend/scripts/check-design-tokens.mjs
+      grep -q "DisclosureTriangle" "$S"
+      grep -qE "25B6|25BC|▶|▼" "$S"
+      grep -q "checkDesignTokens" src/frontend/build.gradle.kts
+      grep -qE "dependsOn\(npmCheck, npmLintReport, checkDesignTokens\)" src/frontend/build.gradle.kts
+      # the pre-existing colour rule must still be there
+      grep -qE "bg-\\[#|arbitrary" "$S"
+  - |
+    The gate FAILS on a reintroduced raw glyph and PASSES once it is gone. A
+    gate that scans nothing also exits 0, so prove both directions rather than
+    only the happy one:
+      set -e
+      cd src/frontend
+      # Probe in a scanned-but-inert directory, not src/lib/components: a
+      # .svelte file appearing there mid-run would be picked up by a
+      # concurrently running svelte-check or dev server.
+      mkdir -p src/lib/zz-gate-probe
+      probe=src/lib/zz-gate-probe/probe.svelte
+      printf '<span>%s</span>\n' "▶" > "$probe"
+      if node scripts/check-design-tokens.mjs >/dev/null 2>&1; then
+        rm -rf src/lib/zz-gate-probe; echo "gate did NOT fail on a raw glyph"; exit 1
+      fi
+      rm -rf src/lib/zz-gate-probe
+      node scripts/check-design-tokens.mjs >/dev/null
+  - |
+    The accessible names each site had are preserved — the triangle is
+    decorative and must not become the control's label:
+      set -e
+      cd src/frontend
+      grep -q "aria-hidden" src/lib/ui/DisclosureTriangle.svelte
+      grep -qE "Collapse|Expand" src/lib/components/treetable/TreeTable.svelte
+      grep -q "schedule.editor.expandAria" src/lib/components/schedule/DependencyEditor.svelte
+  - |
+    The four editor panels still hand-roll their shell — this task swaps a
+    glyph and must not quietly fold them into Card:
+      set -e
+      cd src/frontend
+      for f in src/lib/components/ParametersPanel.svelte \
+               src/lib/components/EffortDriversPanel.svelte \
+               src/lib/components/PhasesPanel.svelte \
+               src/lib/components/AdditionalCostsPanel.svelte; do
+        if grep -q "ui/Card.svelte" "$f"; then echo "panel folded into Card: $f"; exit 1; fi
+        grep -q "bg-brand-green/10" "$f" || { echo "panel strip changed: $f"; exit 1; }
+      done
+  - |
+    ALL FOUR README screenshots were regenerated — the neutral merge touches
+    every screen, so none of them is unaffected any more. A stale image is a
+    doc that contradicts the app. Assumes the pre-commit working state
+    implement-task requires:
+      set -e
+      git diff --stat HEAD -- docs/images/estimation-editor.png docs/images/bucket-editor.png docs/images/session-room.png docs/images/version-compare.png | grep -q .
+  - |
+    The gate deliberately covers COMPONENT SOURCE only — `e2e/` and the i18n
+    `.json` catalogs are outside its scan root, and neither carries a triangle
+    today. Keep it that way rather than widening the gate:
+      set -e
+      cd src/frontend
+      if grep -rq "▶\|▼\|▸\|▾" e2e src/lib/i18n 2>/dev/null; then
+        echo "a triangle glyph appeared outside component source"; exit 1
+      fi
+  - |
+    The primitive is documented where the other primitives are:
+      set -e
+      grep -qi "DisclosureTriangle" src/frontend/CLAUDE.md
+      grep -q "task-168" src/frontend/CLAUDE.md
+  - |
+    The seven neutral tokens exist and every one is defined from the palette,
+    not from a new hex literal:
+      set -e
+      A=src/frontend/src/app.css
+      for t in ink-strong ink-body ink-muted ink-faint surface-subtle surface-inactive hairline; do
+        grep -qE "^\s*--color-$t:\s*var\(--color-gray-[0-9]{2,3}\);" "$A" || { echo "token missing or not palette-derived: --color-$t"; exit 1; }
+      done
+  - |
+    Each merge anchored on the intended shade. This is the half a reviewer
+    cannot eyeball, and reversing it would re-create the reported defect:
+      set -e
+      A=src/frontend/src/app.css
+      grep -qE -- "--color-ink-strong:\s*var\(--color-gray-900\)" "$A"
+      grep -qE -- "--color-ink-body:\s*var\(--color-gray-700\)" "$A"
+      grep -qE -- "--color-ink-muted:\s*var\(--color-gray-600\)" "$A"
+      grep -qE -- "--color-ink-faint:\s*var\(--color-gray-400\)" "$A"
+      grep -qE -- "--color-surface-subtle:\s*var\(--color-gray-50\)" "$A"
+      grep -qE -- "--color-surface-inactive:\s*var\(--color-gray-200\)" "$A"
+      grep -qE -- "--color-hairline:\s*var\(--color-gray-300\)" "$A"
+  - |
+    ZERO raw neutral palette classes survive. The gate is only enforceable
+    because the count reaches zero, exactly as the colour rule was:
+      set -e
+      cd src/frontend
+      hits=$(grep -rlE "\b(text|bg|border|ring|fill|stroke|divide|placeholder)-gray-[0-9]{2,3}\b" src 2>/dev/null || true)
+      if [ -n "$hits" ]; then echo "raw neutral classes remain:"; echo "$hits"; exit 1; fi
+  - |
+    The tokens are actually adopted — a zero count could also mean the classes
+    were deleted rather than replaced:
+      set -e
+      cd src/frontend
+      test "$(grep -rlE '\b(text|bg|border)-(ink|surface|hairline)' src | wc -l | tr -d ' ')" -ge 40
+      grep -rq "text-ink-muted" src/lib/ui/Badge.svelte
+      grep -rq "border-hairline\|bg-surface\|text-ink" src/lib/ui/Button.svelte
+      grep -rq "border-hairline\|bg-surface\|text-ink" src/lib/ui/Field.svelte
+      grep -rq "border-hairline\|bg-surface\|text-ink" src/lib/ui/Select.svelte
+  - |
+    The grey rule is in the SAME script, and its prefix anchor does not flag
+    the token definitions it enforces — the trap this rule is built around:
+      set -e
+      S=src/frontend/scripts/check-design-tokens.mjs
+      grep -q "gray" "$S"
+      # 'placeholder' is distinctive to the prefix alternation the anchor needs
+      grep -q "placeholder" "$S"
+      # app.css keeps its var(--color-gray-N) definitions AND the gate passes
+      grep -q "var(--color-gray-600)" src/frontend/src/app.css
+      cd src/frontend && node scripts/check-design-tokens.mjs >/dev/null
+  - |
+    The grey gate FAILS on a reintroduced raw class. Same both-directions proof
+    the triangle rule gets — an unverified gate is worth nothing:
+      set -e
+      cd src/frontend
+      mkdir -p src/lib/zz-grey-probe
+      probe=src/lib/zz-grey-probe/probe.svelte
+      printf '<span class="text-gray-500">x</span>\n' > "$probe"
+      if node scripts/check-design-tokens.mjs >/dev/null 2>&1; then
+        rm -rf src/lib/zz-grey-probe; echo "grey gate did NOT fail on a raw class"; exit 1
+      fi
+      rm -rf src/lib/zz-grey-probe
+      node scripts/check-design-tokens.mjs >/dev/null
+  - |
+    The non-neutral raw palette colours named as non-goals are still present
+    and untouched — this task must not have quietly widened into them:
+      set -e
+      cd src/frontend
+      grep -q "bg-green-500" "src/routes/sessions/[id]/+page.svelte"
+      grep -q "amber" src/lib/components/schedule/DependencyEditor.svelte
+  - |
+    Both CLAUDE.md files record the neutral tokens, and the root file's hard
+    rule no longer bans only arbitrary VALUES:
+      set -e
+      grep -qi "ink-muted\|neutral token" src/frontend/CLAUDE.md
+      grep -qi "gray-\|neutral palette" CLAUDE.md
+  - |
+    ./gradlew :frontend:check
+  - |
+    ./gradlew build
+  - |
+    With the dev stack running (./scripts/dev.sh, backend :8090, Vite :5173) —
+    the suite covers every panel, the TreeTable and the schedule section, so it
+    is what proves the swap changed no behaviour:
+      cd src/frontend && npm run test:e2e
+
+outputs:
+  - created: src/frontend/src/lib/ui/DisclosureTriangle.svelte
+  # Pass 2: the neutral tokens are declared here.
+  - modified: src/frontend/src/app.css
+  - modified: src/frontend/src/lib/components/ParametersPanel.svelte
+  - modified: src/frontend/src/lib/components/EffortDriversPanel.svelte
+  - modified: src/frontend/src/lib/components/PhasesPanel.svelte
+  - modified: src/frontend/src/lib/components/AdditionalCostsPanel.svelte
+  - modified: src/frontend/src/lib/components/treetable/TreeTable.svelte
+  - modified: src/frontend/src/lib/components/schedule/DependencyEditor.svelte
+  - modified: src/frontend/src/routes/estimations/[id]/versions/[versionNumber]/+page.svelte
+  # Pass 2: the remaining 36 of the 43 files carrying a raw neutral class
+  # (the seven triangle sites above are also in that set).
+  - modified: src/frontend/src/lib/auth/RequireAuth.svelte
+  - modified: src/frontend/src/lib/auth/RequiredRole.svelte
+  - modified: src/frontend/src/lib/components/AppHeader.svelte
+  - modified: src/frontend/src/lib/components/ConnectionLostDialog.svelte
+  - modified: src/frontend/src/lib/components/DevLoginDialog.svelte
+  - modified: src/frontend/src/lib/components/EstimationDetail.svelte
+  - modified: src/frontend/src/lib/components/EstimationGrid.svelte
+  - modified: src/frontend/src/lib/components/EstimationSummaryPanel.svelte
+  - modified: src/frontend/src/lib/components/MerlinStructureDialog.svelte
+  - modified: src/frontend/src/lib/components/ProjectDetail.svelte
+  - modified: src/frontend/src/lib/components/ProjectList.svelte
+  - modified: src/frontend/src/lib/components/ReplaceDraftDialog.svelte
+  - modified: src/frontend/src/lib/components/UndoConflictDialog.svelte
+  - modified: src/frontend/src/lib/components/UndoHistoryPanel.svelte
+  - modified: src/frontend/src/lib/components/UserMenu.svelte
+  - modified: src/frontend/src/lib/components/VersionList.svelte
+  - modified: src/frontend/src/lib/methods/MethodDetailPopover.svelte
+  - modified: src/frontend/src/lib/methods/bucketSampled/BucketPanel.svelte
+  - modified: src/frontend/src/lib/methods/bucketSampled/EditorModule.svelte
+  - modified: src/frontend/src/lib/session/ConflictBadge.svelte
+  - modified: src/frontend/src/lib/session/PhaseOnePanel.svelte
+  - modified: src/frontend/src/lib/session/PhaseTwoPanel.svelte
+  - modified: src/frontend/src/lib/session/SessionSummary.svelte
+  - modified: src/frontend/src/lib/ui/Badge.svelte
+  - modified: src/frontend/src/lib/ui/Button.svelte
+  - modified: src/frontend/src/lib/ui/Field.svelte
+  - modified: src/frontend/src/lib/ui/Select.svelte
+  - modified: src/frontend/src/routes/+error.svelte
+  - modified: src/frontend/src/routes/+layout.svelte
+  - modified: src/frontend/src/routes/admin/system/+page.svelte
+  - modified: src/frontend/src/routes/dev/tree-table-demo/+page.svelte
+  - modified: src/frontend/src/routes/estimations/[id]/+page.svelte
+  - modified: src/frontend/src/routes/estimations/[id]/compare/+page.svelte
+  - modified: src/frontend/src/routes/estimations/[id]/versions/[versionNumber]/schedule/+page.svelte
+  - modified: src/frontend/src/routes/sessions/+page.svelte
+  - modified: src/frontend/src/routes/sessions/[id]/+page.svelte
+  - modified: src/frontend/scripts/check-design-tokens.mjs
+  - modified: src/frontend/CLAUDE.md
+  # The root hard rule bans only arbitrary colour VALUES today.
+  - modified: CLAUDE.md
+  # The neutral merge touches every screen, so all four change substantively.
+  - modified: docs/images/estimation-editor.png
+  - modified: docs/images/bucket-editor.png
+  - modified: docs/images/session-room.png
+  - modified: docs/images/version-compare.png

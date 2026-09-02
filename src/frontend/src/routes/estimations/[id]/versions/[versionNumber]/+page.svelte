@@ -13,7 +13,6 @@
 	import { computeEstimation, ZERO_TOTALS } from '$lib/adapter.js';
 	import type { ScheduleEdge } from '$lib/adapter.js';
 	import EstimationSummaryPanel from '$lib/components/EstimationSummaryPanel.svelte';
-	import DependencyEditor from '$lib/components/schedule/DependencyEditor.svelte';
 	import { normalizeRoots, type CalcEntry } from '$lib/estimationNodes';
 	import { log } from '$lib/log';
 	import type { ApiVersionResponse, ApiAdditionalCost } from '$lib/api/types.js';
@@ -285,8 +284,11 @@
 			additionalCosts: $state.snapshot(currentAdditionalCosts),
 			buckets: $state.snapshot(currentBuckets),
 			roots: $state.snapshot(currentRoots),
-			teamFte: currentTeamFte,
-			dependencies: $state.snapshot(currentDependencies)
+			// `dependencies` is deliberately ABSENT: the schedule route owns
+			// editing them (task-167), so including them here would let a stale
+			// copy overwrite a graph edit on the next unrelated save. They are
+			// still loaded, because the numbers above are computed from them.
+			teamFte: currentTeamFte
 		});
 	}
 
@@ -321,8 +323,10 @@
 						salesSurcharge: currentSalesSurcharge,
 						effortDrivers: currentDrivers,
 						additionalCosts: currentAdditionalCosts,
-						teamFte: currentTeamFte,
-						dependencies: currentDependencies
+						// No `dependencies`: a null field means "leave unchanged"
+						// (task-156), so omitting it preserves whatever the schedule
+						// route saved. teamFte stays — it is editable in both places.
+						teamFte: currentTeamFte
 					})
 				});
 				await assertOk(res, $_('editor.saveFailed'));
@@ -525,11 +529,18 @@
 						</div>
 					{/if}
 
-					<DependencyEditor
-						{schedule}
-						bind:dependencies={currentDependencies}
-						editable={versionData.isDraft}
-					/>
+					<!-- The graph lives on its own route (task-167): a net plan needs
+					     the full viewport, and this section keeps only the numbers. -->
+					<Button
+						href={resolve('/estimations/[id]/versions/[versionNumber]/schedule', {
+							id: page.params.id!,
+							versionNumber: page.params.versionNumber!
+						}) + (versionData.isDraft ? '?draft=true' : '')}
+						variant="secondary"
+						size="sm"
+					>
+						{$_('schedule.page.open')}
+					</Button>
 
 					{#if schedule && schedule.error == null && schedule.tasks.length > 0}
 						<table class="mt-4 w-full text-sm" data-testid="schedule-durations">

@@ -120,6 +120,11 @@
   },
   "schedule": {
     "title": "Schedule",
+    "page": {
+      "title": "Schedule — dependencies",
+      "open": "Edit dependencies",
+      "back": "← Back to the version editor"
+    },
     "days": "days",
     "teamSize": {
       "label": "Team size (people working concurrently)",
@@ -136,7 +141,9 @@
       "handleAria": "Drag a dependency from {title}",
       "edgeAria": "Dependency from {from} to {to} — click to remove",
       "expandAria": "Expand group",
-      "collapseAria": "Collapse group"
+      "collapseAria": "Collapse group",
+      "dragAria": "Dragging a new dependency",
+      "groupBoxAria": "Group {title} with its sub-items"
     },
     "error": {
       "cycle": "The dependencies contain a cycle. The highlighted items point back at each other; remove one link to get a schedule again.",

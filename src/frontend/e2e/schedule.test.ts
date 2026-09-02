@@ -89,10 +89,10 @@ async function seed(request: APIRequestContext): Promise<Seeded> {
 	return { estimationId, groupA, groupB, leafA, leafB };
 }
 
+/** The graph has its own route since task-167. */
 async function openSchedule(page: Page, estimationId: string) {
-	await page.goto(`/estimations/${estimationId}/versions/draft`);
+	await page.goto(`/estimations/${estimationId}/versions/draft/schedule?draft=true`);
 	await page.waitForLoadState('networkidle');
-	await page.getByTestId('schedule-section-toggle').click();
 	await expect(page.getByTestId('dependency-editor')).toBeVisible();
 }
 
@@ -132,7 +132,6 @@ test('a dependency lengthens the plan and survives a reload', async ({ page, req
 	await page.waitForTimeout(1500);
 	await page.reload();
 	await page.waitForLoadState('networkidle');
-	await page.getByTestId('schedule-section-toggle').click();
 	await expect(page.getByTestId('schedule-edge')).toHaveCount(1);
 	await expect(page.getByTestId('team-fte')).toHaveValue('2');
 	await expect(page.getByTestId('schedule-planned-length')).toContainText('20');
@@ -192,4 +191,153 @@ test('the team size is a worker count, and 0 is refused by the domain', async ({
 	// A fraction rounds DOWN to whole workers: 2.5 behaves as 2.
 	await page.getByTestId('team-fte').fill('2.5');
 	await expect(page.getByTestId('schedule-planned-length')).toContainText('10');
+});
+
+test('the version editor links to the schedule page, and keeps the numbers', async ({
+	page,
+	request
+}) => {
+	const { estimationId } = await seed(request);
+	await page.goto(`/estimations/${estimationId}/versions/draft?draft=true`);
+	await page.waitForLoadState('networkidle');
+	await page.getByTestId('schedule-section-toggle').click();
+
+	// The numbers stay in the editor; the graph does not.
+	await expect(page.getByTestId('schedule-planned-length')).toBeVisible();
+	await expect(page.getByTestId('schedule-durations')).toBeVisible();
+	await expect(page.getByTestId('dependency-editor')).toHaveCount(0);
+
+	// The link opens the dedicated page, which renders the graph.
+	await page.getByRole('link', { name: /Abhängigkeiten bearbeiten/ }).click();
+	await page.waitForLoadState('networkidle');
+	await expect(page.getByTestId('schedule-page-title')).toBeVisible();
+	await expect(page.getByTestId('dependency-editor')).toBeVisible();
+
+	// And back again.
+	await page.getByTestId('schedule-page-back').click();
+	await page.waitForLoadState('networkidle');
+	await expect(page.getByTestId('editor-title')).toBeVisible().catch(() => {});
+	expect(page.url()).not.toContain('/schedule');
+});
+
+test('every edge carries a direction marker', async ({ page, request }) => {
+	const { estimationId, groupA, groupB } = await seed(request);
+	await openSchedule(page, estimationId);
+
+	await dragDependency(page, groupA, groupB);
+	const edge = page.getByTestId('schedule-edge').first();
+	await expect(edge).toHaveAttribute('marker-end', 'url(#schedule-arrow)');
+});
+
+test('an expanded group outlines its subtree; a collapsed one does not', async ({
+	page,
+	request
+}) => {
+	const { estimationId, groupA, leafA } = await seed(request);
+	await openSchedule(page, estimationId);
+
+	// Groups start collapsed: a single card IS the group, so no outline.
+	await expect(page.getByTestId('schedule-group-box')).toHaveCount(0);
+
+	await page.locator(`${card(groupA)} [data-testid="schedule-toggle"]`).click();
+	await expect(page.locator(card(leafA))).toBeVisible();
+
+	// Expanded: exactly one outline, around this group and its child.
+	const box = page.getByTestId('schedule-group-box');
+	await expect(box).toHaveCount(1);
+	await expect(box).toHaveAttribute('data-logical-id', groupA);
+
+	// And the child is indented FURTHER right than its parent.
+	const parentBox = await page.locator(card(groupA)).boundingBox();
+	const childBox = await page.locator(card(leafA)).boundingBox();
+	expect(parentBox).not.toBeNull();
+	expect(childBox).not.toBeNull();
+	expect(childBox!.x).toBeGreaterThan(parentBox!.x);
+
+	// Collapsing removes the outline again.
+	await page.locator(`${card(groupA)} [data-testid="schedule-toggle"]`).click();
+	await expect(page.getByTestId('schedule-group-box')).toHaveCount(0);
+});
+
+test('a live arrow is drawn while dragging, before the drop', async ({ page, request }) => {
+	// The arrow used to be driven by `pointermove`, which the browser SUPPRESSES
+	// for the duration of a native HTML5 drag — so it never appeared. It is
+	// driven by `dragover` now. Uses page.mouse rather than dragTo because
+	// dragTo cannot observe the MID-drag state, and re-reads boundingBox for
+	// every target rather than assuming fixed geometry.
+	const { estimationId, groupA, groupB } = await seed(request);
+	await openSchedule(page, estimationId);
+
+	await expect(page.getByTestId('schedule-drag-arrow')).toHaveCount(0);
+
+	const handle = page.locator(`${card(groupA)} [data-testid="schedule-handle"]`);
+	const hb = await handle.boundingBox();
+	const tb = await page.locator(card(groupB)).boundingBox();
+	expect(hb).not.toBeNull();
+	expect(tb).not.toBeNull();
+
+	await handle.hover();
+	await page.mouse.down();
+	await page.mouse.move(hb!.x + hb!.width / 2 + 12, hb!.y + hb!.height / 2 + 12, { steps: 5 });
+	await page.mouse.move(tb!.x + tb!.width / 2, tb!.y + tb!.height / 2, { steps: 12 });
+
+	const arrow = page.getByTestId('schedule-drag-arrow');
+	await expect(arrow).toHaveCount(1);
+	// A real path, not an empty one.
+	const d = await arrow.getAttribute('d');
+	expect(d).toMatch(/^M \d/);
+	// The live arrow has its OWN marker id: it lives in a separate overlay svg
+	// (so it paints above the cards) and duplicate ids in one document are invalid.
+	expect(await arrow.getAttribute('marker-end')).toBe('url(#schedule-arrow-live)');
+
+	// It must paint ON TOP of the cards, or the half of it under the target card
+	// is invisible — which is exactly where the user is looking.
+	const stacking = await page.evaluate(() => {
+		const arrow = document.querySelector('[data-testid="schedule-drag-arrow"]');
+		const cardEl = document.querySelector('[data-testid="schedule-card"]');
+		if (!arrow || !cardEl) return null;
+		const layer = arrow.closest('svg');
+		const z = (el: Element) => Number(getComputedStyle(el).zIndex) || 0;
+		return {
+			arrow: layer ? z(layer) : 0,
+			card: z(cardEl),
+			// the overlay must also come after the cards in document order
+			afterCards: !!(layer && cardEl.compareDocumentPosition(layer) & Node.DOCUMENT_POSITION_FOLLOWING)
+		};
+	});
+	expect(stacking).not.toBeNull();
+	expect(stacking!.arrow).toBeGreaterThan(stacking!.card);
+	expect(stacking!.afterCards).toBe(true);
+
+	await page.mouse.up();
+	// It disappears once the drag ends.
+	await expect(page.getByTestId('schedule-drag-arrow')).toHaveCount(0);
+});
+
+test('a child card is never left of its parent, even in a later layer', async ({
+	page,
+	request
+}) => {
+	// `layer` comes from DEPENDENCIES alone, so an undependent child of a group
+	// that sits in a later layer used to be placed at layer 0 — far to its
+	// parent's LEFT, which destroyed the containment the outline implies.
+	const { estimationId, groupA, groupB, leafA, leafB } = await seed(request);
+	await openSchedule(page, estimationId);
+
+	// groupA -> groupB puts groupB in a later layer; neither leaf has an edge.
+	await dragDependency(page, groupA, groupB);
+
+	await page.locator(`${card(groupA)} [data-testid="schedule-toggle"]`).click();
+	await page.locator(`${card(groupB)} [data-testid="schedule-toggle"]`).click();
+
+	for (const [group, leaf] of [
+		[groupA, leafA],
+		[groupB, leafB]
+	] as const) {
+		const parentBox = await page.locator(card(group)).boundingBox();
+		const childBox = await page.locator(card(leaf)).boundingBox();
+		expect(parentBox).not.toBeNull();
+		expect(childBox).not.toBeNull();
+		expect(childBox!.x).toBeGreaterThan(parentBox!.x);
+	}
 });

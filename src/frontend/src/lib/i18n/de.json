@@ -120,6 +120,11 @@
   },
   "schedule": {
     "title": "Terminplan",
+    "page": {
+      "title": "Terminplan — Abhängigkeiten",
+      "open": "Abhängigkeiten bearbeiten",
+      "back": "← Zurück zum Versionseditor"
+    },
     "days": "Tage",
     "teamSize": {
       "label": "Teamgröße (parallel arbeitende Personen)",
@@ -136,7 +141,9 @@
       "handleAria": "Abhängigkeit ausgehend von {title} ziehen",
       "edgeAria": "Abhängigkeit von {from} nach {to} — zum Entfernen anklicken",
       "expandAria": "Gruppe aufklappen",
-      "collapseAria": "Gruppe zuklappen"
+      "collapseAria": "Gruppe zuklappen",
+      "dragAria": "Neue Abhängigkeit wird gezogen",
+      "groupBoxAria": "Gruppe {title} mit ihren Untervorgängen"
     },
     "error": {
       "cycle": "Die Abhängigkeiten enthalten einen Zyklus. Die hervorgehobenen Vorgänge verweisen im Kreis aufeinander; entfernen Sie eine Verknüpfung, um wieder einen Terminplan zu erhalten.",

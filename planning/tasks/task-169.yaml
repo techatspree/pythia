@@ -1,0 +1,246 @@
+id: task-169
+phase: phase-11
+title: "Session socket: stop retrying a session that is gone"
+depends_on: [task-147]
+description: |
+  The session WebSocket client retries **forever**, with no give-up condition,
+  even when the failure is permanent. A tab left open on a session room that no
+  longer exists re-requests a ws-ticket every 15 seconds for as long as the tab
+  is open.
+
+  ## The loop
+
+  `src/frontend/src/lib/session/socket.ts` calls `scheduleReconnect()`
+  unconditionally when the ticket fetch fails:
+
+      try {
+          ticket = await getWsTicket(sessionId);
+      } catch (e) {
+          log.error('session socket: failed to obtain ticket', e);
+          onError(...);
+          scheduleReconnect();   // <-- no attempt limit, no permanence check
+          return;
+      }
+
+  `scheduleReconnect` backs off to `MAX_BACKOFF_MS = 15_000` and then stays
+  there. There is no attempt cap and no inspection of *why* the fetch failed,
+  so a `404` (session deleted) is retried exactly like a dropped Wi-Fi link.
+
+  **This is trivially reachable in development.** Quarkus Dev Services starts a
+  **throwaway** PostgreSQL container, so every `./scripts/dev.sh` restart comes
+  up with an empty database and every previously-created session is gone. Any
+  browser tab still open on `/sessions/{id}` then hammers
+  `POST /api/sessions/{id}/ws-ticket` every 15s, each attempt logging an error
+  client-side and surfacing a banner. In production the same shape occurs after
+  a session is cancelled while a participant's tab is open.
+
+  ## Do NOT simply cap the retries
+
+  Unbounded retry for a **transient** failure is deliberate and task-147 built
+  it on purpose: the client's 45s idle watchdog tears down a silently-dead
+  socket, resets `attempt` to 0 and reopens, which is what lets a room recover
+  after a laptop sleep, a NAT timeout or a proxy idle-kill. A blanket attempt
+  cap would break that healing and reintroduce the stale-room defect task-147
+  fixed.
+
+  The distinction to make is **permanent vs transient**, not "too many tries":
+
+  - `404` (session gone) and `403` (no longer a participant) are permanent.
+    Stop, report, and do not schedule another attempt.
+  - anything else — a network error, `5xx`, a timeout — stays as it is today:
+    retry with capped backoff, forever.
+
+  ## The blocker: the status is not reachable
+
+  `getWsTicket` (`src/frontend/src/lib/session/api.ts`) goes through the shared
+  `post(...)` helper, which routes failures through `assertOk` in
+  `src/lib/api/errors.ts`. `assertOk` throws a plain `Error` carrying a
+  human-readable message and **discards the HTTP status**, so the caller cannot
+  tell 404 from 503 without string-matching the message — which would break the
+  moment the message or the locale changes.
+
+  So the substance of this task is plumbing the status onto the thrown error,
+  and that seam is shared by every `apiFetch` caller in the app. Do it
+  **additively**: attach the status to the existing error rather than changing
+  what `assertOk` throws or what callers already catch. An `ApiError extends
+  Error` with a `status: number` field satisfies `instanceof Error`, keeps
+  `e.message` identical, and leaves all existing call sites working unchanged.
+
+  ## Constraints — these are load-bearing, do not undo them
+
+  - **`connected` comes from the socket, never from a payload.**
+    `SessionStore.setConnected` is driven only by `connectSessionSocket`'s
+    `onConnectionChange`. Inferring liveness from "a message arrived once" can
+    never become false again, which is the bug task-147 fixed;
+    `e2e/session-connection.test.ts` pins both directions.
+  - **Do not add a REST re-fetch to the reconnect path.** `@OnOpen` already
+    calls `broadcaster.sendSnapshot(...)`, so every successful reconnect
+    receives the current `SessionDto`. The hard part was never fetching, it was
+    noticing.
+  - **`ws.onerror` must not schedule a reconnect** — the browser fires
+    `onclose` afterwards, and scheduling in both doubles the backoff per
+    failure.
+  - **Do not add Playwright `retries`.** `playwright.config.ts` argues the case
+    at length; `retries: 0` stays.
+  - Frontend logging goes through `log` from `$lib/log.ts` — never bare
+    `console.*` — and a user-visible failure still surfaces via `ErrorBanner`.
+
+  ## Already fixed, for context — do not redo it
+
+  The server side of this report is done: `SessionBroadcaster.send` no longer
+  logs a closed socket at ERROR with a stack trace (a client can navigate
+  inside the `onOpen` window, which is expected, not a fault). That removed the
+  log flood that made this look like a server crash loop. This task is only the
+  client's unbounded retry.
+
+steps:
+  - |
+    Attach the HTTP status to the error `assertOk` throws, additively, in
+    `src/frontend/src/lib/api/errors.ts`:
+
+      export class ApiError extends Error {
+          constructor(message: string, readonly status: number) { super(message); }
+      }
+
+    Throw `ApiError` where `assertOk` currently throws `Error`, keeping the
+    message text byte-identical. Every existing call site catches `Error` or
+    reads `e.message`, so nothing else needs to change — verify that rather than
+    assume it by checking the call sites `assertOk` has.
+  - |
+    In `src/frontend/src/lib/session/socket.ts`, stop retrying a PERMANENT
+    ticket failure. In the `catch` around `getWsTicket`, treat `404` and `403`
+    (via `e instanceof ApiError && (e.status === 404 || e.status === 403)`) as
+    terminal: `log.error`, `onError(...)`, mark the connection permanently
+    closed so no further attempt is scheduled, and return WITHOUT calling
+    `scheduleReconnect()`. Every other failure keeps today's behaviour.
+
+    Do not add an attempt cap to `scheduleReconnect` — see "Do NOT simply cap
+    the retries". The watchdog path that resets `attempt` and reopens must keep
+    working untouched.
+
+    Make the terminal state observable: report `onConnectionChange(false)` so
+    the room's indicator goes and stays disconnected, and give the user a
+    message that says the session is no longer available rather than a bare
+    ticket error.
+  - |
+    Add the message to **both** `src/frontend/src/lib/i18n/de.json` and
+    `en.json`, key-for-key, as `session.socket.gone` — a real German
+    translation, not the English sentence pasted across, and never an inline
+    literal. Render it via the existing `onError` → `ErrorBanner` path the room
+    already uses.
+  - |
+    Extend `src/frontend/e2e/session-connection.test.ts` (which already pins
+    both directions of the indicator, so the terminal state belongs beside it):
+
+      - open a session room, then DELETE the session via
+        `POST /api/sessions/{id}/cancel`, and assert the client stops requesting
+        tickets — count `/ws-ticket` requests via `page.on('request', …)` over a
+        window longer than `MAX_BACKOFF_MS` and assert the count stops growing
+      - assert the indicator reports disconnected and the banner shows
+        `session.socket.gone` rather than a raw ticket error
+      - assert a TRANSIENT failure still retries: this is the regression guard
+        for task-147's healing behaviour, so it must not be omitted
+  - |
+    Document it in `.claude/skills/estimation-sessions/SKILL.md`, in the
+    "Heartbeat + watchdog (task-147)" paragraph where the reconnect rules
+    already live: a permanent ticket failure (404/403) is terminal while every
+    other failure retries forever, and why the distinction exists rather than an
+    attempt cap.
+  - |
+    Run the gate: `./gradlew :frontend:check`, then `./gradlew build`, then the
+    Playwright suite with the dev stack up (`./scripts/dev.sh`; backend :8090,
+    Vite :5173; stop it with SIGTERM, never by killing the child JVMs):
+    `cd src/frontend && npm run test:e2e`.
+
+validation:
+  - |
+    The status is reachable on a failed request, and the message is unchanged.
+    Prose in these blocks stays at this indent; only shell is indented further,
+    or an extractor cannot tell them apart.
+      set -e
+      E=src/frontend/src/lib/api/errors.ts
+      grep -q "class ApiError" "$E"
+      grep -q "status" "$E"
+      grep -q "extends Error" "$E"
+  - |
+    A permanent ticket failure is terminal, and the retry path is otherwise
+    untouched:
+      set -e
+      S=src/frontend/src/lib/session/socket.ts
+      grep -q "ApiError" "$S"
+      grep -qE "404" "$S"
+      grep -qE "403" "$S"
+      # the capped-backoff retry must still exist for transient failures
+      grep -q "MAX_BACKOFF_MS" "$S"
+      grep -q "scheduleReconnect" "$S"
+  - |
+    task-147's invariants are intact — an attempt cap would break the healing
+    it built, and the indicator must still be socket-driven:
+      set -e
+      S=src/frontend/src/lib/session/socket.ts
+      grep -q "IDLE_TIMEOUT_MS" "$S"
+      grep -q "onConnectionChange" "$S"
+      if grep -qiE "maxAttempts|attempt >=|attempt >" "$S"; then
+        echo "an attempt cap was added; task-147 relies on unbounded transient retry"; exit 1
+      fi
+      if grep -q "console\." "$S"; then echo "bare console in $S"; exit 1; fi
+  - |
+    The already-fixed server side was not re-touched or reverted:
+      set -e
+      B=src/backend/implementation/src/main/kotlin/io/pythia/ws/SessionBroadcaster.kt
+      grep -q "isClosed" "$B"
+      grep -qE "Log\.debug" "$B"
+  - |
+    The new message is translated in every catalog, key-for-key:
+      set -e
+      python3 -c "
+      import json, pathlib, sys
+      d = pathlib.Path('src/frontend/src/lib/i18n')
+      cats = {p.stem: json.loads(p.read_text()) for p in d.glob('*.json')}
+      def flat(o, p=''):
+          out = {}
+          for k, v in o.items():
+              n = f'{p}.{k}' if p else k
+              out.update(flat(v, n) if isinstance(v, dict) else {n: v})
+          return out
+      f = {l: flat(c) for l, c in cats.items()}
+      ref = set().union(*(set(x) for x in f.values()))
+      bad = {l: sorted(ref - set(x)) for l, x in f.items() if ref - set(x)}
+      de, en = f.get('de', {}), f.get('en', {})
+      key = 'session.socket.gone'
+      absent = [k for k in [key] if k not in de or k not in en]
+      copied = [key] if (key in de and de.get(key) == en.get(key)) else []
+      print('catalogs:', sorted(cats), '| mismatch:', bad or 'none')
+      print('missing:', absent or 'none', '| untranslated:', copied or 'none')
+      sys.exit(1 if (bad or absent or copied) else 0)
+      "
+  - |
+    The e2e spec covers BOTH directions — the terminal stop and the transient
+    retry that must survive:
+      set -e
+      T=src/frontend/e2e/session-connection.test.ts
+      test -f "$T"
+      grep -q "ws-ticket" "$T"
+      grep -qiE "gone|cancel" "$T"
+      grep -qiE "transient|retr" "$T"
+  - |
+    The reconnect rules are documented where they already live:
+      set -e
+      S=.claude/skills/estimation-sessions/SKILL.md
+      grep -qi "heartbeat" "$S"
+      grep -q "task-169" "$S"
+  - |
+    ./gradlew :frontend:check
+  - |
+    ./gradlew build
+  - |
+    With the dev stack running (./scripts/dev.sh, backend :8090, Vite :5173):
+      cd src/frontend && npm run test:e2e
+
+outputs:
+  - modified: src/frontend/src/lib/api/errors.ts
+  - modified: src/frontend/src/lib/session/socket.ts
+  - modified: src/frontend/src/lib/i18n/de.json
+  - modified: src/frontend/src/lib/i18n/en.json
+  - modified: src/frontend/e2e/session-connection.test.ts
+  - modified: .claude/skills/estimation-sessions/SKILL.md

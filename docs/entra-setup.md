@@ -249,8 +249,8 @@ internal GitLab pipeline supplies them as masked CI/CD variables.
 
 There are **no `VITE_*` variables any more** (task-162). Vite inlined them at
 build time, which made the frontend image *be* the configuration: a stage needed
-its own build and an image could not be promoted. `src/frontend/src/vite-env.d.ts`
-still declares the old names, but nothing reads them.
+its own build and an image could not be promoted. Their type declarations are
+gone from `src/frontend/src/vite-env.d.ts` too — do not reintroduce one.
 
 ## Running Entra locally (optional)
 

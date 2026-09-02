@@ -62,12 +62,30 @@ class SessionBroadcaster(
 
     // A single dead/slow connection must not abort the fan-out to the others,
     // so catch broadly and log rather than propagate.
+    //
+    // **A closed socket is an EXPECTED condition, not an error.** A client can
+    // navigate, reload or sleep at any moment — including inside the onOpen
+    // window, between the handshake succeeding and the first snapshot being
+    // written. Logging that at ERROR with a full stack trace made routine
+    // navigation look like a server fault: a tab reconnecting on the client's
+    // 15s backoff produced a steady stream of stack traces that reads exactly
+    // like a crash loop. Skip the write when the connection is already gone,
+    // and report a mid-flight close at DEBUG without the trace. Anything else
+    // is still a real ERROR.
     @Suppress("TooGenericExceptionCaught")
     private fun send(connection: WebSocketConnection, message: String) {
+        if (connection.isClosed) {
+            Log.debug("Skipping push to closed connection ${connection.id()}")
+            return
+        }
         try {
             connection.sendTextAndAwait(message)
         } catch (e: Exception) {
-            Log.error("Failed to push session message to connection ${connection.id()}", e)
+            if (connection.isClosed) {
+                Log.debug("Connection ${connection.id()} closed while pushing; dropping the message")
+            } else {
+                Log.error("Failed to push session message to connection ${connection.id()}", e)
+            }
         }
     }
 

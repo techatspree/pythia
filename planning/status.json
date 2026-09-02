@@ -987,10 +987,28 @@
       "notes": "Resource levelling: teamFte becomes the number of concurrent workers, a leaf takes effortPT days worked by one person, and the scheduler never runs more than teamFte items at once — so the Gantt shows a plan the team can actually deliver"
     },
     "task-167": {
+      "status": "done",
+      "started_at": "2026-09-02T09:13:54+00:00",
+      "completed_at": "2026-09-02T09:23:28+00:00",
+      "notes": "The dependency editor needs its own route (too large for a subpanel), a live drag arrow from source to target, and visible group membership (indentation plus a container outline) so a subitem's parent is always recognisable"
+    },
+    "task-168": {
       "status": "pending",
       "started_at": null,
       "completed_at": null,
-      "notes": "The dependency editor needs its own route (too large for a subpanel), a live drag arrow from source to target, and visible group membership (indentation plus a container outline) so a subitem's parent is always recognisable"
+      "notes": "The Terminplan section and the dependency-editor group toggle use the SMALL triangle glyphs U+25BE/U+25B8 while the app's five other disclosure toggles use U+25BC/U+25B6; add a $lib/ui disclosure-triangle primitive, adopt it at all seven sites, and gate raw glyphs so it cannot regress"
+    },
+    "task-169": {
+      "status": "pending",
+      "started_at": null,
+      "completed_at": null,
+      "notes": "The session socket retries forever with no give-up: a tab left open on a session that no longer exists (a dev.sh restart wipes the throwaway Dev Services DB) re-fetches a ws-ticket every 15s indefinitely, because getWsTicket throws a plain Error and the client cannot tell a permanent 404 from a transient blip"
+    },
+    "task-170": {
+      "status": "pending",
+      "started_at": null,
+      "completed_at": null,
+      "notes": "The Terminplan panel repeats every estimation item in its own table; remove that table and surface criticality as an 'on critical path' column on the main estimation grid instead"
     }
   }
 }
