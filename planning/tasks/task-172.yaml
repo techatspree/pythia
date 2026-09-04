@@ -1,0 +1,432 @@
+id: task-172
+phase: phase-19
+title: "Refuse a cycle at drop time, with a modal that explains it"
+depends_on: [task-171]
+description: |
+  Drawing a dependency that closes a loop currently SUCCEEDS. The edge is
+  committed, the domain returns an error instead of a schedule, and the editor
+  replaces the whole graph with a recovery list from which the user must delete
+  a dependency to get back. There is no way to simply not have drawn it.
+
+  ## Current state
+
+  `DependencyEditor.svelte`'s `addEdge(from, to)` refuses exactly two things,
+  both silently and both with only a `log.debug`:
+
+    - a self-edge (`from === to`), noted in a comment as "task-155 reports it
+      as a one-node CYCLE",
+    - an exact duplicate of an existing edge.
+
+  Anything else is pushed onto `dependencies` unconditionally. The page
+  autosaves it, `computeEstimation` returns
+  `schedule.error.kind === 'CYCLE'` with an EMPTY `tasks` list, and the
+  component's CYCLE branch takes over: the graph disappears and the user gets
+  the notice plus a list of every dependency with a Delete button each
+  (task-171 made those rows readable).
+
+  So the user's only route out of a mis-drag is to find and delete a
+  dependency — and the graph they were working in is gone while they do it.
+  Undo does not help: the schedule route owns `dependencies` through its own
+  partial PUT (task-167) and is outside the version editor's undo history.
+
+  ## Target state
+
+  A drop that would close a loop is REFUSED, and the refusal is explained.
+
+  On drop, before touching `dependencies`, the candidate edge list is tested.
+  If it would cycle, a modal opens naming the items in the loop, states that no
+  schedule can be computed from it and that the dependency was NOT created, and
+  offers a single Cancel button. Dismissing it leaves the graph exactly as it
+  was — no edge, no autosave, no navigation.
+
+  **Decided: there is no "create anyway".** The modal has one button. A forced
+  cycle produces no schedule at all, so an override buys the user nothing, and
+  "step back and just not create the cycle" is the entire point of the request.
+
+  This does mean the CYCLE branch becomes **unreachable through normal editing**
+  — which is the intended outcome, not an oversight.
+
+  ### The CYCLE branch stays in the code anyway
+
+  Do NOT delete the cycle notice and its recovery list. A cycle can already be
+  sitting in the database — drawn before this change, or written through
+  `PUT /api/estimations/{id}/versions/draft`, which stores dependency rows with
+  no endpoint validation whatsoever (`DraftUpdateApplier.applyScheduleDependencies`
+  adds whatever DTOs arrive). Removing the recovery path would leave such a
+  version permanently unopenable. This task closes the door that creates
+  cycles; it does not remove the door that escapes them.
+
+  ## The cycle test must come from the domain, not from TypeScript
+
+  Do not hand-roll a graph traversal in the component. Two reasons, and the
+  second is the one that would actually produce wrong answers:
+
+  1. Cycle detection is domain logic and already exists there
+     (`topologicalOrder` + `cycleIdsInUserTerms` in `ProjectSchedule.kt`).
+  2. **A drawn edge is not a graph edge.** `ProjectSchedule` LOWERS the tree
+     and the drawn edges onto a schedulable graph, expanding a group edge into
+     milestone nodes (`g#start` / `g#finish`) — documented in
+     `src/domain/CLAUDE.md`. A loop can therefore exist between drawn edges
+     that a naive endpoint-to-endpoint walk in TS would miss, and vice versa. A
+     TS check would disagree with the thing that actually decides.
+
+  So the test is a **speculative domain call**: run the same
+  `computeEstimation(..., { dependencies: candidate, teamFte })` the page
+  already uses, with `candidate = [...dependencies, newEdge]`, and read
+  `schedule?.error`. If `kind === 'CYCLE'`, the drop is refused and
+  `error.involvedLogicalIds` names the loop — already in "user terms"
+  (`cycleIdsInUserTerms` intersects the stuck graph ids with the DRAWN
+  endpoints), so those ids are exactly the ones the user can see.
+
+  One extra build+calculate per drop is acceptable: a drop is a human-paced
+  action, not a keystroke. This is NOT the double-compute task-139 removed —
+  that was a second call per render.
+
+  ## The interface: a callback prop, because the component has no version
+
+  `DependencyEditor` receives `schedule`, `dependencies`, `editable` and
+  `labels`. It does NOT receive `roots`, the parameters, drivers, phases or
+  costs — and `src/frontend/CLAUDE.md` records that the component "computes
+  nothing". Keep it that way.
+
+  The schedule page, which has all of it, supplies a predicate prop:
+
+      cycleCheck?: (candidate: ScheduleEdge[]) => string[] | null
+
+  returning the involved logical ids when the candidate list would cycle, and
+  `null` when it is fine. The component calls it, renders the modal from the
+  returned ids (named through the `labels` map from task-171), and stays
+  ignorant of the domain. A missing prop must default to "no cycle" so the
+  component still works standalone.
+
+  ## The self-edge joins the same modal
+
+  A self-edge is already refused, but silently — a deliberate drag produces no
+  feedback at all, which is the same complaint one level down. Route it through
+  the same modal: it IS a one-node cycle, as `addEdge`'s own comment says. The
+  duplicate-edge refusal stays silent: re-drawing an edge that already exists
+  is a no-op the user can see on the canvas, not an error.
+
+  ## Deliberate non-goals
+
+  - **Do NOT prevent the drag.** The refusal happens on DROP, not by making
+    invalid targets undroppable. Computing every forbidden target up front
+    would need one speculative domain call per card per drag start.
+  - **Do NOT touch the domain.** No new export, no changed error shape.
+    `ScheduleError` already carries everything the modal needs.
+  - **Do NOT make this undoable.** Nothing is committed, so there is nothing
+    to undo.
+
+steps:
+  - |
+    Create `src/frontend/src/lib/components/schedule/CycleRefusedDialog.svelte`,
+    following the established modal idiom in
+    `src/lib/components/UndoConflictDialog.svelte`: a `fixed inset-0
+    bg-black/50 ... z-50` overlay with `role="dialog"`, `aria-modal="true"` and
+    an `aria-label` from an i18n key; a white `rounded-lg shadow-xl p-6`
+    panel; `<svelte:window onkeydown>` closing on `Escape`; the action as a
+    `Button` from `$lib/ui`, focused on open via an `$effect`.
+
+    Props: `items: string[]` (the display names of the loop, already resolved
+    by the caller — the dialog does no lookups) and `oncancel: () => void`.
+    Render the names joined by `→` with the first name repeated at the end, so
+    the loop reads as a loop. Single button, `variant="secondary"`.
+  - |
+    In `DependencyEditor.svelte`, accept the predicate:
+
+      cycleCheck?: (candidate: ScheduleEdge[]) => string[] | null
+
+    defaulting to a module-level constant function returning `null` (not an
+    inline arrow, which would be a new prop identity every render).
+
+    Add `let refusedItems = $state<string[] | null>(null)` for the open modal.
+  - |
+    Rewrite `addEdge(from, to)` to refuse a cycle BEFORE mutating
+    `dependencies`, keeping the existing duplicate check silent:
+
+      - `from === to` → open the modal with the single item's name (a one-node
+        loop), `log.debug` as now, and return.
+      - exact duplicate → return silently, exactly as now.
+      - otherwise build `candidate = [...dependencies, { fromLogicalId: from,
+        toLogicalId: to }]`, call `cycleCheck(candidate)`. On a non-null
+        result, map the ids through `nameOf(...)` into `refusedItems`,
+        `log.debug` the refusal with the ids, and return WITHOUT pushing.
+      - only then `dependencies.push(...)`.
+
+    Render `<CycleRefusedDialog items={refusedItems} oncancel={() => (refusedItems = null)} />`
+    when `refusedItems` is non-null. Give the dialog root a
+    `data-testid="cycle-refused"` and the button
+    `data-testid="cycle-refused-cancel"`.
+
+    Log through `log` from `$lib/log.ts` only — never a bare `console.*`. No
+    `ErrorBanner`: a refused drop is a handled outcome the modal reports, not
+    a failure.
+  - |
+    In `src/frontend/src/routes/estimations/[id]/versions/[versionNumber]/schedule/+page.svelte`,
+    implement and pass the predicate. It runs the SAME call the page's
+    `estimation` derivation already uses, with the candidate list substituted:
+
+      function cycleCheck(candidate: ScheduleEdge[]): string[] | null {
+        const probe = computeEstimation(currentRoots as never, { … },
+          currentDrivers, currentPhases, currentAdditionalCosts,
+          { dependencies: candidate, teamFte: currentTeamFte });
+        const err = probe.schedule?.error;
+        return err?.kind === 'CYCLE' ? err.involvedLogicalIds : null;
+      }
+
+    Wrap it in `try`/`catch`: on a throw, `log.error` and return `null` so a
+    probe failure never blocks a legitimate edit, and add a comment saying so.
+    Pass `{cycleCheck}` to `<DependencyEditor ... />`.
+  - |
+    Add the i18n keys to BOTH catalogs
+    (`src/frontend/src/lib/i18n/de.json`, `src/frontend/src/lib/i18n/en.json`),
+    key-for-key, under `schedule.cycleRefused`:
+
+      - `title`     — de "Abhängigkeit würde einen Zyklus bilden",
+                      en "This dependency would form a cycle"
+      - `body`      — de explains that the items below reference each other in
+                      a ring, that no schedule can be computed from it, and
+                      that the dependency was NOT created; en likewise
+      - `cancel`    — de "Abbrechen", en "Cancel"
+      - `ariaLabel` — de "Zyklus-Hinweis", en "Cycle notice"
+
+    Real translations, not the English string in both files.
+  - |
+    Extend `src/frontend/e2e/schedule.test.ts` with a test that the cycle is
+    now refused rather than reported. Reuse the `seed` + `openSchedule` +
+    `dragDependency` helpers:
+
+      - drag `groupA → groupB`, then `groupB → groupA`,
+      - assert `cycle-refused` is visible and names both `Alpha` and `Beta`,
+      - assert `schedule-cycle` has count 0 (the old recovery view never
+        appears) and `dependency-editor` is still visible (the graph never
+        went away),
+      - click `cycle-refused-cancel`, assert the modal closes and
+        `schedule-edge` still has count **1** — the second edge was never
+        created,
+      - then RELOAD the page and assert `schedule-edge` is still 1. The reload
+        is the load-bearing part: it proves nothing was persisted. Do NOT use
+        `waitForDependencies(request, estimationId, 1)` here — one dependency
+        is already true from the first drag, so that poll succeeds immediately
+        and would pass even if the refused edge had been written. It asserts
+        the precondition, not the refusal.
+
+    Add a second, smaller test that a self-edge opens the same modal:
+    `dragDependency(page, groupA, groupA)` → `cycle-refused` visible.
+
+    **Verify that drag is deliverable before relying on it.** `dragDependency`
+    drags the `schedule-handle`, which lives INSIDE the card, onto that same
+    card — source and target overlap, and whether Playwright's `dragTo`
+    produces a `drop` in that case is untested here. Run this sub-test on its
+    own first. If it does not deliver a drop, do NOT leave a flaky test in the
+    suite: drop the sub-test and instead assert the guard structurally (the
+    `from === to` branch opens the modal), noting in the test file why the
+    self-edge has no e2e coverage. A refusal that only sometimes fires a drop
+    is worse than one covered by a grep.
+
+    The existing test `'a cycle is reported rather than prevented, and the
+    figures hide'` now contradicts this behaviour and can no longer create a
+    cycle through the UI. Rewrite it to seed the cyclic state through the API
+    instead (a `PUT .../versions/draft` with both edges in `dependencies`),
+    then open the page and assert the recovery view still works — that is the
+    already-persisted-cycle path the branch is kept for. Rename it
+    accordingly.
+  - |
+    Update `src/frontend/CLAUDE.md`, in the "Schedule bridge and dependency
+    editor (task-157)" section, beside the existing paragraph beginning
+    "**The CYCLE branch must render before any empty-state check.**".
+
+    That paragraph says a cycle is reported rather than prevented. Since this
+    task that is only half true, and the difference matters: a cycle can no
+    longer be DRAWN — the drop is refused by a speculative
+    `computeEstimation` on the candidate edge list, surfaced through
+    `CycleRefusedDialog` (task-172) — while the CYCLE branch is retained
+    deliberately for a cycle that arrived through the API, which validates
+    dependency endpoints not at all. State why the check is a speculative
+    domain call and not a TS traversal (group edges lower to milestone nodes,
+    so drawn edges are not graph edges), and that the predicate is a callback
+    prop so the component keeps computing nothing.
+  - |
+    Run the gates: `./gradlew :frontend:check`, then `./gradlew build`, then
+    the Playwright suite with the dev stack up (`./scripts/dev.sh`; backend
+    :8090, Vite :5173; stop it with SIGTERM, never by killing the child JVMs):
+    `cd src/frontend && npm run test:e2e`.
+
+validation:
+  - |
+    The dialog exists and follows the modal idiom the other dialogs use. Prose
+    in these blocks stays at this indent; only shell is indented further, or an
+    extractor cannot tell them apart.
+      set -e
+      C=src/frontend/src/lib/components/schedule/CycleRefusedDialog.svelte
+      test -f "$C"
+      grep -q 'role="dialog"' "$C"
+      grep -q 'aria-modal="true"' "$C"
+      grep -q "Escape" "$C"
+      grep -q "schedule.cycleRefused" "$C"
+      grep -q 'data-testid="cycle-refused"' "$C"
+      grep -q 'data-testid="cycle-refused-cancel"' "$C"
+  - |
+    It has exactly ONE action. A second button would be the "create anyway"
+    this task deliberately rejects:
+      set -e
+      C=src/frontend/src/lib/components/schedule/CycleRefusedDialog.svelte
+      n=$(grep -c "<Button" "$C" || true)
+      test "$n" -eq 1 || { echo "expected 1 Button in the dialog, found $n"; exit 1; }
+  - |
+    The dialog resolves nothing itself — the caller passes display names, so
+    the dialog must not reach for labels or the schedule:
+      set -e
+      C=src/frontend/src/lib/components/schedule/CycleRefusedDialog.svelte
+      # test -f FIRST: with the file absent, grep just fails and the `if` below
+      # never fires, so this check would pass vacuously.
+      test -f "$C" || { echo "the dialog does not exist"; exit 1; }
+      # Scoped to CODE lines, and targeting real lookups only. Two false
+      # positives to avoid, both of which bit while writing this check: the
+      # dialog legitimately references `schedule.cycleRefused.*` catalog keys,
+      # and its header comment legitimately says the words "logicalId" and
+      # "labels map" while explaining that it uses neither.
+      code=$(grep -vE "^[[:space:]]*(//|\*|/\*|<!--)" "$C")
+      if printf '%s' "$code" | grep -qE "labels|logicalId|schedule\?\.|schedule\.tasks|schedule\.error"; then
+        echo "the dialog is doing its own lookups; pass resolved names instead"; exit 1
+      fi
+  - |
+    addEdge refuses BEFORE mutating. The push must be the last thing it does,
+    after the cycle test — a push above the check would commit the cycle:
+      set -e
+      D=src/frontend/src/lib/components/schedule/DependencyEditor.svelte
+      body=$(awk '/function addEdge\(/,/^\t}/' "$D")
+      printf '%s' "$body" | grep -q "cycleCheck" \
+        || { echo "addEdge never calls cycleCheck"; exit 1; }
+      chk=$(printf '%s' "$body" | grep -n "cycleCheck" | head -1 | cut -d: -f1)
+      psh=$(printf '%s' "$body" | grep -n "dependencies.push" | head -1 | cut -d: -f1)
+      test -n "$chk" && test -n "$psh"
+      test "$chk" -lt "$psh" \
+        || { echo "dependencies.push happens before the cycle check"; exit 1; }
+  - |
+    The predicate is a prop with a stable default, and the component still
+    computes nothing — no domain import crept in:
+      set -e
+      D=src/frontend/src/lib/components/schedule/DependencyEditor.svelte
+      grep -q "cycleCheck" "$D"
+      if grep -qE "computeEstimation|from '\\\$lib/domain" "$D"; then
+        echo "the editor now calls the domain; keep the predicate on the page"; exit 1
+      fi
+      if grep -qE "cycleCheck = \(\) =>|cycleCheck = \(c" "$D"; then
+        echo "inline arrow default: use a module-level constant"; exit 1
+      fi
+  - |
+    The self-edge now opens the modal instead of being swallowed, and the
+    duplicate check stays silent:
+      set -e
+      D=src/frontend/src/lib/components/schedule/DependencyEditor.svelte
+      body=$(awk '/function addEdge\(/,/^\t}/' "$D")
+      # match on the dialog being rendered, not on an internal state name: the
+      # name is prescribed by the steps but is cosmetic, and pinning it would
+      # fail a rename that changed nothing.
+      grep -q "CycleRefusedDialog" "$D" \
+        || { echo "the editor never renders the refusal dialog"; exit 1; }
+      printf '%s' "$body" | grep -qE "refused|CycleRefused|cycleCheck" \
+        || { echo "addEdge has no refusal path"; exit 1; }
+      printf '%s' "$body" | grep -q "refused duplicate edge" \
+        || { echo "the duplicate refusal was removed; it should stay silent"; exit 1; }
+  - |
+    The page supplies the predicate through the SAME domain entry point, and
+    guards it so a probe failure cannot block a legitimate edit:
+      set -e
+      P="src/frontend/src/routes/estimations/[id]/versions/[versionNumber]/schedule/+page.svelte"
+      grep -q "cycleCheck" "$P"
+      grep -q "{cycleCheck}" "$P"
+      grep -q "computeEstimation" "$P"
+      grep -q "involvedLogicalIds" "$P"
+      body=$(awk '/function cycleCheck\(/,/^\t}/' "$P")
+      printf '%s' "$body" | grep -q "catch" \
+        || { echo "cycleCheck does not guard against a throw"; exit 1; }
+      printf '%s' "$body" | grep -q "log.error" \
+        || { echo "the catch does not log"; exit 1; }
+  - |
+    The CYCLE recovery branch was NOT deleted — a cycle already in the
+    database must stay escapable:
+      set -e
+      D=src/frontend/src/lib/components/schedule/DependencyEditor.svelte
+      grep -q 'data-testid="schedule-cycle"' "$D"
+      grep -q 'data-testid="schedule-cycle-edges"' "$D"
+      grep -q 'data-testid="schedule-cycle-remove"' "$D"
+  - |
+    The domain was not touched. This is a UI refusal built on the existing
+    error shape:
+      set -e
+      changed=$(git diff --name-only HEAD -- src/domain || true)
+      if [ -n "$changed" ]; then echo "domain files changed:"; echo "$changed"; exit 1; fi
+  - |
+    No bare console.* in any touched frontend file:
+      set -e
+      for f in src/frontend/src/lib/components/schedule/CycleRefusedDialog.svelte \
+               src/frontend/src/lib/components/schedule/DependencyEditor.svelte \
+               "src/frontend/src/routes/estimations/[id]/versions/[versionNumber]/schedule/+page.svelte"; do
+        test -f "$f" || { echo "missing file: $f"; exit 1; }
+        if grep -qE "(^|[^.[:alnum:]_])console\." "$f"; then echo "bare console in $f"; exit 1; fi
+      done
+  - |
+    The new keys are in every catalog and genuinely translated:
+      set -e
+      cd src/frontend
+      for k in title body cancel ariaLabel; do
+        de=$(python3 -c "import json;print(json.load(open('src/lib/i18n/de.json'))['schedule']['cycleRefused']['$k'])")
+        en=$(python3 -c "import json;print(json.load(open('src/lib/i18n/en.json'))['schedule']['cycleRefused']['$k'])")
+        test -n "$de" && test -n "$en"
+        # No key is exempt: the specified values all differ between the two
+        # languages ("Abbrechen" vs "Cancel" included), so an exemption would
+        # only let a copied string through.
+        if [ "$de" = "$en" ]; then
+          echo "schedule.cycleRefused.$k is not translated"; exit 1
+        fi
+      done
+  - |
+    The catalogs stay key-for-key identical. Uses python3 -c, not a heredoc: a
+    heredoc inside a YAML block scalar needs its terminator at column 0, which
+    this indent cannot provide.
+      set -e
+      cd src/frontend
+      python3 -c "import json,pathlib,sys;cats={p.stem:json.loads(p.read_text()) for p in pathlib.Path('src/lib/i18n').glob('*.json')};f=lambda o,p='':set().union(*[f(v,(p+'.'+k) if p else k) if isinstance(v,dict) else {(p+'.'+k) if p else k} for k,v in o.items()]) if o else set();keys={l:f(d) for l,d in cats.items()};ref=set().union(*keys.values());bad={l:sorted(ref-k) for l,k in keys.items() if ref-k};print('catalogs:',sorted(cats));print('missing:',bad or 'none');sys.exit(1 if bad else 0)"
+  - |
+    The e2e suite proves the refusal, the untouched graph, and that nothing
+    persisted — and still covers the already-persisted-cycle path:
+      set -e
+      cd src/frontend
+      grep -q "cycle-refused" e2e/schedule.test.ts \
+        || { echo "no test asserts the refusal modal"; exit 1; }
+      grep -q "cycle-refused-cancel" e2e/schedule.test.ts \
+        || { echo "no test clicks the modal's cancel"; exit 1; }
+      # the refusal must be proved to have persisted NOTHING, via a reload —
+      # not via a poll for a count the first drag already satisfies
+      grep -q "page.reload()" e2e/schedule.test.ts \
+        || { echo "no reload after the refusal; persistence is unproven"; exit 1; }
+      # and the modal must NAME the items, not merely be visible
+      grep -qE "cycleModal|cycle-refused" e2e/schedule.test.ts
+      grep -q "Alpha" e2e/schedule.test.ts
+      grep -q "Beta" e2e/schedule.test.ts
+      grep -q "schedule-cycle-remove" e2e/schedule.test.ts \
+        || { echo "the recovery path lost its coverage"; exit 1; }
+  - |
+    The behaviour change is documented where the old behaviour is described:
+      set -e
+      C=src/frontend/CLAUDE.md
+      grep -q "task-172" "$C"
+      grep -q "CycleRefusedDialog" "$C"
+  - |
+    ./gradlew :frontend:check
+  - |
+    ./gradlew build
+  - |
+    With the dev stack running (./scripts/dev.sh, backend :8090, Vite :5173):
+      cd src/frontend && npm run test:e2e
+
+outputs:
+  - created: src/frontend/src/lib/components/schedule/CycleRefusedDialog.svelte
+  - modified: src/frontend/src/lib/components/schedule/DependencyEditor.svelte
+  - modified: src/frontend/src/routes/estimations/[id]/versions/[versionNumber]/schedule/+page.svelte
+  - modified: src/frontend/src/lib/i18n/de.json
+  - modified: src/frontend/src/lib/i18n/en.json
+  - modified: src/frontend/e2e/schedule.test.ts
+  - modified: src/frontend/CLAUDE.md

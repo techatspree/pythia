@@ -143,7 +143,16 @@
       "collapseAria": "Collapse group",
       "dragAria": "Dragging a new dependency",
       "unknownItem": "Deleted item",
+      "kindLeaf": "Task {title}",
+      "kindGroupOpen": "Summary task {title}, expanded",
+      "kindGroupClosed": "Summary task {title}, collapsed — contains further tasks",
       "groupBoxAria": "Group {title} with its sub-items"
+    },
+    "cycleRefused": {
+      "title": "This dependency would form a cycle",
+      "body": "This link would close a loop — the items below would then point back at each other. No schedule can be computed from that, so the dependency was not created.",
+      "cancel": "Cancel",
+      "ariaLabel": "Notice: cycle prevented"
     },
     "error": {
       "cycle": "The dependencies contain a cycle. The highlighted items point back at each other; remove one link to get a schedule again.",

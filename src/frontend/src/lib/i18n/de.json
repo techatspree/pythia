@@ -143,7 +143,16 @@
       "collapseAria": "Gruppe zuklappen",
       "dragAria": "Neue Abhängigkeit wird gezogen",
       "unknownItem": "Gelöschter Vorgang",
+      "kindLeaf": "Vorgang {title}",
+      "kindGroupOpen": "Sammelvorgang {title}, aufgeklappt",
+      "kindGroupClosed": "Sammelvorgang {title}, zugeklappt — enthält weitere Vorgänge",
       "groupBoxAria": "Gruppe {title} mit ihren Untervorgängen"
+    },
+    "cycleRefused": {
+      "title": "Abhängigkeit würde einen Zyklus bilden",
+      "body": "Diese Verknüpfung würde einen Ringschluss erzeugen — die folgenden Vorgänge verweisen dann im Kreis aufeinander. Daraus lässt sich kein Terminplan berechnen, deshalb wurde die Verknüpfung nicht angelegt.",
+      "cancel": "Abbrechen",
+      "ariaLabel": "Hinweis: Zyklus verhindert"
     },
     "error": {
       "cycle": "Die Abhängigkeiten enthalten einen Zyklus. Die hervorgehobenen Vorgänge verweisen im Kreis aufeinander; entfernen Sie eine Verknüpfung, um wieder einen Terminplan zu erhalten.",

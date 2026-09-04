@@ -190,15 +190,31 @@ test('a group collapses and expands, and an edge on it survives expanding', asyn
 	await expect(page.getByTestId('schedule-edge')).toHaveCount(1);
 });
 
-test('a cycle is reported rather than prevented, and the figures hide', async ({
+/**
+ * A cycle can no longer be DRAWN (task-172 refuses the drop), so this seeds one
+ * through the API — which stores dependency rows without validating endpoints
+ * or acyclicity at all. That is the path the recovery view is kept for: a
+ * version that arrived cyclic must stay escapable.
+ */
+test('an already-persisted cycle is reported, and stays recoverable', async ({
 	page,
 	request
 }) => {
 	const { estimationId, groupA, groupB } = await seed(request);
-	await openSchedule(page, estimationId);
 
-	await dragDependency(page, groupA, groupB);
-	await dragDependency(page, groupB, groupA);
+	const res = await request.put(`/api/estimations/${estimationId}/versions/draft`, {
+		headers: JSON_HEADERS,
+		data: {
+			dependencies: [
+				{ fromLogicalId: groupA, toLogicalId: groupB },
+				{ fromLogicalId: groupB, toLogicalId: groupA }
+			]
+		}
+	});
+	expect(res.status()).toBe(200);
+
+	await page.goto(`/estimations/${estimationId}/versions/draft/schedule?draft=true`);
+	await page.waitForLoadState('networkidle');
 
 	await expect(page.getByTestId('schedule-cycle')).toBeVisible();
 	await expect(page.getByTestId('schedule-planned-length')).toHaveCount(0);
@@ -212,23 +228,20 @@ test('a cycle is reported rather than prevented, and the figures hide', async ({
 	// And no truncated logical id, which is what it used to render.
 	expect(await cycleList.innerText()).not.toMatch(/[0-9a-f]{8}/);
 
-	// Naming the rows is only useful if the picked row can be acted on: delete
-	// one and the cycle resolves, bringing the graph back.
-	await page.getByTestId('schedule-cycle-remove').first().click();
-	await expect(page.getByTestId('schedule-cycle')).toHaveCount(0);
-	await expect(page.getByTestId('dependency-editor')).toBeVisible();
-
-	// Re-draw it so the rest of the test still exercises the cycle state.
-	await dragDependency(page, groupA, groupB);
-	await expect(page.getByTestId('schedule-cycle')).toBeVisible();
-
 	// The editor's critical-path column is driven by a set that is EMPTY on a
 	// schedule error (task-170), so a cycle blanks the column rather than
-	// leaving yesterday's dots on screen.
-	await waitForDependencies(request, estimationId, 2);
+	// leaving yesterday's dots on screen. Asserted BEFORE the deletion below,
+	// while the cycle is still in the database.
 	await page.goto(`/estimations/${estimationId}/versions/draft?draft=true`);
 	await page.waitForLoadState('networkidle');
 	await expect(page.getByTestId('grid-critical-dot')).toHaveCount(0);
+
+	// Back on the schedule page, deleting one dependency recovers the schedule.
+	await page.goto(`/estimations/${estimationId}/versions/draft/schedule?draft=true`);
+	await page.waitForLoadState('networkidle');
+	await page.getByTestId('schedule-cycle-remove').first().click();
+	await expect(page.getByTestId('schedule-cycle')).toHaveCount(0);
+	await expect(page.getByTestId('dependency-editor')).toBeVisible();
 });
 
 test('the team size is a worker count, and 0 is refused by the domain', async ({
@@ -298,6 +311,103 @@ test('the grid marks exactly the rows the schedule calls critical', async ({ pag
 	await page.goto(`/estimations/${estimationId}/versions/draft?draft=true`);
 	await page.waitForLoadState('networkidle');
 	await expect(page.getByTestId('grid-critical-dot')).toHaveCount(4);
+});
+
+test('a cycle-forming drop is refused and explained, and nothing persists', async ({
+	page,
+	request
+}) => {
+	const { estimationId, groupA, groupB } = await seed(request);
+	await openSchedule(page, estimationId);
+
+	await dragDependency(page, groupA, groupB);
+	await expect(page.getByTestId('schedule-edge')).toHaveCount(1);
+
+	// The closing edge is refused at drop time (task-172) rather than committed
+	// and then reported.
+	await dragDependency(page, groupB, groupA);
+	const modal = page.getByTestId('cycle-refused');
+	await expect(modal).toBeVisible();
+	await expect(modal).toContainText('Alpha');
+	await expect(modal).toContainText('Beta');
+
+	// The graph is still there — the old behaviour replaced it with a list.
+	await expect(page.getByTestId('schedule-cycle')).toHaveCount(0);
+	await expect(page.getByTestId('dependency-editor')).toBeVisible();
+
+	await page.getByTestId('cycle-refused-cancel').click();
+	await expect(modal).toHaveCount(0);
+	await expect(page.getByTestId('schedule-edge')).toHaveCount(1);
+
+	// Two different jobs here, and conflating them is how this test first went
+	// wrong. The poll is a PRECONDITION: the page autosaves on a debounce, so
+	// without it the reload can outrun even the legitimate first edge and find
+	// zero. The reload is the PROOF: it shows the refused edge was never
+	// written, which a poll for "one dependency" could never show — that count
+	// is already satisfied by the first edge alone.
+	await waitForDependencies(request, estimationId, 1);
+	await page.reload();
+	await page.waitForLoadState('networkidle');
+	await expect(page.getByTestId('schedule-edge')).toHaveCount(1);
+	await expect(page.getByTestId('schedule-cycle')).toHaveCount(0);
+});
+
+test('a self-edge opens the same refusal modal', async ({ page, request }) => {
+	const { estimationId, groupA } = await seed(request);
+	await openSchedule(page, estimationId);
+
+	// A self-edge is a one-node cycle; it used to be swallowed with only a
+	// debug log, giving a deliberate drag no feedback at all.
+	await dragDependency(page, groupA, groupA);
+	await expect(page.getByTestId('cycle-refused')).toBeVisible();
+	await expect(page.getByTestId('cycle-refused')).toContainText('Alpha');
+	await expect(page.getByTestId('schedule-edge')).toHaveCount(0);
+});
+
+test('leaf, open group and closed group are visually distinct', async ({ page, request }) => {
+	const { estimationId, groupA } = await seed(request);
+	await openSchedule(page, estimationId);
+
+	// Expanding one group puts all three kinds on the canvas at once: the
+	// expanded group, its leaf, and the still-collapsed sibling group.
+	await page.locator(`${card(groupA)} [data-testid="schedule-toggle"]`).click();
+
+	const kind = (k: string) => page.locator(`[data-testid="schedule-card"][data-node-kind="${k}"]`);
+	// Counts, not just presence: a count fails loudly if the classifier
+	// mis-buckets a node, which comparing two arbitrary cards would miss.
+	await expect(kind('group-open')).toHaveCount(1);
+	await expect(kind('group-closed')).toHaveCount(1);
+	await expect(kind('leaf')).toHaveCount(1);
+
+	// Measured, not eyeballed (task-174). Surface AND edge differ, so a reader
+	// who cannot see the tint still has the border.
+	const bg = (l: ReturnType<typeof kind>) =>
+		l.first().evaluate((el) => getComputedStyle(el).backgroundColor);
+	// Compared against the SAME card's other edges, not against the leaf: which
+	// branch lands on the critical path depends on the seeded UUID order, and a
+	// critical card gets border-2 on every side — so a leaf-vs-group comparison
+	// is flaky by construction. Top-heavier-than-bottom is the actual claim and
+	// holds in both states.
+	const edges = (l: ReturnType<typeof kind>) =>
+		l.first().evaluate((el) => {
+			const cs = getComputedStyle(el);
+			return {
+				top: parseFloat(cs.borderTopWidth),
+				bottom: parseFloat(cs.borderBottomWidth)
+			};
+		});
+
+	expect(await bg(kind('group-closed'))).not.toBe(await bg(kind('leaf')));
+	const open = await edges(kind('group-open'));
+	expect(open.top).toBeGreaterThan(open.bottom);
+	const leafEdges = await edges(kind('leaf'));
+	expect(leafEdges.top).toBe(leafEdges.bottom);
+
+	// The collapsed group is drawn as a stack — the outline behind it.
+	await expect(page.getByTestId('schedule-card-stack')).toHaveCount(1);
+
+	// And the kind reaches a screen reader, so it is not colour-only.
+	await expect(kind('group-closed')).toContainText('zugeklappt');
 });
 
 test('every edge carries a direction marker', async ({ page, request }) => {

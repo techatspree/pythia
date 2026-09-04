@@ -5,6 +5,7 @@
 	import { formatFixed } from '$lib/format';
 	import { locale } from 'svelte-i18n';
 	import type { ProjectScheduleView, ScheduleEdge, ScheduledTaskView } from '$lib/adapter';
+	import CycleRefusedDialog from './CycleRefusedDialog.svelte';
 
 	// Graphical dependency editor (task-157) — Merlin's "Flow" net-plan shape.
 	//
@@ -20,17 +21,35 @@
 	// render would be a new prop identity every time.
 	const NO_LABELS: ReadonlyMap<string, string> = new Map();
 
+	// A module-level function, not an inline arrow: an inline default would be a
+	// new prop identity every render. Defaulting to "no cycle" keeps the
+	// component usable standalone.
+	const NO_CYCLE_CHECK = (): string[] | null => null;
+
 	let {
 		schedule,
 		dependencies = $bindable(),
 		editable = true,
-		labels = NO_LABELS
+		labels = NO_LABELS,
+		cycleCheck = NO_CYCLE_CHECK
 	}: {
 		schedule: ProjectScheduleView | null;
 		dependencies: ScheduleEdge[];
 		editable?: boolean;
 		labels?: ReadonlyMap<string, string>;
+		/**
+		 * Given the edge list that WOULD result from a drop, the display-worthy
+		 * logical ids forming the loop — or null when the candidate is fine.
+		 *
+		 * A callback rather than a domain call here on purpose: this component
+		 * has no version, no parameters and no roots, and computes nothing. The
+		 * page owns the probe (task-172).
+		 */
+		cycleCheck?: (candidate: ScheduleEdge[]) => string[] | null;
 	} = $props();
+
+	// Display names of the loop a refused drop would have closed; null = closed.
+	let refusedItems = $state<string[] | null>(null);
 
 	/**
 	 * One logical id → the name to show a user.
@@ -233,6 +252,49 @@
 		return false;
 	}
 
+	/**
+	 * The three kinds of node on the canvas (task-174). One function, so the
+	 * class list, the `data-node-kind` attribute and the screen-reader text all
+	 * read from the same source and cannot disagree.
+	 *
+	 * A COLLAPSED group stands in for work that is not on the canvas, so it is
+	 * drawn as a stack; an EXPANDED group is only a bracket around children that
+	 * are already visible, so it recedes.
+	 */
+	type NodeKind = 'leaf' | 'group-open' | 'group-closed';
+
+	function nodeKind(task: ScheduledTaskView): NodeKind {
+		if (!task.isGroup) return 'leaf';
+		return isExpanded(task.logicalId) ? 'group-open' : 'group-closed';
+	}
+
+	const KIND_KEYS: Record<NodeKind, string> = {
+		leaf: 'schedule.editor.kindLeaf',
+		'group-open': 'schedule.editor.kindGroupOpen',
+		'group-closed': 'schedule.editor.kindGroupClosed'
+	};
+
+	// Surface and edge per kind. Deliberately NOT a colour-only distinction: a
+	// reader who cannot see the tint still has the border weight.
+	//
+	// The base width is emitted as EITHER `border` or `border-2`, never both:
+	// two border-width utilities on one element leave the winner to stylesheet
+	// order rather than to intent. `border-t-4` is a different property
+	// (border-top-width), so it composes with either.
+	//
+	// It is `border-t-4` and not `border-t-2` because the critical-path state
+	// raises every side to 2px: at 2 the expanded group's "heavier top" would
+	// vanish on exactly those cards, collapsing KIND into STATE. At 4 the top
+	// edge stays heavier than its own sides in both states — which is the
+	// claim, and what `e2e/schedule.test.ts` asserts (top > bottom on the same
+	// card, rather than comparing two cards whose critical state varies per
+	// run).
+	const KIND_CLASSES: Record<NodeKind, string> = {
+		leaf: 'bg-white',
+		'group-open': 'bg-white border-t-4',
+		'group-closed': 'bg-brand-green/5'
+	};
+
 	const cycleIds = $derived(
 		new Set(schedule?.error?.kind === 'CYCLE' ? schedule.error.involvedLogicalIds : [])
 	);
@@ -280,15 +342,28 @@
 	});
 
 	function addEdge(from: string, to: string) {
-		// A self-edge is refused: task-155 reports it as a one-node CYCLE.
+		// A self-edge is a one-node CYCLE (task-155), so it goes through the same
+		// modal rather than being swallowed: a deliberate drag that produces no
+		// feedback at all is the same defect one level down (task-172).
 		if (from === to) {
 			log.debug(`schedule: refused self-edge on ${from}`);
+			refusedItems = [nameOf(from)];
 			return;
 		}
 		// A duplicate is refused silently — task-156's unique constraint would
-		// reject it anyway.
+		// reject it anyway, and re-drawing an existing edge is a no-op the user
+		// can already see on the canvas rather than an error.
 		if (dependencies.some((d) => d.fromLogicalId === from && d.toLogicalId === to)) {
 			log.debug(`schedule: refused duplicate edge ${from} -> ${to}`);
+			return;
+		}
+		// Refuse a loop BEFORE mutating: nothing is committed, so there is
+		// nothing to autosave, undo, or recover from.
+		const candidate = [...dependencies, { fromLogicalId: from, toLogicalId: to }];
+		const cycle = cycleCheck(candidate);
+		if (cycle != null) {
+			log.debug(`schedule: refused cycle-forming edge ${from} -> ${to} via ${cycle.join(',')}`);
+			refusedItems = cycle.map(nameOf);
 			return;
 		}
 		dependencies.push({ fromLogicalId: from, toLogicalId: to });
@@ -442,13 +517,32 @@
 
 			{#each visible as task (task.logicalId)}
 				{@const box = layout.boxes.get(task.logicalId)}
+				{@const kind = nodeKind(task)}
 				{#if box}
+					{#if kind === 'group-closed'}
+						<!-- The "something behind it" outline of a collapsed group. Its
+						     layering comes from DOM ORDER, not a z-index number: it is
+						     emitted immediately before its card and left at z-index
+						     auto, so it paints above the edges <svg> (which is earlier
+						     in the DOM and has no z-index) and below the z-10 card.
+						     Choosing a number here is how task-167 put the drag arrow
+						     behind the cards. -->
+						<div
+							class="pointer-events-none absolute rounded-lg border border-gray-300"
+							style="left: {box.x + 3}px; top: {box.y + 3}px; width: {CARD_W}px; height: {CARD_H}px;"
+							aria-hidden="true"
+							data-testid="schedule-card-stack"
+						></div>
+					{/if}
 					<div
-						class="absolute z-10 rounded-lg border bg-white px-3 py-2 shadow-sm {task.onCriticalPath
-							? 'border-brand-green'
-							: 'border-gray-200'} {cycleIds.has(task.logicalId) ? 'ring-2 ring-amber-400' : ''}"
+						class="absolute z-10 rounded-lg border-gray-200 px-3 py-2 shadow-sm {KIND_CLASSES[
+							kind
+						]} {task.onCriticalPath ? 'border-2' : 'border'} {cycleIds.has(task.logicalId)
+							? 'ring-2 ring-amber-400'
+							: ''}"
 						style="left: {box.x}px; top: {box.y}px; width: {CARD_W}px; height: {CARD_H}px;"
 						data-testid="schedule-card"
+						data-node-kind={kind}
 						data-logical-id={task.logicalId}
 						role="button"
 						tabindex="0"
@@ -460,6 +554,13 @@
 							endDrag();
 						}}
 					>
+						<!-- The kind, for a screen reader. NOT an aria-label on the card:
+						     it carries role="button" with no click action (it is a drop
+						     target) and already contains three interactive elements, so
+						     naming it would announce a button that does nothing. -->
+						<span class="sr-only"
+							>{$_(KIND_KEYS[kind], { values: { title: task.title } })}</span
+						>
 						<div class="flex items-center gap-1">
 							{#if task.isGroup}
 								<button
@@ -539,4 +640,11 @@
 			</svg>
 		</div>
 	</div>
+{/if}
+
+<!-- Outside the {#if} chain above: a refused drop leaves the graph on screen
+     untouched, so the modal overlays whichever branch is rendered rather than
+     replacing it (task-172). -->
+{#if refusedItems != null}
+	<CycleRefusedDialog items={refusedItems} oncancel={() => (refusedItems = null)} />
 {/if}

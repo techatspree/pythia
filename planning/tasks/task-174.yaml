@@ -1,0 +1,401 @@
+id: task-174
+phase: phase-19
+title: "Distinguish leaf, open group and closed group on the canvas"
+depends_on: [task-168]
+description: |
+  Every card in the net-plan editor is drawn identically, so the three kinds of
+  node on the canvas are indistinguishable at a glance: a work item, a group
+  standing in for a collapsed subtree, and a group whose children are already
+  spread out beside it.
+
+  ## Current state
+
+  `DependencyEditor.svelte` renders one card shape for everything:
+
+      class="absolute z-10 rounded-lg border bg-white px-3 py-2 shadow-sm
+             {task.onCriticalPath ? 'border-brand-green' : 'border-gray-200'}
+             {cycleIds.has(task.logicalId) ? 'ring-2 ring-amber-400' : ''}"
+
+  The only differences carried today are STATE, not KIND: the critical path
+  recolours the border, a cycle adds an amber ring. The single hint of kind is
+  a small `▾`/`▸` toggle glyph that groups get and leaves do not — a ~10 px
+  character in the corner of a 200 px card.
+
+  A collapsed group is the worst case: it silently aggregates a whole subtree
+  and its number is a roll-up, yet it looks exactly like a single work item.
+
+  ## What the research actually found — and did not
+
+  The request was to reuse a net-plan standard's symbols. The relevant standard
+  is **DIN 69900:2009** ("Projektmanagement – Netzplantechnik"), which merged
+  the 1987 standard's "Begriffe" and "Darstellungstechnik" parts. Two things
+  from it are directly reusable:
+
+    - **An activity node is a RECTANGLE.** Circles and rectangles are both in
+      use for nodes, and DIN 69900:2009 *recommends the rectangle*. The editor
+      already draws rectangles — so this is a "keep, do not redesign" finding.
+    - **The critical path is conventionally shown in RED or with THICKER
+      LINES.** The editor currently marks it with `border-brand-green`, which
+      carries the opposite connotation (green = healthy). Adopt the *thickness*
+      half of that convention, which is standard-conformant without inventing a
+      colour.
+
+  **The standard does not answer the actual question.** DIN 69900 classifies
+  nodes by ARROW TOPOLOGY — Startknoten, Zielknoten, Sammelknoten,
+  Verzweigungsknoten, Anschlussknoten — not by position in a work breakdown.
+  Neither DIN 69900 nor the PMI Precedence Diagramming Method defines a symbol
+  for a summary/parent activity versus a leaf activity: in PDM every task is a
+  box, and the leaf-vs-summary distinction is a WBS/Gantt concept that network
+  diagrams simply do not carry. Do not invent a citation for one.
+
+  So the leaf/group treatment below borrows from the adjacent convention that
+  *does* address hierarchy — the Gantt **summary bar with tapered ends** — and
+  the treatment is documented as a deliberate borrowing rather than as
+  standards conformance.
+
+  ## Target state
+
+  Three visually distinct kinds, differentiated by SURFACE and EDGE (which
+  survive at a glance across a wide canvas) rather than by a small glyph:
+
+  | kind | surface | edge | marker |
+  |---|---|---|---|
+  | leaf (work item) | plain white | hairline, all four sides equal | none |
+  | group, COLLAPSED | tinted `bg-brand-green/5` | hairline + a second outline offset behind it, so the card reads as a stack | `▶` |
+  | group, EXPANDED | plain white | hairline, with a visibly heavier TOP edge (the "bracket" of a summary bar) | `▼` |
+
+  One thing to LOOK at rather than assume: an expanded group already carries
+  task-167's dashed rect around its whole subtree, so it would now have two
+  signals at once. Open the canvas after wiring the heavier top edge and judge
+  whether the two together read as clutter. If they do, the dashed box is the
+  stronger signal and the top edge should be dropped for the expanded state,
+  leaving its kind conveyed by the box plus the `▼` marker. Do not settle this
+  from the diff.
+
+  The rationale for collapsed-versus-expanded is what the two states MEAN. A
+  collapsed group stands in for work that is not on the canvas, so it should
+  look like a container with something behind it. An expanded group is only a
+  bracket around children that are already visible — and it already gets
+  task-167's dashed subtree outline — so it should recede rather than compete
+  with its own children.
+
+  State treatments stay orthogonal to kind and keep working on all three:
+
+    - **on the critical path** → the edge goes to 2 px (DIN's "thicker lines"),
+      replacing today's colour swap,
+    - **in a cycle** → `ring-2 ring-amber-400`, unchanged.
+
+  ## Colour is constrained by the design system, not free
+
+  `@theme` in `src/frontend/src/app.css` defines five brand colours and (after
+  task-168) the neutral `ink-*` / `surface-*` / `hairline` tokens. An arbitrary
+  Tailwind colour value (`bg-[#abc]`) **fails the build** —
+  `src/frontend/scripts/check-design-tokens.mjs` exits non-zero on it, and
+  task-168 extends that gate to raw `gray-*` classes too.
+
+  So every colour here must be an existing token. That is why the collapsed
+  tint is `bg-brand-green/5` (an opacity of an existing token, which the gate
+  permits) and why the critical-path signal moves to line WEIGHT rather than to
+  red: red is not a token, and adding one is a design decision that does not
+  belong in this task.
+
+  ## Why this depends on task-168
+
+  Not merely file overlap. task-168 creates
+  `$lib/ui/DisclosureTriangle.svelte` as the single definition of the `▼`/`▶`
+  pair and **gates the build against a raw triangle glyph anywhere in `src/`**.
+  This task's collapsed/expanded markers ARE that pair, so writing them as raw
+  glyphs after that gate exists breaks the build; writing them before it means
+  task-168 has to migrate them again. It also migrates every `gray-*` class in
+  this component to the neutral tokens this task's edges need.
+
+  If task-174 is nevertheless implemented FIRST, use the raw `▾`/`▸` glyphs and
+  `border-gray-*` exactly as the component does today and let task-168 pick
+  them up. Check which world you are in with
+  `test -f src/frontend/src/lib/ui/DisclosureTriangle.svelte`.
+
+  ## The kind must be machine-readable, not only visible
+
+  Colour and shape alone are not a testable claim and not accessible. Every
+  card gets `data-node-kind="leaf" | "group-open" | "group-closed"`, which is
+  what the e2e assertions key on, plus an i18n'd `aria-label` naming the kind
+  so the distinction reaches a screen reader rather than only the eye.
+
+  ## Deliberate non-goals
+
+  - **Do NOT adopt the DIN 3×3 Vorgangsknoten grid.** The standard node box
+    carries Vorgangsnummer, Dauer, FAZ/SAZ, FEZ/SEZ and GP/FP in nine fields.
+    That is a real standard layout and arguably where this editor should end up,
+    but it is a redesign of the card's contents — and the domain exposes no
+    latest-start/latest-finish or buffer values today, only
+    `earliestStart`/`earliestFinish`. Its own task.
+  - **Do NOT introduce a milestone symbol.** ADM draws events as circles and
+    Gantt charts draw milestones as diamonds, but the UI surfaces no
+    milestones: `isMilestone` exists only on the domain's internal `GraphNode`
+    from group-edge lowering and never reaches `ScheduledTaskView`.
+  - **Do NOT switch the toggle to an SVG icon.** task-168 explicitly decided to
+    keep the text glyph pair and deferred an SVG chevron; re-opening that here
+    would contradict a decision made one task earlier.
+  - **Do NOT change the layout, sizes or positions.** `CARD_W`, `CARD_H`,
+    `INDENT` and the layered layout stay exactly as they are — several e2e
+    tests measure them (task-167's parent/child alignment, the group-box
+    outline).
+
+  ## No new logging
+
+  A presentational change: no service call, no domain operation, no new
+  `try`/`catch`. Per the CLAUDE.md logging conventions there is nothing to log
+  — and in particular no bare `console.*`, which is banned outright.
+
+steps:
+  - |
+    In `src/frontend/src/lib/components/schedule/DependencyEditor.svelte`, add a
+    derivation that classifies a card, next to the existing `isExpanded` /
+    `cycleIds` helpers:
+
+      function nodeKind(task: ScheduledTaskView): 'leaf' | 'group-open' | 'group-closed' {
+        if (!task.isGroup) return 'leaf';
+        return isExpanded(task.logicalId) ? 'group-open' : 'group-closed';
+      }
+
+    One function, three values — so the class list, the `data-node-kind`
+    attribute and the `aria-label` all read from the same source and cannot
+    disagree.
+  - |
+    Replace the card's single class string with a per-kind treatment. Keep the
+    shared base (`absolute z-10 rounded-lg border px-3 py-2 shadow-sm` and the
+    positioning `style`) and vary only surface and edge:
+
+      - `leaf`          → `bg-white`
+      - `group-closed`  → `bg-brand-green/5`, plus the stack effect
+      - `group-open`    → `bg-white border-t-2`
+
+    For the collapsed card's "something behind it" look, render a sibling
+    absolutely-positioned outline offset by ~3 px down/right BEHIND the card,
+    rather than a CSS shadow trick — a real second outline is what reads as a
+    stack.
+
+    **Get the layering from DOM ORDER, not from a z-index number.** This canvas
+    has three layers today: the edges `<svg>` (`absolute inset-0`, NO z-index),
+    the cards (`z-10`), and the drag-arrow overlay (`z-20`). Emit the stack
+    outline inside the SAME `{#each}` block immediately BEFORE its card and
+    leave its z-index auto: positioned elements with `z-index: auto` paint in
+    tree order, so it lands above the SVG (later in the DOM) and below the
+    `z-10` card without any number being chosen. Picking a numeric z-index here
+    is how task-167 put the drag arrow behind the cards and needed a second
+    round-trip to fix.
+
+    Then apply the state treatments on top, unchanged in meaning:
+    `onCriticalPath` → `border-2` (thicker, replacing today's
+    `border-brand-green`), and `cycleIds.has(...)` → `ring-2 ring-amber-400`.
+
+    Every colour must be an existing `@theme` token or an opacity of one. No
+    `bg-[#…]` — the design-token gate exits non-zero on it.
+  - |
+    Add `data-node-kind={nodeKind(task)}` to the card element, and make the
+    kind reachable by a screen reader through a VISUALLY HIDDEN span inside the
+    card — `<span class="sr-only">{$_(kindKey, { values: { title: task.title } })}</span>`
+    — using one of `schedule.editor.kindLeaf` / `kindGroupOpen` /
+    `kindGroupClosed`.
+
+    **Do NOT put this on the card as an `aria-label`.** The card already
+    carries `role="button"` and `tabindex="0"` while containing three
+    interactive elements (the expand toggle, the drag handle, and itself), and
+    it has no click action — it is a drop target. Labelling it would make a
+    screen reader announce "Sammelvorgang X, zugeklappt, button" for something
+    that does nothing when pressed. The `role="button"` is pre-existing and out
+    of scope here; just do not amplify it.
+
+    Keep the existing `title={task.title}` on the name span and the existing
+    `data-testid="schedule-card"` — several e2e specs select on that testid.
+  - |
+    Use the disclosure-triangle primitive for the marker IF task-168 has
+    landed: `test -f src/frontend/src/lib/ui/DisclosureTriangle.svelte`. If it
+    exists, render `<DisclosureTriangle expanded={isExpanded(task.logicalId)} />`
+    in place of the inline `{isExpanded(...) ? '▾' : '▸'}` ternary — the
+    build's glyph gate will reject the raw characters. If it does not exist
+    yet, leave the ternary exactly as it is; task-168 will migrate it.
+  - |
+    Add the three i18n keys to BOTH catalogs
+    (`src/frontend/src/lib/i18n/de.json`, `src/frontend/src/lib/i18n/en.json`),
+    key-for-key, under `schedule.editor`:
+
+      - `kindLeaf`        — de "Vorgang {title}",
+                            en "Task {title}"
+      - `kindGroupOpen`   — de "Sammelvorgang {title}, aufgeklappt",
+                            en "Summary task {title}, expanded"
+      - `kindGroupClosed` — de "Sammelvorgang {title}, zugeklappt — enthält weitere Vorgänge",
+                            en "Summary task {title}, collapsed — contains further tasks"
+
+    "Sammelvorgang" is the established German term for a summary activity and
+    is what a DIN-69900-literate reader expects. Real translations, not the
+    English string in both files.
+  - |
+    Extend `src/frontend/e2e/schedule.test.ts` with a test that the three kinds
+    are distinguishable — by MEASUREMENT, not by eye, in the manner of
+    task-167's stacking assertion:
+
+      - seed and open the schedule, expand a group so all three kinds are on
+        canvas at once,
+      - assert the COUNT of each `data-node-kind` — one closed group, one open
+        group, and the expected number of leaves. A count fails loudly if the
+        classifier mis-buckets a node, which a style comparison between two
+        arbitrary cards can miss,
+      - read `getComputedStyle` on one card of each kind and assert the
+        `backgroundColor` of `group-closed` DIFFERS from `leaf`, and that
+        `group-open`'s `borderTopWidth` is greater than `leaf`'s,
+      - assert the collapsed card's aria-label contains the German
+        "zugeklappt", so the kind is not conveyed by colour alone.
+
+    Colour-blind-safe by construction: the assertions are on surface AND edge
+    weight, so a reader who cannot see the tint still has the border.
+  - |
+    Update `src/frontend/CLAUDE.md`, in the "Schedule bridge and dependency
+    editor (task-157)" section: the three card kinds and what each treatment
+    means, that `data-node-kind` is the testable hook, and — importantly — that
+    DIN 69900 supplies the rectangle and the "thicker line for the critical
+    path" convention but has NO leaf-versus-summary symbol, so the group
+    treatment is a documented borrowing from the Gantt summary bar rather than
+    standards conformance. Record the DIN 3×3 node grid as a deferred option so
+    the next reader knows it was considered.
+
+    Also record the canvas's LAYER ORDER, which is documented nowhere today and
+    now gains a fourth layer: edges `<svg>` (no z-index) → collapsed-group
+    stack outline (auto z-index, DOM order) → cards (`z-10`) → drag-arrow
+    overlay (`z-20`). That note is what would have prevented task-167's
+    arrow-behind-the-cards bug.
+  - |
+    Run the gates: `./gradlew :frontend:check` (svelte-check + ESLint + the
+    design-token gate), then `./gradlew build`, then the Playwright suite with
+    the dev stack up (`./scripts/dev.sh`; backend :8090, Vite :5173; stop it
+    with SIGTERM, never by killing the child JVMs):
+    `cd src/frontend && npm run test:e2e`.
+
+validation:
+  - |
+    The classifier exists and yields exactly the three kinds. Prose in these
+    blocks stays at this indent; only shell is indented further, or an
+    extractor cannot tell them apart.
+      set -e
+      D=src/frontend/src/lib/components/schedule/DependencyEditor.svelte
+      grep -q "function nodeKind(" "$D"
+      for k in "'leaf'" "'group-open'" "'group-closed'"; do
+        grep -q "$k" "$D" || { echo "missing kind: $k"; exit 1; }
+      done
+  - |
+    The kind is on the card as a machine-readable attribute — the hook the e2e
+    assertions key on, and the thing that makes this claim testable at all:
+      set -e
+      D=src/frontend/src/lib/components/schedule/DependencyEditor.svelte
+      # The attribute must read the SINGLE classification, not re-call the
+      # classifier: `{@const kind = nodeKind(task)}` once per card is what makes
+      # the class list, the attribute and the sr-only text unable to disagree.
+      # Asserted as "called exactly once", which is the property that matters —
+      # not the spelling of the expression.
+      grep -qE "data-node-kind=\{[a-zA-Z_]+\}" "$D"
+      n=$(grep -c "nodeKind(task)" "$D")
+      test "$n" -eq 1 || { echo "nodeKind(task) called $n times; classify once per card"; exit 1; }
+      grep -q 'data-testid="schedule-card"' "$D"
+  - |
+    The three kinds really differ in the class string, and the collapsed one is
+    tinted:
+      set -e
+      D=src/frontend/src/lib/components/schedule/DependencyEditor.svelte
+      grep -q "bg-brand-green/5" "$D"
+      grep -q "border-t-2" "$D"
+  - |
+    The critical path is marked by LINE WEIGHT, per DIN's "thicker lines", and
+    no longer by a colour that reads as healthy:
+      set -e
+      D=src/frontend/src/lib/components/schedule/DependencyEditor.svelte
+      grep -q "border-2" "$D"
+      body=$(awk '/data-testid="schedule-card"/,/^\t\t\t\t\t>/' "$D")
+      if printf '%s' "$body" | grep -q "onCriticalPath.*border-brand-green"; then
+        echo "the critical path still swaps to brand-green; use line weight"; exit 1
+      fi
+  - |
+    The cycle ring survived — kind treatments must not displace state
+    treatments:
+      set -e
+      D=src/frontend/src/lib/components/schedule/DependencyEditor.svelte
+      grep -q "ring-2 ring-amber-400" "$D"
+  - |
+    No arbitrary colour value crept in. This is a hard build gate, not a
+    preference, so assert it directly rather than trusting the run:
+      set -e
+      cd src/frontend
+      node scripts/check-design-tokens.mjs
+  - |
+    The layout constants are untouched — several e2e tests measure them:
+      set -e
+      D=src/frontend/src/lib/components/schedule/DependencyEditor.svelte
+      # Pinned to the real values, with no `|| grep -E ...` fallback: an
+      # alternation that matches any number would assert nothing at all.
+      grep -q "const CARD_W = 200" "$D"
+      grep -q "const CARD_H = 62" "$D"
+      grep -q "const GAP_X = 72" "$D"
+      grep -q "const GAP_Y = 16" "$D"
+      grep -q "const INDENT = 24" "$D"
+  - |
+    The three aria keys exist in EVERY catalog and are genuinely translated, so
+    the kind is not conveyed by colour alone:
+      set -e
+      cd src/frontend
+      for k in kindLeaf kindGroupOpen kindGroupClosed; do
+        de=$(python3 -c "import json;print(json.load(open('src/lib/i18n/de.json'))['schedule']['editor']['$k'])")
+        en=$(python3 -c "import json;print(json.load(open('src/lib/i18n/en.json'))['schedule']['editor']['$k'])")
+        test -n "$de" && test -n "$en"
+        test "$de" != "$en" || { echo "schedule.editor.$k is not translated"; exit 1; }
+      done
+      # the German summary-activity term a DIN-literate reader expects
+      grep -q "Sammelvorgang" src/lib/i18n/de.json
+  - |
+    The catalogs stay key-for-key identical. Uses python3 -c, not a heredoc: a
+    heredoc inside a YAML block scalar needs its terminator at column 0, which
+    this indent cannot provide.
+      set -e
+      cd src/frontend
+      python3 -c "import json,pathlib,sys;cats={p.stem:json.loads(p.read_text()) for p in pathlib.Path('src/lib/i18n').glob('*.json')};f=lambda o,p='':set().union(*[f(v,(p+'.'+k) if p else k) if isinstance(v,dict) else {(p+'.'+k) if p else k} for k,v in o.items()]) if o else set();keys={l:f(d) for l,d in cats.items()};ref=set().union(*keys.values());bad={l:sorted(ref-k) for l,k in keys.items() if ref-k};print('catalogs:',sorted(cats));print('missing:',bad or 'none');sys.exit(1 if bad else 0)"
+  - |
+    No bare console.* was introduced:
+      set -e
+      D=src/frontend/src/lib/components/schedule/DependencyEditor.svelte
+      if grep -qE "(^|[^.[:alnum:]_])console\." "$D"; then echo "bare console"; exit 1; fi
+  - |
+    The e2e suite proves the kinds differ by MEASUREMENT, not by eye, and that
+    the collapsed state reaches assistive tech:
+      set -e
+      cd src/frontend
+      grep -q "data-node-kind" e2e/schedule.test.ts \
+        || { echo "no test keys on the node kind"; exit 1; }
+      grep -qE "getComputedStyle|backgroundColor|borderTopWidth" e2e/schedule.test.ts \
+        || { echo "the kinds are asserted by eye, not measured"; exit 1; }
+      grep -q "group-closed" e2e/schedule.test.ts \
+        || { echo "no per-kind count assertion; a mis-bucketed node would slip through"; exit 1; }
+      grep -q "zugeklappt" e2e/schedule.test.ts \
+        || { echo "no assertion that the kind reaches a screen reader"; exit 1; }
+  - |
+    The research conclusion is recorded — specifically that the standard does
+    NOT supply the leaf/summary symbol, so nobody later "restores" a citation
+    that never existed:
+      set -e
+      C=src/frontend/CLAUDE.md
+      grep -q "task-174" "$C"
+      grep -q "69900" "$C"
+      grep -qi "data-node-kind" "$C"
+      grep -q "z-20" "$C" \
+        || { echo "the canvas layer order was not recorded"; exit 1; }
+  - |
+    ./gradlew :frontend:check
+  - |
+    ./gradlew build
+  - |
+    With the dev stack running (./scripts/dev.sh, backend :8090, Vite :5173):
+      cd src/frontend && npm run test:e2e
+
+outputs:
+  - modified: src/frontend/src/lib/components/schedule/DependencyEditor.svelte
+  - modified: src/frontend/src/lib/i18n/de.json
+  - modified: src/frontend/src/lib/i18n/en.json
+  - modified: src/frontend/e2e/schedule.test.ts
+  - modified: src/frontend/CLAUDE.md

@@ -1015,6 +1015,24 @@
       "started_at": "2026-09-02T14:54:42+00:00",
       "completed_at": "2026-09-02T15:00:56+00:00",
       "notes": "The cycle notice lists offending dependencies as truncated UUID pairs; label them with the estimation items' titles instead"
+    },
+    "task-172": {
+      "status": "done",
+      "started_at": "2026-09-02T15:22:44+00:00",
+      "completed_at": "2026-09-02T16:47:20+00:00",
+      "notes": "A drop that would create a dependency cycle commits it and replaces the graph with a recovery list; explain it in a modal at drop time and let the user cancel instead"
+    },
+    "task-173": {
+      "status": "pending",
+      "started_at": null,
+      "completed_at": null,
+      "notes": "The dev seed data has no schedule dependencies, so the net-plan editor and critical path open empty on a fresh dev database; seed a realistic dependency set"
+    },
+    "task-174": {
+      "status": "done",
+      "started_at": "2026-09-03T06:50:22+00:00",
+      "completed_at": "2026-09-03T07:04:42+00:00",
+      "notes": "Every card in the dependency editor looks identical, so a leaf, a collapsed group and an expanded group are indistinguishable; differentiate them with net-plan-standard symbols and colour"
     }
   }
 }

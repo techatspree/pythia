@@ -1,0 +1,338 @@
+id: task-173
+phase: phase-19
+title: "Seed schedule dependencies in the dev test data"
+depends_on: [task-156]
+description: |
+  A fresh dev database has no schedule dependencies at all, so every
+  schedule-related feature built in phase-19 opens empty: the net-plan editor
+  shows unconnected cards, the planned length equals the longest single item,
+  and the critical-path column marks everything or nothing. The features are
+  only demonstrable after the reader hand-draws a graph.
+
+  ## Current state
+
+  `src/backend/implementation/src/main/kotlin/io/pythia/testdata/TestDataSeeder.kt`
+  (`@IfBuildProfile("dev")`, `@Observes StartupEvent`, skipped when
+  `projectRepository.count() > 0`) seeds three projects with rich content —
+  leaves with three-point estimates, effort drivers, phases, additional costs,
+  buckets. It sets `dailyRate`, `stdDevFactor` and `salesSurcharge` on every
+  draft.
+
+  It never touches `version.scheduleDependencies`, and it never sets
+  `version.teamFte`, so every seeded version keeps the entity default of `1.0`.
+
+  The persistence for both has existed since task-156: `DraftScheduleDependency`
+  / `SubmittedScheduleDependency` plus `team_fte` on both version tables (V19).
+  Nothing is missing but the data.
+
+  ## Target state
+
+  Two of the three seeded estimations carry a dependency graph, chosen so the
+  two shapes a scheduler behaves differently on are both present:
+
+    - **Webshop (both versions) — a DIAMOND.** `U01: Konzeption` fans out to
+      `U02: Frontend Redesign` and `U03: Backend & Datenbank`, which fan back
+      into `U04: Abnahme & Go-live`. Four edges. With capacity for both middle
+      branches this produces genuine parallelism and a critical path that runs
+      through only ONE of them — which is what makes the critical-path column
+      and the levelled makespan worth looking at.
+    - **Mobile App MVP — a CHAIN.** `M01 → M02 → M03 → M04`. Three edges.
+      Everything is on the critical path and the makespan is the sum, which is
+      the opposite shape and the one that shows a dependency actually
+      lengthening a plan.
+
+  Both also get a `teamFte` above 1, or the levelling serialises the diamond
+  and it renders indistinguishably from the chain: webshop `3.0`, mobile app
+  `2.0`.
+
+  ## Edges go on the DRAFT before it is submitted
+
+  `seedWebshop` and `seedMobileApp` both call
+  `estimationVersionService.submitDraft(...)` on their first draft, and
+  `snapshotDraft` copies `teamFte` and every dependency onto the submitted
+  version (`EstimationVersionService`, ~line 211). So adding the edges to
+  draft1 BEFORE that call gives the submitted version a schedule for free —
+  and exercises the snapshot copy path on every dev startup.
+
+  Seeding only the current draft would leave every submitted version with an
+  empty graph, which reads as a bug when comparing versions.
+
+  ## `U05: Noch zu schätzen` must stay out of the graph
+
+  The webshop's current draft carries a fifth root group of deliberately
+  unestimated leaves (all `0/0/0`). It exists so the estimation-session
+  picker's "preselect the not-yet-estimated leaves" behaviour is demonstrable
+  — see `.claude/skills/estimation-sessions/`. Wiring it into the plan would
+  give it a zero-length box in the net plan and dilute what it is there to
+  show. Leave it unconnected.
+
+  ## The data platform stays without dependencies
+
+  `seedDataPlatform` is the BUCKET_SAMPLED_PERT estimation, and its roots are
+  root-level LEAVES (`addRootLeaves`) because the buckets are the grouping.
+  Dependencies are method-agnostic and would persist fine, but the bucket
+  editor renders no net plan, so edges there would be invisible data. Leaving
+  one estimation dependency-free is also useful: it keeps an example of the
+  empty-graph state the editor must still handle.
+
+  ## The one structural change the seeder needs
+
+  The root groups are currently inline anonymous arguments:
+
+      addRoots(draft2, listOf(
+          group(draft2, "U01: Konzeption", listOf(…)),
+          group(draft2, "U02: Frontend Redesign", listOf(…)),
+          …
+      ))
+
+  A dependency references two nodes by `logicalId`, so those groups must be
+  reachable. Hoist them into named local vals and pass the vals to `addRoots`.
+  Do NOT look nodes up by title afterwards — a title-matched lookup would go
+  silently wrong the first time a group is renamed.
+
+  Note the type mismatch: `DraftEstimationNode.logicalId` is a **`UUID`**,
+  while `DraftScheduleDependency.fromLogicalId`/`toLogicalId` are **`String`**.
+  The conversion is `node.logicalId.toString()`.
+
+  ## Why there is no unit test for this
+
+  The seeder is `@IfBuildProfile("dev")`, so no bean exists under `%test` and
+  a `@QuarkusTest` cannot inject it. Constructing it by hand in a test was
+  considered and rejected: `seed(...)` returns early when
+  `projectRepository.count() > 0`, so the assertion would depend on which
+  other tests had already run.
+
+  What the build CAN enforce is the structure of the seeder source, and that is
+  what the validation below does. The runtime check is a step: bring up a dev
+  stack on a fresh database and read the edges back through the API.
+
+  ## Static analysis needs nothing new
+
+  Hoisting the groups lengthens already-long methods and the helper adds a
+  function, but the class carries
+  `@Suppress("MagicNumber", "LongMethod", "CyclomaticComplexMethod",
+  "LongParameterList", "TooManyFunctions")` at the type level and detekt
+  reports zero findings on this file today. Do NOT add a further suppression —
+  the existing one covers exactly these rules, and a redundant `@Suppress` is
+  itself noise.
+
+  ## Logging
+
+  The seeder already closes with a `Log.info` summary. Extend it to report the
+  seeded edge count so a dev startup shows at a glance whether the graph
+  landed — the same reason the existing summary names what it created. No new
+  logging mechanism: `io.quarkus.logging.Log`, as everywhere else in the
+  backend.
+
+  ## No i18n
+
+  The seeded German content is intentional external fixture data (root
+  `CLAUDE.md` says so explicitly) and this task adds no user-visible UI string.
+
+steps:
+  - |
+    Add a `dependency(...)` helper to `TestDataSeeder.kt`, beside the existing
+    `group(...)` / `bucket(...)` helpers:
+
+      private fun dependency(
+          version: DraftEstimationVersion,
+          from: DraftEstimationNode,
+          to: DraftEstimationNode
+      ) = DraftScheduleDependency().apply {
+          this.version = version
+          this.fromLogicalId = from.logicalId.toString()
+          this.toLogicalId = to.logicalId.toString()
+      }
+
+    `logicalId` is a `UUID` on the node and a `String` on the edge, hence the
+    `toString()`. Import `DraftScheduleDependency` and, if not already there,
+    `DraftEstimationNode`.
+  - |
+    In `seedWebshop`, hoist the FIRST draft's (`draft1`, versionNumber 1) four
+    root groups out of the inline `addRoots(...)` argument into named vals —
+    `u01`, `u02`, `u03`, `u04` — and pass those vals to `addRoots`. Change
+    nothing about their titles, children or order.
+
+    Then, BEFORE the existing `estimationVersionService.submitDraft(...)` call,
+    set `draft1.teamFte = 3.0` and add the diamond:
+
+      draft1.scheduleDependencies.addAll(listOf(
+          dependency(draft1, u01, u02),
+          dependency(draft1, u01, u03),
+          dependency(draft1, u02, u04),
+          dependency(draft1, u03, u04)
+      ))
+
+    The ordering matters: `submitDraft` snapshots what is on the draft at that
+    moment, so edges added afterwards would never reach the submitted version.
+  - |
+    Do the same for `draft2` (versionNumber 2, the current draft): hoist its
+    root groups into vals, set `draft2.teamFte = 3.0`, and add the same four
+    diamond edges before `draftRepository.persist(draft2)`.
+
+    `U05: Noch zu schätzen` gets a val like the others for consistency but
+    appears in NO dependency — it is the unestimated-leaves fixture for the
+    session picker.
+  - |
+    In `seedMobileApp`, hoist `M01`–`M04` into vals, set `draft.teamFte = 2.0`,
+    and add a chain BEFORE the existing `submitDraft(...)` call:
+
+      dependency(draft, m01, m02),
+      dependency(draft, m02, m03),
+      dependency(draft, m03, m04)
+
+    A chain rather than a second diamond on purpose: it is the shape where
+    every task is critical and the makespan is the sum, so the two seeded
+    projects demonstrate opposite scheduler behaviour.
+  - |
+    Leave `seedDataPlatform` unchanged — no dependencies, no `teamFte`. Its
+    roots are bucketed leaves and the bucket editor draws no net plan, so it
+    also serves as the seeded example of the empty-graph state.
+  - |
+    Extend the closing `Log.info(...)` in the seeder to include the number of
+    schedule edges seeded, alongside what it already reports.
+  - |
+    Verify at RUNTIME, since `@IfBuildProfile("dev")` puts the seeder out of
+    reach of `%test`. Against a FRESH database (the seeder skips when any
+    project exists — `docker rm` the dev postgres volume or use a clean one),
+    start `./scripts/dev.sh` and read the edges back:
+
+      curl -s -H 'Authorization: Dev dev-admin' \
+        'http://localhost:8090/api/projects' | jq -r '.[].name'
+      # then, for the Webshop estimation's draft:
+      curl -s -H 'Authorization: Dev dev-admin' \
+        "http://localhost:8090/api/estimations/<id>/versions/draft" \
+        | jq '{teamFte, deps: (.dependencies | length)}'
+
+    Expect `teamFte: 3` and 4 dependencies on the webshop draft, and the
+    submitted v1 to carry the same four. Stop the stack with SIGTERM (Ctrl-C),
+    never by killing the child JVMs.
+  - |
+    Run the gates: `./gradlew :backend:implementation:test`, then
+    `./gradlew build`.
+
+    Playwright is not required: every e2e spec seeds its own data through the
+    API and none reads the dev fixture, so this change cannot affect the suite.
+    Do not add a spec that asserts on the seeded graph — it would fail on any
+    non-fresh database, where the seeder skips entirely.
+
+validation:
+  - |
+    The dependency helper exists and converts the UUID logicalId to the String
+    column. Prose in these blocks stays at this indent; only shell is indented
+    further, or an extractor cannot tell them apart.
+      set -e
+      S=src/backend/implementation/src/main/kotlin/io/pythia/testdata/TestDataSeeder.kt
+      grep -q "private fun dependency(" "$S"
+      grep -q "DraftScheduleDependency" "$S"
+      grep -q "logicalId.toString()" "$S"
+  - |
+    The webshop diamond is present on BOTH versions — four edges each, eight
+    `dependency(` call sites across the two drafts plus three for the mobile
+    app chain:
+      set -e
+      S=src/backend/implementation/src/main/kotlin/io/pythia/testdata/TestDataSeeder.kt
+      d1=$(grep -c "dependency(draft1," "$S" || true)
+      d2=$(grep -c "dependency(draft2," "$S" || true)
+      test "$d1" -eq 4 || { echo "expected 4 edges on draft1, found $d1"; exit 1; }
+      test "$d2" -eq 4 || { echo "expected 4 edges on draft2, found $d2"; exit 1; }
+  - |
+    The diamond really is a diamond and not a chain — U01 fans out to two
+    groups and both fan into U04:
+      set -e
+      S=src/backend/implementation/src/main/kotlin/io/pythia/testdata/TestDataSeeder.kt
+      for e in "u01, u02" "u01, u03" "u02, u04" "u03, u04"; do
+        grep -q "dependency(draft2, $e)" "$S" \
+          || { echo "missing webshop edge: $e"; exit 1; }
+      done
+  - |
+    The mobile app is a CHAIN, so the two seeded projects show opposite
+    scheduler behaviour:
+      set -e
+      S=src/backend/implementation/src/main/kotlin/io/pythia/testdata/TestDataSeeder.kt
+      for e in "m01, m02" "m02, m03" "m03, m04"; do
+        grep -q "dependency(draft, $e)" "$S" \
+          || { echo "missing mobile-app edge: $e"; exit 1; }
+      done
+      # and NOT a diamond: m01 must not fan out to m03
+      if grep -q "dependency(draft, m01, m03)" "$S"; then
+        echo "the mobile app was seeded as a diamond, not a chain"; exit 1
+      fi
+  - |
+    `U05: Noch zu schätzen` is in no dependency. It is the unestimated-leaves
+    fixture the session picker's preselect demo needs:
+      set -e
+      S=src/backend/implementation/src/main/kotlin/io/pythia/testdata/TestDataSeeder.kt
+      if grep -qE "dependency\(draft2, (u05|[a-z0-9]+, u05)" "$S"; then
+        echo "U05 was wired into the plan; it must stay unconnected"; exit 1
+      fi
+  - |
+    Edges are added BEFORE the snapshot, or the submitted version gets none.
+    A line-position check, because getting this backwards fails silently — the
+    draft would look right and only the submitted version would be empty:
+      set -e
+      S=src/backend/implementation/src/main/kotlin/io/pythia/testdata/TestDataSeeder.kt
+      dep1=$(grep -n "dependency(draft1," "$S" | head -1 | cut -d: -f1)
+      sub1=$(grep -n "submitDraft" "$S" | head -1 | cut -d: -f1)
+      test -n "$dep1" && test -n "$sub1"
+      test "$dep1" -lt "$sub1" \
+        || { echo "draft1 edges are added after submitDraft; the snapshot misses them"; exit 1; }
+  - |
+    Capacity is above one worker on the seeded drafts, or levelling serialises
+    the diamond and it renders exactly like the chain:
+      set -e
+      S=src/backend/implementation/src/main/kotlin/io/pythia/testdata/TestDataSeeder.kt
+      grep -q "draft1.teamFte = 3.0" "$S"
+      grep -q "draft2.teamFte = 3.0" "$S"
+      grep -q "draft.teamFte = 2.0" "$S"
+  - |
+    The bucket+sampled estimation is deliberately left without a graph, so the
+    empty state stays represented in the seed:
+      set -e
+      S=src/backend/implementation/src/main/kotlin/io/pythia/testdata/TestDataSeeder.kt
+      body=$(awk '/private fun seedDataPlatform/,/^    }/' "$S")
+      if printf '%s' "$body" | grep -qE "dependency\(|teamFte"; then
+        echo "seedDataPlatform gained a schedule; it should stay without one"; exit 1
+      fi
+  - |
+    The groups are reached through named vals, not looked up by title — a
+    title-matched lookup breaks silently on a rename:
+      set -e
+      S=src/backend/implementation/src/main/kotlin/io/pythia/testdata/TestDataSeeder.kt
+      grep -qE "val u01 = group\(" "$S"
+      grep -qE "val m01 = group\(" "$S"
+      if grep -qE "roots.*find *\{|first *\{ *it.title" "$S"; then
+        echo "a title-based node lookup crept in"; exit 1
+      fi
+  - |
+    The startup summary reports the edge count, using the backend's single
+    logging API:
+      set -e
+      S=src/backend/implementation/src/main/kotlin/io/pythia/testdata/TestDataSeeder.kt
+      grep -q "Log.info" "$S"
+      awk '/Log.info/,/\)/' "$S" | grep -qiE "edge|dependenc" \
+        || { echo "the summary log does not report the seeded edges"; exit 1; }
+  - |
+    No e2e spec was coupled to the dev fixture. Every spec seeds its own data
+    through the API; a spec reading the seed would fail on any non-fresh
+    database, where the seeder skips entirely:
+      set -e
+      cd src/frontend
+      if grep -rlE "Webshop|Mobile App MVP|Datenplattform" e2e 2>/dev/null | grep -q .; then
+        echo "an e2e spec now depends on the dev seed data"; exit 1
+      fi
+  - |
+    No redundant detekt suppression was added — the class-level @Suppress
+    already covers LongMethod/TooManyFunctions, and this file has zero
+    findings today:
+      set -e
+      S=src/backend/implementation/src/main/kotlin/io/pythia/testdata/TestDataSeeder.kt
+      n=$(grep -c "@Suppress" "$S" || true)
+      test "$n" -le 2 || { echo "a new @Suppress appeared ($n total); the existing ones cover this"; exit 1; }
+  - |
+    ./gradlew :backend:implementation:test
+  - |
+    ./gradlew build
+
+outputs:
+  - modified: src/backend/implementation/src/main/kotlin/io/pythia/testdata/TestDataSeeder.kt

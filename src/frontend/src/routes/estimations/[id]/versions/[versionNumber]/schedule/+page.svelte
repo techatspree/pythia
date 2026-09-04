@@ -52,6 +52,41 @@
 	// where the schedule can name nothing (task-171).
 	const labels = $derived(labelsByLogicalId(currentRoots as Node[]));
 
+	/**
+	 * Would this candidate edge list close a loop? Returns the logical ids the
+	 * domain considers involved, or null when the list is fine (task-172).
+	 *
+	 * Runs the SAME `computeEstimation` the `estimation` derivation above uses,
+	 * with the candidate substituted — cycle detection is domain logic, and a
+	 * drawn edge is not a graph edge (a group edge lowers to milestone nodes), so
+	 * a hand-rolled traversal here would disagree with the thing that decides.
+	 * One extra build+calculate per DROP is fine; a drop is human-paced.
+	 */
+	function cycleCheck(candidate: ScheduleEdge[]): string[] | null {
+		try {
+			const probe = computeEstimation(
+				currentRoots as never,
+				{
+					dailyRate: currentDailyRate,
+					stdDevFactor: currentStdDevFactor,
+					salesSurcharge: currentSalesSurcharge
+				},
+				currentDrivers,
+				currentPhases,
+				[],
+				{ dependencies: candidate, teamFte: currentTeamFte }
+			);
+			const err = probe.schedule?.error;
+			return err?.kind === 'CYCLE' ? err.involvedLogicalIds : null;
+		} catch (e: unknown) {
+			// A failed probe must never block a legitimate edit: fall through to
+			// "no cycle" and let the committed schedule report the problem, which
+			// is the behaviour that existed before this check.
+			log.error('schedule: cycle probe failed; allowing the edge', e);
+			return null;
+		}
+	}
+
 	// The schedule comes off the domain, from the same single build+calculate
 	// the version editor uses — this page computes no numbers of its own.
 	const estimation = $derived.by(() => {
@@ -250,6 +285,12 @@
 			{/if}
 		</div>
 
-		<DependencyEditor {schedule} bind:dependencies={currentDependencies} {editable} {labels} />
+		<DependencyEditor
+			{schedule}
+			bind:dependencies={currentDependencies}
+			{editable}
+			{labels}
+			{cycleCheck}
+		/>
 	{/if}
 </Page>
