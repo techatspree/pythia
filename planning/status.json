@@ -933,9 +933,9 @@
       "notes": "Graphical dependency editor for the project schedule"
     },
     "task-158": {
-      "status": "pending",
-      "started_at": null,
-      "completed_at": null,
+      "status": "done",
+      "started_at": "2026-09-04T13:09:03+00:00",
+      "completed_at": "2026-09-04T13:16:27+00:00",
       "notes": "Gantt chart view and Mermaid export for the project schedule"
     },
     "task-159": {
@@ -1045,6 +1045,12 @@
       "started_at": null,
       "completed_at": null,
       "notes": "Every e2e spec creates projects through the API and none deletes them, so a repeated local run degrades the suite: 231 projects made list pages slow enough to time out and .first() locators match the wrong row"
+    },
+    "task-177": {
+      "status": "pending",
+      "started_at": null,
+      "completed_at": null,
+      "notes": "TIME_RELATIVE items (hours/week, e.g. project management) should span their whole phase in the Gantt rather than sit as a scheduled task, must be undependable, styled distinctly, and phase length should optionally be computed from the netplan instead of typed"
     }
   }
 }

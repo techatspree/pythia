@@ -10,6 +10,7 @@
 	import Page from '$lib/ui/Page.svelte';
 	import ErrorBanner from '$lib/components/ErrorBanner.svelte';
 	import DependencyEditor from '$lib/components/schedule/DependencyEditor.svelte';
+	import GanttChart from '$lib/components/schedule/GanttChart.svelte';
 	import { computeEstimation, type ScheduleEdge } from '$lib/adapter.js';
 	import { normalizeRoots, labelsByLogicalId, type Node } from '$lib/estimationNodes';
 	import type { ApiVersionResponse } from '$lib/api/types.js';
@@ -292,5 +293,15 @@
 			{labels}
 			{cycleCheck}
 		/>
+
+		<!-- The plan as bars, plus the Mermaid export (task-158). It lives HERE
+		     and not in the version editor: task-167 gave this route the full
+		     viewport because a plan needs the space, and task-170 removed the
+		     per-item duration list from the editor on purpose. Available for
+		     submitted versions too — exporting a snapshot's plan is the point. -->
+		<section class="mt-6">
+			<h2 class="mb-2 text-lg font-semibold">{$_('schedule.gantt.title')}</h2>
+			<GanttChart {schedule} onerror={(m) => (bannerMessage = m)} />
+		</section>
 	{/if}
 </Page>

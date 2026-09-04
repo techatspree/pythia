@@ -1,7 +1,7 @@
 id: task-158
 phase: phase-19
 title: Gantt chart view and Mermaid export
-depends_on: [task-157, task-166]
+depends_on: [task-157, task-166, task-170, task-175]
 description: |
   Last task of phase-19. task-157 leaves the schedule editable and saved, shown
   as a list of durations. This task makes it a **Gantt chart** on screen and an
@@ -37,6 +37,15 @@ description: |
   `toLocale*()` and a hardcoded locale are banned, so an English user sees
   English date order.
 
+  ## Logging on the export path
+
+  The export builds a Blob and hands it to `downloadResponse(...)` — a
+  user-triggered path that can throw, so per the CLAUDE.md frontend rules its
+  `catch` must BOTH surface via `ErrorBanner` and log through `log` from
+  `$lib/log.ts`. A `catch` that only logs and returns is explicitly not
+  acceptable in this repo, and a bare `console.*` is banned outright. The chart
+  itself renders and computes nothing, so it needs no logging of its own.
+
   ## The chart
 
   One row per `ScheduledTask`: a bar positioned by `earliestStart` and sized by
@@ -47,8 +56,10 @@ description: |
   every node with `parentLogicalId`, `depth` and `isGroup`, in tree order —
   indent rows by `depth`, and draw a group's bar as its rolled-up SPAN
   (`earliestFinish - earliestStart`), which is deliberately not an effort
-  quotient and will not equal the sum of its children when they overlap. Mirror
-  task-157's collapse state if it is cheap; do not persist it either way.
+  quotient and will not equal the sum of its children when they overlap. Do NOT try to mirror the
+  graph's collapse state: since task-167 it lives inside `DependencyEditor` as
+  private `SvelteSet` state, so a sibling cannot read it. Give the chart its own
+  collapse or none at all, and persist neither.
 
   **The plan is resource-levelled** (task-166). `teamFte` is a worker count and
   the scheduler never runs more than `floor(teamFte)` leaves at once, so the
@@ -73,8 +84,10 @@ description: |
 steps:
   - |
     Add `src/frontend/src/lib/components/schedule/GanttChart.svelte`:
-      - a `schedule: ProjectSchedule` prop (read-only; this component computes
-        nothing)
+      - a `schedule: ProjectScheduleView | null` prop (read-only; this component
+        computes nothing). `ProjectScheduleView` is the FRONTEND type from
+        `$lib/adapter`; `ProjectSchedule` is the Kotlin name and does not exist
+        in TypeScript
       - one row per task in TREE order, indented by `depth`, with a group's bar
         drawn from its rolled-up span (`isGroup`)
       - a bar offset by `earliestStart` and sized by `durationDays`, both as a
@@ -108,12 +121,23 @@ steps:
     Download via `downloadResponse(...)` from `$lib/api/download.ts` with a
     locally-built `Blob`; never a plain `<a download>`.
   - |
-    Render it in the version editor route
-    `src/frontend/src/routes/estimations/[id]/versions/[versionNumber]/+page.svelte`,
-    inside the schedule section task-157 added, below the dependency editor —
-    replacing the plain duration list that task-157 used as a placeholder. The
-    export controls sit with the chart, and are available for submitted versions
-    too (exporting a snapshot's plan is exactly the point).
+    Render it on the SCHEDULE ROUTE
+    `src/frontend/src/routes/estimations/[id]/versions/[versionNumber]/schedule/+page.svelte`,
+    below the `DependencyEditor`.
+
+    NOT in the version editor, which is where an earlier draft of this task
+    pointed. Two later tasks moved the ground: task-167 gave the graph its own
+    full-viewport route (`Page width="full"`) because a plan needs the space,
+    and task-170 DELETED the per-item duration list from the version editor —
+    `src/frontend/CLAUDE.md` now records that it "deliberately no longer lists
+    per-item rows … Do not restore it as a missing feature." A Gantt is one row
+    per task, so putting it there would reinstate exactly what that task
+    removed, on the same page. The version editor keeps the numbers and links
+    out; the plan lives with the graph.
+
+    The export controls sit with the chart, and both are available for
+    submitted versions too (exporting a snapshot's plan is exactly the point) —
+    the route already computes `editable` from `isDraft` and renders for either.
   - |
     Add the new strings to **both** `src/frontend/src/lib/i18n/de.json` and
     `en.json`, key-for-key under `schedule.*`: the chart heading, the axis label,
@@ -143,68 +167,98 @@ steps:
 
 validation:
   - |
-    The chart exists, renders the schedule, and computes nothing itself:
+    The chart exists and reads the STRUCTURED error, not the field name an
+    earlier draft of this task invented. `set -e` matters here: without it only
+    the last command decides the block and every assertion above it is
+    decorative.
+      set -e
       S=src/frontend/src/lib/components/schedule
       test -f "$S/GanttChart.svelte"
       grep -q "onCriticalPath" "$S/GanttChart.svelte"
-      grep -q "cycleError" "$S/GanttChart.svelte"
+      # task-155 shipped `error: ScheduleError?` with `kind`; there is no
+      # `cycleError` field and never was.
+      grep -q "error" "$S/GanttChart.svelte"
+      grep -qE "CYCLE|error\.kind|kind ===" "$S/GanttChart.svelte" \
+        || { echo "the chart does not branch on error.kind"; exit 1; }
+      if grep -q "cycleError" "$S/GanttChart.svelte"; then
+        echo "cycleError does not exist; use error.kind"; exit 1
+      fi
   - |
     The export is Mermaid, goes through the shared download seam, and adds no
-    library:
+    library. Uses `python3 -c`, NOT a heredoc: inside a YAML block scalar the
+    `PY` terminator carries the block's indentation, and the interpreter then
+    receives an indented body and dies with `IndentationError` — verified.
+      set -e
       S=src/frontend/src/lib/components/schedule
       grep -q "gantt" "$S/GanttChart.svelte"
       grep -q "crit" "$S/GanttChart.svelte"
       grep -q "downloadResponse" "$S/GanttChart.svelte"
-      ! grep -rqE "<a [^>]*download" "$S"
-      python3 - <<'PY'
-      import json, pathlib, sys
-      p = json.loads(pathlib.Path('src/frontend/package.json').read_text())
-      deps = {**p.get('dependencies', {}), **p.get('devDependencies', {})}
-      bad = [d for d in deps if any(k in d.lower() for k in ('gantt', 'chart', 'mermaid', 'dhtmlx', 'frappe'))]
-      print('charting dependencies added:', bad or 'none')
-      sys.exit(1 if bad else 0)
-      PY
+      # `set -e` does NOT abort on a !-negated command (POSIX), so assert the
+      # ban with an explicit if/exit instead.
+      if grep -rqE "<a [^>]*download" "$S"; then
+        echo "a plain <a download> crept in; use downloadResponse"; exit 1
+      fi
+      python3 -c "import json,sys;p=json.load(open('src/frontend/package.json'));d={**p.get('dependencies',{}),**p.get('devDependencies',{})};bad=[k for k in d if any(t in k.lower() for t in ('gantt','chart','mermaid','dhtmlx','frappe'))];print('charting deps:',bad or 'none');sys.exit(1 if bad else 0)"
   - |
-    The frontend hard rules still hold across the schedule components:
+    The frontend hard rules still hold across the schedule components. Each ban
+    is an explicit if/exit: `set -e` is ignored for a !-negated command, so the
+    original `! grep …` form silently passed whatever it found.
+      set -e
       S=src/frontend/src/lib/components/schedule
-      ! grep -rq "console\." "$S"
-      ! grep -rqE "bg-\[#" "$S"
-      ! grep -rqE "toFixed\(|toLocale" "$S"
+      if grep -rqE "(^|[^.[:alnum:]_])console\." "$S"; then echo "bare console"; exit 1; fi
+      if grep -rqE "bg-\[#" "$S"; then echo "arbitrary colour value"; exit 1; fi
+      if grep -rqE "toFixed\(|toLocale" "$S"; then echo "raw number/date formatting"; exit 1; fi
       grep -rq "aria-label" "$S"
   - |
-    The chart is wired into the editor route and the placeholder list is gone:
-      P="src/frontend/src/routes/estimations/[id]/versions/[versionNumber]/+page.svelte"
+    The chart is wired into the SCHEDULE route — not the version editor, whose
+    per-item list task-170 removed on purpose:
+      set -e
+      P="src/frontend/src/routes/estimations/[id]/versions/[versionNumber]/schedule/+page.svelte"
+      V="src/frontend/src/routes/estimations/[id]/versions/[versionNumber]/+page.svelte"
+      test -f "$P"
       grep -q "GanttChart" "$P"
+      if grep -q "GanttChart" "$V"; then
+        echo "the chart landed in the version editor; task-170 removed per-item rows there"; exit 1
+      fi
   - |
     Both catalogs stay key-for-key identical, carry `schedule.*`, and the German
-    strings are translated rather than copied:
-      python3 - <<'PY'
-      import json, pathlib, sys
-      d = pathlib.Path('src/frontend/src/lib/i18n')
-      cats = {p.stem: json.loads(p.read_text()) for p in d.glob('*.json')}
-      def flat(o, p=''):
-          out = {}
-          for k, v in o.items():
-              n = f'{p}.{k}' if p else k
-              out.update(flat(v, n) if isinstance(v, dict) else {n: v})
-          return out
-      f = {l: flat(c) for l, c in cats.items()}
-      ref = set().union(*(set(x) for x in f.values()))
-      bad = {l: sorted(ref - set(x)) for l, x in f.items() if ref - set(x)}
-      de, en = f.get('de', {}), f.get('en', {})
-      copied = [k for k in de if k.startswith('schedule.')
-                and len(str(de[k])) > 3 and de[k] == en.get(k)]
-      print('key mismatch:', bad or 'none', '| untranslated:', copied or 'none')
-      sys.exit(1 if (bad or copied) else 0)
-      PY
+    strings are translated rather than copied. `python3 -c`, not a heredoc: the
+    YAML block scalar indents the terminator and the body, and the interpreter
+    dies with `IndentationError`.
+      set -e
+      python3 -c "import json,pathlib,sys;d=pathlib.Path('src/frontend/src/lib/i18n');cats={p.stem:json.loads(p.read_text()) for p in d.glob('*.json')};flat=lambda o,p='': {kk:vv for k,v in o.items() for kk,vv in (flat(v,(p+'.'+k) if p else k).items() if isinstance(v,dict) else [((p+'.'+k) if p else k, v)])};f={l:flat(c) for l,c in cats.items()};ref=set().union(*(set(x) for x in f.values()));bad={l:sorted(ref-set(x)) for l,x in f.items() if ref-set(x)};de=f.get('de',{});en=f.get('en',{});copied=[k for k in de if k.startswith('schedule.') and len(str(de[k]))>3 and de[k]==en.get(k)];print('key mismatch:',bad or 'none','| untranslated:',copied or 'none');sys.exit(1 if (bad or copied) else 0)"
   - |
     The e2e asserts the exported BYTES, not merely that a click happened:
+      set -e
       T=src/frontend/e2e/schedule.test.ts
       grep -q "gantt" "$T"
+      grep -qE "crit" "$T"
+      # a download assertion, not just a click
+      grep -qE "waitForEvent\('download'\)|suggestedFilename|createReadStream|\.path\(\)" "$T" \
+        || { echo "no assertion on the downloaded file"; exit 1; }
   - |
-    The export's two load-bearing rules are written down, not just implemented:
-      grep -qi "mermaid" src/frontend/CLAUDE.md
-      grep -qi "working day" src/frontend/CLAUDE.md
+    The export's load-bearing rules are written down, not just implemented —
+    including the one a future change is most likely to violate:
+      set -e
+      C=src/frontend/CLAUDE.md
+      grep -qi "mermaid" "$C"
+      grep -qi "working day" "$C"
+      grep -q "task-158" "$C"
+      grep -qi "GanttChart" "$C"
+  - |
+    The export's failure path both logs and surfaces, per the CLAUDE.md
+    frontend rules — a catch that only logs is explicitly not acceptable:
+      set -e
+      S=src/frontend/src/lib/components/schedule
+      G="$S/GanttChart.svelte"
+      P="src/frontend/src/routes/estimations/[id]/versions/[versionNumber]/schedule/+page.svelte"
+      if grep -q "catch" "$G"; then
+        grep -qE "log\.(error|debug)" "$G" \
+          || { echo "the export catch does not log via \$lib/log"; exit 1; }
+      fi
+      # the banner may live on the route rather than in the component
+      grep -q "ErrorBanner" "$P" || grep -q "ErrorBanner" "$G" \
+        || { echo "no ErrorBanner on the export path"; exit 1; }
   - |
     ./gradlew :frontend:check
   - |
@@ -216,7 +270,7 @@ validation:
 outputs:
   - created: src/frontend/src/lib/components/schedule/GanttChart.svelte
   - modified: src/frontend/CLAUDE.md
-  - modified: src/frontend/src/routes/estimations/[id]/versions/[versionNumber]/+page.svelte
+  - modified: src/frontend/src/routes/estimations/[id]/versions/[versionNumber]/schedule/+page.svelte
   - modified: src/frontend/e2e/schedule.test.ts
   - modified: src/frontend/src/lib/i18n/de.json
   - modified: src/frontend/src/lib/i18n/en.json

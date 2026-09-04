@@ -1,4 +1,5 @@
 import { test, expect, type APIRequestContext, type Page } from '@playwright/test';
+import { readFileSync } from 'node:fs';
 
 // The API request fixture carries no auth of its own; the dev module needs an
 // explicit `Dev <subjectId>` header, as every other spec does.
@@ -607,6 +608,74 @@ test('a leaf-to-leaf dependency across groups orders the group cards too', async
 	// outline keeps reading as containment (task-167).
 	expect(xU02).toBeLessThanOrEqual(xLogin);
 	expect(xU03).toBeLessThanOrEqual(xAuth);
+});
+
+/**
+ * The Gantt lives on the SCHEDULE route, not the version editor: task-167 gave
+ * this route the full viewport and task-170 removed the per-item duration list
+ * from the editor on purpose (task-158).
+ */
+test('the Gantt renders the levelled plan and exports it as Mermaid', async ({ page, request }) => {
+	const { estimationId, groupA, groupB } = await seed(request);
+	await openSchedule(page, estimationId);
+
+	// A dependency makes one branch follow the other, so the plan has a real
+	// critical chain to highlight rather than two equal parallel bars.
+	await dragDependency(page, groupA, groupB);
+	await waitForDependencies(request, estimationId, 1);
+	await page.reload();
+	await page.waitForLoadState('networkidle');
+
+	await expect(page.getByTestId('gantt-chart')).toBeVisible();
+	// One row per scheduled task: 2 groups + 2 leaves.
+	await expect(page.getByTestId('gantt-row')).toHaveCount(4);
+	// At least one bar is on the critical chain, and it is distinguished in TEXT
+	// as well as colour.
+	const critical = page.getByTestId('gantt-bar-critical');
+	expect(await critical.count()).toBeGreaterThan(0);
+	await expect(critical.first()).toHaveAttribute('aria-label', /kritischen Kette/);
+
+	// Assert the exported BYTES, not merely that a click happened.
+	const downloadPromise = page.waitForEvent('download');
+	await page.getByTestId('gantt-export').click();
+	const download = await downloadPromise;
+	expect(download.suggestedFilename()).toMatch(/\.mmd$/);
+	const body = readFileSync(await download.path()).toString('utf8');
+
+	expect(body.startsWith('gantt')).toBe(true);
+	expect(body).toContain('dateFormat YYYY-MM-DD');
+	// The critical emphasis survives into the export.
+	expect(body).toContain('crit,');
+	// Working days became calendar dates in the EXPORT only — an ISO date per
+	// leaf, and never a weekend.
+	const dates = [...body.matchAll(/(\d{4}-\d{2}-\d{2}), \d+d/g)].map((m) => m[1]);
+	expect(dates.length).toBeGreaterThan(0);
+	for (const d of dates) {
+		const day = new Date(`${d}T00:00:00`).getDay();
+		expect(day === 0 || day === 6).toBe(false);
+	}
+});
+
+test('the Gantt shows the cycle error instead of a zero-day plan', async ({ page, request }) => {
+	const { estimationId, groupA, groupB } = await seed(request);
+
+	const res = await request.put(`/api/estimations/${estimationId}/versions/draft`, {
+		headers: JSON_HEADERS,
+		data: {
+			dependencies: [
+				{ fromLogicalId: groupA, toLogicalId: groupB },
+				{ fromLogicalId: groupB, toLogicalId: groupA }
+			]
+		}
+	});
+	expect(res.status()).toBe(200);
+
+	await page.goto(`/estimations/${estimationId}/versions/draft/schedule?draft=true`);
+	await page.waitForLoadState('networkidle');
+
+	// A Gantt drawn from an empty task list would read as "zero days".
+	await expect(page.getByTestId('gantt-error')).toBeVisible();
+	await expect(page.getByTestId('gantt-chart')).toHaveCount(0);
 });
 
 test('every edge carries a direction marker', async ({ page, request }) => {

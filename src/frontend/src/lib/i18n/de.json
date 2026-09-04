@@ -157,6 +157,18 @@
     "error": {
       "cycle": "Die Abhängigkeiten enthalten einen Zyklus. Die hervorgehobenen Vorgänge verweisen im Kreis aufeinander; entfernen Sie eine Verknüpfung, um wieder einen Terminplan zu erhalten.",
       "invalidTeamFte": "Die Teamgröße muss mindestens eine Person betragen."
+    },
+    "gantt": {
+      "title": "Balkenplan",
+      "axis": "Arbeitstage ab Projektstart",
+      "startDate": "Projektstart",
+      "export": "Als Mermaid exportieren",
+      "exportHint": "Textformat — rendert in GitHub, GitLab und Confluence.",
+      "exportFailed": "Der Export des Balkenplans ist fehlgeschlagen.",
+      "fileName": "projektplan.mmd",
+      "startsOn": "Arbeitstag 0 entspricht {date}; Wochenenden werden übersprungen.",
+      "barAria": "{title}: beginnt an Arbeitstag {start}, Dauer {days} Tage",
+      "barCriticalAria": "{title}: beginnt an Arbeitstag {start}, Dauer {days} Tage — auf der kritischen Kette"
     }
   },
   "grid": {

@@ -157,6 +157,18 @@
     "error": {
       "cycle": "The dependencies contain a cycle. The highlighted items point back at each other; remove one link to get a schedule again.",
       "invalidTeamFte": "The team size must be at least one person."
+    },
+    "gantt": {
+      "title": "Gantt chart",
+      "axis": "Working days from project start",
+      "startDate": "Project start",
+      "export": "Export as Mermaid",
+      "exportHint": "Text format — renders in GitHub, GitLab and Confluence.",
+      "exportFailed": "Exporting the Gantt chart failed.",
+      "fileName": "project-plan.mmd",
+      "startsOn": "Working day 0 is {date}; weekends are skipped.",
+      "barAria": "{title}: starts on working day {start}, {days} days long",
+      "barCriticalAria": "{title}: starts on working day {start}, {days} days long — on the critical chain"
     }
   },
   "grid": {
