@@ -107,6 +107,9 @@ phases:
   - id: phase-19
     name: Dependency tracking and Gant Chart
     duration_weeks: 3
+  - id: phase-20
+    name: Phase-aware scheduling
+    duration_weeks: 2
 
 execution:
   task_format: tasks/<task-id>.yaml

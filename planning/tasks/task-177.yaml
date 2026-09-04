@@ -1,0 +1,372 @@
+id: task-177
+phase: phase-20
+title: "Phase-spanning variable items and computed phase length"
+depends_on: [task-158]
+description: |
+  A TIME_RELATIVE item ("h/Woche" — project management, UX support) models work
+  that accompanies the project rather than a task with its own start and finish.
+  The scheduler treats it as an ordinary leaf today, so it gets its own bar, can
+  be wired into dependencies, and looks identical to a fixed task. It should
+  instead run in parallel across the whole of its phase.
+
+  Separately, a phase's length is typed in by hand (`durationWeeks`) even though
+  the net plan already knows how long the phase's work takes.
+
+  ## The two are one problem, because of a cycle
+
+  `TimeRelativeEstimationItem.mean` is
+  `PertCalculation.mean(min, exp, max) * (phase?.durationWeeks ?: 0.0)` — a
+  variable item's EFFORT is derived from its phase's length. So if phase length
+  were computed from a net plan that schedules variable items, the plan would
+  depend on the phase length that depends on the plan.
+
+  **The resolution, and the spine of this task: a variable item is never
+  scheduled.** It is not a node in the scheduling graph at all. That makes the
+  pipeline acyclic and delivers every part of the request as a consequence:
+
+    1. the net plan schedules only the SCHEDULED leaves (fixed and bucketed),
+    2. a phase's window is the span of its own scheduled leaves —
+       `min(earliestStart) … max(earliestFinish)` over the leaves carrying that
+       phase,
+    3. a phase's length, when automatic, is that window in weeks,
+    4. a variable item's effort follows from (3) by the existing formula —
+       untouched,
+    5. in the Gantt a variable item's bar IS its phase's window, so it is
+       parallel to everything in the phase by construction, not by a special
+       case in the layout,
+    6. and a dependency on a variable item is meaningless, because it is not in
+       the graph.
+
+  Working days convert to weeks at **5 working days per week**. State it once
+  and use it everywhere; do not introduce a second constant.
+
+  ## `:domain:core` cannot see the variable item — use a core-level hook
+
+  `ProjectSchedule` lives in `:domain:core`, and `TimeRelativeEstimationItem`
+  lives in `:domain:method-threepoint`. The module split is compiler-enforced
+  (task-143): a core→method import is an "Unresolved reference", not a review
+  comment. `ProjectSchedule` therefore cannot ask "is this a
+  TimeRelativeEstimationItem?".
+
+  Add an `abstract val isScheduled: Boolean` to `EstimationItem` in
+  `:domain:core`, exactly as task-143 added `abstract val method` and
+  `abstract val nodeTypeLabel` for the same reason. It is `true` for every
+  concrete item and overridden to `false` in `TimeRelativeEstimationItem`. The
+  scheduler branches on that, and no core→method reference appears.
+
+  **Do not touch `mean` / `variance` on `TimeRelativeEstimationItem` with
+  `super.`** — the file's own comment records why: `super.<computed property>`
+  infinitely recurses on Kotlin/JS while working on the JVM, so the parent PERT
+  formula is inlined there deliberately.
+
+  ## Automatic or explicit, per phase
+
+  `ProjectPhase` gains a mode. Existing behaviour must be preserved, so the
+  persisted default is EXPLICIT: a version loaded today keeps the number
+  somebody typed. Automatic is opt-in per phase, not global — a plan commonly
+  has one phase pinned to a contractual length and the rest derived.
+
+  When a phase is automatic and has **no scheduled leaves**, its computed window
+  is empty. Report a length of 0 and say so in the UI rather than silently
+  showing zero weeks, because a variable item in that phase then computes to
+  zero effort and the number would look like a bug.
+
+  `ProjectPhase` is `@JsExport`ed and reaches the frontend as generated
+  TypeScript, so adding a field changes `domain.d.mts`: the build must run
+  `./gradlew :domain:build` and the frontend must be re-checked.
+
+  ## Persistence
+
+  A new column on BOTH phase tables (`draft_project_phases` and
+  `submitted_project_phases`), in `V20__phase_duration_mode.sql`. Declare it on
+  the entities too, not only in the migration: `%test` and `%dev` build the
+  schema from Hibernate with Flyway off, so a migration-only column does not
+  exist where it is tested — the V15 lesson recorded in `src/backend/CLAUDE.md`.
+
+  ## Three layers keep a dependency off a variable item
+
+  Do not rely on the UI alone:
+
+    - the **editor** does not draw a drag handle on a variable item's card, so
+      the gesture cannot start;
+    - `addEdge` refuses an edge naming one, through task-172's existing refusal
+      modal with its own message — a silent no-op is the defect task-172 fixed;
+    - the **domain** ignores an edge whose endpoint is not a scheduled leaf when
+      lowering the graph, so a row already in the database (the API validates
+      no endpoints — see task-176's findings) cannot break the plan.
+
+  ## Deliberate non-goals
+
+  - **Do NOT model holidays or calendars.** Working days stay working days; the
+    calendar mapping remains confined to the Mermaid export (task-158).
+  - **Do NOT change how a variable item's effort is computed.** The formula
+    stays `rate × durationWeeks`; only where `durationWeeks` comes from changes.
+  - **Do NOT make the mode global.** Per phase, for the reason above.
+  - **Do NOT give a variable item a duration in the schedule.** It is excluded,
+    not zero-length: a zero-length node would still appear in the graph and in
+    `projectDurationDays` arithmetic.
+
+steps:
+  - |
+    In `:domain:core`, add `abstract val isScheduled: Boolean` to
+    `src/domain/core/src/main/kotlin/io/pythia/model/EstimationItem.kt`,
+    documented as the core-level hook that lets `ProjectSchedule` exclude
+    accompanying work without importing a method module.
+
+    Override it to `true` in the fixed and bucketed items and to `false` in
+    `src/domain/method-threepoint/src/main/kotlin/io/pythia/method/threepoint/TimeRelativeEstimationItem.kt`.
+    Change nothing about that file's `mean` / `variance` — the inlined PERT
+    formula there is deliberate (Kotlin/JS super-property recursion).
+  - |
+    Add the mode to `src/domain/core/src/main/kotlin/io/pythia/model/ProjectPhase.kt`:
+    an `@JsExport enum class PhaseDurationMode { EXPLICIT, AUTOMATIC }` and a
+    `durationMode: PhaseDurationMode = PhaseDurationMode.EXPLICIT` field, so a
+    phase constructed without one behaves exactly as today.
+  - |
+    Teach `src/domain/core/src/main/kotlin/io/pythia/model/ProjectSchedule.kt`
+    about phases and about exclusion:
+
+      - build the graph from leaves where `isScheduled` is true ONLY, and drop
+        any drawn edge whose endpoint is not among them,
+      - expose a per-phase window on the result — a
+        `@JsExport data class PhaseWindow(val abbreviation: String, val
+        earliestStart: Double, val earliestFinish: Double, val
+        scheduledLeafCount: Int)` and a `phaseWindows: List<PhaseWindow>` on
+        `ProjectSchedule`, derived from the scheduled leaves' own phases,
+      - convert to weeks with a single `WORKING_DAYS_PER_WEEK = 5.0` constant.
+
+    Add a `KotlinLogging` debug observation in the lambda form for the exclusion
+    count, matching the domain logging convention.
+  - |
+    Extend `src/domain/src/test/kotlin/io/pythia/model/ProjectScheduleTest.kt`
+    (the AGGREGATOR — concrete leaf types are unreachable from `:domain:core`)
+    with cases that pin the spine:
+
+      - a TIME_RELATIVE leaf does not appear in `tasks` and does not lengthen
+        `projectDurationDays`,
+      - an edge naming a TIME_RELATIVE leaf is ignored rather than cycling or
+        throwing,
+      - `phaseWindows` spans exactly the scheduled leaves of each phase,
+      - a phase with no scheduled leaves yields a window with
+        `scheduledLeafCount == 0`.
+  - |
+    Run the KMP build and regenerate the TypeScript the frontend consumes:
+    `./gradlew :domain:build`, then `./gradlew :frontend:check`.
+  - |
+    Persist the mode. Add
+    `src/backend/implementation/src/main/resources/db/migration/V20__phase_duration_mode.sql`
+    adding `duration_mode VARCHAR(255) NOT NULL DEFAULT 'EXPLICIT'` to
+    `draft_project_phases` and `submitted_project_phases`, and declare the
+    field on `DraftProjectPhase` and `SubmittedProjectPhase` as
+    `@Enumerated(EnumType.STRING)` — the migration alone is not enough, since
+    `%test`/`%dev` build the schema from Hibernate.
+
+    Carry it through `EstimationVersionDtos.kt` (both phase DTOs),
+    `EstimationVersionMapper.kt` (both directions), `MutationLogMapper.kt`'s
+    `ProjectPhase(...)` reconstruction, and the draft/submitted copy paths in
+    `EstimationVersionService.kt` — a field added to the DTO but not to
+    `snapshotDraft`/`cloneFromSubmitted` is silently dropped on submit.
+  - |
+    Frontend: show and edit the mode in
+    `src/frontend/src/lib/components/PhasesPanel.svelte` — a per-row control
+    choosing explicit or automatic, the computed length shown read-only when
+    automatic, and a notice when an automatic phase has no scheduled leaves.
+    When automatic, the panel writes the computed weeks back into the phase so
+    the persisted number matches what is shown.
+  - |
+    Frontend: style variable items distinctly and keep them out of the graph.
+
+      - `GanttChart.svelte` draws a variable item's bar across its phase's
+        window from `phaseWindows`, visually distinct from a scheduled bar
+        (a lighter fill plus a hatch or outline — surface AND edge, so the
+        distinction is not colour-only, following task-174), with its own
+        `aria-label` naming it accompanying work.
+      - `DependencyEditor.svelte` renders no drag handle on a variable item and
+        `addEdge` refuses an edge naming one through the task-172 modal with a
+        distinct message.
+  - |
+    Add every new string to BOTH `src/frontend/src/lib/i18n/de.json` and
+    `en.json`, key-for-key: the mode labels (explicit / automatic), the
+    no-scheduled-leaves notice, the variable-bar `aria-label`, and the refusal
+    message. Real German, never the English pasted across, and no inline
+    literals — `$_('key')`.
+  - |
+    Extend `src/frontend/e2e/schedule.test.ts`: a TIME_RELATIVE item gets no
+    card in the dependency editor and no drag handle; its Gantt bar spans the
+    phase window rather than its own duration; and switching a phase to
+    automatic updates its length from the plan.
+  - |
+    Document the spine in `src/domain/CLAUDE.md` (the acyclic pipeline, the
+    `isScheduled` hook and why core cannot see the method module, the 5-day
+    week) and in `src/frontend/CLAUDE.md` (the phase-spanning bar, the
+    undependable rule and its three layers). The cycle is the thing a future
+    change is most likely to reintroduce by "helpfully" scheduling variable
+    items.
+  - |
+    Run the gates: `./gradlew :domain:build`, `./gradlew
+    :backend:implementation:test`, `./gradlew build`, then Playwright with the
+    dev stack up (`./scripts/dev.sh`; backend :8090, Vite :5173; stop it with
+    SIGTERM, never by killing the child JVMs):
+    `cd src/frontend && npm run test:e2e`.
+
+validation:
+  - |
+    The core-level hook exists and the variable item opts out — without this the
+    scheduler would need a core→method import, which does not compile. Prose in
+    these blocks stays at this indent; only shell is indented further, or an
+    extractor cannot tell them apart.
+      set -e
+      E=src/domain/core/src/main/kotlin/io/pythia/model/EstimationItem.kt
+      T=src/domain/method-threepoint/src/main/kotlin/io/pythia/method/threepoint/TimeRelativeEstimationItem.kt
+      grep -q "abstract val isScheduled" "$E"
+      grep -qE "isScheduled.*=.*false|isScheduled: Boolean = false|get\(\) = false" "$T"
+  - |
+    `:domain:core` still does not reference the method module. This is the
+    constraint that dictated the design, so assert it rather than trust it:
+      set -e
+      if grep -rq "io.pythia.method.threepoint\|TimeRelativeEstimationItem" src/domain/core/src/main; then
+        echo "core now references the method module; the boundary is broken"; exit 1
+      fi
+  - |
+    The variable item's PERT formula was NOT rewritten with `super.` — the
+    inlined version is deliberate and a super-property access recurses forever
+    on Kotlin/JS while passing on the JVM:
+      set -e
+      T=src/domain/method-threepoint/src/main/kotlin/io/pythia/method/threepoint/TimeRelativeEstimationItem.kt
+      # CODE lines only. The file's own comment WARNS about `super.mean` /
+      # `super.variance`, so a raw grep matches the warning and fails a
+      # perfectly correct file — the same prose-matching trap that has bitten
+      # several checks in this repo.
+      code=$(grep -vE "^[[:space:]]*(//|\*|/\*)" "$T")
+      if printf '%s' "$code" | grep -qE "super\.(mean|variance)"; then
+        echo "super.<computed property> recurses on Kotlin/JS; keep the formula inlined"; exit 1
+      fi
+      grep -q "PertCalculation.mean" "$T"
+  - |
+    The schedule exposes phase windows, excludes unscheduled leaves, and has a
+    single working-week constant:
+      set -e
+      S=src/domain/core/src/main/kotlin/io/pythia/model/ProjectSchedule.kt
+      grep -q "PhaseWindow" "$S"
+      grep -q "phaseWindows" "$S"
+      grep -q "isScheduled" "$S"
+      n=$(grep -c "WORKING_DAYS_PER_WEEK" "$S")
+      test "$n" -ge 1 || { echo "no working-week constant"; exit 1; }
+      if grep -qE "/ 5\.0|\* 5\.0" "$S"; then
+        echo "a bare 5 is used instead of WORKING_DAYS_PER_WEEK"; exit 1
+      fi
+      grep -q "logger" "$S"
+  - |
+    The mode is on the domain phase and defaults to EXPLICIT, so a version
+    loaded today keeps the number somebody typed:
+      set -e
+      P=src/domain/core/src/main/kotlin/io/pythia/model/ProjectPhase.kt
+      grep -q "PhaseDurationMode" "$P"
+      grep -qE "durationMode.*=.*PhaseDurationMode.EXPLICIT" "$P"
+  - |
+    The migration exists AND the field is declared on both entities — a
+    migration-only column does not exist under %test/%dev, which build the
+    schema from Hibernate (the V15 lesson):
+      set -e
+      M=src/backend/implementation/src/main/resources/db/migration/V20__phase_duration_mode.sql
+      test -f "$M"
+      grep -qi "draft_project_phases" "$M"
+      grep -qi "submitted_project_phases" "$M"
+      grep -qi "duration_mode" "$M"
+      grep -q "durationMode" src/backend/implementation/src/main/kotlin/io/pythia/domain/draft/DraftProjectPhase.kt
+      grep -rq "durationMode" src/backend/implementation/src/main/kotlin/io/pythia/domain/
+  - |
+    The mode survives a submit and a clone. A field added to the DTO but not to
+    the copy paths is silently dropped, which only shows up on the snapshot:
+      set -e
+      V=src/backend/implementation/src/main/kotlin/io/pythia/service/EstimationVersionService.kt
+      grep -q "durationMode" "$V" \
+        || { echo "durationMode is not copied in snapshotDraft/cloneFromSubmitted"; exit 1; }
+      grep -q "durationMode" src/backend/implementation/src/main/kotlin/io/pythia/rest/dto/EstimationVersionDtos.kt
+      grep -q "durationMode" src/backend/implementation/src/main/kotlin/io/pythia/rest/dto/EstimationVersionMapper.kt
+  - |
+    A variable item cannot be dragged and an edge naming one is refused — three
+    layers, not just the UI:
+      set -e
+      D=src/frontend/src/lib/components/schedule/DependencyEditor.svelte
+      grep -q "isScheduled" "$D" \
+        || { echo "the editor does not distinguish unscheduled items"; exit 1; }
+      body=$(awk '/function addEdge\(/,/^\t}/' "$D")
+      printf '%s' "$body" | grep -qE "isScheduled|refusedItems" \
+        || { echo "addEdge does not refuse an edge on a variable item"; exit 1; }
+  - |
+    The Gantt spans the phase window for a variable item, and the distinction
+    is not colour-only:
+      set -e
+      G=src/frontend/src/lib/components/schedule/GanttChart.svelte
+      grep -q "phaseWindows" "$G"
+      grep -qE "aria-label" "$G"
+  - |
+    The phases panel offers the choice and handles the empty case:
+      set -e
+      P=src/frontend/src/lib/components/PhasesPanel.svelte
+      grep -q "durationMode" "$P"
+      grep -qiE "AUTOMATIC|automatic" "$P"
+  - |
+    No bare console.* in any touched frontend file:
+      set -e
+      for f in src/frontend/src/lib/components/PhasesPanel.svelte \
+               src/frontend/src/lib/components/schedule/GanttChart.svelte \
+               src/frontend/src/lib/components/schedule/DependencyEditor.svelte; do
+        if grep -qE "(^|[^.[:alnum:]_])console\." "$f"; then echo "bare console in $f"; exit 1; fi
+      done
+  - |
+    Every new string is in EVERY catalog, key-for-key, and translated. Uses
+    python3 -c, not a heredoc: inside a YAML block scalar the terminator carries
+    the block's indentation and the interpreter dies with IndentationError.
+      set -e
+      cd src/frontend
+      python3 -c "import json,pathlib,sys;d=pathlib.Path('src/lib/i18n');cats={p.stem:json.loads(p.read_text()) for p in d.glob('*.json')};flat=lambda o,p='': {kk:vv for k,v in o.items() for kk,vv in (flat(v,(p+'.'+k) if p else k).items() if isinstance(v,dict) else [((p+'.'+k) if p else k, v)])};f={l:flat(c) for l,c in cats.items()};ref=set().union(*(set(x) for x in f.values()));bad={l:sorted(ref-set(x)) for l,x in f.items() if ref-set(x)};print('key mismatch:',bad or 'none');sys.exit(1 if bad else 0)"
+  - |
+    The domain tests pin the spine, including the two cases that would otherwise
+    reintroduce the cycle:
+      set -e
+      T=src/domain/src/test/kotlin/io/pythia/model/ProjectScheduleTest.kt
+      grep -qi "timerelative\|isScheduled" "$T"
+      grep -q "phaseWindows" "$T"
+  - |
+    The cycle and its resolution are documented — this is what a future change
+    is most likely to undo:
+      set -e
+      grep -q "task-177" src/domain/CLAUDE.md
+      grep -qi "isScheduled" src/domain/CLAUDE.md
+      grep -q "task-177" src/frontend/CLAUDE.md
+  - |
+    ./gradlew :domain:build
+  - |
+    ./gradlew :backend:implementation:test
+  - |
+    ./gradlew build
+  - |
+    With the dev stack running (./scripts/dev.sh, backend :8090, Vite :5173):
+      cd src/frontend && npm run test:e2e
+
+outputs:
+  - modified: src/domain/core/src/main/kotlin/io/pythia/model/EstimationItem.kt
+  - modified: src/domain/core/src/main/kotlin/io/pythia/model/ProjectPhase.kt
+  - modified: src/domain/core/src/main/kotlin/io/pythia/model/ProjectSchedule.kt
+  - modified: src/domain/method-threepoint/src/main/kotlin/io/pythia/method/threepoint/TimeRelativeEstimationItem.kt
+  - modified: src/domain/method-threepoint/src/main/kotlin/io/pythia/method/threepoint/FixedEstimationItem.kt
+  - modified: src/domain/method-bucketsampled/src/main/kotlin/io/pythia/method/bucketsampled/BucketedEstimationItem.kt
+  - modified: src/domain/src/test/kotlin/io/pythia/model/ProjectScheduleTest.kt
+  - created: src/backend/implementation/src/main/resources/db/migration/V20__phase_duration_mode.sql
+  - modified: src/backend/implementation/src/main/kotlin/io/pythia/domain/draft/DraftProjectPhase.kt
+  - modified: src/backend/implementation/src/main/kotlin/io/pythia/domain/submitted/SubmittedProjectPhase.kt
+  - modified: src/backend/implementation/src/main/kotlin/io/pythia/rest/dto/EstimationVersionDtos.kt
+  - modified: src/backend/implementation/src/main/kotlin/io/pythia/rest/dto/EstimationVersionMapper.kt
+  - modified: src/backend/implementation/src/main/kotlin/io/pythia/rest/dto/MutationLogMapper.kt
+  - modified: src/backend/implementation/src/main/kotlin/io/pythia/service/EstimationVersionService.kt
+  - modified: src/frontend/src/lib/components/PhasesPanel.svelte
+  - modified: src/frontend/src/lib/components/schedule/GanttChart.svelte
+  - modified: src/frontend/src/lib/components/schedule/DependencyEditor.svelte
+  - modified: src/frontend/src/lib/adapter.ts
+  - modified: src/frontend/src/lib/i18n/de.json
+  - modified: src/frontend/src/lib/i18n/en.json
+  - modified: src/frontend/e2e/schedule.test.ts
+  - modified: src/domain/CLAUDE.md
+  - modified: src/frontend/CLAUDE.md
