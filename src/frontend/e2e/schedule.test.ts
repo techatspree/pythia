@@ -410,6 +410,205 @@ test('leaf, open group and closed group are visually distinct', async ({ page, r
 	await expect(kind('group-closed')).toContainText('zugeklappt');
 });
 
+/**
+ * The arrowhead's angle comes from the PATH's end tangent, not from the marker:
+ * `orient="auto"` was always correct, but the old curve put its last control
+ * point at the endpoint's own `y`, so every end tangent was (dx, 0) and every
+ * head pointed due right (task-175). Measured, not eyeballed.
+ */
+test('an arrowhead follows the connector direction, and the exit stays level', async ({
+	page,
+	request
+}) => {
+	const { estimationId, groupA, groupB } = await seed(request);
+	await openSchedule(page, estimationId);
+	await dragDependency(page, groupA, groupB);
+	await expect(page.getByTestId('schedule-edge')).toHaveCount(1);
+
+	// Sample the rendered path through the SVG DOM: two points near each end
+	// give the tangent there.
+	const tangents = await page.evaluate(() => {
+		const el = document.querySelector('[data-testid="schedule-edge"]') as SVGPathElement | null;
+		if (!el) return null;
+		const total = el.getTotalLength();
+		// 0.5 units, not 2: the tangent is a LIMIT, and a longer finite difference
+		// picks up the curve's own bend — at 2 units the (truly horizontal) exit
+		// measured ~1.5°, which is measurement error rather than a tilted exit.
+		const deg = (dx: number, dy: number) => (Math.atan2(dy, dx) * 180) / Math.PI;
+		const a = el.getPointAtLength(total - 0.5);
+		const b = el.getPointAtLength(total);
+		const c = el.getPointAtLength(0);
+		const d = el.getPointAtLength(0.5);
+		return { end: deg(b.x - a.x, b.y - a.y), start: deg(d.x - c.x, d.y - c.y) };
+	});
+	expect(tangents).not.toBeNull();
+
+	// Expected arrival angle: the chord from the source's right edge to the
+	// target's left edge, both at mid-height, read off the cards themselves.
+	const sb = await page.locator(card(groupA)).boundingBox();
+	const tb = await page.locator(card(groupB)).boundingBox();
+	expect(sb).not.toBeNull();
+	expect(tb).not.toBeNull();
+	const chord =
+		(Math.atan2(
+			tb!.y + tb!.height / 2 - (sb!.y + sb!.height / 2),
+			tb!.x - (sb!.x + sb!.width)
+		) *
+			180) /
+		Math.PI;
+
+	expect(Math.abs(tangents!.end - chord)).toBeLessThan(3);
+	// The whole defect: this used to be exactly 0 for every edge. The seeded
+	// fixture puts the two cards one row and one layer apart (~16°).
+	expect(Math.abs(tangents!.end)).toBeGreaterThan(1);
+	// The other half of the design, which nothing else pins: the connector still
+	// LEAVES horizontally, so edges do not cut diagonally across their own card.
+	expect(Math.abs(tangents!.start)).toBeLessThan(1);
+});
+
+test('the live drag arrow uses the same connector as a committed edge', async ({
+	page,
+	request
+}) => {
+	const { estimationId, groupA, groupB } = await seed(request);
+	await openSchedule(page, estimationId);
+
+	// Hold the drag open (page.mouse, not dragTo — dragTo cannot observe the
+	// mid-drag state), then measure the live arrow the same way.
+	const handle = page.locator(`${card(groupA)} [data-testid="schedule-handle"]`);
+	const hb = await handle.boundingBox();
+	const tb = await page.locator(card(groupB)).boundingBox();
+	expect(hb).not.toBeNull();
+	expect(tb).not.toBeNull();
+	const px = tb!.x + tb!.width / 2;
+	const py = tb!.y + tb!.height / 2;
+
+	await handle.hover();
+	await page.mouse.down();
+	await page.mouse.move(hb!.x + hb!.width / 2 + 12, hb!.y + hb!.height / 2 + 12, { steps: 5 });
+	await page.mouse.move(px, py, { steps: 12 });
+	await expect(page.getByTestId('schedule-drag-arrow')).toHaveCount(1);
+
+	const live = await page.evaluate(() => {
+		const el = document.querySelector(
+			'[data-testid="schedule-drag-arrow"]'
+		) as SVGPathElement | null;
+		if (!el) return null;
+		const total = el.getTotalLength();
+		const a = el.getPointAtLength(total - 0.5);
+		const b = el.getPointAtLength(total);
+		const c = el.getPointAtLength(0);
+		const d = el.getPointAtLength(0.5);
+		const deg = (dx: number, dy: number) => (Math.atan2(dy, dx) * 180) / Math.PI;
+		return { end: deg(b.x - a.x, b.y - a.y), start: deg(d.x - c.x, d.y - c.y) };
+	});
+	expect(live).not.toBeNull();
+
+	// Same rule as a committed edge: arrive along the chord to the pointer,
+	// leave horizontally. This is what the shared helper buys.
+	const sb = await page.locator(card(groupA)).boundingBox();
+	const chord =
+		(Math.atan2(py - (sb!.y + sb!.height / 2), px - (sb!.x + sb!.width)) * 180) / Math.PI;
+	expect(Math.abs(live!.end - chord)).toBeLessThan(3);
+	expect(Math.abs(live!.start)).toBeLessThan(1);
+
+	await page.mouse.up();
+});
+
+/**
+ * A dependency between two LEAVES in different groups must still order the two
+ * GROUP cards. Reported from the dev stack: "Benutzerkonto & Login" →
+ * "Authentifizierung & Autorisierung" left both group boxes at the same x, so
+ * nothing on screen said that U03's work follows U02's.
+ *
+ * The layout propagated layers top-down only (a child clamped up to its
+ * parent), so a group whose subtree sat in a later layer stayed at layer 0. A
+ * group must start at the layer of its EARLIEST member.
+ */
+test('a leaf-to-leaf dependency across groups orders the group cards too', async ({
+	page,
+	request
+}) => {
+	const projectRes = await request.post('/api/projects', {
+		headers: JSON_HEADERS,
+		data: { name: `E2E CrossGroup ${Date.now()}` }
+	});
+	const project = await projectRes.json();
+	const estRes = await request.post(`/api/projects/${project.id}/estimations`, {
+		headers: JSON_HEADERS,
+		data: { offer: `E2E-XG-${Date.now()}`, method: 'THREE_POINT_PERT' }
+	});
+	const estimationId = (await estRes.json()).id;
+	await request.post(`/api/estimations/${estimationId}/versions`, { headers: JSON_HEADERS });
+
+	const u02 = crypto.randomUUID();
+	const u03 = crypto.randomUUID();
+	const login = crypto.randomUUID();
+	const auth = crypto.randomUUID();
+	const leaf = (logicalId: string, description: string) => ({
+		type: 'FIXED',
+		logicalId,
+		description,
+		minEffort: 2,
+		expectedEffort: 3,
+		maxEffort: 5
+	});
+
+	const put = await request.put(`/api/estimations/${estimationId}/versions/draft`, {
+		headers: JSON_HEADERS,
+		data: {
+			stdDevFactor: 0.0,
+			teamFte: 1,
+			dependencies: [{ fromLogicalId: login, toLogicalId: auth }],
+			roots: [
+				{
+					type: 'GROUP',
+					logicalId: u02,
+					title: 'U02: Frontend Redesign',
+					children: [leaf(login, 'Benutzerkonto & Login (OAuth2)')]
+				},
+				{
+					type: 'GROUP',
+					logicalId: u03,
+					title: 'U03: Backend & Datenbank',
+					children: [leaf(auth, 'Authentifizierung & Autorisierung')]
+				}
+			]
+		}
+	});
+	expect(put.status()).toBe(200);
+
+	await openSchedule(page, estimationId);
+	const xOf = async (logicalId: string) => {
+		const b = await page.locator(card(logicalId)).boundingBox();
+		expect(b).not.toBeNull();
+		return b!.x;
+	};
+
+	// Collapsed, the edge is lowered onto the group cards and this already worked.
+	expect(await xOf(u03)).toBeGreaterThan(await xOf(u02));
+
+	// Expanded is the reported case: the real endpoints are on canvas, so the
+	// groups get no direct constraint of their own.
+	await page.locator(`${card(u02)} [data-testid="schedule-toggle"]`).click();
+	await page.locator(`${card(u03)} [data-testid="schedule-toggle"]`).click();
+
+	const [xU02, xU03, xLogin, xAuth] = [
+		await xOf(u02),
+		await xOf(u03),
+		await xOf(login),
+		await xOf(auth)
+	];
+
+	// The leaves were always ordered correctly; the groups were not.
+	expect(xAuth).toBeGreaterThan(xLogin);
+	expect(xU03).toBeGreaterThan(xU02);
+	// And a group still starts at or left of its own child, so its container
+	// outline keeps reading as containment (task-167).
+	expect(xU02).toBeLessThanOrEqual(xLogin);
+	expect(xU03).toBeLessThanOrEqual(xAuth);
+});
+
 test('every edge carries a direction marker', async ({ page, request }) => {
 	const { estimationId, groupA, groupB } = await seed(request);
 	await openSchedule(page, estimationId);

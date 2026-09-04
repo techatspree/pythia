@@ -66,6 +66,21 @@ description: |
   give it a zero-length box in the net plan and dilute what it is there to
   show. Leave it unconnected.
 
+  ## The fixture doubles as a layout regression check
+
+  The diamond exercises BOTH of the editor's placement rules at once, which is
+  worth knowing when judging whether the seeded canvas looks right:
+
+    - task-167's top-down clamp — a child is never placed left of its parent,
+    - and the bottom-up rule that a GROUP starts at the layer of its earliest
+      member, which was added after a leaf-to-leaf dependency across two groups
+      left both group cards at the same `x`.
+
+  So a fresh dev database should show U01 at layer 0, U02 and U03 side by side
+  at layer 1, and U04 at layer 2 — with each group card at or left of its own
+  children. If the groups pile up at the same `x`, that is the layout rule
+  regressing, not the seed.
+
   ## The data platform stays without dependencies
 
   `seedDataPlatform` is the BUCKET_SAMPLED_PERT estimation, and its roots are
@@ -118,11 +133,15 @@ description: |
 
   ## Logging
 
-  The seeder already closes with a `Log.info` summary. Extend it to report the
-  seeded edge count so a dev startup shows at a glance whether the graph
-  landed — the same reason the existing summary names what it created. No new
-  logging mechanism: `io.quarkus.logging.Log`, as everywhere else in the
-  backend.
+  There is exactly ONE `Log.info` in the seeder today, and it is NOT a
+  seeder-wide summary: it sits inside `seedDataPlatform` and reports that
+  estimation's bucket count. Do not extend that one — the data platform is the
+  estimation this task deliberately leaves WITHOUT dependencies, so an edge
+  count logged from there would be actively misleading.
+
+  Add the summary in `seed()` instead, after the three `seedX()` calls, where it
+  can report the whole fixture's edge count in one line. Same mechanism as
+  everywhere else in the backend: `io.quarkus.logging.Log`.
 
   ## No i18n
 
@@ -150,24 +169,26 @@ steps:
   - |
     In `seedWebshop`, hoist the FIRST draft's (`draft1`, versionNumber 1) four
     root groups out of the inline `addRoots(...)` argument into named vals —
-    `u01`, `u02`, `u03`, `u04` — and pass those vals to `addRoots`. Change
+    `v1u01`, `v1u02`, `v1u03`, `v1u04` — and pass those vals to `addRoots`.
+    The `v1`/`v2` prefixes are required, not cosmetic: both drafts live in the
+    SAME `seedWebshop()` function, so a second `u01` would be a redeclaration. Change
     nothing about their titles, children or order.
 
     Then, BEFORE the existing `estimationVersionService.submitDraft(...)` call,
     set `draft1.teamFte = 3.0` and add the diamond:
 
       draft1.scheduleDependencies.addAll(listOf(
-          dependency(draft1, u01, u02),
-          dependency(draft1, u01, u03),
-          dependency(draft1, u02, u04),
-          dependency(draft1, u03, u04)
+          dependency(draft1, v1u01, v1u02),
+          dependency(draft1, v1u01, v1u03),
+          dependency(draft1, v1u02, v1u04),
+          dependency(draft1, v1u03, v1u04)
       ))
 
     The ordering matters: `submitDraft` snapshots what is on the draft at that
     moment, so edges added afterwards would never reach the submitted version.
   - |
     Do the same for `draft2` (versionNumber 2, the current draft): hoist its
-    root groups into vals, set `draft2.teamFte = 3.0`, and add the same four
+    root groups into vals `v2u01`..`v2u05`, set `draft2.teamFte = 3.0`, and add the same four
     diamond edges before `draftRepository.persist(draft2)`.
 
     `U05: Noch zu schätzen` gets a val like the others for consistency but
@@ -189,8 +210,19 @@ steps:
     roots are bucketed leaves and the bucket editor draws no net plan, so it
     also serves as the seeded example of the empty-graph state.
   - |
-    Extend the closing `Log.info(...)` in the seeder to include the number of
-    schedule edges seeded, alongside what it already reports.
+    Record the seeded graph in a short comment block at the top of
+    `TestDataSeeder.kt`, above the class: which estimation gets which shape
+    (webshop = diamond on both versions, mobile app = chain, data platform =
+    none) and why U05 stays unconnected. The seeded content is documented
+    nowhere else, and the next reader should not "tidy away" a graph that three
+    features depend on for their demo.
+  - |
+    Add a seeder-wide summary `Log.info` in `seed()`, after the three `seedX()`
+    calls, reporting the total number of schedule edges seeded.
+
+    Do NOT extend the existing `Log.info` at the end of `seedDataPlatform` —
+    that one reports the bucket+sampled estimation's buckets, and the data
+    platform is precisely the estimation left without a graph.
   - |
     Verify at RUNTIME, since `@IfBuildProfile("dev")` puts the seeder out of
     reach of `%test`. Against a FRESH database (the seeder skips when any
@@ -241,7 +273,7 @@ validation:
     groups and both fan into U04:
       set -e
       S=src/backend/implementation/src/main/kotlin/io/pythia/testdata/TestDataSeeder.kt
-      for e in "u01, u02" "u01, u03" "u02, u04" "u03, u04"; do
+      for e in "v2u01, v2u02" "v2u01, v2u03" "v2u02, v2u04" "v2u03, v2u04"; do
         grep -q "dependency(draft2, $e)" "$S" \
           || { echo "missing webshop edge: $e"; exit 1; }
       done
@@ -263,7 +295,7 @@ validation:
     fixture the session picker's preselect demo needs:
       set -e
       S=src/backend/implementation/src/main/kotlin/io/pythia/testdata/TestDataSeeder.kt
-      if grep -qE "dependency\(draft2, (u05|[a-z0-9]+, u05)" "$S"; then
+      if grep -qE "dependency\(draft2, (v2u05|[a-z0-9]+, v2u05)" "$S"; then
         echo "U05 was wired into the plan; it must stay unconnected"; exit 1
       fi
   - |
@@ -273,10 +305,38 @@ validation:
       set -e
       S=src/backend/implementation/src/main/kotlin/io/pythia/testdata/TestDataSeeder.kt
       dep1=$(grep -n "dependency(draft1," "$S" | head -1 | cut -d: -f1)
-      sub1=$(grep -n "submitDraft" "$S" | head -1 | cut -d: -f1)
+      # `estimationVersionService.submitDraft(` matches only the real CALLS: the
+      # class header comment this task requires also says `submitDraft` in prose,
+      # and a bare word match picks that up at the top of the file.
+      sub1=$(grep -n "estimationVersionService.submitDraft(" "$S" | head -1 | cut -d: -f1)
       test -n "$dep1" && test -n "$sub1"
       test "$dep1" -lt "$sub1" \
         || { echo "draft1 edges are added after submitDraft; the snapshot misses them"; exit 1; }
+  - |
+    The MOBILE APP's edges also precede ITS submit. The webshop check above
+    uses `head -1`, which resolves to the first `submitDraft` in the file
+    (seedWebshop's) — so without this second check the mobile app's chain could
+    land after its own snapshot and nothing would notice:
+      set -e
+      S=src/backend/implementation/src/main/kotlin/io/pythia/testdata/TestDataSeeder.kt
+      depm=$(grep -n "dependency(draft," "$S" | head -1 | cut -d: -f1)
+      subm=$(grep -n "estimationVersionService.submitDraft(" "$S" | sed -n '2p' | cut -d: -f1)
+      test -n "$depm" && test -n "$subm"
+      test "$depm" -lt "$subm" \
+        || { echo "mobile-app edges are added after its submitDraft; the snapshot misses them"; exit 1; }
+  - |
+    The diamond is a DIAMOND by shape, not just by edge count — U01 fans out to
+    two groups and both fan into U04. Counting call sites alone would accept a
+    duplicated edge or an accidental chain:
+      set -e
+      S=src/backend/implementation/src/main/kotlin/io/pythia/testdata/TestDataSeeder.kt
+      for pair in "draft1 v1" "draft2 v2"; do
+        set -- $pair
+        outs=$(grep -c "dependency($1, ${2}u01," "$S" || true)
+        ins=$(grep -c "dependency($1, .*, ${2}u04)" "$S" || true)
+        test "$outs" -eq 2 || { echo "$1: u01 should fan out to 2 groups, found $outs"; exit 1; }
+        test "$ins" -eq 2 || { echo "$1: u04 should have 2 predecessors, found $ins"; exit 1; }
+      done
   - |
     Capacity is above one worker on the seeded drafts, or levelling serialises
     the diamond and it renders exactly like the chain:
@@ -299,7 +359,8 @@ validation:
     title-matched lookup breaks silently on a rename:
       set -e
       S=src/backend/implementation/src/main/kotlin/io/pythia/testdata/TestDataSeeder.kt
-      grep -qE "val u01 = group\(" "$S"
+      grep -qE "val v1u01 = group\(" "$S"
+      grep -qE "val v2u01 = group\(" "$S"
       grep -qE "val m01 = group\(" "$S"
       if grep -qE "roots.*find *\{|first *\{ *it.title" "$S"; then
         echo "a title-based node lookup crept in"; exit 1
@@ -309,9 +370,16 @@ validation:
     logging API:
       set -e
       S=src/backend/implementation/src/main/kotlin/io/pythia/testdata/TestDataSeeder.kt
-      grep -q "Log.info" "$S"
-      awk '/Log.info/,/\)/' "$S" | grep -qiE "edge|dependenc" \
-        || { echo "the summary log does not report the seeded edges"; exit 1; }
+      # Grep the FILE, not a positional awk range: `awk '/Log.info/,/\)/'`
+      # starts at whichever Log.info comes first and stops at the first `)`, so
+      # a single-line `Log.info("…")` collapses the range to one line and a new
+      # call earlier in the file changes what gets scanned.
+      grep -qiE "Log\.info.*(edge|dependenc)|(edge|dependenc).*edges=" "$S" \
+        || grep -qiE "edges=" "$S" \
+        || { echo "no log line reports the seeded edge count"; exit 1; }
+      # and it must be in seed(), not tacked onto seedDataPlatform's bucket log
+      awk '/fun seed\(@Observes/,/^    }/' "$S" | grep -q "Log.info" \
+        || { echo "the summary log is not in seed()"; exit 1; }
   - |
     No e2e spec was coupled to the dev fixture. Every spec seeds its own data
     through the API; a spec reading the seed would fail on any non-fresh
@@ -329,6 +397,18 @@ validation:
       S=src/backend/implementation/src/main/kotlin/io/pythia/testdata/TestDataSeeder.kt
       n=$(grep -c "@Suppress" "$S" || true)
       test "$n" -le 2 || { echo "a new @Suppress appeared ($n total); the existing ones cover this"; exit 1; }
+  - |
+    The seeded shapes are documented in the seeder itself, since they live
+    nowhere else and three features rely on them for their demo:
+      set -e
+      S=src/backend/implementation/src/main/kotlin/io/pythia/testdata/TestDataSeeder.kt
+      # Scoped to the class KDoc block rather than a fixed `head -N` window:
+      # the imports push it past line 40, and that count changes with any import.
+      doc=$(awk '/^\/\*\*/,/^ \*\//' "$S")
+      printf '%s' "$doc" | grep -qiE "diamond|chain" \
+        || { echo "the seeded dependency shapes are not documented in the class KDoc"; exit 1; }
+      printf '%s' "$doc" | grep -q "U05" \
+        || { echo "the KDoc does not say why U05 stays unconnected"; exit 1; }
   - |
     ./gradlew :backend:implementation:test
   - |

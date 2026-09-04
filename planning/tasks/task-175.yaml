@@ -1,0 +1,321 @@
+id: task-175
+phase: phase-19
+title: "Arrowheads follow the connector's actual direction"
+depends_on: [task-174]
+description: |
+  Every arrowhead in the net-plan editor points due right, no matter where the
+  two cards sit relative to each other. An edge climbing three rows and an edge
+  running dead level get identical heads, so the head carries no information
+  about the connection it terminates.
+
+  ## The cause is the PATH, not the marker
+
+  Both markers already declare `orient="auto"`, which is the correct and only
+  way to make an SVG marker follow its path — so the obvious fix is already in
+  place and changing it would be a no-op. The heads are identical because the
+  path always *arrives* horizontally.
+
+  `DependencyEditor.svelte` builds a committed edge as:
+
+      M x1 y1  C mx y1,  mx y2,  x2 y2        // mx = (x1 + x2) / 2
+
+  A cubic Bézier's direction at its end is `3·(P3 − P2)`. Here
+  `P3 = (x2, y2)` and `P2 = (mx, y2)` share the same `y`, so the end tangent is
+  `3·(x2 − mx, 0)` — **purely horizontal for every edge**, whatever the vertical
+  offset between the cards. `orient="auto"` faithfully renders that as 0°.
+
+  The live drag arrow (`dragPath`) has the identical shape with `pointerPos` in
+  place of the target, so it has the identical defect — and it is the more
+  visible one, because it tracks the pointer while the user drags.
+
+  ## Target state
+
+  A connector still LEAVES its source horizontally — that tidy exit from the
+  card's right edge is what keeps edges from cutting diagonally across cards in
+  the layered layout — but it ARRIVES along the straight line between the two
+  cards, so `orient="auto"` gives the head the chord's angle.
+
+  Control points:
+
+      dx = x2 − x1,  dy = y2 − y1,  len = hypot(dx, dy)
+      k  = min(max(|dx| / 2, 24), 80, len / 2)      // stub length
+      P1 = (x1 + k,             y1)                 // leave horizontally
+      P2 = (x2 − k·dx/len,      y2 − k·dy/len)      // arrive along the chord
+      →  M x1 y1  C P1  P2  x2 y2
+
+  The end tangent is then `3·(P3 − P2) = 3k·(dx, dy)/len` — exactly the chord
+  direction, by construction rather than by approximation. The start tangent
+  stays horizontal because `P1` shares `y1`.
+
+  `k` is clamped three ways. The lower bound (24) keeps a stub on very short
+  edges; the upper bound (80) stops a very long one getting an absurdly lazy
+  arc; and **`len / 2` is what keeps the control points from overshooting their
+  own endpoint**.
+
+  That third term matters specifically for the LIVE arrow, and the two cases
+  differ. A committed edge can never run backwards: layer assignment computes
+  `want = max(0, …preds.map(p => layer(p) + 1))`, so a target's layer is
+  strictly greater than every predecessor's and `x` is monotonic in layer —
+  `dx > 0` by construction. But `dragPath`'s endpoint is `pointerPos`, which
+  can sit anywhere, **including left of the source card**. Without the `len / 2`
+  term, a minimum `k` of 24 would push the exit control point rightward while
+  the endpoint is leftward, so the live arrow loops out and doubles back — and
+  for a pointer a few pixels to the left, that loop is larger than the whole
+  chord.
+
+  Guard `len` against zero as well: two points can coincide (the pointer over
+  the source card's own right edge), and a divide-by-zero would emit `NaN` into
+  the `d` attribute and silently drop the edge.
+
+  ## One helper, because the duplication is what caused the bug
+
+  `path(from, to)` and the `dragPath` derivation each hand-roll the same curve,
+  which is precisely why both have the same flaw. Extract a single
+  `connector(x1, y1, x2, y2): string` and have both call it. After this task
+  there must be exactly ONE place in the component that emits a `C` command.
+
+  ## The fixture's geometry, already measured
+
+  With the spec's existing `seed` and one `groupA → groupB` dependency, only the
+  two collapsed group cards are visible: `place()` gives them rows 0 and 1, and
+  the dependency puts the target one layer right. So the chord is
+  `(CARD_W + GAP_X, CARD_H + GAP_Y) = (272, 78)` ≈ **16°** — comfortably above
+  the 1° threshold below, so the test premise holds without inventing a new
+  fixture. (Derived from the layer/row assignment and corroborated by the canvas
+  screenshot taken during task-174.)
+
+  ## What "correct" means here is measurable
+
+  This is geometry, so it gets asserted numerically rather than eyeballed. A
+  rendered `<path>` exposes `getTotalLength()` and `getPointAtLength()`, so a
+  test can sample two points near the end, derive the tangent angle, and
+  compare it against the chord angle computed from the two cards' own bounding
+  boxes. Today that assertion fails by construction: the measured angle is 0°
+  for every edge.
+
+  ## Deliberate non-goals
+
+  - **Do NOT touch `orient="auto"` on either marker.** It is already correct;
+    the defect is upstream of it. Both `schedule-arrow` and
+    `schedule-arrow-live` keep their current `viewBox`, `refX`/`refY`,
+    `markerWidth`/`markerHeight` and shape.
+  - **Do NOT switch to straight lines.** `M x1 y1 L x2 y2` would also give the
+    head the chord angle, and more simply — but it loses the horizontal exit,
+    so edges would leave cards at arbitrary angles and cut across neighbouring
+    cards in the layered layout. The asymmetric curve is the point: tidy exit,
+    informative arrival.
+  - **Do NOT change the arrowhead's size or shape**, the edge stroke width, or
+    the hit area. The edge `<path>` stays clickable for removal exactly as it
+    is.
+  - **Do NOT change card geometry or the layout algorithm.** `CARD_W`,
+    `CARD_H`, `GAP_X`, `GAP_Y` and `INDENT` are untouched, and several e2e
+    tests measure them.
+
+  ## No new logging, no new strings
+
+  Pure geometry inside an existing component: no service call, no domain
+  operation, no new `try`/`catch`, and nothing a user reads. Per the CLAUDE.md
+  conventions there is nothing to log — and no bare `console.*`, which is
+  banned outright. No i18n keys change.
+
+steps:
+  - |
+    In `src/frontend/src/lib/components/schedule/DependencyEditor.svelte`, add
+    a single `connector(x1: number, y1: number, x2: number, y2: number): string`
+    helper next to `path()`.
+
+    It returns the cubic described in the task: `P1 = (x1 + k, y1)` for a
+    horizontal exit, and `P2 = end − k·(unit chord)` so the end tangent equals
+    the chord direction. Compute `k` as `Math.min(Math.max(Math.abs(dx) / 2, 24), 80)`
+    and guard `len` with `|| 1` so a zero-length chord cannot emit `NaN` into
+    the `d` attribute.
+
+    Comment WHY the arrival is angled: the previous control point shared the
+    endpoint's `y`, which made every end tangent horizontal and every arrowhead
+    identical regardless of `orient="auto"`.
+  - |
+    Rewrite `path(from, to)` to compute the four coordinates exactly as it does
+    now (source right edge / vertical centre, target left edge / vertical
+    centre) and then `return connector(x1, y1, x2, y2)`. Keep the existing
+    null-guard on the two boxes returning `''`.
+  - |
+    Rewrite the `dragPath` `$derived.by` the same way: keep its `dragFrom` /
+    `pointerPos` guards and its source-edge coordinates, then
+    `return connector(x1, y1, pointerPos.x, pointerPos.y)`.
+
+    After this step the component must contain exactly one `C` path command, in
+    `connector` — the duplicated curve is what let both paths carry the same
+    defect.
+  - |
+    Extend `src/frontend/e2e/schedule.test.ts` with a numeric assertion, using
+    the existing `seed` / `openSchedule` / `dragDependency` helpers:
+
+      - draw one dependency between two cards that are NOT vertically aligned,
+      - read the edge `<path>`'s end tangent through the SVG DOM: sample
+        `getPointAtLength(total)` and `getPointAtLength(total - 2)` and take
+        `Math.atan2` of the delta,
+      - compute the expected chord angle from the two cards' `boundingBox()`
+        values (source right edge / vertical centre → target left edge /
+        vertical centre),
+      - assert the two agree within ~3°,
+      - and assert the magnitude is greater than 1°, which is what makes the
+        test fail against today's code — where every end tangent is exactly 0°,
+      - **also assert the START tangent is still horizontal** (sample
+        `getPointAtLength(0)` and `getPointAtLength(2)`; the `y` delta must be
+        ~0). This is the other half of the design and nothing else pins it: a
+        later "simplification" to `M … L …` would keep the arrival assertion
+        green while silently losing the tidy exit from the card's right edge,
+      - and assert the LIVE arrow agrees with the committed edge — drag without
+        dropping, read the `schedule-drag-arrow` path's end tangent, and check
+        it matches the chord to the pointer within the same tolerance. That is
+        the concrete payoff of the shared helper.
+
+    Add a second, cheaper assertion that the component emits one curve
+    definition rather than two, so the helper cannot silently be re-duplicated.
+  - |
+    Update `src/frontend/CLAUDE.md`, in the "Schedule bridge and dependency
+    editor (task-157)" section beside the existing note that both committed and
+    in-flight edges share one `<marker orient="auto">`: record that the
+    arrowhead's angle comes from the PATH's end tangent, that a control point
+    sharing the endpoint's `y` therefore pins every head to 0° however correct
+    `orient="auto"` is, and that both connectors are built by the single
+    `connector()` helper so the two cannot drift apart again.
+  - |
+    Run the gates: `./gradlew :frontend:check`, then `./gradlew build`, then
+    the Playwright suite with the dev stack up (`./scripts/dev.sh`; backend
+    :8090, Vite :5173; stop it with SIGTERM, never by killing the child JVMs):
+    `cd src/frontend && npm run test:e2e`.
+
+validation:
+  - |
+    The single connector helper exists and builds the curve. Prose in these
+    blocks stays at this indent; only shell is indented further, or an
+    extractor cannot tell them apart.
+      set -e
+      D=src/frontend/src/lib/components/schedule/DependencyEditor.svelte
+      grep -q "function connector(" "$D"
+      grep -q "Math.hypot" "$D"
+  - |
+    Exactly ONE place emits a cubic. The duplicated curve is what let `path()`
+    and `dragPath` carry the identical defect, so this is the check that stops
+    it recurring:
+      set -e
+      D=src/frontend/src/lib/components/schedule/DependencyEditor.svelte
+      # -F is REQUIRED: grep here is ugrep, where `{` is a repetition
+      # metacharacter, so a regex pattern containing `${` matches nothing and
+      # this check could never pass. Verified: -F reports 2 today, plain
+      # patterns report 0.
+      n=$(grep -cF 'C ${' "$D" || true)
+      test "$n" -eq 1 || { echo "expected 1 cubic path command, found $n"; exit 1; }
+  - |
+    Both callers go through the helper rather than hand-rolling their own:
+      set -e
+      D=src/frontend/src/lib/components/schedule/DependencyEditor.svelte
+      n=$(grep -c "connector(" "$D" || true)
+      test "$n" -ge 3 || { echo "connector() defined but not called from both paths (found $n mentions)"; exit 1; }
+      awk '/function path\(/,/^\t}/' "$D" | grep -q "connector(" \
+        || { echo "path() does not use the helper"; exit 1; }
+      awk '/const dragPath = \$derived.by/,/^\t}\);/' "$D" | grep -q "connector(" \
+        || { echo "dragPath does not use the helper"; exit 1; }
+  - |
+    The arrival is angled — the second control point must NOT share the
+    endpoint's y, which is the entire defect:
+      set -e
+      D=src/frontend/src/lib/components/schedule/DependencyEditor.svelte
+      body=$(awk '/function connector\(/,/^\t}/' "$D")
+      # Scoped to the second control point's Y and matched on the QUANTITIES it
+      # must involve, not on spacing: prettier writes `(k * dy) / len`, so a
+      # `dy / len` pattern would miss it while the intent is satisfied.
+      printf '%s' "$body" | grep "c2y" | grep -qE "dy.*len" \
+        || { echo "the end control point's y does not follow the chord"; exit 1; }
+      # and the old midpoint form is gone
+      if grep -q "const mx = (x1 + x2) / 2" "$D"; then
+        echo "the old horizontal-arrival midpoint is still there"; exit 1
+      fi
+  - |
+    The zero-length chord is guarded, or a degenerate layout emits NaN into the
+    `d` attribute and the edge silently vanishes:
+      set -e
+      D=src/frontend/src/lib/components/schedule/DependencyEditor.svelte
+      awk '/function connector\(/,/^\t}/' "$D" | grep -qE "\|\| 1|Math.max\(len" \
+        || { echo "len is not guarded against zero"; exit 1; }
+  - |
+    `k` is clamped at both ends, so a short edge cannot double back and a long
+    one cannot arc absurdly:
+      set -e
+      D=src/frontend/src/lib/components/schedule/DependencyEditor.svelte
+      body=$(awk '/function connector\(/,/^\t}/' "$D")
+      printf '%s' "$body" | grep -q "Math.min(Math.max(" \
+        || { echo "k is not clamped"; exit 1; }
+      # the len/2 term is what stops the LIVE arrow looping when the pointer is
+      # left of the source card; without it a minimum k of 24 overshoots
+      printf '%s' "$body" | grep -qE "len / 2|len/2" \
+        || { echo "k is not clamped by len/2; the drag arrow can loop backwards"; exit 1; }
+  - |
+    Both markers are untouched — the defect was never in them, and `orient` is
+    already the only correct setting:
+      set -e
+      D=src/frontend/src/lib/components/schedule/DependencyEditor.svelte
+      # CODE lines only. `orient="auto"` is also discussed in the helper's doc
+      # comment (explaining that the marker was never the defect), and a raw
+      # count picks that prose up — the same trap that has bitten two earlier
+      # checks in this repo.
+      n=$(grep -vE "^[[:space:]]*(//|\*|/\*|<!--)" "$D" | grep -c 'orient="auto"')
+      test "$n" -eq 2 || { echo "expected 2 marker orient attributes, found $n"; exit 1; }
+      grep -q 'id="schedule-arrow"' "$D"
+      grep -q 'id="schedule-arrow-live"' "$D"
+  - |
+    The layout constants are untouched — several e2e tests measure them:
+      set -e
+      D=src/frontend/src/lib/components/schedule/DependencyEditor.svelte
+      grep -q "const CARD_W = 200" "$D"
+      grep -q "const CARD_H = 62" "$D"
+      grep -q "const GAP_X = 72" "$D"
+      grep -q "const GAP_Y = 16" "$D"
+      grep -q "const INDENT = 24" "$D"
+  - |
+    No bare console.* was introduced:
+      set -e
+      D=src/frontend/src/lib/components/schedule/DependencyEditor.svelte
+      if grep -qE "(^|[^.[:alnum:]_])console\." "$D"; then echo "bare console"; exit 1; fi
+  - |
+    No i18n key changed — this task adds no user-visible text, so the catalogs
+    must stay exactly as they are. NOTE this is HEAD-relative: it is correct on
+    a clean tree (the normal state when a task starts) but will false-fail if
+    unrelated uncommitted catalog work is in flight; in that case verify by
+    inspection rather than weakening the check:
+      set -e
+      git diff --quiet HEAD -- src/frontend/src/lib/i18n/de.json src/frontend/src/lib/i18n/en.json \
+        || { echo "an i18n catalog changed; this task adds no strings"; exit 1; }
+  - |
+    The e2e suite asserts the angle NUMERICALLY, and in a way that fails against
+    today's always-horizontal tangent:
+      set -e
+      cd src/frontend
+      grep -q "getPointAtLength" e2e/schedule.test.ts \
+        || { echo "the tangent is not measured from the rendered path"; exit 1; }
+      grep -q "atan2" e2e/schedule.test.ts \
+        || { echo "no angle computation in the test"; exit 1; }
+      # the horizontal exit is half the design and nothing else pins it
+      grep -q "schedule-drag-arrow" e2e/schedule.test.ts \
+        || { echo "the live arrow's angle is not asserted"; exit 1; }
+  - |
+    The cause is documented where the marker is already described, so the next
+    reader does not "fix" it by touching `orient`:
+      set -e
+      C=src/frontend/CLAUDE.md
+      grep -q "task-175" "$C"
+      grep -q "connector(" "$C"
+      grep -qi "end tangent" "$C"
+  - |
+    ./gradlew :frontend:check
+  - |
+    ./gradlew build
+  - |
+    With the dev stack running (./scripts/dev.sh, backend :8090, Vite :5173):
+      cd src/frontend && npm run test:e2e
+
+outputs:
+  - modified: src/frontend/src/lib/components/schedule/DependencyEditor.svelte
+  - modified: src/frontend/e2e/schedule.test.ts
+  - modified: src/frontend/CLAUDE.md

@@ -159,6 +159,34 @@
 		// order, and none of the schedule semantics change here.
 		let nextRow = 0;
 		const visibleIds = new Set(order);
+		// A group starts at the layer of its EARLIEST member.
+		//
+		// The relaxation above only constrains nodes that a dependency actually
+		// names, and `place` below only propagates layers DOWNWARD (clamping a
+		// child up to its parent). So a dependency between two LEAVES in
+		// different groups ordered the leaves but left both group cards at layer
+		// 0 — they rendered as peers at the same x, with nothing on screen saying
+		// that one group's work follows the other's. Reported from the dev stack
+		// as "Benutzerkonto & Login" → "Authentifizierung & Autorisierung".
+		//
+		// MIN, not max: the group is a container, so it must start where its
+		// earliest child starts and stay at or left of all of them — which is
+		// what keeps its outline reading as containment (task-167). `tasks` is in
+		// tree order, so iterating in REVERSE visits children before parents and
+		// one pass settles every depth, nested groups included.
+		for (let i = tasks.length - 1; i >= 0; i -= 1) {
+			const task = tasks[i];
+			if (!visibleIds.has(task.logicalId)) continue;
+			let earliest = Number.POSITIVE_INFINITY;
+			for (const child of tasks) {
+				if (child.parentLogicalId !== task.logicalId) continue;
+				if (!visibleIds.has(child.logicalId)) continue;
+				earliest = Math.min(earliest, layer.get(child.logicalId) ?? 0);
+			}
+			if (earliest !== Number.POSITIVE_INFINITY && earliest > (layer.get(task.logicalId) ?? 0)) {
+				layer.set(task.logicalId, earliest);
+			}
+		}
 		// A child must never be placed LEFT of its parent, or the indentation and
 		// the container outline stop reading as containment. `layer` is derived
 		// from DEPENDENCIES alone, so an undependent child of a layer-2 group
@@ -337,8 +365,7 @@
 		if (a == null) return '';
 		const x1 = a.x + CARD_W;
 		const y1 = a.y + CARD_H / 2;
-		const mx = (x1 + pointerPos.x) / 2;
-		return `M ${x1} ${y1} C ${mx} ${y1}, ${mx} ${pointerPos.y}, ${pointerPos.x} ${pointerPos.y}`;
+		return connector(x1, y1, pointerPos.x, pointerPos.y);
 	});
 
 	function addEdge(from: string, to: string) {
@@ -380,16 +407,43 @@
 		}
 	}
 
+	/**
+	 * The ONE connector curve: leaves its source horizontally, arrives along the
+	 * straight line between the two points (task-175).
+	 *
+	 * The arrival direction is the whole point. A cubic's direction at its end is
+	 * `3·(P3 − P2)`, and the previous form used `P2 = (mx, y2)` — sharing the
+	 * endpoint's `y`, so every end tangent was `(dx, 0)` and every arrowhead
+	 * pointed due right no matter where the cards sat. `orient="auto"` on the
+	 * marker was always correct; the path was what pinned the angle to 0°.
+	 *
+	 * `k` is clamped three ways: a floor so short edges keep a stub, a ceiling so
+	 * long ones do not arc lazily, and `len / 2` so the control points cannot
+	 * overshoot their own endpoint. That last term is load-bearing for the LIVE
+	 * arrow: a committed edge always runs left-to-right (a target's layer is
+	 * strictly greater than its predecessors'), but the drag endpoint is the
+	 * pointer and can sit LEFT of the source card, where a bare floor of 24
+	 * would push the exit control point the wrong way and loop the arrow back on
+	 * itself.
+	 */
+	function connector(x1: number, y1: number, x2: number, y2: number): string {
+		const dx = x2 - x1;
+		const dy = y2 - y1;
+		// `|| 1`: the pointer can coincide with the source's own edge, and a
+		// divide-by-zero would put NaN in `d` and silently drop the path.
+		const len = Math.hypot(dx, dy) || 1;
+		const k = Math.min(Math.max(Math.abs(dx) / 2, 24), 80, len / 2);
+		const c1x = x1 + k;
+		const c2x = x2 - (k * dx) / len;
+		const c2y = y2 - (k * dy) / len;
+		return `M ${x1} ${y1} C ${c1x} ${y1}, ${c2x} ${c2y}, ${x2} ${y2}`;
+	}
+
 	function path(from: string, to: string): string {
 		const a = layout.boxes.get(from);
 		const b = layout.boxes.get(to);
 		if (a == null || b == null) return '';
-		const x1 = a.x + CARD_W;
-		const y1 = a.y + CARD_H / 2;
-		const x2 = b.x;
-		const y2 = b.y + CARD_H / 2;
-		const mx = (x1 + x2) / 2;
-		return `M ${x1} ${y1} C ${mx} ${y1}, ${mx} ${y2}, ${x2} ${y2}`;
+		return connector(a.x + CARD_W, a.y + CARD_H / 2, b.x, b.y + CARD_H / 2);
 	}
 
 	function days(v: number): string {

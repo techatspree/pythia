@@ -1023,9 +1023,9 @@
       "notes": "A drop that would create a dependency cycle commits it and replaces the graph with a recovery list; explain it in a modal at drop time and let the user cancel instead"
     },
     "task-173": {
-      "status": "pending",
-      "started_at": null,
-      "completed_at": null,
+      "status": "done",
+      "started_at": "2026-09-04T12:08:26+00:00",
+      "completed_at": "2026-09-04T12:19:23+00:00",
       "notes": "The dev seed data has no schedule dependencies, so the net-plan editor and critical path open empty on a fresh dev database; seed a realistic dependency set"
     },
     "task-174": {
@@ -1033,6 +1033,12 @@
       "started_at": "2026-09-03T06:50:22+00:00",
       "completed_at": "2026-09-03T07:04:42+00:00",
       "notes": "Every card in the dependency editor looks identical, so a leaf, a collapsed group and an expanded group are indistinguishable; differentiate them with net-plan-standard symbols and colour"
+    },
+    "task-175": {
+      "status": "done",
+      "started_at": "2026-09-04T10:03:47+00:00",
+      "completed_at": "2026-09-04T10:11:59+00:00",
+      "notes": "Dependency arrowheads always point the same way because the Bezier connector always arrives horizontally; make the head follow the actual direction between the two cards"
     }
   }
 }

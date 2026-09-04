@@ -10,6 +10,7 @@ import io.pythia.domain.draft.DraftEstimationNode
 import io.pythia.domain.draft.DraftEstimationVersion
 import io.pythia.domain.draft.DraftFixedItemNode
 import io.pythia.domain.draft.DraftGroupNode
+import io.pythia.domain.draft.DraftScheduleDependency
 import io.pythia.domain.draft.DraftProjectPhase
 import io.pythia.domain.draft.DraftTimeRelativeItemNode
 import io.pythia.method.EstimationMethod
@@ -37,6 +38,30 @@ import java.util.UUID
 // methods add up (TooManyFunctions) — all suppressed for this fixture class.
 @Suppress("MagicNumber", "LongMethod", "CyclomaticComplexMethod", "LongParameterList", "TooManyFunctions")
 @ApplicationScoped
+/**
+ * Dev-only fixture data (`%dev` profile), seeded once on startup when the
+ * database is empty.
+ *
+ * SCHEDULE GRAPHS (task-173) — the shapes are deliberate and differ per
+ * estimation, so the net-plan editor, the levelled makespan and the
+ * critical-path column all have something to show on a fresh database:
+ *
+ *  - Webshop, BOTH versions — a DIAMOND: U01 fans out to U02 and U03, which
+ *    fan back into U04. Two branches in parallel and a critical path through
+ *    only one of them. `U05: Noch zu schätzen` is in NO edge: it is the
+ *    deliberately-unestimated group the estimation-session picker's preselect
+ *    demo relies on.
+ *  - Mobile App MVP — a CHAIN, M01 → M02 → M03 → M04. Everything critical, the
+ *    makespan is the sum: the opposite behaviour to the diamond.
+ *  - Data platform (bucket+sampled) — NO graph. Its roots are bucketed leaves
+ *    and the bucket editor draws no net plan, so it also keeps the empty-graph
+ *    state represented in the fixture.
+ *
+ * Edges go on a draft BEFORE `submitDraft`, because `snapshotDraft` copies what
+ * is on the draft at that moment; otherwise every submitted version would have
+ * an empty graph. Do not "tidy away" these graphs — three features depend on
+ * them for their demo.
+ */
 @IfBuildProfile("dev")
 class TestDataSeeder(
     private val projectService: ProjectService,
@@ -53,9 +78,15 @@ class TestDataSeeder(
     @Transactional
     fun seed(@Observes @Priority(1) event: StartupEvent) {
         if (projectRepository.count() > 0L) return
-        seedWebshop()
-        seedMobileApp()
-        seedDataPlatform()
+        // Each seeder reports the edges it added, because counting at the end
+        // would UNDERCOUNT: `submitDraft` moves a draft's edges onto the
+        // submitted version and deletes the draft, so most of them are no
+        // longer reachable through `draftRepository`.
+        //
+        // Deliberately NOT tacked onto seedDataPlatform's own log: that
+        // estimation is the one left without a graph.
+        val edges = seedWebshop() + seedMobileApp() + seedDataPlatform()
+        Log.info("Seeded dev fixture: schedule edges=$edges")
     }
 
     private fun fixedLeaf(
@@ -109,6 +140,22 @@ class TestDataSeeder(
         return groupNode
     }
 
+    /**
+     * One finish-to-start edge, by `logicalId`.
+     *
+     * `DraftEstimationNode.logicalId` is a `UUID` while the edge columns are
+     * `String`, hence the `toString()`.
+     */
+    private fun dependency(
+        version: DraftEstimationVersion,
+        from: DraftEstimationNode,
+        to: DraftEstimationNode
+    ) = DraftScheduleDependency().apply {
+        this.version = version
+        this.fromLogicalId = from.logicalId.toString()
+        this.toLogicalId = to.logicalId.toString()
+    }
+
     private fun addRoots(version: DraftEstimationVersion, roots: List<DraftGroupNode>) {
         roots.forEachIndexed { idx, root -> root.position = idx }
         version.roots.addAll(roots)
@@ -147,7 +194,7 @@ class TestDataSeeder(
         version.roots.addAll(leaves)
     }
 
-    private fun seedWebshop() {
+    private fun seedWebshop(): Int {
         val project = projectService.create(
             name = "Webshop Redesign",
             description = "Komplette Neuentwicklung der E-Commerce-Plattform",
@@ -195,47 +242,48 @@ class TestDataSeeder(
         }
         draft1.phases.addAll(listOf(phaseKO, phaseUM, phaseAB))
 
-        addRoots(
-            draft1, listOf(
-                group(
-                    draft1, "U01: Konzeption", listOf(
-                        fixedLeaf(draft1, "Anforderungsworkshop & Kickoff", 1.0, 2.0, 3.0, phaseKO),
-                        fixedLeaf(draft1, "Systemarchitektur & Tech-Stack-Entscheidung", 2.0, 3.0, 5.0, phaseKO),
-                        fixedLeaf(draft1, "Datenbankdesign & ER-Modell", 1.0, 2.0, 4.0, phaseKO),
-                        timeRelativeLeaf(draft1, "Projektbegleitung", "h/Woche", 2.0, 4.0, 8.0, phaseKO)
-                    )
-                ),
-                group(
-                    draft1, "U02: Frontend Redesign", listOf(
-                        fixedLeaf(draft1, "Produktlisting & Suchfunktion", 3.0, 5.0, 8.0, phaseUM),
-                        fixedLeaf(draft1, "Warenkorb & Checkout-Prozess", 5.0, 8.0, 12.0, phaseUM),
-                        fixedLeaf(draft1, "Benutzerkonto & Login", 2.0, 4.0, 6.0, phaseUM),
-                        fixedLeaf(draft1, "Responsive Design & Mobile Optimierung", 2.0, 3.0, 5.0, phaseUM),
-                        timeRelativeLeaf(draft1, "UX-Begleitung", "h/Woche", 4.0, 5.0, 16.0, phaseKO)
-                    )
-                ),
-                group(
-                    draft1, "U03: Backend & Datenbank", listOf(
-                        fixedLeaf(draft1, "REST API Endpoints (CRUD)", 4.0, 6.0, 9.0, phaseUM),
-                        group(
-                            draft1, "Authentifizierung", listOf(
-                                fixedLeaf(draft1, "Login & Session-Verwaltung", 2.0, 3.0, 5.0, phaseUM),
-                                fixedLeaf(draft1, "OAuth2-Anbindung (Google, GitHub)", 2.0, 3.0, 5.0, phaseUM)
-                            )
-                        ),
-                        fixedLeaf(draft1, "Datenbankmigrationen & Seeding", 1.0, 2.0, 3.0, phaseUM),
-                        fixedLeaf(draft1, "Payment-Integration (Stripe)", 3.0, 5.0, 8.0, phaseUM)
-                    )
-                ),
-                group(
-                    draft1, "U04: Abnahme & Go-live", listOf(
-                        fixedLeaf(draft1, "Integrationstests & E2E-Tests", 2.0, 3.0, 5.0, phaseAB),
-                        fixedLeaf(draft1, "User Acceptance Testing (UAT)", 1.0, 2.0, 3.0, phaseAB),
-                        fixedLeaf(draft1, "Go-live, Deployment & Monitoring-Setup", 1.0, 2.0, 3.0, phaseAB)
-                    )
-                )
+        val v1u01 = group(
+            draft1, "U01: Konzeption", listOf(
+                fixedLeaf(draft1, "Anforderungsworkshop & Kickoff", 1.0, 2.0, 3.0, phaseKO),
+                fixedLeaf(draft1, "Systemarchitektur & Tech-Stack-Entscheidung", 2.0, 3.0, 5.0, phaseKO),
+                fixedLeaf(draft1, "Datenbankdesign & ER-Modell", 1.0, 2.0, 4.0, phaseKO),
+                timeRelativeLeaf(draft1, "Projektbegleitung", "h/Woche", 2.0, 4.0, 8.0, phaseKO)
             )
         )
+
+        val v1u02 = group(
+            draft1, "U02: Frontend Redesign", listOf(
+                fixedLeaf(draft1, "Produktlisting & Suchfunktion", 3.0, 5.0, 8.0, phaseUM),
+                fixedLeaf(draft1, "Warenkorb & Checkout-Prozess", 5.0, 8.0, 12.0, phaseUM),
+                fixedLeaf(draft1, "Benutzerkonto & Login", 2.0, 4.0, 6.0, phaseUM),
+                fixedLeaf(draft1, "Responsive Design & Mobile Optimierung", 2.0, 3.0, 5.0, phaseUM),
+                timeRelativeLeaf(draft1, "UX-Begleitung", "h/Woche", 4.0, 5.0, 16.0, phaseKO)
+            )
+        )
+
+        val v1u03 = group(
+            draft1, "U03: Backend & Datenbank", listOf(
+                fixedLeaf(draft1, "REST API Endpoints (CRUD)", 4.0, 6.0, 9.0, phaseUM),
+                group(
+                    draft1, "Authentifizierung", listOf(
+                        fixedLeaf(draft1, "Login & Session-Verwaltung", 2.0, 3.0, 5.0, phaseUM),
+                        fixedLeaf(draft1, "OAuth2-Anbindung (Google, GitHub)", 2.0, 3.0, 5.0, phaseUM)
+                    )
+                ),
+                fixedLeaf(draft1, "Datenbankmigrationen & Seeding", 1.0, 2.0, 3.0, phaseUM),
+                fixedLeaf(draft1, "Payment-Integration (Stripe)", 3.0, 5.0, 8.0, phaseUM)
+            )
+        )
+
+        val v1u04 = group(
+            draft1, "U04: Abnahme & Go-live", listOf(
+                fixedLeaf(draft1, "Integrationstests & E2E-Tests", 2.0, 3.0, 5.0, phaseAB),
+                fixedLeaf(draft1, "User Acceptance Testing (UAT)", 1.0, 2.0, 3.0, phaseAB),
+                fixedLeaf(draft1, "Go-live, Deployment & Monitoring-Setup", 1.0, 2.0, 3.0, phaseAB)
+            )
+        )
+
+        addRoots(draft1, listOf(v1u01, v1u02, v1u03, v1u04))
 
         draft1.additionalCosts.addAll(
             listOf(
@@ -255,6 +303,22 @@ class TestDataSeeder(
                 version = draft1
             }
         ))
+
+        // Three workers, so the two middle branches of the diamond below actually
+        // run in parallel; at teamFte 1 levelling would serialise them and the
+        // diamond would render indistinguishably from a chain.
+        draft1.teamFte = 3.0
+        // U01 fans out to U02 and U03, which fan back into U04. Added BEFORE the
+        // submit: `snapshotDraft` copies whatever is on the draft at that moment,
+        // so edges added afterwards would never reach the submitted version.
+        val draft1Deps = listOf(
+                dependency(draft1, v1u01, v1u02),
+                dependency(draft1, v1u01, v1u03),
+                dependency(draft1, v1u02, v1u04),
+                dependency(draft1, v1u03, v1u04)
+        )
+        draft1.scheduleDependencies.addAll(draft1Deps)
+        val draft1Edges = draft1Deps.size
 
         draftRepository.persist(draft1)
 
@@ -312,58 +376,58 @@ class TestDataSeeder(
         }
         draft2.phases.addAll(listOf(phase2KO, phase2UM, phase2AB))
 
-        addRoots(
-            draft2, listOf(
-                group(
-                    draft2, "U01: Konzeption", listOf(
-                        fixedLeaf(draft2, "Anforderungsworkshop & Kickoff", 1.0, 2.0, 4.0, phase2KO),
-                        fixedLeaf(draft2, "Systemarchitektur & Tech-Stack-Entscheidung", 3.0, 4.0, 6.0, phase2KO),
-                        fixedLeaf(draft2, "Datenbankdesign & ER-Modell", 1.0, 2.0, 3.0, phase2KO),
-                        fixedLeaf(draft2, "UX-Konzept & Wireframes", 3.0, 5.0, 8.0, phase2KO),
-                        timeRelativeLeaf(draft2, "Projektbegleitung", "h/Woche", 2.0, 4.0, 8.0, phase2KO)
-                    )
-                ),
-                group(
-                    draft2, "U02: Frontend Redesign", listOf(
-                        fixedLeaf(draft2, "Produktlisting & Suchfunktion", 3.0, 5.0, 7.0, phase2UM),
-                        fixedLeaf(draft2, "Warenkorb & Checkout-Prozess", 5.0, 8.0, 13.0, phase2UM),
-                        fixedLeaf(draft2, "Benutzerkonto & Login (OAuth2)", 2.0, 4.0, 6.0, phase2UM),
-                        fixedLeaf(draft2, "Produkt-Detailseite & Bildergalerie", 1.0, 2.0, 4.0, phase2UM)
-                    )
-                ),
-                group(
-                    draft2, "U03: Backend & Datenbank", listOf(
-                        fixedLeaf(draft2, "REST API Endpoints (CRUD)", 4.0, 6.0, 9.0, phase2UM),
-                        fixedLeaf(draft2, "Authentifizierung & Autorisierung", 2.0, 3.0, 5.0, phase2UM),
-                        fixedLeaf(draft2, "Datenbankmigrationen & Seeding", 1.0, 2.0, 3.0, phase2UM),
-                        group(
-                            draft2, "Bezahlung", listOf(
-                                fixedLeaf(draft2, "Stripe-Integration", 2.0, 4.0, 6.0, phase2UM),
-                                fixedLeaf(draft2, "Sepa-Lastschrift", 1.0, 2.0, 4.0, phase2UM)
-                            )
-                        ),
-                        fixedLeaf(draft2, "E-Mail-Benachrichtigungen (Bestellung/Versand)", 1.0, 2.0, 4.0, phase2UM)
-                    )
-                ),
-                group(
-                    draft2, "U04: Abnahme & Go-live", listOf(
-                        fixedLeaf(draft2, "Integrationstests & E2E-Tests", 2.0, 3.0, 5.0, phase2AB),
-                        fixedLeaf(draft2, "User Acceptance Testing (UAT)", 2.0, 3.0, 4.0, phase2AB),
-                        fixedLeaf(draft2, "Go-live, Deployment & Monitoring-Setup", 1.0, 2.0, 3.0, phase2AB)
-                    )
-                ),
-                // Not-yet-estimated leaves (0/0/0): the collaborative-session setup
-                // preselects exactly these unestimated items (task-128).
-                group(
-                    draft2, "U05: Noch zu schätzen", listOf(
-                        fixedLeaf(draft2, "Wunschlisten & Merkzettel", 0.0, 0.0, 0.0, phase2UM),
-                        fixedLeaf(draft2, "Produktbewertungen & Rezensionen", 0.0, 0.0, 0.0, phase2UM),
-                        fixedLeaf(draft2, "Gutschein- & Rabattcode-System", 0.0, 0.0, 0.0, phase2UM),
-                        fixedLeaf(draft2, "Mehrsprachigkeit (i18n)", 0.0, 0.0, 0.0, phase2KO)
-                    )
-                )
+        val v2u01 = group(
+            draft2, "U01: Konzeption", listOf(
+                fixedLeaf(draft2, "Anforderungsworkshop & Kickoff", 1.0, 2.0, 4.0, phase2KO),
+                fixedLeaf(draft2, "Systemarchitektur & Tech-Stack-Entscheidung", 3.0, 4.0, 6.0, phase2KO),
+                fixedLeaf(draft2, "Datenbankdesign & ER-Modell", 1.0, 2.0, 3.0, phase2KO),
+                fixedLeaf(draft2, "UX-Konzept & Wireframes", 3.0, 5.0, 8.0, phase2KO),
+                timeRelativeLeaf(draft2, "Projektbegleitung", "h/Woche", 2.0, 4.0, 8.0, phase2KO)
             )
         )
+
+        val v2u02 = group(
+            draft2, "U02: Frontend Redesign", listOf(
+                fixedLeaf(draft2, "Produktlisting & Suchfunktion", 3.0, 5.0, 7.0, phase2UM),
+                fixedLeaf(draft2, "Warenkorb & Checkout-Prozess", 5.0, 8.0, 13.0, phase2UM),
+                fixedLeaf(draft2, "Benutzerkonto & Login (OAuth2)", 2.0, 4.0, 6.0, phase2UM),
+                fixedLeaf(draft2, "Produkt-Detailseite & Bildergalerie", 1.0, 2.0, 4.0, phase2UM)
+            )
+        )
+
+        val v2u03 = group(
+            draft2, "U03: Backend & Datenbank", listOf(
+                fixedLeaf(draft2, "REST API Endpoints (CRUD)", 4.0, 6.0, 9.0, phase2UM),
+                fixedLeaf(draft2, "Authentifizierung & Autorisierung", 2.0, 3.0, 5.0, phase2UM),
+                fixedLeaf(draft2, "Datenbankmigrationen & Seeding", 1.0, 2.0, 3.0, phase2UM),
+                group(
+                    draft2, "Bezahlung", listOf(
+                        fixedLeaf(draft2, "Stripe-Integration", 2.0, 4.0, 6.0, phase2UM),
+                        fixedLeaf(draft2, "Sepa-Lastschrift", 1.0, 2.0, 4.0, phase2UM)
+                    )
+                ),
+                fixedLeaf(draft2, "E-Mail-Benachrichtigungen (Bestellung/Versand)", 1.0, 2.0, 4.0, phase2UM)
+            )
+        )
+
+        val v2u04 = group(
+            draft2, "U04: Abnahme & Go-live", listOf(
+                fixedLeaf(draft2, "Integrationstests & E2E-Tests", 2.0, 3.0, 5.0, phase2AB),
+                fixedLeaf(draft2, "User Acceptance Testing (UAT)", 2.0, 3.0, 4.0, phase2AB),
+                fixedLeaf(draft2, "Go-live, Deployment & Monitoring-Setup", 1.0, 2.0, 3.0, phase2AB)
+            )
+        )
+
+        val v2u05 = group(
+            draft2, "U05: Noch zu schätzen", listOf(
+                fixedLeaf(draft2, "Wunschlisten & Merkzettel", 0.0, 0.0, 0.0, phase2UM),
+                fixedLeaf(draft2, "Produktbewertungen & Rezensionen", 0.0, 0.0, 0.0, phase2UM),
+                fixedLeaf(draft2, "Gutschein- & Rabattcode-System", 0.0, 0.0, 0.0, phase2UM),
+                fixedLeaf(draft2, "Mehrsprachigkeit (i18n)", 0.0, 0.0, 0.0, phase2KO)
+            )
+        )
+
+        addRoots(draft2, listOf(v2u01, v2u02, v2u03, v2u04, v2u05))
 
         draft2.additionalCosts.addAll(
             listOf(
@@ -384,10 +448,25 @@ class TestDataSeeder(
             }
         ))
 
+        draft2.teamFte = 3.0
+        // Same diamond on the current draft. U05 ("Noch zu schätzen") appears in
+        // NO edge: it is the deliberately-unestimated fixture the estimation
+        // session picker's preselect demo needs.
+        val draft2Deps = listOf(
+                dependency(draft2, v2u01, v2u02),
+                dependency(draft2, v2u01, v2u03),
+                dependency(draft2, v2u02, v2u04),
+                dependency(draft2, v2u03, v2u04)
+        )
+        draft2.scheduleDependencies.addAll(draft2Deps)
+        val draft2Edges = draft2Deps.size
+
         draftRepository.persist(draft2)
+
+        return draft1Edges + draft2Edges
     }
 
-    private fun seedMobileApp() {
+    private fun seedMobileApp(): Int {
         val project = projectService.create(
             name = "Mobile App MVP",
             description = "Native iOS/Android-App für Kunden-Self-Service",
@@ -441,52 +520,66 @@ class TestDataSeeder(
         }
         draft.phases.addAll(listOf(phaseKD, phaseS1, phaseS2, phaseAS))
 
-        addRoots(
-            draft, listOf(
+        val m01 = group(
+            draft, "M01: Konzeption & UX", listOf(
+                fixedLeaf(draft, "UX Research & Nutzerinterviews", 2.0, 3.0, 5.0, phaseKD),
+                fixedLeaf(draft, "UI-Design & Designsystem", 5.0, 8.0, 12.0, phaseKD),
+                fixedLeaf(draft, "App-Architektur & Projektsetup", 2.0, 3.0, 4.0, phaseKD)
+            )
+        )
+
+        val m02 = group(
+            draft, "M02: App Features", listOf(
+                fixedLeaf(draft, "Authentifizierung (Biometrie, PIN)", 3.0, 5.0, 8.0, phaseS1),
+                fixedLeaf(draft, "Dashboard & Kontoübersicht", 3.0, 5.0, 8.0, phaseS1),
+                fixedLeaf(draft, "Push-Benachrichtigungen", 2.0, 3.0, 5.0, phaseS1),
+                fixedLeaf(draft, "Transaktionshistorie & Filter", 3.0, 5.0, 7.0, phaseS2),
+                fixedLeaf(draft, "Profil & Einstellungen", 2.0, 3.0, 4.0, phaseS2),
                 group(
-                    draft, "M01: Konzeption & UX", listOf(
-                        fixedLeaf(draft, "UX Research & Nutzerinterviews", 2.0, 3.0, 5.0, phaseKD),
-                        fixedLeaf(draft, "UI-Design & Designsystem", 5.0, 8.0, 12.0, phaseKD),
-                        fixedLeaf(draft, "App-Architektur & Projektsetup", 2.0, 3.0, 4.0, phaseKD)
-                    )
-                ),
-                group(
-                    draft, "M02: App Features", listOf(
-                        fixedLeaf(draft, "Authentifizierung (Biometrie, PIN)", 3.0, 5.0, 8.0, phaseS1),
-                        fixedLeaf(draft, "Dashboard & Kontoübersicht", 3.0, 5.0, 8.0, phaseS1),
-                        fixedLeaf(draft, "Push-Benachrichtigungen", 2.0, 3.0, 5.0, phaseS1),
-                        fixedLeaf(draft, "Transaktionshistorie & Filter", 3.0, 5.0, 7.0, phaseS2),
-                        fixedLeaf(draft, "Profil & Einstellungen", 2.0, 3.0, 4.0, phaseS2),
-                        group(
-                            draft, "Offline-Modus", listOf(
-                                fixedLeaf(draft, "Datensynchronisation", 3.0, 5.0, 8.0, phaseS2),
-                                fixedLeaf(draft, "Konfliktauflösung", 2.0, 3.0, 5.0, phaseS2)
-                            )
-                        )
-                    )
-                ),
-                group(
-                    draft, "M03: Backend & API", listOf(
-                        fixedLeaf(draft, "REST API Design & Dokumentation", 2.0, 3.0, 4.0, phaseS1),
-                        fixedLeaf(draft, "Auth & JWT-Token-Service", 2.0, 3.0, 5.0, phaseS1),
-                        fixedLeaf(draft, "Daten-API & Business Logic", 4.0, 6.0, 9.0, phaseS2)
-                    )
-                ),
-                group(
-                    draft, "M04: Release & QA", listOf(
-                        fixedLeaf(draft, "App Store Einreichung (iOS & Android)", 2.0, 3.0, 5.0, phaseAS),
-                        fixedLeaf(draft, "Regression-Tests & Bugfixing", 3.0, 4.0, 6.0, phaseAS),
-                        fixedLeaf(draft, "Beta-Test & Feedback-Implementierung", 2.0, 3.0, 5.0, phaseAS)
+                    draft, "Offline-Modus", listOf(
+                        fixedLeaf(draft, "Datensynchronisation", 3.0, 5.0, 8.0, phaseS2),
+                        fixedLeaf(draft, "Konfliktauflösung", 2.0, 3.0, 5.0, phaseS2)
                     )
                 )
             )
         )
 
+        val m03 = group(
+            draft, "M03: Backend & API", listOf(
+                fixedLeaf(draft, "REST API Design & Dokumentation", 2.0, 3.0, 4.0, phaseS1),
+                fixedLeaf(draft, "Auth & JWT-Token-Service", 2.0, 3.0, 5.0, phaseS1),
+                fixedLeaf(draft, "Daten-API & Business Logic", 4.0, 6.0, 9.0, phaseS2)
+            )
+        )
+
+        val m04 = group(
+            draft, "M04: Release & QA", listOf(
+                fixedLeaf(draft, "App Store Einreichung (iOS & Android)", 2.0, 3.0, 5.0, phaseAS),
+                fixedLeaf(draft, "Regression-Tests & Bugfixing", 3.0, 4.0, 6.0, phaseAS),
+                fixedLeaf(draft, "Beta-Test & Feedback-Implementierung", 2.0, 3.0, 5.0, phaseAS)
+            )
+        )
+
+        addRoots(draft, listOf(m01, m02, m03, m04))
+
         addMobileAppCosts(draft, phaseS1, phaseAS)
+
+        // Two workers. A CHAIN, not a second diamond: every task is critical and
+        // the makespan is the sum, which is the opposite scheduler behaviour to
+        // the webshop's diamond — so the fixture demonstrates both.
+        draft.teamFte = 2.0
+        val mobileDeps = listOf(
+            dependency(draft, m01, m02),
+            dependency(draft, m02, m03),
+            dependency(draft, m03, m04)
+        )
+        draft.scheduleDependencies.addAll(mobileDeps)
 
         draftRepository.persist(draft)
 
         estimationVersionService.submitDraft(estimation.id!!)
+
+        return mobileDeps.size
     }
 
     private fun addMobileAppCosts(
@@ -521,7 +614,7 @@ class TestDataSeeder(
         ))
     }
 
-    private fun seedDataPlatform() {
+    private fun seedDataPlatform(): Int {
         val project = projectService.create(
             name = "Data Platform Migration",
             description = "Migration der Datenplattform auf ein Lakehouse",
@@ -589,5 +682,8 @@ class TestDataSeeder(
             "Seeded bucket+sampled estimation ${estimation.id} " +
                 "(method=${estimation.method}, buckets=${estimation.buckets.size})"
         )
+
+        // No schedule graph here, by design (see the class KDoc).
+        return 0
     }
 }
