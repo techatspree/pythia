@@ -25,6 +25,7 @@
 	import { installUndoShortcuts } from '$lib/stores/undoKeyboard.svelte';
 	import { loadEditorModule } from '$lib/methods/registry';
 	import { formatMethodLabel } from '$lib/methods/labels';
+	import DisclosureTriangle from '$lib/ui/DisclosureTriangle.svelte';
 
 	type EstimationMethod = components['schemas']['EstimationMethod'];
 	// Bucket + sampled method (task-104). Read untyped from the estimation
@@ -372,7 +373,7 @@
 
 <div class="p-6">
 	{#if loading}
-		<p class="text-gray-500">{$_('editor.loading')}</p>
+		<p class="text-ink-muted">{$_('editor.loading')}</p>
 	{:else if versionData}
 		<ErrorBanner message={bannerMessage} ondismiss={() => (bannerMessage = null)} />
 		<div class="flex items-center justify-between mb-4">
@@ -381,7 +382,7 @@
 			>
 			<div class="flex items-center gap-3">
 				{#if saveStatus === 'saving'}
-					<span class="text-sm text-gray-400">{$_('editor.saving')}</span>
+					<span class="text-sm text-ink-faint">{$_('editor.saving')}</span>
 				{:else if saveStatus === 'saved'}
 					<span class="text-sm text-green-600">{$_('editor.saved')}</span>
 				{/if}
@@ -392,7 +393,7 @@
 						disabled={!undoStore.canUndo}
 						aria-label={$_('editor.undo')}
 						title={undoTooltip}
-						class="px-3 py-2 text-sm border rounded hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed"
+						class="px-3 py-2 text-sm border rounded hover:bg-surface-subtle disabled:opacity-40 disabled:cursor-not-allowed"
 					>
 						{$_('editor.undoLabel')}
 					</button>
@@ -402,7 +403,7 @@
 						disabled={!undoStore.canRedo}
 						aria-label={$_('editor.redo')}
 						title={redoTooltip}
-						class="px-3 py-2 text-sm border rounded hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed"
+						class="px-3 py-2 text-sm border rounded hover:bg-surface-subtle disabled:opacity-40 disabled:cursor-not-allowed"
 					>
 						{$_('editor.redoLabel')}
 					</button>
@@ -411,7 +412,7 @@
 						onclick={() => (showHistory = !showHistory)}
 						aria-label={$_('editor.historyAria')}
 						aria-pressed={showHistory}
-						class="px-3 py-2 text-sm border rounded hover:bg-gray-50 {showHistory
+						class="px-3 py-2 text-sm border rounded hover:bg-surface-subtle {showHistory
 							? 'bg-brand-green/10 border-brand-green/40 text-brand-green'
 							: ''}"
 					>
@@ -429,13 +430,13 @@
 					<div class="absolute right-0 mt-1 bg-white border rounded shadow text-sm z-10">
 						<button
 							type="button"
-							class="block w-full text-left px-4 py-2 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed"
+							class="block w-full text-left px-4 py-2 hover:bg-surface-subtle disabled:opacity-40 disabled:cursor-not-allowed"
 							disabled={exporting}
 							onclick={() => exportVersion('xlsx')}
 						>{$_('editor.exportXlsx')}</button>
 						<button
 							type="button"
-							class="block w-full text-left px-4 py-2 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed"
+							class="block w-full text-left px-4 py-2 hover:bg-surface-subtle disabled:opacity-40 disabled:cursor-not-allowed"
 							disabled={exporting}
 							onclick={() => exportVersion('csv')}
 						>{$_('editor.exportCsv')}</button>
@@ -472,7 +473,7 @@
 				bind:value={currentNotes}
 			></textarea>
 		{:else if versionData.notes}
-			<p class="mb-4 text-sm text-gray-600 italic">{versionData.notes}</p>
+			<p class="mb-4 text-sm text-ink-muted italic">{versionData.notes}</p>
 		{/if}
 
 		<EstimationSummaryPanel {totals} />
@@ -491,7 +492,7 @@
 				onclick={() => (scheduleOpen = !scheduleOpen)}
 			>
 				<span>{$_('schedule.title')}</span>
-				<span aria-hidden="true">{scheduleOpen ? '▾' : '▸'}</span>
+				<DisclosureTriangle expanded={scheduleOpen} />
 			</button>
 			{#if scheduleOpen}
 				<div class="p-4">
@@ -504,12 +505,12 @@
 							type="number"
 							min="1"
 							step="1"
-							class="w-full rounded border border-gray-300 px-2 py-1 text-sm focus:border-brand-green focus:ring-1 focus:ring-brand-green/40 focus:outline-none"
+							class="w-full rounded border border-hairline px-2 py-1 text-sm focus:border-brand-green focus:ring-1 focus:ring-brand-green/40 focus:outline-none"
 							data-testid="team-fte"
 							disabled={!versionData.isDraft}
 							bind:value={currentTeamFte}
 						/>
-						<p class="mt-1 text-xs text-gray-500">{$_('schedule.teamSize.hint')}</p>
+						<p class="mt-1 text-xs text-ink-muted">{$_('schedule.teamSize.hint')}</p>
 						{#if schedule?.error?.kind === 'INVALID_TEAM_FTE'}
 							<p class="mt-1 text-xs text-red-700" data-testid="team-fte-error">
 								{$_('schedule.error.invalidTeamFte')}
@@ -520,15 +521,15 @@
 					{#if schedule && schedule.error == null}
 						<div class="mb-4 grid gap-4 sm:grid-cols-2">
 							<div>
-								<p class="text-xs text-gray-500 uppercase">{$_('schedule.plannedLength')}</p>
+								<p class="text-xs text-ink-muted uppercase">{$_('schedule.plannedLength')}</p>
 								<p class="text-lg font-semibold" data-testid="schedule-planned-length">
 									{formatFixed(schedule.projectDurationDays, $locale ?? 'de', 1)}
 									{$_('schedule.days')}
 								</p>
-								<p class="text-xs text-gray-500">{$_('schedule.plannedLengthHint')}</p>
+								<p class="text-xs text-ink-muted">{$_('schedule.plannedLengthHint')}</p>
 							</div>
 							<div>
-								<p class="text-xs text-gray-500 uppercase">{$_('schedule.uncertainty')}</p>
+								<p class="text-xs text-ink-muted uppercase">{$_('schedule.uncertainty')}</p>
 								<p class="text-lg font-semibold" data-testid="schedule-uncertainty">
 									{formatFixed(schedule.optimisticDurationDays, $locale ?? 'de', 1)}–{formatFixed(
 										schedule.pessimisticDurationDays,
@@ -537,7 +538,7 @@
 									)}
 									{$_('schedule.days')}
 								</p>
-								<p class="text-xs text-gray-500">{$_('schedule.uncertaintyHint')}</p>
+								<p class="text-xs text-ink-muted">{$_('schedule.uncertaintyHint')}</p>
 							</div>
 						</div>
 					{/if}
@@ -574,7 +575,7 @@
 				editable={versionData.isDraft}
 			/>
 		{:else}
-			<p class="text-gray-500">{$_('editor.loadingEditor')}</p>
+			<p class="text-ink-muted">{$_('editor.loadingEditor')}</p>
 		{/if}
 
 		{#if undoStore.conflict}

@@ -20,5 +20,5 @@
 {#if account && account.roles.includes(role)}
 	{@render children()}
 {:else}
-	<div class="text-sm text-gray-400 italic">Insufficient role ({role})</div>
+	<div class="text-sm text-ink-faint italic">Insufficient role ({role})</div>
 {/if}

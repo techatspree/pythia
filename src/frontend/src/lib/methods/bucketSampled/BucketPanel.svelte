@@ -67,9 +67,9 @@
 	}
 </script>
 
-<div class="mb-4 border rounded-lg p-3 bg-gray-50/40">
+<div class="mb-4 border rounded-lg p-3 bg-surface-subtle/40">
 	<div class="flex items-center justify-between mb-2">
-		<h3 class="text-sm font-semibold text-gray-700">{$_('bucket.panelTitle')}</h3>
+		<h3 class="text-sm font-semibold text-ink-body">{$_('bucket.panelTitle')}</h3>
 		{#if editable}
 			<button
 				type="button"
@@ -97,7 +97,7 @@
 					     dragged chip and carries no bucket of its own. -->
 					<span class="w-24 h-5" aria-hidden="true"></span>
 				{:else if editable}
-					<span class="cursor-grab text-gray-300 select-none" aria-hidden="true" title={$_('bucket.dragTitle')}>⠿</span>
+					<span class="cursor-grab text-ink-faint select-none" aria-hidden="true" title={$_('bucket.dragTitle')}>⠿</span>
 					<input
 						type="text"
 						class="bg-transparent text-sm w-24 focus:outline-none focus:ring-1 focus:ring-brand-green/40 rounded px-1"
@@ -108,18 +108,18 @@
 					<button
 						type="button"
 						onclick={() => removeBucket(bucket.id)}
-						class="text-gray-300 hover:text-red-500 leading-none"
+						class="text-ink-faint hover:text-red-500 leading-none"
 						aria-label={$_('bucket.deleteAria')}
 						title={$_('bucket.deleteTitle')}>✕</button
 					>
 				{:else}
-					<span class="text-sm text-gray-700">{bucket.label}</span>
+					<span class="text-sm text-ink-body">{bucket.label}</span>
 				{/if}
 			</div>
 		{/each}
 	</div>
 
 	{#if buckets.length === 0}
-		<p class="text-xs text-gray-400 mt-1">{$_('bucket.empty')}</p>
+		<p class="text-xs text-ink-faint mt-1">{$_('bucket.empty')}</p>
 	{/if}
 </div>

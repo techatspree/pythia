@@ -20,7 +20,7 @@
 
 	<div class="overflow-x-auto">
 		<table class="w-full text-sm border rounded">
-			<thead class="bg-gray-50 text-xs uppercase tracking-wide text-gray-500">
+			<thead class="bg-surface-subtle text-xs uppercase tracking-wide text-ink-muted">
 				<tr>
 					<th class="text-left px-3 py-2">{$_('session.summary.item')}</th>
 					<th class="text-right px-3 py-2">{$_('session.summary.finalEstimate')}</th>
@@ -42,7 +42,7 @@
 									1
 								)} / {formatFixed(item.finalTriple.maxEffort, loc, 1)}
 							{:else}
-								<span class="text-gray-400">{$_('session.summary.noFinal')}</span>
+								<span class="text-ink-faint">{$_('session.summary.noFinal')}</span>
 							{/if}
 						</td>
 					</tr>

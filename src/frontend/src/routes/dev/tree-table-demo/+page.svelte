@@ -112,7 +112,7 @@
 
 {#snippet nameCell(node: CatalogNode, _ctx: TreeNodeContext<CatalogNode>)}
 	{#if node.kind === 'group'}
-		<span class="font-semibold text-gray-800">{node.name}</span>
+		<span class="font-semibold text-ink-strong">{node.name}</span>
 	{:else}
 		<input
 			class="w-full bg-transparent focus:outline-none focus:ring-1 focus:ring-brand-green/40 rounded px-1 py-0.5"
@@ -124,7 +124,7 @@
 
 {#snippet quantityCell(node: CatalogNode, _ctx: TreeNodeContext<CatalogNode>)}
 	{#if node.kind === 'group'}
-		<span class="text-gray-500 tabular-nums">{sumQuantity(node)}</span>
+		<span class="text-ink-muted tabular-nums">{sumQuantity(node)}</span>
 	{:else}
 		<input
 			type="number"
@@ -153,16 +153,16 @@
 
 {#snippet lineTotalCell(node: CatalogNode, _ctx: TreeNodeContext<CatalogNode>)}
 	{#if node.kind === 'group'}
-		<span class="text-gray-700 tabular-nums">€{sumLineTotal(node).toFixed(2)}</span>
+		<span class="text-ink-body tabular-nums">€{sumLineTotal(node).toFixed(2)}</span>
 	{:else}
-		<span class="text-gray-600 tabular-nums">€{(node.quantity * node.unitPrice).toFixed(2)}</span>
+		<span class="text-ink-muted tabular-nums">€{(node.quantity * node.unitPrice).toFixed(2)}</span>
 	{/if}
 {/snippet}
 
 {#snippet rowActionsSnippet(_node: CatalogNode, _ctx: TreeNodeContext<CatalogNode>)}
 	<button
 		type="button"
-		class="text-gray-300 hover:text-red-500 transition-colors leading-none"
+		class="text-ink-faint hover:text-red-500 transition-colors leading-none"
 		title="Delete"
 		aria-label="Delete row">✕</button
 	>
@@ -174,7 +174,7 @@
 
 <div class="p-8 max-w-5xl mx-auto">
 	<h1 class="text-2xl font-semibold mb-2">TreeTable demo</h1>
-	<p class="text-sm text-gray-600 mb-6">
+	<p class="text-sm text-ink-muted mb-6">
 		A static catalog fixture exercising the generic TreeTable component.
 		Drag rows with mouse or keyboard (Tab → Space → Arrow → Space) to reorganise.
 	</p>

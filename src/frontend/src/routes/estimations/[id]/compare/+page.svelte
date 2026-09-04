@@ -90,7 +90,7 @@
 	function deltaClass(delta: number): string {
 		if (delta < 0) return 'text-green-600';
 		if (delta > 0) return 'text-red-600';
-		return 'text-gray-500';
+		return 'text-ink-muted';
 	}
 
 	function pathLabel(path: string[]): string {
@@ -110,11 +110,11 @@
 	<ErrorBanner message={bannerMessage} ondismiss={() => (bannerMessage = null)} />
 
 	{#if loading}
-		<p class="mt-4 text-gray-500">{$_('compare.loading')}</p>
+		<p class="mt-4 text-ink-muted">{$_('compare.loading')}</p>
 	{:else if comparison && versionA && versionB}
 		<h1 class="text-2xl font-bold mt-4 mb-4">{labelA} → {labelB}</h1>
 
-		<div class="flex items-center gap-6 mb-6 p-4 bg-gray-50 border rounded-lg text-sm">
+		<div class="flex items-center gap-6 mb-6 p-4 bg-surface-subtle border rounded-lg text-sm">
 			<span>
 				{$_('compare.effort')}
 				<span class="font-medium">{fmt(versionA.totalEffort)} PT</span>
@@ -133,12 +133,12 @@
 		</div>
 
 		{#if isEmpty}
-			<p class="text-gray-500">{$_('compare.empty', { values: { a: labelA, b: labelB } })}</p>
+			<p class="text-ink-muted">{$_('compare.empty', { values: { a: labelA, b: labelB } })}</p>
 		{:else}
 			{#if comparison.parameterChanges.length > 0}
 				<h2 class="text-lg font-semibold mb-2">{$_('compare.parameters')}</h2>
 				<table class="w-full text-sm border rounded-lg overflow-hidden mb-6">
-					<thead class="bg-gray-100 text-left">
+					<thead class="bg-surface-subtle text-left">
 						<tr>
 							<th class="px-3 py-2">{$_('compare.colParameter')}</th>
 							<th class="px-3 py-2">{labelA}</th>
@@ -161,7 +161,7 @@
 
 			<h2 class="text-lg font-semibold mb-2">{$_('compare.nodes')}</h2>
 			<table class="w-full text-sm border rounded-lg overflow-hidden">
-				<thead class="bg-gray-100 text-left">
+				<thead class="bg-surface-subtle text-left">
 					<tr>
 						<th class="px-3 py-2">{$_('compare.colPath')}</th>
 						<th class="px-3 py-2">{$_('compare.colType')}</th>

@@ -1,0 +1,268 @@
+id: task-176
+phase: phase-10
+title: "Reset e2e fixture data before each Playwright run"
+depends_on: []
+description: |
+  Every e2e spec creates its own projects through the API and nothing ever
+  deletes them, so the dev database grows without bound across local runs and
+  the suite degrades until it fails for reasons unrelated to the code.
+
+  ## Measured, not theoretical
+
+  Ten specs call `POST /api/projects` (auth-gate, bucket-hierarchy,
+  bucket-views, create-estimation, endpoint-authorization, export,
+  merlin-export, schedule, summary-panel, treetable-header-fit), and a run
+  creates roughly one project per test.
+
+  After three suite runs plus one screenshot run against the same stack the
+  database held **231 projects**, and the suite went from 107 passed to
+  **81 passed / 26 failed**. The failures are not assertion failures — they are
+  30-second `locator.click` / `locator.focus` / `locator.boundingBox` timeouts
+  (26 of them) plus `.first()` locators resolving to the wrong row, e.g.
+  `bucket-hierarchy.test.ts`'s `+ Gruppe` button. Restarting the stack on a
+  fresh throwaway database and running the identical code gave 107 passed
+  again.
+
+  So the failure mode is **across** runs, not within one: a single run's ~110
+  projects is fine. The suite needs to start from a known-small database.
+
+  ## Why the suite cannot fix this itself today
+
+  There is **no `DELETE /api/projects/{id}` endpoint at all**. Only
+  `SystemSettingsResource` and `EstimationVersionResource` carry a `@DELETE`.
+  The specs have no way to remove what they create.
+
+  ## Target state
+
+  A Playwright run begins with at most the seeded fixture in the database. The
+  suite's own accumulation within a run is left alone — it is not the problem.
+
+  ## The delete capability is DEV-ONLY, deliberately
+
+  Do **not** add `DELETE /api/projects/{id}` to the production API for a test's
+  benefit. Add a test-support resource gated with `@IfBuildProfile("dev")` —
+  the same compile-time gate `TestDataSeeder` uses, which means the endpoint
+  does not exist in a production image at all. That is a stronger guarantee
+  than an authorization check on a destructive endpoint, and it keeps the
+  production surface unchanged.
+
+  ## A keep-list, not a name-prefix match
+
+  Most fixtures are named `E2E <something>`, but not all:
+  `endpoint-authorization.test.ts` creates one called literally
+  `EstimatorWrite`, and several specs create projects through the UI with names
+  like `Connection Project`. Any prefix rule would leave those behind, which is
+  exactly how the count crept to 231 unnoticed.
+
+  So the cleanup deletes **everything except the three seeded projects**, and
+  identifies those by a **shared constant** rather than three retyped literals
+  — otherwise the keep-list and the seeder drift apart and the next rename
+  silently wipes the demo data.
+
+  ## Sessions block the delete, and nothing else does
+
+  `Project` → estimations is `cascade = [CascadeType.ALL], orphanRemoval = true`,
+  and `Estimation` → its draft (`@OneToOne`), submitted versions and buckets are
+  the same, so versions, nodes and schedule dependencies all cascade away
+  cleanly.
+
+  `EstimationSession` is the exception: it holds a plain
+  `@ManyToOne @JoinColumn(name = "estimation_id", nullable = false)` with **no
+  cascade from the estimation side**. A session row pointing at an estimation
+  being deleted therefore violates the FK. Sessions for the affected
+  estimations must be deleted first. Its own children (participants, items,
+  votes) do cascade from the session, so removing the session is enough.
+
+  ## globalSetup, not globalTeardown
+
+  Clean **before** the run, for two reasons:
+
+    - Part of the 231 arrived through runs that were interrupted part-way. A
+      teardown never executes in that case; a setup is idempotent and cleans up
+      after the previous crash.
+    - A failing run's data is worth keeping for debugging. Teardown would
+      destroy exactly the state someone wants to inspect.
+
+  `playwright.config.ts` currently declares no `globalSetup`.
+
+steps:
+  - |
+    Extract the seeded project names into a single shared constant so the
+    keep-list cannot drift from what is actually seeded. Add
+    `src/backend/implementation/src/main/kotlin/io/pythia/testdata/SeededProjects.kt`:
+
+      object SeededProjects {
+          const val WEBSHOP = "Webshop Redesign"
+          const val MOBILE_APP = "Mobile App MVP"
+          const val DATA_PLATFORM = "Data Platform Migration"
+          val ALL = listOf(WEBSHOP, MOBILE_APP, DATA_PLATFORM)
+      }
+
+    Replace the three retyped literals in `TestDataSeeder.kt` (`name = "Webshop
+    Redesign"` and the other two) with these constants. Change nothing else
+    about the seeder.
+  - |
+    Add `src/backend/implementation/src/main/kotlin/io/pythia/rest/TestDataResource.kt`:
+    a JAX-RS resource at `/api/dev/test-data`, annotated `@IfBuildProfile("dev")`
+    so it cannot be built into a production image, and `@RolesAllowed("ADMIN")`.
+
+    One method: `DELETE /api/dev/test-data` → `200` with a small JSON body
+    `{ "deletedProjects": <n>, "deletedSessions": <n> }`.
+
+    The session side has entities under `io.pythia.domain.session` but no
+    repository is named here on purpose — use whatever
+    `EstimationSessionRepository` already offers, or a JPQL delete; do not add a
+    repository method that only this dev endpoint uses.
+
+    It must delete, in this order and inside one `@Transactional`:
+      1. every `EstimationSession` whose estimation belongs to a project NOT in
+         `SeededProjects.ALL` — sessions do not cascade from the estimation
+         side and would otherwise violate the FK,
+      2. every `Project` whose name is not in `SeededProjects.ALL`; estimations,
+         versions, nodes, buckets and schedule dependencies all cascade from
+         there.
+
+    Log per the CLAUDE.md backend convention: `Log.info` with both counts on
+    success (it is a destructive operation, so the record matters), `Log.error`
+    on the failure path.
+  - |
+    Add `src/frontend/e2e/global-setup.ts`: a Playwright `globalSetup` that
+    `DELETE`s `/api/dev/test-data` with the `Authorization: Dev dev-admin`
+    header the specs already use, reads the returned counts and logs one line.
+
+    It must NOT fail the run when the endpoint is absent or the stack is not up
+    in the expected shape — a `404` means someone is running against a non-dev
+    profile, and that is a reason to warn and continue, not to block every
+    test. A connection error should still fail loudly, because that means no
+    stack at all and every test is about to fail anyway.
+  - |
+    Wire it in `src/frontend/playwright.config.ts`:
+    `globalSetup: './e2e/global-setup.ts'`. The file declares no `globalSetup`
+    today.
+  - |
+    Document the mechanism in `src/frontend/CLAUDE.md`, beside the existing e2e
+    notes: that the suite creates a project per test and deliberately does not
+    clean up per-spec; that `globalSetup` resets to the seeded fixture BEFORE a
+    run (so an interrupted run is recovered and a failing run's data survives
+    for inspection); that the delete lives behind `@IfBuildProfile("dev")` and
+    must never become a production endpoint; and that the keep-list is
+    `SeededProjects.ALL`, not a name prefix, because `EstimatorWrite` and the
+    UI-created fixtures carry no common prefix.
+  - |
+    Run the gates: `./gradlew :backend:implementation:test`, then
+    `./gradlew build`, then — with a dev stack up (`./scripts/dev.sh`; backend
+    :8090, Vite :5173; stop it with SIGTERM, never by killing the child JVMs) —
+    the Playwright suite TWICE in a row: `cd src/frontend && npm run test:e2e`
+    followed immediately by a second `npm run test:e2e`.
+
+    Two consecutive green runs against one stack is the actual acceptance
+    criterion — that is precisely what fails today.
+
+validation:
+  - |
+    The shared constant exists and the seeder uses it instead of literals.
+    Prose in these blocks stays at this indent; only shell is indented further,
+    or an extractor cannot tell them apart.
+      set -e
+      C=src/backend/implementation/src/main/kotlin/io/pythia/testdata/SeededProjects.kt
+      S=src/backend/implementation/src/main/kotlin/io/pythia/testdata/TestDataSeeder.kt
+      test -f "$C"
+      grep -q "object SeededProjects" "$C"
+      grep -q "Webshop Redesign" "$C"
+      grep -q "SeededProjects" "$S"
+      # the literals must be GONE from the seeder, or the two can drift
+      if grep -qE 'name = "(Webshop Redesign|Mobile App MVP|Data Platform Migration)"' "$S"; then
+        echo "the seeder still retypes a seeded project name"; exit 1
+      fi
+  - |
+    The delete endpoint exists and is gated to the dev profile — this is the
+    guarantee that it cannot reach production, so assert it directly:
+      set -e
+      R=src/backend/implementation/src/main/kotlin/io/pythia/rest/TestDataResource.kt
+      test -f "$R"
+      grep -q '@IfBuildProfile("dev")' "$R"
+      grep -q "@DELETE" "$R"
+      grep -q "api/dev/test-data" "$R"
+      grep -q 'RolesAllowed("ADMIN")' "$R"
+  - |
+    Sessions are deleted BEFORE projects. They hold a non-null
+    `@ManyToOne` to estimation with no cascade from that side, so the reverse
+    order fails on the FK — and only under data that has sessions, which is the
+    kind of bug that hides:
+      set -e
+      R=src/backend/implementation/src/main/kotlin/io/pythia/rest/TestDataResource.kt
+      sess=$(grep -n -i "session" "$R" | head -1 | cut -d: -f1)
+      proj=$(grep -nE "Project.*delete|delete.*[Pp]roject" "$R" | head -1 | cut -d: -f1)
+      test -n "$sess" && test -n "$proj"
+      test "$sess" -lt "$proj" \
+        || { echo "projects are deleted before sessions; the FK will block"; exit 1; }
+  - |
+    The seeded three are PRESERVED, not deleted — the keep-list is the whole
+    point, and a cleanup that wiped the demo data would be worse than none:
+      set -e
+      R=src/backend/implementation/src/main/kotlin/io/pythia/rest/TestDataResource.kt
+      grep -q "SeededProjects" "$R"
+      # matched on the keep-list, never on a name prefix
+      if grep -qiE '"E2E|startsWith\("E2E' "$R"; then
+        echo "a name-prefix rule crept in; EstimatorWrite and UI fixtures would survive"; exit 1
+      fi
+  - |
+    The destructive operation is logged with its counts, per the backend
+    logging convention:
+      set -e
+      R=src/backend/implementation/src/main/kotlin/io/pythia/rest/TestDataResource.kt
+      grep -q "Log.info" "$R"
+      grep -q "Log.error" "$R"
+  - |
+    globalSetup exists, is wired into the Playwright config, and calls the
+    endpoint:
+      set -e
+      G=src/frontend/e2e/global-setup.ts
+      test -f "$G"
+      grep -q "api/dev/test-data" "$G"
+      grep -q "Dev dev-admin" "$G"
+      grep -q "globalSetup" src/frontend/playwright.config.ts
+      grep -q "global-setup" src/frontend/playwright.config.ts
+  - |
+    A missing endpoint warns rather than blocking every test — running against
+    a non-dev profile must not make the whole suite unrunnable:
+      set -e
+      G=src/frontend/e2e/global-setup.ts
+      grep -qE "404|res.ok|status\(\)" "$G" \
+        || { echo "global-setup does not handle the endpoint being absent"; exit 1; }
+  - |
+    No production endpoint was added for the tests' benefit:
+      set -e
+      P=src/backend/implementation/src/main/kotlin/io/pythia/rest/ProjectResource.kt
+      # test -f FIRST: with the file absent, grep merely fails and the `if`
+      # below never fires, so this check would pass while proving nothing.
+      test -f "$P" || { echo "ProjectResource.kt not found at the expected path"; exit 1; }
+      if grep -q "@DELETE" "$P"; then
+        echo "a DELETE reached the production project API; it must stay dev-only"; exit 1
+      fi
+  - |
+    The mechanism is documented where the other e2e notes are, so the next
+    reader does not "helpfully" add a per-spec teardown:
+      set -e
+      C=src/frontend/CLAUDE.md
+      grep -q "task-176" "$C"
+      grep -qi "globalSetup" "$C"
+      grep -q "SeededProjects" "$C"
+  - |
+    ./gradlew :backend:implementation:test
+  - |
+    ./gradlew build
+  - |
+    With a dev stack up (./scripts/dev.sh, backend :8090, Vite :5173), run the
+    suite TWICE against the SAME stack. Two consecutive green runs is the
+    acceptance criterion — one run has always passed; it is the second that
+    fails today:
+      cd src/frontend && npm run test:e2e && npm run test:e2e
+
+outputs:
+  - created: src/backend/implementation/src/main/kotlin/io/pythia/testdata/SeededProjects.kt
+  - created: src/backend/implementation/src/main/kotlin/io/pythia/rest/TestDataResource.kt
+  - created: src/frontend/e2e/global-setup.ts
+  - modified: src/backend/implementation/src/main/kotlin/io/pythia/testdata/TestDataSeeder.kt
+  - modified: src/frontend/playwright.config.ts
+  - modified: src/frontend/CLAUDE.md

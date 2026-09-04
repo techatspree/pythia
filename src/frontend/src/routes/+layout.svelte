@@ -111,7 +111,7 @@
 	{:else if ready}
 		<RequireAuth {account} {refresh} {children} />
 	{:else}
-		<p class="p-6 text-sm text-gray-600">Loading…</p>
+		<p class="p-6 text-sm text-ink-muted">Loading…</p>
 	{/if}
 </main>
 

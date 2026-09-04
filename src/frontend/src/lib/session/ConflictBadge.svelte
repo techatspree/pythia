@@ -39,17 +39,17 @@
 		{#if open}
 			<div
 				data-testid="conflict-drawer"
-				class="absolute left-0 z-20 mt-1 w-72 rounded-lg border border-gray-200 bg-white p-3 shadow-lg"
+				class="absolute left-0 z-20 mt-1 w-72 rounded-lg border border-hairline bg-white p-3 shadow-lg"
 			>
-				<p class="mb-2 text-xs text-gray-600">
+				<p class="mb-2 text-xs text-ink-muted">
 					{$_('session.conflict.explain', { values: { bucket: assignment?.bucketId ?? '' } })}
 				</p>
 				<ul class="space-y-1">
 					{#each conflicts as c (c.estimatorId + c.at)}
 						<li class="flex items-baseline justify-between gap-2 text-xs">
-							<span class="font-medium text-gray-800">{c.displayName ?? c.estimatorId}</span>
-							<span class="text-gray-600">{c.bucketId}</span>
-							<span class="text-gray-400">{formatDate(c.at, loc)}</span>
+							<span class="font-medium text-ink-strong">{c.displayName ?? c.estimatorId}</span>
+							<span class="text-ink-muted">{c.bucketId}</span>
+							<span class="text-ink-faint">{formatDate(c.at, loc)}</span>
 						</li>
 					{/each}
 				</ul>

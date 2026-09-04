@@ -125,7 +125,7 @@
 			></textarea>
 		</div>
 	{:else if store.currentItem?.discussionNotes}
-		<div class="border rounded p-3 bg-gray-50/40 text-sm">
+		<div class="border rounded p-3 bg-surface-subtle/40 text-sm">
 			<span class="block text-sm font-medium mb-1">
 				{$_('session.phaseOne.notes')}
 			</span>
@@ -134,18 +134,18 @@
 	{/if}
 
 	<div>
-		<h3 class="text-sm font-semibold uppercase tracking-wide text-gray-500 mb-2 flex items-center gap-2">
+		<h3 class="text-sm font-semibold uppercase tracking-wide text-ink-muted mb-2 flex items-center gap-2">
 			{$_('session.phaseTwo.title')}
 			<!-- Bucket sessions only: surfaces a live LWW disagreement on the item
 			     under discussion, so the moderator sees it before finalizing. -->
 			<ConflictBadge assignment={store.currentItem?.bucketAssignment} />
 		</h3>
 		{#if votes.length === 0}
-			<p class="text-sm text-gray-500">{$_('session.phaseTwo.noVotes')}</p>
+			<p class="text-sm text-ink-muted">{$_('session.phaseTwo.noVotes')}</p>
 		{:else}
 			<div class="overflow-x-auto">
 				<table class="w-full text-sm border rounded">
-					<thead class="bg-gray-50 text-xs uppercase tracking-wide text-gray-500">
+					<thead class="bg-surface-subtle text-xs uppercase tracking-wide text-ink-muted">
 						<tr>
 							<th class="text-left px-3 py-2">{$_('session.phaseTwo.estimator')}</th>
 							<th class="text-right px-3 py-2">{$_('session.phaseOne.optimistic')}</th>
@@ -161,7 +161,7 @@
 								<td class="px-3 py-2 text-right">{formatFixed(v.triple.minEffort, loc, 1)}</td>
 								<td class="px-3 py-2 text-right">{formatFixed(v.triple.expectedEffort, loc, 1)}</td>
 								<td class="px-3 py-2 text-right">{formatFixed(v.triple.maxEffort, loc, 1)}</td>
-								<td class="px-3 py-2 text-gray-400">{$_(`session.phase.${v.phase}`)}</td>
+								<td class="px-3 py-2 text-ink-faint">{$_(`session.phase.${v.phase}`)}</td>
 							</tr>
 						{/each}
 					</tbody>
@@ -172,11 +172,11 @@
 
 	{#if aggregate}
 		<div class="border rounded-lg p-4" data-testid="aggregate">
-			<h3 class="text-sm font-semibold uppercase tracking-wide text-gray-500 mb-3">
+			<h3 class="text-sm font-semibold uppercase tracking-wide text-ink-muted mb-3">
 				{$_('session.phaseTwo.aggregate')}
 			</h3>
 			<dl class="grid grid-cols-2 gap-x-6 gap-y-2 text-sm">
-				<dt class="text-gray-500">{$_('session.phaseTwo.meanTriple')}</dt>
+				<dt class="text-ink-muted">{$_('session.phaseTwo.meanTriple')}</dt>
 				<dd class="text-right font-medium" data-testid="aggregate-mean">
 					{formatFixed(aggregate.meanMin, loc, 1)} / {formatFixed(aggregate.meanExpected, loc, 1)} / {formatFixed(
 						aggregate.meanMax,
@@ -184,13 +184,13 @@
 						1
 					)}
 				</dd>
-				<dt class="text-gray-500">{$_('session.phaseTwo.pertMean')}</dt>
+				<dt class="text-ink-muted">{$_('session.phaseTwo.pertMean')}</dt>
 				<dd class="text-right font-medium">{formatFixed(aggregate.pertMean, loc, 2)}</dd>
-				<dt class="text-gray-500">{$_('session.phaseTwo.range')}</dt>
+				<dt class="text-ink-muted">{$_('session.phaseTwo.range')}</dt>
 				<dd class="text-right">{formatFixed(aggregate.expectedRange, loc, 1)}</dd>
-				<dt class="text-gray-500">{$_('session.phaseTwo.stdDev')}</dt>
+				<dt class="text-ink-muted">{$_('session.phaseTwo.stdDev')}</dt>
 				<dd class="text-right">{formatFixed(aggregate.expectedStdDev, loc, 2)}</dd>
-				<dt class="text-gray-500">{$_('session.phaseTwo.cv')}</dt>
+				<dt class="text-ink-muted">{$_('session.phaseTwo.cv')}</dt>
 				<dd class="text-right">{formatFixed(aggregate.expectedCv, loc, 2)}</dd>
 			</dl>
 		</div>
@@ -198,7 +198,7 @@
 
 	{#if store.iEstimate}
 		<div class="space-y-3">
-			<h3 class="text-sm font-semibold uppercase tracking-wide text-gray-500">
+			<h3 class="text-sm font-semibold uppercase tracking-wide text-ink-muted">
 				{$_('session.phaseTwo.revise')}
 			</h3>
 			<div class="grid grid-cols-3 gap-3">
@@ -244,7 +244,7 @@
 
 	{#if store.isModerator}
 		<div class="flex items-center gap-3">
-			<span class="text-sm {allAgreed ? 'text-green-600' : 'text-gray-500'}">
+			<span class="text-sm {allAgreed ? 'text-green-600' : 'text-ink-muted'}">
 				{allAgreed
 					? $_('session.phaseTwo.allAgreed')
 					: $_('session.phaseTwo.notAllAgreed', {

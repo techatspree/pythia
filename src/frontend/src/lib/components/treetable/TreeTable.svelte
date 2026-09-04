@@ -7,6 +7,7 @@
 	import { dndzone } from 'svelte-dnd-action';
 	import { SvelteMap, SvelteSet } from 'svelte/reactivity';
 	import type { TreeNodeContext, TreeTableProps } from './types';
+	import DisclosureTriangle from '$lib/ui/DisclosureTriangle.svelte';
 
 	let {
 		roots = $bindable<T[]>([]),
@@ -262,7 +263,7 @@
 {#snippet indent(d: number)}
 	{#each Array(d) as _, i (i)}
 		<span
-			class="inline-block border-l-2 border-gray-300 align-middle"
+			class="inline-block border-l-2 border-hairline align-middle"
 			style="width: 1.5rem; height: 1.5rem;"
 			aria-hidden="true"
 		></span>
@@ -274,7 +275,7 @@
 		<button
 			type="button"
 			tabindex="0"
-			class="inline-block w-5 text-gray-400 hover:text-gray-700 cursor-pointer select-none"
+			class="inline-block w-5 text-ink-faint hover:text-ink-body cursor-pointer select-none"
 			onclick={ctx.toggle}
 			onkeydown={(e) => {
 				if (e.key === ' ' || e.key === 'Enter') {
@@ -284,7 +285,7 @@
 			}}
 			aria-label={ctx.expanded ? 'Collapse' : 'Expand'}
 		>
-			{ctx.expanded ? '▼' : '▶'}
+			<DisclosureTriangle expanded={ctx.expanded} />
 		</button>
 	{:else}
 		<span class="inline-block w-5" aria-hidden="true"></span>
@@ -309,14 +310,14 @@
 		{...extraAttrs}
 	>
 		<div
-			class="grid items-center border-b hover:bg-gray-50"
+			class="grid items-center border-b hover:bg-surface-subtle"
 			style="grid-template-columns: {gridTemplateColumns}"
 		>
 			{#if editable}
 				<div class="py-1 px-1 flex items-center">
 					<span
 						data-dnd-handle
-						class="cursor-grab text-gray-300 hover:text-gray-500 select-none"
+						class="cursor-grab text-ink-faint hover:text-ink-muted select-none"
 						title="Drag to move"
 						aria-hidden="true">⋮⋮</span
 					>
@@ -446,7 +447,7 @@
 			</div>
 
 			{#if footer}
-				<div class="bg-gray-50 border-t-2 border-gray-300 py-2 px-3">
+				<div class="bg-surface-subtle border-t-2 border-hairline py-2 px-3">
 					{@render footer(roots)}
 				</div>
 			{/if}

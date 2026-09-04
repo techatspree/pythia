@@ -45,7 +45,7 @@
 	<div class="bg-white rounded-lg shadow-xl p-6 w-full max-w-md">
 		<h2 class="text-lg font-semibold mb-4">{$_('schedule.cycleRefused.title')}</h2>
 
-		<p class="text-sm text-gray-600 mb-4">{$_('schedule.cycleRefused.body')}</p>
+		<p class="text-sm text-ink-muted mb-4">{$_('schedule.cycleRefused.body')}</p>
 
 		<p class="text-sm font-medium mb-4 break-words" data-testid="cycle-refused-loop">{loop}</p>
 

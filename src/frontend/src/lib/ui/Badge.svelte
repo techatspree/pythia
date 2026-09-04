@@ -19,8 +19,8 @@
 
 	const VARIANTS: Record<Variant, string> = {
 		brand: 'bg-brand-green/20 text-brand-green',
-		neutral: 'bg-gray-100 text-gray-500',
-		muted: 'bg-gray-200 text-gray-500',
+		neutral: 'bg-surface-subtle text-ink-muted',
+		muted: 'bg-surface-inactive text-ink-muted',
 		// Draft / not-yet-final. A real state in VersionList, not decoration —
 		// without it that site would need a per-call class override, which is the
 		// duplication this primitive removes.

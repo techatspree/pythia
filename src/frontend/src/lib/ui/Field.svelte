@@ -27,6 +27,6 @@
 	<label class="block text-sm font-medium mb-1" for={id}>{label}</label>
 	{@render children?.()}
 	{#if hint}
-		<p class="text-xs text-gray-500 mt-1">{hint}</p>
+		<p class="text-xs text-ink-muted mt-1">{hint}</p>
 	{/if}
 </div>

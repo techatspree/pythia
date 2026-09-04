@@ -237,7 +237,7 @@
 	</h1>
 
 	{#if loading}
-		<p class="text-gray-500">{$_('editor.loadingEditor')}</p>
+		<p class="text-ink-muted">{$_('editor.loadingEditor')}</p>
 	{:else}
 		<div class="mb-4 flex flex-wrap items-end gap-6">
 			<div>
@@ -249,12 +249,12 @@
 					type="number"
 					min="1"
 					step="1"
-					class="w-56 rounded border border-gray-300 px-2 py-1 text-sm focus:border-brand-green focus:ring-1 focus:ring-brand-green/40 focus:outline-none"
+					class="w-56 rounded border border-hairline px-2 py-1 text-sm focus:border-brand-green focus:ring-1 focus:ring-brand-green/40 focus:outline-none"
 					data-testid="team-fte"
 					disabled={!editable}
 					bind:value={currentTeamFte}
 				/>
-				<p class="mt-1 max-w-md text-xs text-gray-500">{$_('schedule.teamSize.hint')}</p>
+				<p class="mt-1 max-w-md text-xs text-ink-muted">{$_('schedule.teamSize.hint')}</p>
 				{#if schedule?.error?.kind === 'INVALID_TEAM_FTE'}
 					<p class="mt-1 text-xs text-red-700" data-testid="team-fte-error">
 						{$_('schedule.error.invalidTeamFte')}
@@ -264,13 +264,13 @@
 
 			{#if schedule && schedule.error == null}
 				<div>
-					<p class="text-xs text-gray-500 uppercase">{$_('schedule.plannedLength')}</p>
+					<p class="text-xs text-ink-muted uppercase">{$_('schedule.plannedLength')}</p>
 					<p class="text-lg font-semibold" data-testid="schedule-planned-length">
 						{days(schedule.projectDurationDays)} {$_('schedule.days')}
 					</p>
 				</div>
 				<div>
-					<p class="text-xs text-gray-500 uppercase">{$_('schedule.uncertainty')}</p>
+					<p class="text-xs text-ink-muted uppercase">{$_('schedule.uncertainty')}</p>
 					<p class="text-lg font-semibold" data-testid="schedule-uncertainty">
 						{days(schedule.optimisticDurationDays)}–{days(schedule.pessimisticDurationDays)}
 						{$_('schedule.days')}
@@ -279,7 +279,7 @@
 			{/if}
 
 			{#if saveStatus !== 'idle'}
-				<span class="text-xs text-gray-500" data-testid="schedule-save-status"
+				<span class="text-xs text-ink-muted" data-testid="schedule-save-status"
 					>{saveStatus === 'saving' ? $_('editor.saving') : $_('editor.saved')}</span
 				>
 			{/if}

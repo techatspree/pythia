@@ -54,7 +54,7 @@
 			/>
 			<!-- The installation's configured name (task-146), falling back to the
 			     built-in brand.name when none is set. -->
-			<span class="font-heading text-lg tracking-tight text-gray-900" data-testid="brand-name"
+			<span class="font-heading text-lg tracking-tight text-ink-strong" data-testid="brand-name"
 				>{system.displayName ?? $_('brand.name')}</span
 			>
 		</a>
@@ -75,7 +75,7 @@
 						aria-current={isActive(item.href) ? 'page' : undefined}
 						class="inline-block text-sm px-2 py-1 border-b-2 {isActive(item.href)
 							? 'text-brand-green border-brand-green'
-							: 'text-gray-600 border-transparent hover:text-gray-900'}"
+							: 'text-ink-muted border-transparent hover:text-ink-strong'}"
 					>
 						{$_(item.key)}
 					</a>

@@ -49,15 +49,15 @@
 >
 	<div class="bg-white rounded-lg shadow-xl p-6 w-full max-w-lg">
 		<h2 class="text-lg font-semibold mb-4">{$_('merlin.diffTitle')}</h2>
-		<p class="text-sm text-gray-600 mb-4">{$_('merlin.diffBody')}</p>
+		<p class="text-sm text-ink-muted mb-4">{$_('merlin.diffBody')}</p>
 
 		{#each groups as group (group.label)}
 			{#if group.paths.length > 0}
 				<div class="mb-3">
-					<h3 class="text-xs font-semibold uppercase tracking-wide text-gray-500 mb-1">
+					<h3 class="text-xs font-semibold uppercase tracking-wide text-ink-muted mb-1">
 						{group.label} ({group.paths.length})
 					</h3>
-					<ul class="max-h-32 overflow-y-auto border rounded bg-gray-50/60 text-xs text-gray-700">
+					<ul class="max-h-32 overflow-y-auto border rounded bg-surface-subtle/60 text-xs text-ink-body">
 						{#each group.paths as path (path)}
 							<li class="px-2 py-1 border-b last:border-b-0 break-words">{path}</li>
 						{/each}

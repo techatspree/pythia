@@ -90,17 +90,17 @@ description: |
   Every grey in the app is therefore a raw Tailwind palette class, chosen per
   site with nothing to diverge from — the same absence that produced defect 1.
 
-  Measured across `src/frontend/src` (43 files, 250 occurrences, all from the
+  Measured across `src/frontend/src` (44 files, 250 occurrences, all from the
   `gray` family — no stray `slate`/`zinc`/`neutral`/`stone`):
 
   | class | sites | class | sites |
   |---|---|---|---|
-  | `text-gray-500` | 84 | `border-gray-300` | 5 |
-  | `text-gray-600` | 42 | `border-gray-200` | 5 |
+  | `text-gray-500` | 83 | `border-gray-300` | 6 |
+  | `text-gray-600` | 43 | `border-gray-200` | 5 |
   | `bg-gray-50`    | 37 | `text-gray-800`   | 4 |
   | `text-gray-400` | 31 | `text-gray-900`   | 3 |
   | `text-gray-700` | 21 | `bg-gray-100`     | 3 |
-  | `text-gray-300` | 12 | `bg-gray-200` / `bg-gray-300` / `border-gray-100` | 1 each |
+  | `text-gray-300` | 12 | `bg-gray-200` / `bg-gray-300` | 1 each |
 
   Two shades serve one role in three places — `text-gray-500` and
   `text-gray-600` are both "secondary text", `text-gray-300` and `-400` are
@@ -133,7 +133,7 @@ description: |
   | `--color-ink-muted`      | `var(--color-gray-600)` | `text-gray-600`, `text-gray-500` | 126 |
   | `--color-ink-faint`      | `var(--color-gray-400)` | `text-gray-400`, `text-gray-300` | 43 |
   | `--color-surface-subtle` | `var(--color-gray-50)`  | `bg-gray-50`, `bg-gray-100` | 40 |
-  | `--color-hairline`       | `var(--color-gray-300)` | `border-gray-300`, `border-gray-200`, `border-gray-100` | 11 |
+  | `--color-hairline`       | `var(--color-gray-300)` | `border-gray-300`, `border-gray-200` | 11 |
 
   Plus one token for the two sites that are neither text, surface nor border —
   `Badge`'s muted background and the session room's disconnected status dot:
@@ -153,10 +153,10 @@ description: |
 
   ### Scope of the visual change — larger than a glance suggests
 
-  **~110 of the 250 sites shift shade**, not the ~60 a first estimate gave:
-  84 (`text-gray-500`→600) + 12 (`text-gray-300`→400) + 5
+  **108 of the 250 sites shift shade**, not the ~60 a first estimate gave:
+  83 (`text-gray-500`→600) + 12 (`text-gray-300`→400) + 5
   (`border-gray-200`→300) + 4 (`text-gray-800`→900) + 3 (`bg-gray-100`→50)
-  + 1 (`border-gray-100`→300) + 1 (`bg-gray-300`→200). The 84 are the ones a
+  + 1 (`bg-gray-300`→200). The 84 are the ones a
   reviewer will actually notice, and they are an intended improvement.
 
   Two sites to eyeball specifically rather than trust:
@@ -164,9 +164,9 @@ description: |
     `--color-surface-inactive` (gray-200), i.e. *fainter*. It is a status
     indicator, so confirm it still reads as "off" beside its connected
     `bg-green-500` sibling.
-  - `border-gray-100` → `--color-hairline` (gray-300) is a two-step jump on a
-    table row divider in the version editor; confirm the table does not
-    suddenly look heavily ruled.
+  - `border-gray-100` NO LONGER EXISTS. It was a single table row divider in
+    the version editor, and task-170 deleted that table. Do not go looking for
+    it; the border token now covers only `border-gray-200` and `-300`.
 
   ### The gate rule, and the regex trap in it
 
@@ -291,7 +291,7 @@ steps:
 
     Do NOT hand-transcribe a hex: Tailwind 4 defines the palette in oklch.
   - |
-    Replace all 250 raw neutral classes across the 43 files listed in
+    Replace all 250 raw neutral classes across the 44 files listed in
     `outputs`. The mapping is total and mechanical:
 
       text-gray-900  -> text-ink-strong          text-gray-800 -> text-ink-strong
@@ -341,9 +341,10 @@ steps:
     stack (it exits non-zero without one) and rasterises via Playwright's
     bundled Chromium — do not add an image dependency.
 
-    Commit all four refreshed images. Unlike the triangle, the neutral merge
-    touches every screen, so `session-room.png` and `version-compare.png` now
-    change substantively too — they are no longer "incidental diffs".
+    Commit all four refreshed images — `docs/images/estimation-editor.png`,
+    `bucket-editor.png`, `session-room.png` and `version-compare.png`. Unlike
+    the triangle, the neutral merge touches every screen, so the latter two now
+    change substantively too and are no longer "incidental diffs".
 
     Review the diff screen by screen before committing: the only changes may be
     triangle glyphs and grey shades. Anything else — moved text, changed
@@ -510,6 +511,20 @@ validation:
       hits=$(grep -rlE "\b(text|bg|border|ring|fill|stroke|divide|placeholder)-gray-[0-9]{2,3}\b" src 2>/dev/null || true)
       if [ -n "$hits" ]; then echo "raw neutral classes remain:"; echo "$hits"; exit 1; fi
   - |
+    Report WHICH file still holds a raw grey, not merely that one does. An
+    aggregate count tells the implementer a 250-edit migration is incomplete
+    without saying where:
+      set -e
+      cd src/frontend
+      left=$(grep -rlE "\b(text|bg|border|ring|fill|stroke|divide|placeholder)-gray-[0-9]{2,3}\b" src 2>/dev/null || true)
+      if [ -n "$left" ]; then
+        echo "raw neutral classes remain in:"; echo "$left"
+        echo "count per file:"; for f in $left; do
+          printf '  %s %s\n' "$(grep -coE "\b(text|bg|border|ring|fill|stroke|divide|placeholder)-gray-[0-9]{2,3}\b" "$f")" "$f"
+        done
+        exit 1
+      fi
+  - |
     The tokens are actually adopted — a zero count could also mean the classes
     were deleted rather than replaced:
       set -e
@@ -576,6 +591,10 @@ outputs:
   - modified: src/frontend/src/lib/components/AdditionalCostsPanel.svelte
   - modified: src/frontend/src/lib/components/treetable/TreeTable.svelte
   - modified: src/frontend/src/lib/components/schedule/DependencyEditor.svelte
+  # Created by task-172, AFTER this task was written: it carries text-gray-600
+  # and the gate demands a count of zero, so omitting it fails the build at
+  # the very end of the migration.
+  - modified: src/frontend/src/lib/components/schedule/CycleRefusedDialog.svelte
   - modified: src/frontend/src/routes/estimations/[id]/versions/[versionNumber]/+page.svelte
   # Pass 2: the remaining 36 of the 43 files carrying a raw neutral class
   # (the seven triangle sites above are also in that set).

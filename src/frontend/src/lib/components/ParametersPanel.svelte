@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { _ } from 'svelte-i18n';
 	import { EstimationDefaults } from '$lib/domain/domain.mjs';
+	import DisclosureTriangle from '$lib/ui/DisclosureTriangle.svelte';
 
 	// The three calculation inputs are TYPED FIELDS, not user-named rows
 	// (task-138). This panel used to let the user edit the parameter NAME while
@@ -78,14 +79,14 @@
 		onclick={() => (open = !open)}
 	>
 		<span>{$_('panel.parameters.title')}</span>
-		<span>{open ? '▼' : '▶'}</span>
+		<DisclosureTriangle expanded={open} />
 	</button>
 
 	{#if open}
 		<div class="p-4">
 			<div class="grid grid-cols-[1fr_10rem] gap-x-4 gap-y-2 items-center max-w-xl">
 				{#each rows as row (row.key)}
-					<label class="text-sm text-gray-700" for={row.id}>{row.label}</label>
+					<label class="text-sm text-ink-body" for={row.id}>{row.label}</label>
 					{#if editable}
 						<input
 							id={row.id}

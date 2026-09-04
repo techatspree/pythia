@@ -27,7 +27,7 @@
 </script>
 
 {#if loading}
-	<p class="text-gray-500">{$_('project.detailLoading')}</p>
+	<p class="text-ink-muted">{$_('project.detailLoading')}</p>
 {:else if error}
 	<p class="text-red-600">{error}</p>
 {:else if project}
@@ -39,10 +39,10 @@
 			</Badge>
 		</div>
 		{#if project.description}
-			<p class="text-gray-600 mb-1">{project.description}</p>
+			<p class="text-ink-muted mb-1">{project.description}</p>
 		{/if}
 		{#if project.client}
-			<p class="text-sm text-gray-500">{$_('project.detailClient', { values: { client: project.client } })}</p>
+			<p class="text-sm text-ink-muted">{$_('project.detailClient', { values: { client: project.client } })}</p>
 		{/if}
 	</div>
 
@@ -60,7 +60,7 @@
 	</div>
 
 	{#if project.estimations.length === 0}
-		<p class="text-gray-500">{$_('project.detailEmpty')}</p>
+		<p class="text-ink-muted">{$_('project.detailEmpty')}</p>
 	{:else}
 		<div class="overflow-x-auto">
 			<table class="w-full text-sm text-left">
@@ -76,11 +76,11 @@
 				</thead>
 				<tbody>
 					{#each project.estimations as estimation (estimation.id)}
-						<tr class="border-b hover:bg-gray-50">
+						<tr class="border-b hover:bg-surface-subtle">
 							<td class="px-4 py-3 font-medium">
 								<a href={resolve('/estimations/[id]', { id: estimation.id })} class="text-brand-green hover:underline">{estimation.offer}</a>
 							</td>
-							<td class="px-4 py-3 text-gray-600">{estimation.description || '—'}</td>
+							<td class="px-4 py-3 text-ink-muted">{estimation.description || '—'}</td>
 							<td class="px-4 py-3">
 								<Badge
 									data-testid="project-detail.estimation-method"
@@ -95,7 +95,7 @@
 									—
 								{/if}
 							</td>
-							<td class="px-4 py-3 text-gray-500">
+							<td class="px-4 py-3 text-ink-muted">
 								{estimation.createdAt ? formatDate(estimation.createdAt, $locale ?? DEFAULT_LOCALE) : '—'}
 							</td>
 						</tr>

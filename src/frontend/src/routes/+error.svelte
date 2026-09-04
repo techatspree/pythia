@@ -13,6 +13,6 @@
 
 <div class="p-8 max-w-lg mx-auto text-center">
 	<h1 class="text-2xl font-bold mb-2">{$_('error.title')}</h1>
-	<p class="text-gray-600 mb-6">{page.error?.message ?? $_('error.generic')}</p>
+	<p class="text-ink-muted mb-6">{page.error?.message ?? $_('error.generic')}</p>
 	<a href={resolve('/')} class="text-brand-green hover:underline">{$_('error.backHome')}</a>
 </div>

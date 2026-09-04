@@ -199,7 +199,7 @@
 				{#each openSessions as sess (sess.id)}
 					<li class="flex items-center gap-3 border rounded px-3 py-2 text-sm">
 						<span class="font-medium">{sess.title}</span>
-						<span class="text-xs text-gray-400">{$_(`session.status.${sess.status}`)}</span>
+						<span class="text-xs text-ink-faint">{$_(`session.status.${sess.status}`)}</span>
 						<a
 							href={resolve('/sessions/[id]', { id: sess.id })}
 							class="ml-auto text-brand-green hover:underline">{$_('session.setup.join')}</a
@@ -208,7 +208,7 @@
 				{/each}
 			</ul>
 		{:else}
-			<p class="text-sm text-gray-500">{$_('session.setup.noOpenSessions')}</p>
+			<p class="text-sm text-ink-muted">{$_('session.setup.noOpenSessions')}</p>
 		{/if}
 	</Card>
 
@@ -233,7 +233,7 @@
 	{/if}
 
 	{#if noDraft}
-		<p class="text-sm text-gray-500 mb-4">{$_('session.setup.noDraft')}</p>
+		<p class="text-sm text-ink-muted mb-4">{$_('session.setup.noDraft')}</p>
 	{/if}
 
 	{#if leaves.length > 0}
@@ -270,7 +270,7 @@
 				{#each leaves as leaf (leaf.logicalId)}
 					{@const isSelected = selected.has(leaf.logicalId)}
 					<label
-						class="flex items-start gap-2 px-4 py-2 text-sm cursor-pointer hover:bg-gray-50 {isSelected
+						class="flex items-start gap-2 px-4 py-2 text-sm cursor-pointer hover:bg-surface-subtle {isSelected
 							? 'bg-brand-green/5'
 							: ''}"
 					>
@@ -283,7 +283,7 @@
 						<span class="min-w-0">
 							<span class="block">{leaf.description}</span>
 							{#if leaf.path}
-								<span class="block text-xs text-gray-400">{leaf.path}</span>
+								<span class="block text-xs text-ink-faint">{leaf.path}</span>
 							{/if}
 						</span>
 						{#if !isUnestimated(leaf)}
@@ -313,11 +313,11 @@
 			</Button>
 			<!-- Say WHY the button is dead rather than leaving the user to guess. -->
 			{#if selected.size === 0}
-				<span class="text-xs text-gray-500">{$_('session.setup.noneSelected')}</span>
+				<span class="text-xs text-ink-muted">{$_('session.setup.noneSelected')}</span>
 			{/if}
 		</div>
 	{:else if estimationId && !noDraft}
-		<p class="text-sm text-gray-500 mb-4">{$_('session.setup.noItems')}</p>
+		<p class="text-sm text-ink-muted mb-4">{$_('session.setup.noItems')}</p>
 	{/if}
 
 	{#if existing.length > 0}
@@ -326,7 +326,7 @@
 				{#each existing as sess (sess.id)}
 					<li class="flex items-center gap-3 border rounded px-3 py-2 text-sm">
 						<span class="font-medium">{sess.title}</span>
-						<span class="text-xs text-gray-400">{$_(`session.status.${sess.status}`)}</span>
+						<span class="text-xs text-ink-faint">{$_(`session.status.${sess.status}`)}</span>
 						<a
 							href={resolve('/sessions/[id]', { id: sess.id })}
 							class="ml-auto text-brand-green hover:underline">{$_('session.setup.join')}</a

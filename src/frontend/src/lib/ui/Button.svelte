@@ -50,8 +50,8 @@
 	// button, and its ad-hoc presence (7 sites) vs absence (17) was itself drift.
 	const VARIANTS: Record<Variant, string> = {
 		primary: 'bg-brand-green text-white rounded hover:bg-brand-green-hover',
-		secondary: 'border rounded hover:bg-gray-50',
-		ghost: 'text-gray-500 hover:text-gray-700',
+		secondary: 'border rounded hover:bg-surface-subtle',
+		ghost: 'text-ink-muted hover:text-ink-body',
 		danger: 'bg-red-600 text-white rounded hover:bg-red-700'
 	};
 

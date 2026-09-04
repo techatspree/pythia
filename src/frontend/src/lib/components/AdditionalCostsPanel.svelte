@@ -3,6 +3,7 @@
 	import { _, locale } from 'svelte-i18n';
 	import { formatFixed, DEFAULT_LOCALE } from '$lib/format';
 	import type { ApiAdditionalCost, ApiPhase } from '$lib/api/types.js';
+	import DisclosureTriangle from '$lib/ui/DisclosureTriangle.svelte';
 
 	const num = (v: number, frac: number) => formatFixed(v, $locale ?? DEFAULT_LOCALE, frac);
 
@@ -77,18 +78,18 @@
 		onclick={() => (open = !open)}
 	>
 		<span>{$_('panel.additionalCosts.title')}</span>
-		<span>{open ? '▼' : '▶'}</span>
+		<DisclosureTriangle expanded={open} />
 	</button>
 
 	{#if open}
 		<div class="border-b">
-			<div class="px-4 py-2 text-xs text-gray-500 uppercase tracking-wide bg-gray-50/40">
+			<div class="px-4 py-2 text-xs text-ink-muted uppercase tracking-wide bg-surface-subtle/40">
 				{$_('panel.additionalCosts.oneTimeSection')}
 			</div>
 			{#if oneTimeCount === 0}
 				{#if editable}
 					<div class="p-4 text-center">
-						<p class="text-sm text-gray-400 mb-3">{$_('panel.additionalCosts.oneTimeEmpty')}</p>
+						<p class="text-sm text-ink-faint mb-3">{$_('panel.additionalCosts.oneTimeEmpty')}</p>
 						<Button
 							onclick={addOneTime}
 							size="sm"
@@ -97,12 +98,12 @@
 						</Button>
 					</div>
 				{:else}
-					<p class="p-4 text-sm text-gray-400 text-center">{$_('panel.additionalCosts.oneTimeEmpty')}</p>
+					<p class="p-4 text-sm text-ink-faint text-center">{$_('panel.additionalCosts.oneTimeEmpty')}</p>
 				{/if}
 			{:else}
 				<table class="w-full text-sm border-collapse">
 					<thead>
-						<tr class="border-b text-xs text-gray-500 uppercase tracking-wide">
+						<tr class="border-b text-xs text-ink-muted uppercase tracking-wide">
 							<th class="py-2 px-3 text-left">{$_('panel.additionalCosts.colDescription')}</th>
 							<th class="py-2 px-3 text-right w-32">{$_('panel.additionalCosts.colAmount')}</th>
 							<th class="py-2 px-3 text-left w-32">{$_('panel.additionalCosts.colPhase')}</th>
@@ -112,7 +113,7 @@
 					<tbody>
 						{#each costs as cost, i (i)}
 							{#if cost.type === 'ONE_TIME'}
-								<tr class="border-b hover:bg-gray-50">
+								<tr class="border-b hover:bg-surface-subtle">
 									<td class="py-1 px-3">
 										{#if editable}
 											<input
@@ -151,14 +152,14 @@
 												{/each}
 											</select>
 										{:else}
-											<span class="text-gray-600">{cost.phaseAbbreviation ?? ''}</span>
+											<span class="text-ink-muted">{cost.phaseAbbreviation ?? ''}</span>
 										{/if}
 									</td>
 									{#if editable}
 										<td class="py-1 px-3">
 											<button
 												onclick={() => deleteRow(i)}
-												class="text-gray-300 hover:text-red-500 transition-colors leading-none"
+												class="text-ink-faint hover:text-red-500 transition-colors leading-none"
 												title={$_('common.delete')}
 											>
 												✕
@@ -171,7 +172,7 @@
 					</tbody>
 				</table>
 				{#if editable}
-					<div class="p-3 border-t bg-gray-50/40">
+					<div class="p-3 border-t bg-surface-subtle/40">
 						<button onclick={addOneTime} class="text-sm text-brand-green hover:text-brand-green-hover">
 							{$_('panel.additionalCosts.oneTimeAddRow')}
 						</button>
@@ -181,13 +182,13 @@
 		</div>
 
 		<div>
-			<div class="px-4 py-2 text-xs text-gray-500 uppercase tracking-wide bg-gray-50/40">
+			<div class="px-4 py-2 text-xs text-ink-muted uppercase tracking-wide bg-surface-subtle/40">
 				{$_('panel.additionalCosts.recurringSection')}
 			</div>
 			{#if recurringCount === 0}
 				{#if editable}
 					<div class="p-4 text-center">
-						<p class="text-sm text-gray-400 mb-3">{$_('panel.additionalCosts.recurringEmpty')}</p>
+						<p class="text-sm text-ink-faint mb-3">{$_('panel.additionalCosts.recurringEmpty')}</p>
 						<Button
 							onclick={addRecurring}
 							size="sm"
@@ -196,12 +197,12 @@
 						</Button>
 					</div>
 				{:else}
-					<p class="p-4 text-sm text-gray-400 text-center">{$_('panel.additionalCosts.recurringEmpty')}</p>
+					<p class="p-4 text-sm text-ink-faint text-center">{$_('panel.additionalCosts.recurringEmpty')}</p>
 				{/if}
 			{:else}
 				<table class="w-full text-sm border-collapse">
 					<thead>
-						<tr class="border-b text-xs text-gray-500 uppercase tracking-wide">
+						<tr class="border-b text-xs text-ink-muted uppercase tracking-wide">
 							<th class="py-2 px-3 text-left">{$_('panel.additionalCosts.colDescription')}</th>
 							<th class="py-2 px-3 text-right w-32">{$_('panel.additionalCosts.colAmountPerWeek')}</th>
 							<th class="py-2 px-3 text-left w-32">{$_('panel.additionalCosts.colPhase')}</th>
@@ -212,7 +213,7 @@
 					<tbody>
 						{#each costs as cost, i (i)}
 							{#if cost.type === 'RECURRING'}
-								<tr class="border-b hover:bg-gray-50">
+								<tr class="border-b hover:bg-surface-subtle">
 									<td class="py-1 px-3">
 										{#if editable}
 											<input
@@ -251,17 +252,17 @@
 												{/each}
 											</select>
 										{:else}
-											<span class="text-gray-600">{cost.phaseAbbreviation ?? ''}</span>
+											<span class="text-ink-muted">{cost.phaseAbbreviation ?? ''}</span>
 										{/if}
 									</td>
-									<td class="py-1 px-3 text-right text-gray-600 tabular-nums">
+									<td class="py-1 px-3 text-right text-ink-muted tabular-nums">
 										{totalRecurring(cost)}
 									</td>
 									{#if editable}
 										<td class="py-1 px-3">
 											<button
 												onclick={() => deleteRow(i)}
-												class="text-gray-300 hover:text-red-500 transition-colors leading-none"
+												class="text-ink-faint hover:text-red-500 transition-colors leading-none"
 												title={$_('common.delete')}
 											>
 												✕
@@ -274,7 +275,7 @@
 					</tbody>
 				</table>
 				{#if editable}
-					<div class="p-3 border-t bg-gray-50/40">
+					<div class="p-3 border-t bg-surface-subtle/40">
 						<button onclick={addRecurring} class="text-sm text-brand-green hover:text-brand-green-hover">
 							{$_('panel.additionalCosts.recurringAddRow')}
 						</button>

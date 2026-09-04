@@ -133,11 +133,11 @@
 			     inputs first shows an empty name field for a configured
 			     installation, and anything typed in that window is overwritten the
 			     moment the load resolves (or worse, saved over the real name). -->
-			<p data-testid="system-loading" class="text-gray-500">{$_('admin.system.loading')}</p>
+			<p data-testid="system-loading" class="text-ink-muted">{$_('admin.system.loading')}</p>
 		{:else}
 		<section class="mb-8 border rounded-lg p-4 bg-white">
 			<h2 class="text-lg font-semibold mb-1">{$_('admin.system.nameSection')}</h2>
-			<p class="text-sm text-gray-500 mb-3">{$_('admin.system.nameHint')}</p>
+			<p class="text-sm text-ink-muted mb-3">{$_('admin.system.nameHint')}</p>
 			<label class="block text-sm mb-1" for="system-display-name"
 				>{$_('admin.system.nameLabel')}</label
 			>
@@ -161,13 +161,13 @@
 
 		<section class="mb-8 border rounded-lg p-4 bg-white">
 			<h2 class="text-lg font-semibold mb-1">{$_('admin.system.driversSection')}</h2>
-			<p class="text-sm text-gray-500 mb-3">{$_('admin.system.driversHint')}</p>
+			<p class="text-sm text-ink-muted mb-3">{$_('admin.system.driversHint')}</p>
 
 			{#if drivers.length === 0}
-				<p class="text-sm text-gray-500 mb-3">{$_('admin.system.driversEmpty')}</p>
+				<p class="text-sm text-ink-muted mb-3">{$_('admin.system.driversEmpty')}</p>
 			{:else}
 				<table class="w-full text-sm mb-3">
-					<thead class="text-xs text-gray-500">
+					<thead class="text-xs text-ink-muted">
 						<tr>
 							<th class="text-left py-1">{$_('admin.system.driverDescription')}</th>
 							<th class="text-right py-1 w-24">{$_('admin.system.driverFactor')}</th>
@@ -197,19 +197,19 @@
 										type="button"
 										title={$_('admin.system.driverUp')}
 										onclick={() => move(i, -1)}
-										class="px-1 text-gray-500 hover:text-gray-700">↑</button
+										class="px-1 text-ink-muted hover:text-ink-body">↑</button
 									>
 									<button
 										type="button"
 										title={$_('admin.system.driverDown')}
 										onclick={() => move(i, 1)}
-										class="px-1 text-gray-500 hover:text-gray-700">↓</button
+										class="px-1 text-ink-muted hover:text-ink-body">↓</button
 									>
 									<button
 										type="button"
 										title={$_('admin.system.driverRemove')}
 										onclick={() => removeDriver(i)}
-										class="px-1 text-gray-500 hover:text-red-600">✕</button
+										class="px-1 text-ink-muted hover:text-red-600">✕</button
 									>
 								</td>
 							</tr>
@@ -240,10 +240,10 @@
 
 		<section class="border rounded-lg p-4 bg-white">
 			<h2 class="text-lg font-semibold mb-1">{$_('admin.system.cssSection')}</h2>
-			<p class="text-sm text-gray-500 mb-3">{$_('admin.system.cssHint')}</p>
+			<p class="text-sm text-ink-muted mb-3">{$_('admin.system.cssHint')}</p>
 
 			{#if settings?.hasCustomCss}
-				<p data-testid="system-css-current" class="text-sm text-gray-700 mb-3">
+				<p data-testid="system-css-current" class="text-sm text-ink-body mb-3">
 					{$_('admin.system.cssCurrent', {
 						values: {
 							filename: settings.customCssFilename ?? '—',
@@ -254,13 +254,13 @@
 					})}
 				</p>
 			{:else}
-				<p data-testid="system-css-none" class="text-sm text-gray-500 mb-3">
+				<p data-testid="system-css-none" class="text-sm text-ink-muted mb-3">
 					{$_('admin.system.cssNone')}
 				</p>
 			{/if}
 
 			<div class="flex items-center gap-3">
-				<label class="px-3 py-1.5 text-sm border rounded hover:bg-gray-50 cursor-pointer">
+				<label class="px-3 py-1.5 text-sm border rounded hover:bg-surface-subtle cursor-pointer">
 					{$_('admin.system.cssUpload')}
 					<input
 						bind:this={cssInput}
@@ -276,7 +276,7 @@
 						type="button"
 						data-testid="system-css-remove"
 						onclick={removeCss}
-						class="px-3 py-1.5 text-sm text-gray-500 hover:text-red-600"
+						class="px-3 py-1.5 text-sm text-ink-muted hover:text-red-600"
 					>
 						{$_('admin.system.cssRemove')}
 					</button>

@@ -80,7 +80,7 @@
 
 <div class="space-y-4">
 	{#if store.currentItem?.discussionNotes && !store.isModerator}
-		<div class="border rounded p-3 bg-gray-50/40 text-sm">
+		<div class="border rounded p-3 bg-surface-subtle/40 text-sm">
 			<span class="block text-sm font-medium mb-1">
 				{$_('session.phaseOne.notes')}
 			</span>
@@ -89,7 +89,7 @@
 	{/if}
 
 	{#if store.iEstimate}
-		<h3 class="text-sm font-semibold uppercase tracking-wide text-gray-500">
+		<h3 class="text-sm font-semibold uppercase tracking-wide text-ink-muted">
 			{$_('session.phaseOne.yourEstimate')}
 		</h3>
 		<div class="grid grid-cols-3 gap-3">
@@ -122,7 +122,7 @@
 		</div>
 	{/if}
 
-	<p class="text-sm text-gray-500" data-testid="phase1-count">
+	<p class="text-sm text-ink-muted" data-testid="phase1-count">
 		{$_('session.phaseOne.submittedCount', {
 			values: { count: store.submittedCount, total: voterCount }
 		})}
@@ -130,7 +130,7 @@
 
 	{#if store.isModerator}
 		<div class="border-t pt-4 space-y-4">
-			<p class="text-xs text-gray-500">{$_('session.phaseOne.moderatorHint')}</p>
+			<p class="text-xs text-ink-muted">{$_('session.phaseOne.moderatorHint')}</p>
 			<div>
 				<label class="block text-sm font-medium mb-1" for="notes">
 					{$_('session.phaseOne.notes')}

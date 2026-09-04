@@ -56,7 +56,7 @@
 		data-testid="estimation-detail.method-detail-popover"
 		role="dialog"
 		aria-label={$_('method.popover.ariaLabel')}
-		class="absolute z-50 mt-2 bg-white rounded-lg shadow-xl border p-4 max-w-sm text-sm text-gray-700"
+		class="absolute z-50 mt-2 bg-white rounded-lg shadow-xl border p-4 max-w-sm text-sm text-ink-body"
 	>
 		<div class="font-semibold text-brand-green mb-2">{formatMethodLabel(method)}</div>
 		<p>{description}</p>

@@ -16,12 +16,12 @@
 >
 	<div class="bg-white rounded-lg shadow-xl p-6 w-full max-w-md">
 		<h2 class="text-lg font-semibold text-red-700 mb-2">{$_('connection.title')}</h2>
-		<p class="text-sm text-gray-700 mb-2">{$_('connection.body')}</p>
+		<p class="text-sm text-ink-body mb-2">{$_('connection.body')}</p>
 		{#if connection.message}
-			<p class="text-xs text-gray-400 mb-4">{connection.message}</p>
+			<p class="text-xs text-ink-faint mb-4">{connection.message}</p>
 		{/if}
 		{#if !connection.backendAlive}
-			<p class="text-sm text-gray-500 mb-4 flex items-center gap-2">
+			<p class="text-sm text-ink-muted mb-4 flex items-center gap-2">
 				<span class="inline-block w-2 h-2 rounded-full bg-amber-500 animate-pulse"></span>
 				{$_('connection.reconnecting')}
 			</p>

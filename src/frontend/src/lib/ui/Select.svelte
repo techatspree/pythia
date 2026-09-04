@@ -31,7 +31,7 @@
 		[
 			'w-full appearance-none border rounded pl-3 pr-9 py-2 text-sm bg-white',
 			'focus:outline-none focus:ring-1 focus:ring-brand-green/40',
-			value === '' ? 'text-gray-400' : 'text-gray-900',
+			value === '' ? 'text-ink-faint' : 'text-ink-strong',
 			extraClass
 		]
 			.filter(Boolean)
@@ -46,7 +46,7 @@
 	<!-- Decoration only: the select is already announced, and pointer-events-none
 	     keeps the chevron from swallowing the click that opens it. -->
 	<svg
-		class="pointer-events-none absolute right-3 inset-y-0 my-auto h-4 w-4 text-gray-400"
+		class="pointer-events-none absolute right-3 inset-y-0 my-auto h-4 w-4 text-ink-faint"
 		viewBox="0 0 20 20"
 		fill="none"
 		stroke="currentColor"

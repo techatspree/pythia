@@ -9,6 +9,27 @@
 	--color-brand-green-light: #bade4e;
 	--color-brand-blue: #3840ed;
 	--color-brand-pink: #ec66a2;
+	/* Neutral roles (task-168). Defined from the Tailwind palette rather than
+	   as new hex literals: the palette stays the single source and the
+	   arbitrary-colour gate is satisfied by construction. Tailwind 4 defines
+	   its palette in oklch, so a hand-transcribed hex would also risk a
+	   conversion error.
+
+	   Named `ink-*` / `surface-*` / `hairline` rather than `text-*` / `border`
+	   because a `--color-X` token generates the utility `text-X`: a token named
+	   `--color-text-muted` would be written `text-text-muted`.
+
+	   Every merge anchors on the DARKER shade (500→600, 300→400, 200→300,
+	   800→900) except the two backgrounds, which anchor light (100→50, 300→200).
+	   The report that triggered this work was unreadable grey text, so merging
+	   126 text sites LIGHTER would have re-created the defect at scale. */
+	--color-ink-strong: var(--color-gray-900); /* replaced text gray 900 + 800 — 7 sites */
+	--color-ink-body: var(--color-gray-700); /* replaced text gray 700 — 21 sites */
+	--color-ink-muted: var(--color-gray-600); /* replaced text gray 600 + 500 — 126 sites */
+	--color-ink-faint: var(--color-gray-400); /* replaced text gray 400 + 300 — 43 sites */
+	--color-surface-subtle: var(--color-gray-50); /* replaced bg gray 50 + 100 — 40 sites */
+	--color-surface-inactive: var(--color-gray-200); /* replaced bg gray 200 + 300 — 2 sites */
+	--color-hairline: var(--color-gray-300); /* replaced border gray 300 + 200 — 11 sites */
 	--font-heading: 'Poppins', 'Helvetica Neue', Arial, sans-serif;
 	--font-body: 'Montserrat', 'Helvetica Neue', Arial, sans-serif;
 }

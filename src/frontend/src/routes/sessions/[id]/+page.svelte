@@ -151,14 +151,14 @@
 				data-connected={store.connected}
 				class="ml-auto flex items-center gap-1.5 text-xs {store.connected
 					? 'text-green-600'
-					: 'text-gray-400'}"
+					: 'text-ink-faint'}"
 			>
-				<span class="w-2 h-2 rounded-full {store.connected ? 'bg-green-500' : 'bg-gray-300'}"></span>
+				<span class="w-2 h-2 rounded-full {store.connected ? 'bg-green-500' : 'bg-surface-inactive'}"></span>
 				{store.connected ? $_('session.layout.connected') : $_('session.layout.connecting')}
 			</span>
 		</div>
 
-		<p class="text-sm text-gray-600 mb-4">
+		<p class="text-sm text-ink-muted mb-4">
 			{store.isModerator ? $_('session.room.roleModerator') : $_('session.room.roleEstimator')}
 		</p>
 
@@ -167,10 +167,10 @@
 					{#each s.participants as p (p.subjectId)}
 						<li
 							data-testid="participant"
-							class="flex items-center gap-1.5 border rounded px-2 py-1 text-sm bg-gray-50"
+							class="flex items-center gap-1.5 border rounded px-2 py-1 text-sm bg-surface-subtle"
 						>
 							<span>{p.displayName ?? p.subjectId}</span>
-							<span class="text-xs text-gray-400 uppercase tracking-wide"
+							<span class="text-xs text-ink-faint uppercase tracking-wide"
 								>{$_(`session.role.${p.role}`)}</span
 							>
 							{#if p.agreed}<span class="text-xs text-green-600">✓ {$_('session.room.agreed')}</span
@@ -181,19 +181,19 @@
 		</Card>
 
 		{#if s.status === 'CANCELLED'}
-			<div class="border rounded-lg p-4 text-gray-600">
+			<div class="border rounded-lg p-4 text-ink-muted">
 				{$_('session.room.cancelled')}
 			</div>
 		{:else if s.status === 'FINALIZED'}
 			<SessionSummary {store} />
 		{:else if s.status === 'ENDED_EARLY'}
-			<p data-testid="session-ended-early" class="mb-4 border rounded-lg p-4 text-sm text-gray-600">
+			<p data-testid="session-ended-early" class="mb-4 border rounded-lg p-4 text-sm text-ink-muted">
 				{$_('session.room.endedEarly')}
 			</p>
 			<SessionSummary {store} />
 		{:else if s.status === 'SUSPENDED'}
 			<div data-testid="session-suspended" class="border rounded-lg p-4">
-				<p class="text-sm text-gray-600 mb-3">{$_('session.room.suspended')}</p>
+				<p class="text-sm text-ink-muted mb-3">{$_('session.room.suspended')}</p>
 				{#if store.isModerator}
 					<div class="flex items-center gap-3">
 						<Button data-testid="session-resume" onclick={continueSession}>
@@ -208,7 +208,7 @@
 		{:else if s.status === 'CREATED'}
 			<div class="border rounded-lg p-4">
 				{#if store.isModerator}
-					<p class="text-sm text-gray-600 mb-3">{$_('session.room.startHint')}</p>
+					<p class="text-sm text-ink-muted mb-3">{$_('session.room.startHint')}</p>
 					<div class="flex items-center gap-3">
 						<Button onclick={startSession}>
 							{$_('session.room.start')}
@@ -218,7 +218,7 @@
 						</Button>
 					</div>
 				{:else}
-					<p class="text-gray-500">{$_('session.room.waitingToStart')}</p>
+					<p class="text-ink-muted">{$_('session.room.waitingToStart')}</p>
 				{/if}
 			</div>
 		{:else}
@@ -247,7 +247,7 @@
 							<PhaseTwoPanel {store} {sessionId} {onError} />
 						{/if}
 					{:else}
-						<p class="text-gray-500">{$_('session.room.noCurrentItem')}</p>
+						<p class="text-ink-muted">{$_('session.room.noCurrentItem')}</p>
 					{/if}
 				</div>
 			</div>
@@ -263,6 +263,6 @@
 			{/if}
 		{/if}
 	{:else}
-		<p class="text-gray-500">{$_('session.room.loading')}</p>
+		<p class="text-ink-muted">{$_('session.room.loading')}</p>
 	{/if}
 </Page>

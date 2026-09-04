@@ -42,7 +42,7 @@
 	<div class="bg-white rounded-lg shadow-xl p-6 w-full max-w-md">
 		<h2 class="text-lg font-semibold mb-4">{$_('history.conflict.title')}</h2>
 
-		<p class="text-sm text-gray-600 mb-4">
+		<p class="text-sm text-ink-muted mb-4">
 			<span class="font-medium">{conflict.blockingUserDisplayName}</span>{$_('history.conflict.body', {
 				values: { kind: conflict.blockingKind, time: formatTime(conflict.blockingCreatedAt) }
 			})}

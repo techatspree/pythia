@@ -2,6 +2,7 @@
 	import Button from '$lib/ui/Button.svelte';
 	import { _, locale } from 'svelte-i18n';
 	import { formatFixed, DEFAULT_LOCALE } from '$lib/format';
+	import DisclosureTriangle from '$lib/ui/DisclosureTriangle.svelte';
 
 	const num = (v: number, frac: number) => formatFixed(v, $locale ?? DEFAULT_LOCALE, frac);
 
@@ -70,14 +71,14 @@
 		onclick={() => (open = !open)}
 	>
 		<span>{$_('panel.phases.title')}</span>
-		<span>{open ? '▼' : '▶'}</span>
+		<DisclosureTriangle expanded={open} />
 	</button>
 
 	{#if open}
 		{#if phases.length === 0}
 			{#if editable}
 				<div class="p-4 text-center">
-					<p class="text-sm text-gray-400 mb-3">{$_('panel.phases.empty')}</p>
+					<p class="text-sm text-ink-faint mb-3">{$_('panel.phases.empty')}</p>
 					<Button
 						onclick={addRow}
 						size="sm"
@@ -86,12 +87,12 @@
 					</Button>
 				</div>
 			{:else}
-				<p class="p-4 text-sm text-gray-400 text-center">{$_('panel.phases.emptyReadonly')}</p>
+				<p class="p-4 text-sm text-ink-faint text-center">{$_('panel.phases.emptyReadonly')}</p>
 			{/if}
 		{:else}
 			<table class="w-full text-sm border-collapse">
 				<thead>
-					<tr class="border-b text-xs text-gray-500 uppercase tracking-wide">
+					<tr class="border-b text-xs text-ink-muted uppercase tracking-wide">
 						<th class="py-2 px-3 text-left">{$_('panel.phases.colName')}</th>
 						<th class="py-2 px-3 text-left w-28">{$_('panel.phases.colAbbreviation')}</th>
 						<th class="py-2 px-3 text-right w-32">{$_('panel.phases.colDuration')}</th>
@@ -104,7 +105,7 @@
 					{#each phases as item, i (i)}
 						{@const { total: totalOfferPT, hasMissing } = phaseOfferPT(item.abbreviation)}
 						{@const effortPerWeek = item.durationWeeks != null && item.durationWeeks > 0 ? totalOfferPT / item.durationWeeks : null}
-						<tr class="border-b hover:bg-gray-50">
+						<tr class="border-b hover:bg-surface-subtle">
 							<td class="py-1 px-3">
 								{#if editable}
 									<input
@@ -143,17 +144,17 @@
 									<span class="tabular-nums">{item.durationWeeks ?? ''}</span>
 								{/if}
 							</td>
-							<td class="py-1 px-3 text-right text-gray-600 tabular-nums">
+							<td class="py-1 px-3 text-right text-ink-muted tabular-nums">
 								{hasMissing ? '—' : num(totalOfferPT, 2)}
 							</td>
-							<td class="py-1 px-3 text-right text-gray-600 tabular-nums">
+							<td class="py-1 px-3 text-right text-ink-muted tabular-nums">
 								{effortPerWeek == null || hasMissing ? '—' : num(effortPerWeek, 2)}
 							</td>
 							{#if editable}
 								<td class="py-1 px-3">
 									<button
 										onclick={() => deleteRow(i)}
-										class="text-gray-300 hover:text-red-500 transition-colors leading-none"
+										class="text-ink-faint hover:text-red-500 transition-colors leading-none"
 										title={$_('common.delete')}
 									>
 										✕
@@ -165,7 +166,7 @@
 				</tbody>
 			</table>
 			{#if editable}
-				<div class="p-3 border-t bg-gray-50/40">
+				<div class="p-3 border-t bg-surface-subtle/40">
 					<button onclick={addRow} class="text-sm text-brand-green hover:text-brand-green-hover">
 						{$_('panel.phases.addRow')}
 					</button>

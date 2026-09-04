@@ -281,9 +281,9 @@
 				}}
 			/>
 		{:else}
-			<span class="font-semibold text-gray-700">{node.title}</span>
+			<span class="font-semibold text-ink-body">{node.title}</span>
 		{/if}
-		<span class="ml-2 text-xs font-normal text-gray-400">
+		<span class="ml-2 text-xs font-normal text-ink-faint">
 			{$_('grid.childCount', { values: { count: node.children.length } })}
 		</span>
 	{:else if editable}
@@ -341,7 +341,7 @@
 				{/each}
 			</select>
 		{:else}
-			<span class="px-1 text-xs text-gray-500">{node.phaseAbbreviation ?? ''}</span>
+			<span class="px-1 text-xs text-ink-muted">{node.phaseAbbreviation ?? ''}</span>
 		{/if}
 	{/if}
 {/snippet}
@@ -448,7 +448,7 @@
 				}}
 			/>
 		{:else}
-			<span class="px-1 text-gray-500">{node.assumptions ?? ''}</span>
+			<span class="px-1 text-ink-muted">{node.assumptions ?? ''}</span>
 		{/if}
 	{/if}
 {/snippet}
@@ -459,7 +459,7 @@
 		<span class="text-amber-500 text-xs">{$_('grid.needsPhase')}</span>
 	{:else}
 		<span
-			class="text-gray-600 tabular-nums"
+			class="text-ink-muted tabular-nums"
 			class:group-aggregate-bold={node.type === 'GROUP'}
 		>
 			{calc != null ? num(calc.offerPT, 2) : '—'}
@@ -470,7 +470,7 @@
 {#snippet costCell(node: Node, _ctx: TreeNodeContext<Node>)}
 	{@const calc = calcMap.get(node.logicalId)}
 	<span
-		class="text-gray-600 tabular-nums"
+		class="text-ink-muted tabular-nums"
 		class:group-aggregate-bold={node.type === 'GROUP'}
 	>
 		{calc != null ? num(calc.cost, 0) : '—'}
@@ -480,7 +480,7 @@
 {#snippet offerPriceCell(node: Node, _ctx: TreeNodeContext<Node>)}
 	{@const calc = calcMap.get(node.logicalId)}
 	<span
-		class="text-gray-600 tabular-nums"
+		class="text-ink-muted tabular-nums"
 		class:group-aggregate-bold={node.type === 'GROUP'}
 	>
 		{calc != null ? num(calc.offerPrice, 0) : '—'}
@@ -506,7 +506,7 @@
 		<button
 			type="button"
 			onclick={() => deleteAt(ctx.path)}
-			class="text-gray-300 hover:text-red-500 transition-colors leading-none"
+			class="text-ink-faint hover:text-red-500 transition-colors leading-none"
 			title={$_('common.delete')}
 			aria-label={$_('grid.actionDeleteRow')}>✕</button
 		>
@@ -515,11 +515,11 @@
 
 {#snippet totalsFooter(_allRoots: Node[])}
 	<div
-		class="grid items-center -mx-3 -my-2 font-semibold text-sm bg-gray-50"
+		class="grid items-center -mx-3 -my-2 font-semibold text-sm bg-surface-subtle"
 		style="grid-template-columns: {gridTemplateColumns}"
 	>
 		{#if editable}<div class="py-2 px-1"></div>{/if}
-		<div class="py-2 px-3 text-xs text-gray-400 uppercase tracking-wide">{$_('grid.total')}</div>
+		<div class="py-2 px-3 text-xs text-ink-faint uppercase tracking-wide">{$_('grid.total')}</div>
 		<div class="py-2 px-2"></div>
 		<div class="py-2 px-2"></div>
 		<div class="py-2 px-2 text-right tabular-nums">{num(totalOpt, 2)}</div>
@@ -527,13 +527,13 @@
 		<div class="py-2 px-2 text-right tabular-nums">{num(totalPes, 2)}</div>
 		<div class="py-2 px-2 text-right text-brand-green tabular-nums">{num(totalExp, 2)}</div>
 		<div class="py-2 px-3"></div>
-		<div class="py-2 px-2 text-right text-gray-600 tabular-nums" data-testid="grid-total.offerPT">
+		<div class="py-2 px-2 text-right text-ink-muted tabular-nums" data-testid="grid-total.offerPT">
 			{num(totalOfferPT, 2)}
 		</div>
-		<div class="py-2 px-2 text-right text-gray-600 tabular-nums" data-testid="grid-total.cost">
+		<div class="py-2 px-2 text-right text-ink-muted tabular-nums" data-testid="grid-total.cost">
 			{num(totalCost, 0)}
 		</div>
-		<div class="py-2 px-2 text-right text-gray-600 tabular-nums" data-testid="grid-total.offerPrice">
+		<div class="py-2 px-2 text-right text-ink-muted tabular-nums" data-testid="grid-total.offerPrice">
 			{num(totalOfferPrice, 0)}
 		</div>
 	</div>
@@ -544,7 +544,7 @@
 	input undo. -->
 <div class="border rounded-lg overflow-hidden" data-undo-aware="true">
 	{#if roots.length === 0}
-		<div class="p-10 text-center text-gray-400">
+		<div class="p-10 text-center text-ink-faint">
 			<p class="mb-4 text-sm">{$_('grid.empty')}</p>
 			{#if editable}
 				<Button
@@ -569,7 +569,7 @@
 			footer={totalsFooter}
 		/>
 		{#if editable}
-			<div class="p-3 border-t bg-gray-50/40">
+			<div class="p-3 border-t bg-surface-subtle/40">
 				<button
 					type="button"
 					onclick={addRootGroup}

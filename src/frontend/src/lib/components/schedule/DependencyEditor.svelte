@@ -6,6 +6,7 @@
 	import { locale } from 'svelte-i18n';
 	import type { ProjectScheduleView, ScheduleEdge, ScheduledTaskView } from '$lib/adapter';
 	import CycleRefusedDialog from './CycleRefusedDialog.svelte';
+	import DisclosureTriangle from '$lib/ui/DisclosureTriangle.svelte';
 
 	// Graphical dependency editor (task-157) — Merlin's "Flow" net-plan shape.
 	//
@@ -463,7 +464,7 @@
 	>
 		{$_('schedule.error.cycle')}
 	</p>
-	<ul class="text-sm text-gray-700" data-testid="schedule-cycle-edges">
+	<ul class="text-sm text-ink-body" data-testid="schedule-cycle-edges">
 		{#each dependencies as edge (edge.fromLogicalId + '->' + edge.toLogicalId)}
 			<li
 				class="flex items-center gap-2 py-0.5"
@@ -473,7 +474,7 @@
 				{#if editable}
 					<button
 						type="button"
-						class="text-xs text-gray-500 underline hover:text-brand-green"
+						class="text-xs text-ink-muted underline hover:text-brand-green"
 						data-testid="schedule-cycle-remove"
 						aria-label={$_('schedule.editor.edgeAria', {
 							values: { from: nameOf(edge.fromLogicalId), to: nameOf(edge.toLogicalId) }
@@ -485,7 +486,7 @@
 		{/each}
 	</ul>
 {:else if tasks.length < 2}
-	<p class="text-sm text-gray-600" data-testid="schedule-empty">{$_('schedule.editor.empty')}</p>
+	<p class="text-sm text-ink-muted" data-testid="schedule-empty">{$_('schedule.editor.empty')}</p>
 {:else}
 	<div class="overflow-x-auto" data-testid="dependency-editor">
 		<div
@@ -533,7 +534,7 @@
 				     y axis scrollable too, so there is no clear band above the
 				     rect to move it into either. -->
 				{#each groupBoxes as g (g.id)}
-					<g class="text-gray-300" data-testid="schedule-group-box" data-logical-id={g.id}>
+					<g class="text-ink-faint" data-testid="schedule-group-box" data-logical-id={g.id}>
 						<rect
 							x={g.x}
 							y={g.y}
@@ -556,7 +557,7 @@
 						stroke="currentColor"
 						stroke-width="2"
 						marker-end="url(#schedule-arrow)"
-						class="pointer-events-auto cursor-pointer text-gray-400 hover:text-brand-green"
+						class="pointer-events-auto cursor-pointer text-ink-faint hover:text-brand-green"
 						role="button"
 						tabindex="-1"
 						aria-label={$_('schedule.editor.edgeAria', {
@@ -582,14 +583,14 @@
 						     Choosing a number here is how task-167 put the drag arrow
 						     behind the cards. -->
 						<div
-							class="pointer-events-none absolute rounded-lg border border-gray-300"
+							class="pointer-events-none absolute rounded-lg border border-hairline"
 							style="left: {box.x + 3}px; top: {box.y + 3}px; width: {CARD_W}px; height: {CARD_H}px;"
 							aria-hidden="true"
 							data-testid="schedule-card-stack"
 						></div>
 					{/if}
 					<div
-						class="absolute z-10 rounded-lg border-gray-200 px-3 py-2 shadow-sm {KIND_CLASSES[
+						class="absolute z-10 rounded-lg border-hairline px-3 py-2 shadow-sm {KIND_CLASSES[
 							kind
 						]} {task.onCriticalPath ? 'border-2' : 'border'} {cycleIds.has(task.logicalId)
 							? 'ring-2 ring-amber-400'
@@ -619,21 +620,22 @@
 							{#if task.isGroup}
 								<button
 									type="button"
-									class="text-xs text-gray-500 hover:text-brand-green"
+									class="text-xs text-ink-muted hover:text-brand-green"
 									aria-label={isExpanded(task.logicalId)
 										? $_('schedule.editor.collapseAria')
 										: $_('schedule.editor.expandAria')}
 									data-testid="schedule-toggle"
-									onclick={() => toggle(task.logicalId)}>{isExpanded(task.logicalId) ? '▾' : '▸'}</button
+									onclick={() => toggle(task.logicalId)}
+									><DisclosureTriangle expanded={isExpanded(task.logicalId)} /></button
 								>
 							{/if}
 							<span class="truncate text-sm font-medium" title={task.title}>{task.title}</span>
 						</div>
-						<div class="flex items-center justify-between text-xs text-gray-600">
+						<div class="flex items-center justify-between text-xs text-ink-muted">
 							<span>{days(task.durationDays)} {$_('schedule.days')}</span>
 							{#if editable}
 								<span
-									class="cursor-grab rounded border border-gray-300 px-1 select-none"
+									class="cursor-grab rounded border border-hairline px-1 select-none"
 									draggable="true"
 									role="button"
 									tabindex="-1"

@@ -41,7 +41,7 @@
 	<div class="p-6">
 		<ErrorBanner message={loginError} ondismiss={() => (loginError = null)} />
 		{#if loginError == null}
-			<p class="text-sm text-gray-600">Redirecting to sign in…</p>
+			<p class="text-sm text-ink-muted">Redirecting to sign in…</p>
 		{/if}
 	</div>
 {/if}

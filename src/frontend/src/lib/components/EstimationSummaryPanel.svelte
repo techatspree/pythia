@@ -58,7 +58,7 @@
 		class="px-4 py-2 bg-brand-green/10 text-brand-green text-xs font-semibold uppercase tracking-wide flex items-center justify-between"
 	>
 		<span>{$_('summary.title')}</span>
-		<span class="normal-case font-normal text-gray-500">
+		<span class="normal-case font-normal text-ink-muted">
 			{$_('summary.leafCount', { values: { count: totals.leafCount } })}
 		</span>
 	</div>
@@ -67,7 +67,7 @@
 		<div>
 			<dl class="grid grid-cols-[1fr_auto] gap-x-6 gap-y-1 text-sm">
 				{#each effortRows as row (row.key)}
-					<dt class="text-gray-600">{row.label}</dt>
+					<dt class="text-ink-muted">{row.label}</dt>
 					<dd class="text-right tabular-nums" data-testid="version-summary.{row.key}">
 						{row.value}
 					</dd>
@@ -76,7 +76,7 @@
 			<div
 				class="mt-2 pt-2 border-t flex items-baseline justify-between gap-6 font-semibold"
 			>
-				<span class="text-gray-700">{$_('summary.offerPT')}</span>
+				<span class="text-ink-body">{$_('summary.offerPT')}</span>
 				<span
 					class="text-lg text-brand-green tabular-nums"
 					data-testid="version-summary.offerPT">{num(totals.offerPT, 2)}</span
@@ -87,7 +87,7 @@
 		<div>
 			<dl class="grid grid-cols-[1fr_auto] gap-x-6 gap-y-1 text-sm">
 				{#each moneyRows as row (row.key)}
-					<dt class="text-gray-600">{row.label}</dt>
+					<dt class="text-ink-muted">{row.label}</dt>
 					<dd class="text-right tabular-nums" data-testid="version-summary.{row.key}">
 						{row.value}
 					</dd>
@@ -96,7 +96,7 @@
 			<div
 				class="mt-2 pt-2 border-t flex items-baseline justify-between gap-6 font-semibold"
 			>
-				<span class="text-gray-700">{$_('summary.totalOfferPrice')}</span>
+				<span class="text-ink-body">{$_('summary.totalOfferPrice')}</span>
 				<span
 					class="text-lg text-brand-green tabular-nums"
 					data-testid="version-summary.totalOfferPrice">{num(totals.totalOfferPrice, 0)}</span

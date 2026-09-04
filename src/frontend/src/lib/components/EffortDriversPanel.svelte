@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { _, locale } from 'svelte-i18n';
 	import { formatFixed, DEFAULT_LOCALE } from '$lib/format';
+	import DisclosureTriangle from '$lib/ui/DisclosureTriangle.svelte';
 
 	const num = (v: number, frac: number) => formatFixed(v, $locale ?? DEFAULT_LOCALE, frac);
 
@@ -37,16 +38,16 @@
 		onclick={() => (open = !open)}
 	>
 		<span>{$_('panel.effortDrivers.title')}</span>
-		<span>{open ? '▼' : '▶'}</span>
+		<DisclosureTriangle expanded={open} />
 	</button>
 
 	{#if open}
 		{#if effortDrivers.length === 0 && !editable}
-			<p class="p-4 text-sm text-gray-400 text-center">{$_('panel.effortDrivers.emptyReadonly')}</p>
+			<p class="p-4 text-sm text-ink-faint text-center">{$_('panel.effortDrivers.emptyReadonly')}</p>
 		{:else}
 			<table class="w-full text-sm border-collapse">
 				<thead>
-					<tr class="border-b text-xs text-gray-500 uppercase tracking-wide">
+					<tr class="border-b text-xs text-ink-muted uppercase tracking-wide">
 						<th class="py-2 px-3 text-left">{$_('panel.effortDrivers.colDescription')}</th>
 						<th class="py-2 px-3 text-right w-28">{$_('panel.effortDrivers.colFactor')}</th>
 						<th class="py-2 px-3 text-left">{$_('panel.effortDrivers.colComment')}</th>
@@ -55,7 +56,7 @@
 				</thead>
 				<tbody>
 					{#each effortDrivers as item, i (i)}
-						<tr class="border-b hover:bg-gray-50">
+						<tr class="border-b hover:bg-surface-subtle">
 							<td class="py-1 px-3">
 								{#if editable}
 									<input
@@ -90,14 +91,14 @@
 										oninput={(e) => update(i, 'comment', e.currentTarget.value)}
 									/>
 								{:else}
-									<span class="text-gray-500">{item.comment}</span>
+									<span class="text-ink-muted">{item.comment}</span>
 								{/if}
 							</td>
 							{#if editable}
 								<td class="py-1 px-3">
 									<button
 										onclick={() => deleteRow(i)}
-										class="text-gray-300 hover:text-red-500 transition-colors leading-none"
+										class="text-ink-faint hover:text-red-500 transition-colors leading-none"
 										title={$_('common.delete')}
 									>
 										✕
@@ -108,8 +109,8 @@
 					{/each}
 				</tbody>
 				<tfoot>
-					<tr class="border-t bg-gray-50 font-medium text-sm">
-						<td class="py-2 px-3 text-right text-gray-500 text-xs uppercase tracking-wide"
+					<tr class="border-t bg-surface-subtle font-medium text-sm">
+						<td class="py-2 px-3 text-right text-ink-muted text-xs uppercase tracking-wide"
 							>{$_('panel.effortDrivers.totalFactor')}</td
 						>
 						<td class="py-2 px-3 text-right tabular-nums">{num(totalFactor, 2)}</td>
@@ -119,7 +120,7 @@
 				</tfoot>
 			</table>
 			{#if editable}
-				<div class="p-3 border-t bg-gray-50/40">
+				<div class="p-3 border-t bg-surface-subtle/40">
 					<button onclick={addRow} class="text-sm text-brand-green hover:text-brand-green-hover">
 						{$_('panel.effortDrivers.addRow')}
 					</button>

@@ -993,9 +993,9 @@
       "notes": "The dependency editor needs its own route (too large for a subpanel), a live drag arrow from source to target, and visible group membership (indentation plus a container outline) so a subitem's parent is always recognisable"
     },
     "task-168": {
-      "status": "pending",
-      "started_at": null,
-      "completed_at": null,
+      "status": "done",
+      "started_at": "2026-09-04T12:24:43+00:00",
+      "completed_at": "2026-09-04T12:44:44+00:00",
       "notes": "The Terminplan section and the dependency-editor group toggle use the SMALL triangle glyphs U+25BE/U+25B8 while the app's five other disclosure toggles use U+25BC/U+25B6; add a $lib/ui disclosure-triangle primitive, adopt it at all seven sites, and gate raw glyphs so it cannot regress"
     },
     "task-169": {
@@ -1039,6 +1039,12 @@
       "started_at": "2026-09-04T10:03:47+00:00",
       "completed_at": "2026-09-04T10:11:59+00:00",
       "notes": "Dependency arrowheads always point the same way because the Bezier connector always arrives horizontally; make the head follow the actual direction between the two cards"
+    },
+    "task-176": {
+      "status": "pending",
+      "started_at": null,
+      "completed_at": null,
+      "notes": "Every e2e spec creates projects through the API and none deletes them, so a repeated local run degrades the suite: 231 projects made list pages slow enough to time out and .first() locators match the wrong row"
     }
   }
 }

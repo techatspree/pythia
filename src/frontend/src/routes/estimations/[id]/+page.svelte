@@ -204,7 +204,7 @@
 
 <div class="p-6">
 	{#if loading}
-		<p class="text-gray-500">{$_('estimation.pageLoading')}</p>
+		<p class="text-ink-muted">{$_('estimation.pageLoading')}</p>
 	{:else}
 		<ErrorBanner message={bannerMessage} ondismiss={() => (bannerMessage = null)} />
 		{#if pendingMerlinFile}

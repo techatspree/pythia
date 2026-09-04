@@ -32,6 +32,6 @@
 		</div>
 	</div>
 	{#if estimation.description}
-		<p class="text-gray-600">{estimation.description}</p>
+		<p class="text-ink-muted">{estimation.description}</p>
 	{/if}
 </div>

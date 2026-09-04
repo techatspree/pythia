@@ -47,7 +47,7 @@
 </script>
 
 <div class="relative flex items-center gap-3">
-	<span class="text-sm text-gray-700">
+	<span class="text-sm text-ink-body">
 		{account.displayName ?? account.subjectId}
 	</span>
 	<div class="flex items-center gap-1">
@@ -60,7 +60,7 @@
 		{/each}
 	</div>
 	<select
-		class="text-sm border rounded px-1 py-0.5 bg-white text-gray-700"
+		class="text-sm border rounded px-1 py-0.5 bg-white text-ink-body"
 		data-testid="language-select"
 		aria-label={$_('language.label')}
 		value={$locale ?? 'de'}

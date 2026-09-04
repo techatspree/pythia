@@ -62,17 +62,17 @@
 </script>
 
 <div class="mt-4 border rounded-lg">
-	<div class="px-4 py-2 border-b bg-gray-50 text-sm font-semibold text-gray-700">{$_('history.title')}</div>
+	<div class="px-4 py-2 border-b bg-surface-subtle text-sm font-semibold text-ink-body">{$_('history.title')}</div>
 	{#if ordered.length === 0}
-		<p class="px-4 py-3 text-sm text-gray-400">{$_('history.empty')}</p>
+		<p class="px-4 py-3 text-sm text-ink-faint">{$_('history.empty')}</p>
 	{:else}
 		<ul class="divide-y">
 			{#each ordered as entry (entry.id)}
 				<li class="px-4 py-2 text-sm">
 					<div class="flex items-center justify-between">
 						<div class="min-w-0 truncate">
-							<span class="font-medium text-gray-800">{entry.userDisplayName}</span>
-							<span class="text-gray-400"> · {relativeTime(entry.createdAt)}</span>
+							<span class="font-medium text-ink-strong">{entry.userDisplayName}</span>
+							<span class="text-ink-faint"> · {relativeTime(entry.createdAt)}</span>
 						</div>
 						{#if entry.status === 'ACTIVE'}
 							<Badge
@@ -86,15 +86,15 @@
 						{/if}
 					</div>
 					{#if entry.summary.length > 0}
-						<ul class="mt-1 pl-3 text-xs text-gray-600 space-y-0.5">
+						<ul class="mt-1 pl-3 text-xs text-ink-muted space-y-0.5">
 							{#each entry.summary.slice(0, 5) as line, i (i)}
 								<li>· {summaryLine(line)}</li>
 							{/each}
 						</ul>
 						{#if entry.summary.length > 5}
 							<details class="mt-1 pl-3 text-xs">
-								<summary class="cursor-pointer text-gray-500">{$_('history.change.showMore')}</summary>
-								<ul class="mt-1 text-gray-600 space-y-0.5">
+								<summary class="cursor-pointer text-ink-muted">{$_('history.change.showMore')}</summary>
+								<ul class="mt-1 text-ink-muted space-y-0.5">
 									{#each entry.summary.slice(5) as line, i (i)}
 										<li>· {summaryLine(line)}</li>
 									{/each}

@@ -379,7 +379,7 @@
 			{/each}
 		</select>
 	{:else}
-		<span class="px-1 text-sm text-gray-600"
+		<span class="px-1 text-sm text-ink-muted"
 			>{buckets.find((b) => b.id === node.bucketId)?.label ?? ''}</span
 		>
 	{/if}
@@ -411,7 +411,7 @@
 			<span class="tabular-nums">{node[field] ?? ''}</span>
 		{/if}
 	{:else}
-		<span class="text-gray-300">—</span>
+		<span class="text-ink-faint">—</span>
 	{/if}
 {/snippet}
 
@@ -425,7 +425,7 @@
 {/snippet}
 
 {#snippet aggregate(calc: CalcEntry | undefined, field: 'mean' | 'offerPT' | 'cost' | 'offerPrice', frac: number)}
-	<span class="text-gray-600 tabular-nums">{calc != null ? num(calc[field], frac) : '—'}</span>
+	<span class="text-ink-muted tabular-nums">{calc != null ? num(calc[field], frac) : '—'}</span>
 {/snippet}
 
 <!-- ── Hierarchy-view cells ─────────────────────────────────────────────── -->
@@ -441,9 +441,9 @@
 				oninput={(e) => (node.title = e.currentTarget.value)}
 			/>
 		{:else}
-			<span class="font-semibold text-gray-700">{node.title}</span>
+			<span class="font-semibold text-ink-body">{node.title}</span>
 		{/if}
-		<span class="ml-2 text-xs font-normal text-gray-400">
+		<span class="ml-2 text-xs font-normal text-ink-faint">
 			{$_('grid.childCount', { values: { count: node.children.length } })}
 		</span>
 	{:else}
@@ -505,8 +505,8 @@
 
 {#snippet bDescription(node: BucketViewNode)}
 	{#if isBucketRow(node)}
-		<span class="font-semibold text-gray-700">{node.label}</span>
-		<span class="ml-2 text-xs font-normal text-gray-400">
+		<span class="font-semibold text-ink-body">{node.label}</span>
+		<span class="ml-2 text-xs font-normal text-ink-faint">
 			{$_('grid.childCount', { values: { count: node.children.length } })}
 		</span>
 	{:else}
@@ -569,7 +569,7 @@
 		<button
 			type="button"
 			onclick={() => deleteAt(ctx.path)}
-			class="text-gray-300 hover:text-red-500 transition-colors leading-none"
+			class="text-ink-faint hover:text-red-500 transition-colors leading-none"
 			title={$_('common.delete')}
 			aria-label={$_('grid.actionDeleteRow')}>✕</button
 		>
@@ -603,8 +603,8 @@
 		class:bg-brand-green={view === 'bucket'}
 		class:text-white={view === 'bucket'}
 		class:border-brand-green={view === 'bucket'}
-		class:border-gray-200={view !== 'bucket'}
-		class:text-gray-600={view !== 'bucket'}>{$_('bucket.viewBucket')}</button
+		class:border-hairline={view !== 'bucket'}
+		class:text-ink-muted={view !== 'bucket'}>{$_('bucket.viewBucket')}</button
 	>
 	<button
 		type="button"
@@ -615,14 +615,14 @@
 		class:bg-brand-green={view === 'hierarchy'}
 		class:text-white={view === 'hierarchy'}
 		class:border-brand-green={view === 'hierarchy'}
-		class:border-gray-200={view !== 'hierarchy'}
-		class:text-gray-600={view !== 'hierarchy'}>{$_('bucket.viewHierarchy')}</button
+		class:border-hairline={view !== 'hierarchy'}
+		class:text-ink-muted={view !== 'hierarchy'}>{$_('bucket.viewHierarchy')}</button
 	>
 </div>
 
 <div class="border rounded-lg overflow-hidden" data-undo-aware="true">
 	{#if view === 'hierarchy' && roots.length === 0}
-		<div class="p-10 text-center text-gray-400">
+		<div class="p-10 text-center text-ink-faint">
 			<p class="mb-4 text-sm">{$_('bucket.itemsEmpty')}</p>
 			{#if editable}
 				<div class="flex items-center justify-center gap-2">
@@ -658,7 +658,7 @@
 			<!-- Both affordances belong here: the per-row `+ Gruppe` action only
 			     renders on a GROUP row, so without a ROOT-level add-group a flat
 			     draft can never grow its first group (task-150). -->
-			<div class="p-3 border-t bg-gray-50/40 flex items-center gap-4">
+			<div class="p-3 border-t bg-surface-subtle/40 flex items-center gap-4">
 				<button type="button" onclick={addItem} class="text-sm text-brand-green hover:text-brand-green-hover"
 					>{$_('bucket.addItemRow')}</button
 				>
@@ -699,7 +699,7 @@
 			onChildrenChange={onBucketChildrenChange}
 		/>
 		{#if editable}
-			<div class="p-3 border-t bg-gray-50/40">
+			<div class="p-3 border-t bg-surface-subtle/40">
 				<button type="button" onclick={addItem} class="text-sm text-brand-green hover:text-brand-green-hover"
 					>{$_('bucket.addItemRow')}</button
 				>

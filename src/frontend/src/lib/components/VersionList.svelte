@@ -59,11 +59,11 @@
 	</div>
 
 	{#if versions.length === 0}
-		<p class="text-gray-500">{$_('version.listEmpty')}</p>
+		<p class="text-ink-muted">{$_('version.listEmpty')}</p>
 	{:else}
 		<div class="space-y-3">
 			{#each versions as version (refOf(version))}
-				<div class="flex items-stretch border rounded-lg hover:bg-gray-50 transition-colors">
+				<div class="flex items-stretch border rounded-lg hover:bg-surface-subtle transition-colors">
 					<label class="flex items-center px-3 cursor-pointer">
 						<input
 							type="checkbox"
@@ -100,12 +100,12 @@
 										{$_('version.submit')}
 									</Button>
 								{/if}
-								<span class="text-sm text-gray-500">
+								<span class="text-sm text-ink-muted">
 									{version.createdAt ? formatDate(version.createdAt, $locale ?? DEFAULT_LOCALE) : ''}
 								</span>
 							</div>
 						</div>
-						<div class="mt-1 flex items-center gap-4 text-sm text-gray-600">
+						<div class="mt-1 flex items-center gap-4 text-sm text-ink-muted">
 							{#if version.totalEffort != null}
 								<span>{$_('version.effort', { values: { effort: version.totalEffort } })}</span>
 							{/if}
