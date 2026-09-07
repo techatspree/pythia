@@ -31,6 +31,7 @@
 		calcMap,
 		totals = ZERO_TOTALS,
 		criticalPath = EMPTY_CRITICAL_PATH,
+		phaseWindows = [],
 		editable
 	}: {
 		roots: any[];
@@ -44,6 +45,8 @@
 		calcMap: Map<string, CalcEntry>;
 		totals?: EstimationTotalsView;
 		criticalPath?: ReadonlySet<string>;
+		/** Phase spans from the levelled plan (task-177). */
+		phaseWindows?: { abbreviation: string; scheduledLeafCount: number; durationWeeks: number }[];
 		editable: boolean;
 	} = $props();
 </script>
@@ -52,7 +55,7 @@
 
 <EffortDriversPanel bind:effortDrivers {editable} />
 
-<PhasesPanel bind:phases {roots} {calcMap} {editable} />
+<PhasesPanel bind:phases {roots} {calcMap} {editable} {phaseWindows} />
 
 <AdditionalCostsPanel bind:costs={additionalCosts} {phases} {editable} />
 

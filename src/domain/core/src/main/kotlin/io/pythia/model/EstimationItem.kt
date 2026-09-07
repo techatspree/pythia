@@ -60,6 +60,23 @@ abstract class EstimationItem(
     abstract val nodeTypeLabel: String
 
     /**
+     * Whether this leaf is a NODE IN THE SCHEDULING GRAPH (task-177).
+     *
+     * `false` for accompanying work whose effort is derived from the length of
+     * its phase — project management, UX support — because scheduling it would
+     * close a cycle: its effort comes from `phase.durationWeeks`, and an
+     * automatically computed phase length comes from the schedule. Such a leaf
+     * is EXCLUDED from the graph rather than given a zero duration; a
+     * zero-length node would still appear in the plan and in the makespan
+     * arithmetic.
+     *
+     * Declared here, and not resolved by sniffing concrete types, because
+     * `ProjectSchedule` lives in `:domain:core` and cannot see a method module
+     * — the same reason `method` and `nodeTypeLabel` above are abstract.
+     */
+    abstract val isScheduled: Boolean
+
+    /**
      * The ordered fields `DiffSummary` should compare for this leaf. Declared
      * here so core stays method-agnostic; a leaf with method-specific inputs
      * overrides this with its own list.

@@ -97,7 +97,7 @@ private fun ChangeDescription.toSummaryDto(): ChangeSummaryDto = when (this) {
 // needing a persistence context.
 private fun DraftUpdateDto.toDomainVersion(): EstimationVersion {
     val phaseByAbbr = (phases ?: emptyList()).associate {
-        it.abbreviation to ProjectPhase(it.name, it.abbreviation, it.durationWeeks ?: 0.0)
+        it.abbreviation to ProjectPhase(it.name, it.abbreviation, it.durationWeeks ?: 0.0, it.durationMode)
     }
     return EstimationVersion(
         versionNumber = 0,

@@ -1,5 +1,6 @@
 package io.pythia.rest.dto
 
+import io.pythia.model.PhaseDurationMode
 import io.pythia.domain.AdditionalCostType
 import org.eclipse.microprofile.openapi.annotations.media.Schema
 import java.time.Instant
@@ -51,7 +52,8 @@ data class ProjectPhaseDto(
     val id: UUID? = null,
     val name: String,
     val abbreviation: String,
-    val durationWeeks: Double? = null
+    val durationWeeks: Double? = null,
+    val durationMode: PhaseDurationMode = PhaseDurationMode.EXPLICIT
 )
 
 data class EstimationNodeDto(
@@ -102,7 +104,8 @@ data class AdditionalCostUpdateDto(
 data class PhaseUpdateDto(
     val name: String,
     val abbreviation: String,
-    val durationWeeks: Double? = null
+    val durationWeeks: Double? = null,
+    val durationMode: PhaseDurationMode = PhaseDurationMode.EXPLICIT
 )
 
 data class DraftUpdateDto(

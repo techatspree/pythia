@@ -678,6 +678,95 @@ test('the Gantt shows the cycle error instead of a zero-day plan', async ({ page
 	await expect(page.getByTestId('gantt-chart')).toHaveCount(0);
 });
 
+/**
+ * Accompanying work (`h/Woche`) is EXCLUDED from the plan (task-177): its
+ * effort derives from its phase's length, so scheduling it would make the plan
+ * depend on a number that depends on the plan. It therefore has no card in the
+ * dependency editor at all — the drag gesture is impossible by construction
+ * rather than by a guard — and its Gantt bar spans the whole phase.
+ */
+test('accompanying work spans its phase and never enters the graph', async ({ page, request }) => {
+	const projectRes = await request.post('/api/projects', {
+		headers: JSON_HEADERS,
+		data: { name: `E2E Accompanying ${Date.now()}` }
+	});
+	const project = await projectRes.json();
+	const estRes = await request.post(`/api/projects/${project.id}/estimations`, {
+		headers: JSON_HEADERS,
+		data: { offer: `E2E-ACC-${Date.now()}`, method: 'THREE_POINT_PERT' }
+	});
+	const estimationId = (await estRes.json()).id;
+	await request.post(`/api/estimations/${estimationId}/versions`, { headers: JSON_HEADERS });
+
+	const group = crypto.randomUUID();
+	const work = crypto.randomUUID();
+	const pm = crypto.randomUUID();
+	const put = await request.put(`/api/estimations/${estimationId}/versions/draft`, {
+		headers: JSON_HEADERS,
+		data: {
+			stdDevFactor: 0.0,
+			teamFte: 1,
+			phases: [{ name: 'Umsetzung', abbreviation: 'UM', durationWeeks: 4 }],
+			roots: [
+				{
+					type: 'GROUP',
+					logicalId: group,
+					title: 'U01: Umsetzung',
+					children: [
+						{
+							type: 'FIXED',
+							logicalId: work,
+							description: 'Implementierung',
+							minEffort: 10,
+							expectedEffort: 10,
+							maxEffort: 10,
+							phaseAbbreviation: 'UM'
+						},
+						{
+							type: 'TIME_RELATIVE',
+							logicalId: pm,
+							description: 'Projektleitung',
+							unit: 'h/Woche',
+							minEffort: 8,
+							expectedEffort: 8,
+							maxEffort: 8,
+							phaseAbbreviation: 'UM'
+						}
+					]
+				}
+			]
+		}
+	});
+	expect(put.status()).toBe(200);
+
+	await openSchedule(page, estimationId);
+
+	// Groups start collapsed, so expand to bring the leaves onto the canvas.
+	await page.locator(`${card(group)} [data-testid="schedule-toggle"]`).click();
+
+	// The scheduled leaf has a card; the accompanying one has none at all, so it
+	// has no handle and no drop target — the gesture cannot start.
+	await expect(page.locator(card(work))).toHaveCount(1);
+	await expect(page.locator(card(pm))).toHaveCount(0);
+	await expect(page.locator(`${card(pm)} [data-testid="schedule-handle"]`)).toHaveCount(0);
+
+	// Its Gantt bar spans the phase window instead of its own duration.
+	await expect(page.getByTestId('gantt-bar-accompanying')).toHaveCount(1);
+	const acc = page.getByTestId('gantt-bar-accompanying').first();
+	await expect(acc).toHaveAttribute('aria-label', /begleitende Aufgabe/);
+
+	const bars = await page.evaluate(() => {
+		const q = (s: string) => document.querySelector(s) as HTMLElement | null;
+		const a = q('[data-testid="gantt-bar-accompanying"]');
+		const t = q('[data-testid="gantt-bar-critical"]') ?? q('[data-testid="gantt-bar"]');
+		if (!a || !t) return null;
+		return { acc: a.getBoundingClientRect().width, task: t.getBoundingClientRect().width };
+	});
+	expect(bars).not.toBeNull();
+	// One scheduled leaf fills the phase, so the accompanying bar matches its span.
+	expect(Math.abs(bars!.acc - bars!.task)).toBeLessThan(4);
+});
+
 test('every edge carries a direction marker', async ({ page, request }) => {
 	const { estimationId, groupA, groupB } = await seed(request);
 	await openSchedule(page, estimationId);

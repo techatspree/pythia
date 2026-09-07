@@ -54,6 +54,29 @@
 	const labels = $derived(labelsByLogicalId(currentRoots as Node[]));
 
 	/**
+	 * Accompanying work, read from the TREE rather than the schedule: task-177
+	 * excludes these leaves from the plan entirely, so they never appear in
+	 * `schedule.tasks`.
+	 */
+	function collectVariable(
+		nodes: Node[]
+	): { logicalId: string; title: string; phaseAbbreviation: string | null }[] {
+		const out: { logicalId: string; title: string; phaseAbbreviation: string | null }[] = [];
+		for (const n of nodes) {
+			if (n.type === 'GROUP') out.push(...collectVariable(n.children));
+			else if (n.type === 'TIME_RELATIVE')
+				out.push({
+					logicalId: n.logicalId,
+					title: n.description,
+					phaseAbbreviation: n.phaseAbbreviation ?? null
+				});
+		}
+		return out;
+	}
+
+	const variableItems = $derived(collectVariable(currentRoots as Node[]));
+
+	/**
 	 * Would this candidate edge list close a loop? Returns the logical ids the
 	 * domain considers involved, or null when the list is fine (task-172).
 	 *
@@ -301,7 +324,7 @@
 		     submitted versions too — exporting a snapshot's plan is the point. -->
 		<section class="mt-6">
 			<h2 class="mb-2 text-lg font-semibold">{$_('schedule.gantt.title')}</h2>
-			<GanttChart {schedule} onerror={(m) => (bannerMessage = m)} />
+			<GanttChart {schedule} {variableItems} onerror={(m) => (bannerMessage = m)} />
 		</section>
 	{/if}
 </Page>

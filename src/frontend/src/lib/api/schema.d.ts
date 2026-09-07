@@ -3054,11 +3054,14 @@ export interface components {
         };
         /** @enum {string} */
         ParticipantRole: "MODERATOR" | "ESTIMATOR";
+        /** @enum {string} */
+        PhaseDurationMode: "EXPLICIT" | "AUTOMATIC";
         PhaseUpdateDto: {
             name: string;
             abbreviation: string;
             /** Format: double */
             durationWeeks?: number | null;
+            durationMode?: components["schemas"]["PhaseDurationMode"];
         };
         PingDto: {
             message: string;
@@ -3084,6 +3087,7 @@ export interface components {
             abbreviation: string;
             /** Format: double */
             durationWeeks?: number | null;
+            durationMode?: components["schemas"]["PhaseDurationMode"];
         };
         /** @enum {string} */
         ProjectStatus: "ACTIVE" | "ARCHIVED";

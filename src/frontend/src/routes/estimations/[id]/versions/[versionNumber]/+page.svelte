@@ -572,6 +572,7 @@
 				{calcMap}
 				{totals}
 				{criticalPath}
+				phaseWindows={schedule?.phaseWindows ?? []}
 				editable={versionData.isDraft}
 			/>
 		{:else}

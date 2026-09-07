@@ -1,6 +1,9 @@
 package io.pythia.domain.draft
 
+import io.pythia.model.PhaseDurationMode
 import jakarta.persistence.Column
+import jakarta.persistence.EnumType
+import jakarta.persistence.Enumerated
 import jakarta.persistence.Entity
 import jakarta.persistence.FetchType
 import jakarta.persistence.GeneratedValue
@@ -27,6 +30,13 @@ class DraftProjectPhase {
 
     @Column(name = "duration_weeks")
     var durationWeeks: Double? = null
+
+    // Declared here as well as in V20 on purpose: %test/%dev build the schema
+    // from Hibernate with Flyway off, so a migration-only column would not
+    // exist where it is tested (the V15 lesson).
+    @Column(name = "duration_mode", nullable = false)
+    @Enumerated(EnumType.STRING)
+    var durationMode: PhaseDurationMode = PhaseDurationMode.EXPLICIT
 
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "version_id", nullable = false)

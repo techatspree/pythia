@@ -138,8 +138,25 @@ export interface ScheduleErrorView {
  * along the critical chain with capacity ignored (task-166) — two different
  * measurements, so the makespan is NOT a point inside the band.
  */
+/**
+ * The span a phase occupies in the levelled plan (task-177). Accompanying work
+ * (`h/Woche` items) is drawn ACROSS its phase's window rather than scheduled
+ * inside it, and an automatic phase length is `durationWeeks` here.
+ *
+ * `scheduledLeafCount` is 0 for a phase that carries only accompanying work —
+ * a caller must say "nothing to derive from" rather than render zero weeks.
+ */
+export interface PhaseWindowView {
+	abbreviation: string;
+	earliestStart: number;
+	earliestFinish: number;
+	scheduledLeafCount: number;
+	durationWeeks: number;
+}
+
 export interface ProjectScheduleView {
 	tasks: ScheduledTaskView[];
+	phaseWindows: PhaseWindowView[];
 	projectDurationDays: number;
 	expectedDurationDays: number;
 	durationStdDevDays: number;
@@ -232,7 +249,12 @@ export function computeEstimation(
 			node.expectedEffort ?? 0,
 			node.maxEffort ?? 0,
 			node.assumptions ?? '',
-			node.logicalId
+			node.logicalId,
+			// A scheduled leaf must carry its phase or `phaseWindows` has nothing
+			// to group by (task-177). The JVM path already did this; the adapter
+			// was attaching a phase only to TIME_RELATIVE items, whose effort
+			// needs one.
+			phaseByAbbr.get(node.phaseAbbreviation ?? '') ?? null
 		);
 	}
 
@@ -322,6 +344,16 @@ function toScheduleView(
 			earliestStart: task.earliestStart,
 			earliestFinish: task.earliestFinish,
 			onCriticalPath: task.onCriticalPath
+		})),
+		// A Kotlin `List` crosses with `.asJsReadonlyArrayView()` — the same call
+		// `tasks` above uses. A plain array access on a KtList fails at RUNTIME,
+		// not at compile time.
+		phaseWindows: s.phaseWindows.asJsReadonlyArrayView().map((w) => ({
+			abbreviation: w.abbreviation,
+			earliestStart: w.earliestStart,
+			earliestFinish: w.earliestFinish,
+			scheduledLeafCount: w.scheduledLeafCount,
+			durationWeeks: w.durationWeeks
 		})),
 		projectDurationDays: s.projectDurationDays,
 		expectedDurationDays: s.expectedDurationDays,

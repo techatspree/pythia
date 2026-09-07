@@ -48,7 +48,11 @@ class DraftVersionMapper {
     private fun DraftProjectPhase.toDomain() = ProjectPhase(
         name = name,
         abbreviation = abbreviation,
-        durationWeeks = durationWeeks ?: 0.0
+        durationWeeks = durationWeeks ?: 0.0,
+        // Load-bearing: this is the ENTITY->DOMAIN hop the scheduler reads, so
+        // dropping it here would leave the domain always seeing EXPLICIT and
+        // automatic phase lengths would never take effect anywhere (task-177).
+        durationMode = durationMode
     )
 
     private fun DraftAdditionalCost.toDomain(phaseMap: Map<String, ProjectPhase>) = AdditionalCost(

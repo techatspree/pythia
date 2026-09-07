@@ -15,10 +15,19 @@
 	let {
 		schedule,
 		title = '',
+		variableItems = [],
 		onerror
 	}: {
 		schedule: ProjectScheduleView | null;
 		title?: string;
+		/**
+		 * Accompanying work (`h/Woche`): project management, UX support. These are
+		 * NOT scheduled tasks (task-177) — their effort derives from their phase's
+		 * length, so scheduling them would close a cycle. They are drawn across
+		 * the whole of their phase's window instead, which makes them parallel to
+		 * everything in the phase by construction rather than by a layout case.
+		 */
+		variableItems?: { logicalId: string; title: string; phaseAbbreviation: string | null }[];
 		onerror?: (message: string) => void;
 	} = $props();
 
@@ -50,6 +59,16 @@
 	function barOf(t: ScheduledTaskView): { left: number; width: number } {
 		return { left: pct(t.earliestStart), width: Math.max(pct(t.earliestFinish - t.earliestStart), 0.5) };
 	}
+
+	const windowOf = (abbr: string | null) =>
+		abbr == null ? null : (schedule?.phaseWindows ?? []).find((w) => w.abbreviation === abbr) ?? null;
+
+	/** Only the accompanying items whose phase actually has scheduled work. */
+	const variableRows = $derived(
+		variableItems
+			.map((v) => ({ item: v, win: windowOf(v.phaseAbbreviation) }))
+			.filter((r) => r.win != null && r.win.scheduledLeafCount > 0)
+	);
 
 	function rowAria(t: ScheduledTaskView): string {
 		// The critical distinction is carried in TEXT as well as colour.
@@ -203,6 +222,33 @@
 						</div>
 						<span class="w-16 shrink-0 text-right text-xs text-ink-muted"
 							>{days(t.durationDays)}</span
+						>
+					</div>
+				{/each}
+				{#each variableRows as row (row.item.logicalId)}
+					<div class="flex items-center gap-2 py-0.5" data-testid="gantt-variable-row">
+						<span class="w-56 shrink-0 truncate text-sm italic" title={row.item.title}
+							>{row.item.title}</span
+						>
+						<div class="relative h-4 flex-1 rounded bg-surface-subtle">
+							<!-- Surface AND edge differ from a scheduled bar (task-174's rule):
+							     a hatched outline rather than a solid fill, so the distinction
+							     survives without colour. -->
+							<div
+								class="absolute h-4 rounded border-2 border-dashed border-brand-green/70 bg-brand-green/10"
+								style="left: {pct(row.win!.earliestStart)}%; width: {Math.max(
+									pct(row.win!.earliestFinish - row.win!.earliestStart),
+									0.5
+								)}%"
+								role="img"
+								aria-label={$_('schedule.gantt.accompanyingAria', {
+									values: { title: row.item.title, phase: row.item.phaseAbbreviation ?? '' }
+								})}
+								data-testid="gantt-bar-accompanying"
+							></div>
+						</div>
+						<span class="w-16 shrink-0 text-right text-xs text-ink-muted"
+							>{$_('schedule.gantt.accompanyingShort')}</span
 						>
 					</div>
 				{/each}

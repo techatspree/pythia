@@ -2,6 +2,7 @@ package io.pythia.model
 
 import io.pythia.StandardMethods
 import io.pythia.method.threepoint.FixedEstimationItem
+import io.pythia.method.threepoint.TimeRelativeEstimationItem
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertNull
@@ -65,6 +66,29 @@ class ProjectScheduleTest {
         title = "Group $id",
         children = efforts.map { (childId, e) -> leaf(childId, e, e, e) },
         _logicalId = id
+    )
+
+    private fun phase(abbr: String, weeks: Double = 4.0) =
+        ProjectPhase(name = "Phase $abbr", abbreviation = abbr, durationWeeks = weeks)
+
+    /** Accompanying work: effort derives from the phase, so it is NOT scheduled. */
+    private fun accompanying(id: String, hoursPerWeek: Double, phase: ProjectPhase) =
+        TimeRelativeEstimationItem(
+            _description = "accompanying $id",
+            _minEffort = hoursPerWeek,
+            _expectedEffort = hoursPerWeek,
+            _maxEffort = hoursPerWeek,
+            _phase = phase,
+            _logicalId = "leaf-$id"
+        )
+
+    private fun phasedLeaf(id: String, effort: Double, phase: ProjectPhase) = FixedEstimationItem(
+        _description = "leaf $id",
+        _minEffort = effort,
+        _expectedEffort = effort,
+        _maxEffort = effort,
+        _phase = phase,
+        _logicalId = "leaf-$id"
     )
 
     private fun dep(from: String, to: String) = ScheduleDependency(from, to)
@@ -479,5 +503,98 @@ class ProjectScheduleTest {
             previousDepth = t.depth
         }
         assertEquals(listOf("g1", leafId("a"), leafId("b"), "g2", leafId("c")), schedule.tasks.map { it.logicalId })
+    }
+
+    // ── task-177: accompanying work is excluded from the plan ────────────────
+
+    @Test
+    fun `accompanying work is not scheduled and does not lengthen the plan`() {
+        val ko = phase("KO")
+        val version = versionOf(
+            EstimationGroup(
+                title = "Unit A",
+                children = listOf(phasedLeaf("a", 10.0, ko), accompanying("pm", 8.0, ko)),
+                _logicalId = "A"
+            )
+        )
+        val schedule = version.schedule(emptyList(), teamFte = 1.0)
+
+        // It is EXCLUDED, not zero-length: a zero-length node would still be in
+        // `tasks` and in the makespan arithmetic.
+        assertTrue(schedule.tasks.none { it.logicalId == "leaf-pm" })
+        assertTrue(schedule.tasks.any { it.logicalId == "leaf-a" })
+        assertEquals(10.0, schedule.projectDurationDays, 0.001)
+    }
+
+    @Test
+    fun `an edge naming accompanying work is ignored rather than cycling`() {
+        val ko = phase("KO")
+        val version = versionOf(
+            EstimationGroup(
+                title = "Unit A",
+                children = listOf(phasedLeaf("a", 10.0, ko), accompanying("pm", 8.0, ko)),
+                _logicalId = "A"
+            )
+        )
+        // Both directions, so a naive implementation would close a cycle.
+        val schedule = version.schedule(
+            listOf(dep("leaf-a", "leaf-pm"), dep("leaf-pm", "leaf-a")),
+            teamFte = 1.0
+        )
+
+        assertNull(schedule.error)
+        assertEquals(10.0, schedule.projectDurationDays, 0.001)
+    }
+
+    @Test
+    fun `a phase window spans exactly that phase's scheduled leaves`() {
+        val ko = phase("KO")
+        val um = phase("UM")
+        val version = versionOf(
+            EstimationGroup(
+                title = "Konzeption",
+                children = listOf(phasedLeaf("k1", 5.0, ko), phasedLeaf("k2", 5.0, ko)),
+                _logicalId = "K"
+            ),
+            EstimationGroup(
+                title = "Umsetzung",
+                children = listOf(phasedLeaf("u1", 10.0, um)),
+                _logicalId = "U"
+            )
+        )
+        // One worker, so K's two leaves serialise into 0..10 and U follows.
+        val schedule = version.schedule(
+            listOf(dep("K", "U")),
+            teamFte = 1.0
+        )
+
+        val koWindow = schedule.phaseWindows.single { it.abbreviation == "KO" }
+        assertEquals(0.0, koWindow.earliestStart, 0.001)
+        assertEquals(10.0, koWindow.earliestFinish, 0.001)
+        assertEquals(2, koWindow.scheduledLeafCount)
+        // 10 working days is two weeks at WORKING_DAYS_PER_WEEK.
+        assertEquals(2.0, koWindow.durationWeeks, 0.001)
+
+        val umWindow = schedule.phaseWindows.single { it.abbreviation == "UM" }
+        assertTrue(umWindow.earliestStart >= koWindow.earliestFinish - 0.001)
+    }
+
+    @Test
+    fun `a phase carrying only accompanying work has no window`() {
+        val ko = phase("KO")
+        val pmPhase = phase("PM")
+        val version = versionOf(
+            EstimationGroup(
+                title = "Unit A",
+                children = listOf(phasedLeaf("a", 10.0, ko), accompanying("pm", 8.0, pmPhase)),
+                _logicalId = "A"
+            )
+        )
+        val schedule = version.schedule(emptyList(), teamFte = 1.0)
+
+        // No scheduled leaf carries PM, so it gets no window at all — the caller
+        // must say "nothing to derive from" rather than render zero weeks.
+        assertTrue(schedule.phaseWindows.none { it.abbreviation == "PM" })
+        assertEquals(1, schedule.phaseWindows.single { it.abbreviation == "KO" }.scheduledLeafCount)
     }
 }

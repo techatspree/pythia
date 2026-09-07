@@ -85,7 +85,11 @@
       "colDuration": "Duration (weeks)",
       "colOfferPT": "offerPT (PT)",
       "colEffortPerWeek": "Effort/Week",
-      "addRow": "+ Add phase"
+      "addRow": "+ Add phase",
+      "colDurationMode": "Duration mode",
+      "modeExplicit": "Specified",
+      "modeAutomatic": "From net plan",
+      "noScheduledWork": "No scheduled work in this phase — there is nothing to compute from."
     },
     "additionalCosts": {
       "title": "Additional Costs",
@@ -168,7 +172,9 @@
       "fileName": "project-plan.mmd",
       "startsOn": "Working day 0 is {date}; weekends are skipped.",
       "barAria": "{title}: starts on working day {start}, {days} days long",
-      "barCriticalAria": "{title}: starts on working day {start}, {days} days long — on the critical chain"
+      "barCriticalAria": "{title}: starts on working day {start}, {days} days long — on the critical chain",
+      "accompanyingAria": "{title}: accompanying work, runs across the whole of phase {phase}",
+      "accompanyingShort": "whole phase"
     }
   },
   "grid": {

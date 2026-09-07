@@ -28,6 +28,29 @@ private const val CRITICAL_SLACK_EPSILON = 1e-9
 data class ScheduleDependency(val fromLogicalId: String, val toLogicalId: String)
 
 /**
+ * Working days per week. ONE constant: the domain reasons in working days, and
+ * a second copy of this number is how two parts of a plan start disagreeing.
+ */
+const val WORKING_DAYS_PER_WEEK: Double = 5.0
+
+/**
+ * The window a phase occupies in the levelled plan (task-177), over its own
+ * SCHEDULED leaves. `scheduledLeafCount` is 0 for a phase that carries only
+ * accompanying work — a caller must say so rather than render zero weeks, which
+ * would look like a defect.
+ */
+@JsExport
+data class PhaseWindow(
+    val abbreviation: String,
+    val earliestStart: Double,
+    val earliestFinish: Double,
+    val scheduledLeafCount: Int
+) {
+    /** The window in weeks, which is what an AUTOMATIC phase length uses. */
+    val durationWeeks: Double get() = (earliestFinish - earliestStart) / WORKING_DAYS_PER_WEEK
+}
+
+/**
  * One node of the estimation tree placed on the timeline — groups included
  * (task-164). The list covers EVERY node and is emitted in tree order, so a
  * consumer rebuilds the hierarchy from [parentLogicalId]/[depth] without
@@ -95,7 +118,13 @@ data class ProjectSchedule(
     val pessimisticDurationDays: Double,
     val teamFte: Double,
     /** Non-null when the inputs are unusable; `tasks` is then empty. */
-    val error: ScheduleError?
+    val error: ScheduleError?,
+    /**
+     * The span each phase occupies, over its own scheduled leaves (task-177).
+     * Empty on an error or an empty plan. Accompanying work is drawn across
+     * these windows rather than scheduled inside them.
+     */
+    val phaseWindows: List<PhaseWindow> = emptyList()
 )
 
 /**
@@ -115,6 +144,15 @@ private class TreeNode(
     val logicalId: String get() = node.logicalId
     val title: String get() = labelOf(node)
     val isGroup: Boolean get() = node is EstimationGroup
+
+    /**
+     * A leaf that is a node in the SCHEDULING graph. False for accompanying
+     * work (task-177) — see `EstimationItem.isScheduled`.
+     */
+    val isScheduledLeaf: Boolean get() = node is EstimationItem && node.isScheduled
+
+    /** The phase this leaf carries, if any. Null for a group. */
+    val phaseAbbreviation: String? get() = (node as? EstimationItem)?.phase?.abbreviation
     val effortPT: Double get() = node.offerPT
     val meanPT: Double get() = node.mean
     val variance: Double get() = node.variance
@@ -184,7 +222,19 @@ internal fun computeSchedule(
     }
 
     // Tree order (depth-first, root order) is the emission order consumers rely on.
-    val tree = indexTree(version.roots)
+    //
+    // Accompanying work is EXCLUDED here, not given a zero duration (task-177):
+    // a zero-length node would still sit in the graph and in the makespan
+    // arithmetic. Its effort derives from its phase's length, so scheduling it
+    // would make the plan depend on a number that depends on the plan. Group
+    // roll-ups follow automatically — `subtreeLeafIds` still names it, but it
+    // has no forward state, and the `mapNotNull` there simply skips it.
+    val fullTree = indexTree(version.roots)
+    val tree = fullTree.filter { it.isGroup || it.isScheduledLeaf }
+    val excluded = fullTree.size - tree.size
+    if (excluded > 0) {
+        logger.debug { "schedule(): excluded $excluded unscheduled leaf/leaves (accompanying work)" }
+    }
     if (tree.isEmpty()) return emptySchedule(teamFte)
     val byId = tree.associateBy { it.logicalId }
 
@@ -223,6 +273,7 @@ internal fun computeSchedule(
         .toSet()
 
     val tasks = tree.map { node -> scheduledTaskFor(node, forward, criticalLeaves) }
+    val phaseWindows = phaseWindowsOf(tree, forward)
 
     // The band follows the longest DEPENDENCY path's own mean and variance, not
     // projectDurationDays: offerPT already carries a stdDevFactor loading, so
@@ -252,7 +303,8 @@ internal fun computeSchedule(
         optimisticDurationDays = max(0.0, expectedDurationDays - band),
         pessimisticDurationDays = expectedDurationDays + band,
         teamFte = teamFte,
-        error = null
+        error = null,
+        phaseWindows = phaseWindows
     )
 }
 
@@ -381,6 +433,30 @@ private fun emptySchedule(teamFte: Double) = ProjectSchedule(
     teamFte = teamFte,
     error = null
 )
+
+/**
+ * The span each phase occupies in the levelled plan, over its OWN scheduled
+ * leaves (task-177). Accompanying work runs across the whole of this window
+ * rather than occupying a slot inside it, and an AUTOMATIC phase length is this
+ * window expressed in weeks.
+ */
+private fun phaseWindowsOf(
+    tree: List<TreeNode>,
+    forward: Map<String, ForwardState>
+): List<PhaseWindow> = tree
+    .filter { it.isScheduledLeaf }
+    .mapNotNull { leaf -> leaf.phaseAbbreviation?.let { abbr -> abbr to forward[leaf.logicalId] } }
+    .mapNotNull { (abbr, state) -> state?.let { abbr to it } }
+    .groupBy({ it.first }, { it.second })
+    .map { (abbr, states) ->
+        PhaseWindow(
+            abbreviation = abbr,
+            earliestStart = states.minOf { it.earliestStart },
+            earliestFinish = states.maxOf { it.earliestFinish },
+            scheduledLeafCount = states.size
+        )
+    }
+    .sortedBy { it.earliestStart }
 
 private fun failedSchedule(teamFte: Double, error: ScheduleError) = ProjectSchedule(
     tasks = emptyList(),

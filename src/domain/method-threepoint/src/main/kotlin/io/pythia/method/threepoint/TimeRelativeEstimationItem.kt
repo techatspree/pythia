@@ -62,6 +62,14 @@ data class TimeRelativeEstimationItem(
 
     override val nodeTypeLabel: String = "TIME_RELATIVE"
 
+    /**
+     * NOT scheduled: this item accompanies the whole of its phase rather than
+     * occupying a slot in the plan, and its effort is derived FROM the phase's
+     * length — so scheduling it would make the plan depend on a number that
+     * depends on the plan (task-177).
+     */
+    override val isScheduled: Boolean = false
+
     // The base fields are spelled out rather than reached through
     // `super.diffFields()` + `unit`, keeping this leaf's list self-contained and
     // staying well clear of the Kotlin/JS super-dispatch trap noted above.

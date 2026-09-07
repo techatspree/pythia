@@ -87,6 +87,8 @@ data class BucketedEstimationItem(
 
     override val nodeTypeLabel: String = "BUCKETED"
 
+    override val isScheduled: Boolean = true
+
     // This leaf's inputs are the bucket assignment plus the sample triple — it
     // does not carry assumptions or a phase, so it replaces the base list
     // rather than extending it. Order matches what the history panel has

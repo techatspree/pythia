@@ -234,6 +234,9 @@ class EstimationVersionService(
                 name = p.name
                 abbreviation = p.abbreviation
                 durationWeeks = p.durationWeeks
+                // A field added to the DTO but not here is silently dropped on
+                // submit, and only the snapshot shows it (task-177).
+                durationMode = p.durationMode
                 version = submitted
             })
         }
@@ -396,6 +399,7 @@ class EstimationVersionService(
                 name = p.name
                 abbreviation = p.abbreviation
                 durationWeeks = p.durationWeeks
+                durationMode = p.durationMode
                 version = target
             }
             phaseMapping[p.abbreviation] = draftPhase

@@ -45,6 +45,8 @@ data class FixedEstimationItem(
 
     override val nodeTypeLabel: String = "FIXED"
 
+    override val isScheduled: Boolean = true
+
     // The inherited diffFields() default — optimistic / likely / pessimistic /
     // assumptions / phase — is exactly this leaf's shape.
 

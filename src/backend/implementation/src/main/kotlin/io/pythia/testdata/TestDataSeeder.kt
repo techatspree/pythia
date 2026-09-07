@@ -196,7 +196,7 @@ class TestDataSeeder(
 
     private fun seedWebshop(): Int {
         val project = projectService.create(
-            name = "Webshop Redesign",
+            name = SeededProjects.WEBSHOP,
             description = "Komplette Neuentwicklung der E-Commerce-Plattform",
             client = "RetailCorp GmbH"
         )
@@ -468,7 +468,7 @@ class TestDataSeeder(
 
     private fun seedMobileApp(): Int {
         val project = projectService.create(
-            name = "Mobile App MVP",
+            name = SeededProjects.MOBILE_APP,
             description = "Native iOS/Android-App für Kunden-Self-Service",
             client = "FinanceAG"
         )
@@ -616,7 +616,7 @@ class TestDataSeeder(
 
     private fun seedDataPlatform(): Int {
         val project = projectService.create(
-            name = "Data Platform Migration",
+            name = SeededProjects.DATA_PLATFORM,
             description = "Migration der Datenplattform auf ein Lakehouse",
             client = "DataWorks AG"
         )

@@ -85,7 +85,11 @@
       "colDuration": "Laufzeit (Wochen)",
       "colOfferPT": "Angebots-PT (PT)",
       "colEffortPerWeek": "Aufwand/Woche",
-      "addRow": "+ Phase hinzufügen"
+      "addRow": "+ Phase hinzufügen",
+      "colDurationMode": "Dauer-Modus",
+      "modeExplicit": "Fest vorgegeben",
+      "modeAutomatic": "Aus Netzplan",
+      "noScheduledWork": "Keine geplanten Vorgänge in dieser Phase — es gibt nichts zu berechnen."
     },
     "additionalCosts": {
       "title": "Zusatzkosten",
@@ -168,7 +172,9 @@
       "fileName": "projektplan.mmd",
       "startsOn": "Arbeitstag 0 entspricht {date}; Wochenenden werden übersprungen.",
       "barAria": "{title}: beginnt an Arbeitstag {start}, Dauer {days} Tage",
-      "barCriticalAria": "{title}: beginnt an Arbeitstag {start}, Dauer {days} Tage — auf der kritischen Kette"
+      "barCriticalAria": "{title}: beginnt an Arbeitstag {start}, Dauer {days} Tage — auf der kritischen Kette",
+      "accompanyingAria": "{title}: begleitende Aufgabe, läuft über die gesamte Phase {phase}",
+      "accompanyingShort": "ganze Phase"
     }
   },
   "grid": {

@@ -40,13 +40,20 @@ fun createFixedItem(
     expectedEffort: Double = 0.0,
     maxEffort: Double = 0.0,
     assumptions: String = "",
-    logicalId: String = newId()
+    logicalId: String = newId(),
+    // TRAILING and defaulted, so every existing positional call still compiles.
+    // A scheduled leaf must carry its phase or `ProjectSchedule.phaseWindows`
+    // has nothing to group by (task-177): the JVM path already attaches phases
+    // via DraftVersionMapper, and the frontend adapter was the only place a
+    // FIXED leaf lost its phase.
+    phase: ProjectPhase? = null
 ): FixedEstimationItem = FixedEstimationItem(
     _description = description,
     _minEffort = minEffort,
     _expectedEffort = expectedEffort,
     _maxEffort = maxEffort,
     _assumptions = assumptions,
+    _phase = phase,
     _logicalId = logicalId
 )
 

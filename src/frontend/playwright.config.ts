@@ -41,6 +41,7 @@ export default defineConfig({
 			]
 		}
 	},
+	globalSetup: './e2e/global-setup.ts',
 	projects: [
 		{
 			name: 'chromium',

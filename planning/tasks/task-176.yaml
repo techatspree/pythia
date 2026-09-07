@@ -9,10 +9,11 @@ description: |
 
   ## Measured, not theoretical
 
-  Ten specs call `POST /api/projects` (auth-gate, bucket-hierarchy,
-  bucket-views, create-estimation, endpoint-authorization, export,
-  merlin-export, schedule, summary-panel, treetable-header-fit), and a run
-  creates roughly one project per test.
+  NINE specs call `POST /api/projects` (bucket-hierarchy, bucket-views,
+  create-estimation, endpoint-authorization, export, merlin-export, schedule,
+  summary-panel, treetable-header-fit), and a run creates roughly one project
+  per test. `auth-gate.test.ts` is deliberately NOT in that list: it only ever
+  `GET`s `/api/projects`, so it reads the accumulation without adding to it.
 
   After three suite runs plus one screenshot run against the same stack the
   database held **231 projects**, and the suite went from 107 passed to
@@ -73,6 +74,12 @@ description: |
   estimations must be deleted first. Its own children (participants, items,
   votes) do cascade from the session, so removing the session is enough.
 
+  The screenshot script (`src/frontend/scripts/capture-screenshots.mjs`) also
+  builds fixtures through the API, so those are cleared too. That is desirable
+  — they are as transient as a test's — but somebody who regenerates
+  screenshots and then runs the suite should not be surprised that the fixtures
+  are gone.
+
   ## globalSetup, not globalTeardown
 
   Clean **before** the run, for two reasons:
@@ -107,12 +114,21 @@ steps:
     so it cannot be built into a production image, and `@RolesAllowed("ADMIN")`.
 
     One method: `DELETE /api/dev/test-data` → `200` with a small JSON body
-    `{ "deletedProjects": <n>, "deletedSessions": <n> }`.
+    `{ "deletedProjects": <n>, "deletedSessions": <n>, "remainingProjects": <n> }`.
 
-    The session side has entities under `io.pythia.domain.session` but no
-    repository is named here on purpose — use whatever
-    `EstimationSessionRepository` already offers, or a JPQL delete; do not add a
-    repository method that only this dev endpoint uses.
+    `remainingProjects` is not decoration: a setup line reading
+    "deleted 228, 3 remain" makes a mis-scoped keep-list obvious at once,
+    whereas a deleted-count alone looks equally healthy whether the seeded
+    fixture survived or was wiped with everything else.
+
+    `EstimationSessionRepository` offers only `findByEstimationId`,
+    `findJoinable` and `findParticipant` — nothing that selects by project — so
+    a JPQL delete is the practical route. Shape:
+
+      delete from EstimationSession s
+       where s.estimation.project.name not in :keep
+
+    Do not add a repository method that only this dev endpoint would use.
 
     It must delete, in this order and inside one `@Transactional`:
       1. every `EstimationSession` whose estimation belongs to a project NOT in
@@ -128,7 +144,8 @@ steps:
   - |
     Add `src/frontend/e2e/global-setup.ts`: a Playwright `globalSetup` that
     `DELETE`s `/api/dev/test-data` with the `Authorization: Dev dev-admin`
-    header the specs already use, reads the returned counts and logs one line.
+    header the specs already use, reads the returned counts and logs ONE line
+    including `remainingProjects`, so a wiped fixture is visible immediately.
 
     It must NOT fail the run when the endpoint is absent or the stack is not up
     in the expected shape — a `404` means someone is running against a non-dev
@@ -202,10 +219,15 @@ validation:
       set -e
       R=src/backend/implementation/src/main/kotlin/io/pythia/rest/TestDataResource.kt
       grep -q "SeededProjects" "$R"
-      # matched on the keep-list, never on a name prefix
-      if grep -qiE '"E2E|startsWith\("E2E' "$R"; then
+      # Matched on the keep-list, never on a name prefix. Test the FILTER, not
+      # the letters: a case-insensitive search for "e2e" also matches the two
+      # log messages, which are innocent. A prefix rule shows up as a
+      # startsWith or a SQL like, so look for those in the code only.
+      CODE=$(grep -v '^[[:space:]]*[/*]' "$R")
+      if printf '%s' "$CODE" | grep -qE 'startsWith\(|[Ll][Ii][Kk][Ee] '; then
         echo "a name-prefix rule crept in; EstimatorWrite and UI fixtures would survive"; exit 1
       fi
+      printf '%s' "$CODE" | grep -q "name not in"   # the keep-list form
   - |
     The destructive operation is logged with its counts, per the backend
     logging convention:
@@ -213,6 +235,8 @@ validation:
       R=src/backend/implementation/src/main/kotlin/io/pythia/rest/TestDataResource.kt
       grep -q "Log.info" "$R"
       grep -q "Log.error" "$R"
+      grep -q "remainingProjects" "$R" \
+        || { echo "the response does not report what REMAINS; a wiped keep-list would look healthy"; exit 1; }
   - |
     globalSetup exists, is wired into the Playwright config, and calls the
     endpoint:

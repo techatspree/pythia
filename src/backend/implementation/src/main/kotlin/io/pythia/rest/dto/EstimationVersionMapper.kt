@@ -96,7 +96,8 @@ fun DraftProjectPhase.toDto() = ProjectPhaseDto(
     id = id,
     name = name,
     abbreviation = abbreviation,
-    durationWeeks = durationWeeks
+    durationWeeks = durationWeeks,
+    durationMode = durationMode
 )
 
 fun DraftEstimationNode.toDtoWithCalc(calcMap: Map<String, EstimationNode>): EstimationNodeDto {
@@ -174,7 +175,8 @@ fun SubmittedProjectPhase.toDto() = ProjectPhaseDto(
     id = id,
     name = name,
     abbreviation = abbreviation,
-    durationWeeks = durationWeeks
+    durationWeeks = durationWeeks,
+    durationMode = durationMode
 )
 
 fun SubmittedEstimationNode.toDto(): EstimationNodeDto = when (this) {

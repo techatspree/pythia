@@ -147,11 +147,15 @@ class DraftUpdateApplier {
             if (existing != null) {
                 existing.name = dto.name
                 existing.durationWeeks = dto.durationWeeks
+                // The PUT path: without this the user's automatic/explicit
+                // choice is never persisted (task-177).
+                existing.durationMode = dto.durationMode
             } else {
                 draft.phases.add(DraftProjectPhase().apply {
                     name = dto.name
                     abbreviation = dto.abbreviation
                     durationWeeks = dto.durationWeeks
+                    durationMode = dto.durationMode
                     version = draft
                 })
             }

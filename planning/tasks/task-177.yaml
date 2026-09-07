@@ -85,15 +85,20 @@ description: |
 
   ## Three layers keep a dependency off a variable item
 
-  Do not rely on the UI alone:
+  CORRECTION (recorded during implementation): an earlier draft called for a
+  guard in `addEdge` and a suppressed drag handle. Neither is reachable, and
+  that is a consequence of the design rather than an omission:
 
-    - the **editor** does not draw a drag handle on a variable item's card, so
-      the gesture cannot start;
-    - `addEdge` refuses an edge naming one, through task-172's existing refusal
-      modal with its own message — a silent no-op is the defect task-172 fixed;
-    - the **domain** ignores an edge whose endpoint is not a scheduled leaf when
-      lowering the graph, so a row already in the database (the API validates
-      no endpoints — see task-176's findings) cannot break the plan.
+    - `DependencyEditor` renders its cards from `schedule.tasks`, and an
+      excluded leaf is not in `tasks` at all — so it has no card, no handle and
+      no drop target. The gesture is impossible **by construction**, which is
+      stronger than a guard that has to be remembered.
+    - the **domain** additionally ignores an edge whose endpoint is not a
+      scheduled leaf when lowering the graph, so a row already in the database
+      (the API validates no endpoints — see task-176) cannot break the plan.
+
+  So there are two layers, and `DependencyEditor.svelte` needs no change. Do
+  not add a guard for a gesture that cannot start; assert the absence instead.
 
   ## Deliberate non-goals
 
@@ -113,6 +118,10 @@ steps:
     documented as the core-level hook that lets `ProjectSchedule` exclude
     accompanying work without importing a method module.
 
+    There are exactly THREE concrete subclasses — `FixedEstimationItem`,
+    `TimeRelativeEstimationItem` and `BucketedEstimationItem` (verified) — so
+    the abstract val has three overrides and no more.
+
     Override it to `true` in the fixed and bucketed items and to `false` in
     `src/domain/method-threepoint/src/main/kotlin/io/pythia/method/threepoint/TimeRelativeEstimationItem.kt`.
     Change nothing about that file's `mean` / `variance` — the inlined PERT
@@ -122,6 +131,12 @@ steps:
     an `@JsExport enum class PhaseDurationMode { EXPLICIT, AUTOMATIC }` and a
     `durationMode: PhaseDurationMode = PhaseDurationMode.EXPLICIT` field, so a
     phase constructed without one behaves exactly as today.
+
+    Put it AFTER `durationWeeks` and BEFORE the private `_id` / `_createdAt` /
+    `_updatedAt` params. Several sites construct the phase positionally with
+    three arguments (`MutationLogMapper.kt:100`, `DraftVersionMapper`, the
+    domain tests); a default-valued field inserted ahead of those trailing
+    private params keeps every one of them compiling.
   - |
     Teach `src/domain/core/src/main/kotlin/io/pythia/model/ProjectSchedule.kt`
     about phases and about exclusion:
@@ -153,6 +168,19 @@ steps:
     Run the KMP build and regenerate the TypeScript the frontend consumes:
     `./gradlew :domain:build`, then `./gradlew :frontend:check`.
   - |
+    Extend the frontend's schedule view by hand. `ProjectScheduleView` and
+    `toScheduleView(...)` in `src/frontend/src/lib/adapter.ts` are HAND-WRITTEN
+    — the generated `domain.d.mts` types are not what the components consume —
+    so `phaseWindows` will not appear on its own:
+
+      - add `phaseWindows: PhaseWindowView[]` to `ProjectScheduleView` and a
+        `PhaseWindowView` interface mirroring the domain's `PhaseWindow`,
+      - flatten it in `toScheduleView`. `phaseWindows` is a Kotlin `List`, so it
+        crosses with `.asJsReadonlyArrayView()` — the same call the existing
+        `tasks` and `involvedLogicalIds` flattening uses (documented in
+        `src/domain/CLAUDE.md`). A plain array access on a `KtList` fails at
+        runtime, not at compile time.
+  - |
     Persist the mode. Add
     `src/backend/implementation/src/main/resources/db/migration/V20__phase_duration_mode.sql`
     adding `duration_mode VARCHAR(255) NOT NULL DEFAULT 'EXPLICIT'` to
@@ -161,11 +189,26 @@ steps:
     `@Enumerated(EnumType.STRING)` — the migration alone is not enough, since
     `%test`/`%dev` build the schema from Hibernate.
 
-    Carry it through `EstimationVersionDtos.kt` (both phase DTOs),
-    `EstimationVersionMapper.kt` (both directions), `MutationLogMapper.kt`'s
-    `ProjectPhase(...)` reconstruction, and the draft/submitted copy paths in
-    `EstimationVersionService.kt` — a field added to the DTO but not to
-    `snapshotDraft`/`cloneFromSubmitted` is silently dropped on submit.
+    Carry it through EVERY path, not just the DTO. Two of these are
+    load-bearing and easy to miss — without them the feature looks implemented
+    and does nothing:
+
+      - `DraftVersionMapper.kt:48` — `DraftProjectPhase.toDomain()` is the
+        ENTITY→DOMAIN mapping the SCHEDULER reads. Omit it and the domain always
+        sees `EXPLICIT`, so automatic mode never takes effect anywhere.
+      - `DraftUpdateApplier.kt:151` — `draft.phases.add(DraftProjectPhase()…)`
+        is the PUT path. Omit it and the user's choice is never persisted.
+      - `EstimationVersionDtos.kt` (both phase DTOs),
+      - `EstimationVersionMapper.kt` (both directions),
+      - `MutationLogMapper.kt:100`'s `ProjectPhase(...)` reconstruction,
+      - the draft/submitted copy paths in `EstimationVersionService.kt` — a
+        field added to the DTO but not to `snapshotDraft` /
+        `cloneFromSubmitted` is silently dropped on submit.
+
+    `ExcelImporter.kt:99` also creates `DraftProjectPhase` rows; it needs no
+    change, because an imported phase should start EXPLICIT and the entity
+    default already gives that. Leave it alone deliberately rather than by
+    omission.
   - |
     Frontend: show and edit the mode in
     `src/frontend/src/lib/components/PhasesPanel.svelte` — a per-row control
@@ -181,9 +224,9 @@ steps:
         (a lighter fill plus a hatch or outline — surface AND edge, so the
         distinction is not colour-only, following task-174), with its own
         `aria-label` naming it accompanying work.
-      - `DependencyEditor.svelte` renders no drag handle on a variable item and
-        `addEdge` refuses an edge naming one through the task-172 modal with a
-        distinct message.
+      - `DependencyEditor.svelte` needs NO change: it renders from
+        `schedule.tasks`, and an excluded leaf is not there, so it has no card,
+        handle or drop target. Verify that rather than adding a guard.
   - |
     Add every new string to BOTH `src/frontend/src/lib/i18n/de.json` and
     `en.json`, key-for-key: the mode labels (explicit / automatic), the
@@ -279,21 +322,45 @@ validation:
     The mode survives a submit and a clone. A field added to the DTO but not to
     the copy paths is silently dropped, which only shows up on the snapshot:
       set -e
-      V=src/backend/implementation/src/main/kotlin/io/pythia/service/EstimationVersionService.kt
-      grep -q "durationMode" "$V" \
-        || { echo "durationMode is not copied in snapshotDraft/cloneFromSubmitted"; exit 1; }
-      grep -q "durationMode" src/backend/implementation/src/main/kotlin/io/pythia/rest/dto/EstimationVersionDtos.kt
-      grep -q "durationMode" src/backend/implementation/src/main/kotlin/io/pythia/rest/dto/EstimationVersionMapper.kt
+      B=src/backend/implementation/src/main/kotlin/io/pythia
+      # EVERY path, named individually. The first two are the ones that make the
+      # feature work at all: without the entity->domain mapper the scheduler
+      # never sees AUTOMATIC, and without the PUT path the choice never saves.
+      for f in "$B/service/DraftVersionMapper.kt" \
+               "$B/service/DraftUpdateApplier.kt" \
+               "$B/service/EstimationVersionService.kt" \
+               "$B/rest/dto/EstimationVersionDtos.kt" \
+               "$B/rest/dto/EstimationVersionMapper.kt" \
+               "$B/rest/dto/MutationLogMapper.kt"; do
+        test -f "$f" || { echo "missing file: $f"; exit 1; }
+        grep -q "durationMode" "$f" \
+          || { echo "durationMode is not carried through $f"; exit 1; }
+      done
   - |
     A variable item cannot be dragged and an edge naming one is refused — three
     layers, not just the UI:
       set -e
       D=src/frontend/src/lib/components/schedule/DependencyEditor.svelte
-      grep -q "isScheduled" "$D" \
-        || { echo "the editor does not distinguish unscheduled items"; exit 1; }
-      body=$(awk '/function addEdge\(/,/^\t}/' "$D")
-      printf '%s' "$body" | grep -qE "isScheduled|refusedItems" \
-        || { echo "addEdge does not refuse an edge on a variable item"; exit 1; }
+      # The editor must keep rendering from `schedule.tasks` — that is WHY an
+      # excluded leaf has no card, handle or drop target. A guard here would be
+      # dead code for a gesture that cannot start.
+      grep -q "schedule?.tasks ?? \[\]" "$D" \
+        || { echo "the editor no longer renders from schedule.tasks; exclusion stops working"; exit 1; }
+      # and the domain still drops an edge naming a non-scheduled leaf
+      grep -q "isScheduledLeaf" src/domain/core/src/main/kotlin/io/pythia/model/ProjectSchedule.kt
+  - |
+    The hand-written frontend view carries the new field, and the Kotlin list
+    crosses the boundary correctly — a plain array access on a KtList fails at
+    RUNTIME, not at compile time:
+      set -e
+      A=src/frontend/src/lib/adapter.ts
+      grep -q "phaseWindows" "$A"
+      grep -q "PhaseWindowView" "$A"
+      body=$(awk '/function toScheduleView/,/^}/' "$A")
+      printf '%s' "$body" | grep -q "phaseWindows" \
+        || { echo "toScheduleView does not flatten phaseWindows"; exit 1; }
+      printf '%s' "$body" | grep -q "asJsReadonlyArrayView" \
+        || { echo "the Kotlin list is not converted with asJsReadonlyArrayView"; exit 1; }
   - |
     The Gantt spans the phase window for a variable item, and the distinction
     is not colour-only:
@@ -360,10 +427,19 @@ outputs:
   - modified: src/backend/implementation/src/main/kotlin/io/pythia/rest/dto/EstimationVersionDtos.kt
   - modified: src/backend/implementation/src/main/kotlin/io/pythia/rest/dto/EstimationVersionMapper.kt
   - modified: src/backend/implementation/src/main/kotlin/io/pythia/rest/dto/MutationLogMapper.kt
+  # ENTITY->DOMAIN: the mapping the scheduler reads. Without it AUTOMATIC never takes effect.
+  - modified: src/backend/implementation/src/main/kotlin/io/pythia/service/DraftVersionMapper.kt
+  # DTO->ENTITY: the PUT path. Without it the choice is never persisted.
+  - modified: src/backend/implementation/src/main/kotlin/io/pythia/service/DraftUpdateApplier.kt
   - modified: src/backend/implementation/src/main/kotlin/io/pythia/service/EstimationVersionService.kt
   - modified: src/frontend/src/lib/components/PhasesPanel.svelte
+  # phaseWindows reaches PhasesPanel through both editor modules and the route.
+  - modified: src/frontend/src/lib/methods/pert/EditorModule.svelte
+  - modified: src/frontend/src/lib/methods/bucketSampled/EditorModule.svelte
+  - modified: src/frontend/src/routes/estimations/[id]/versions/[versionNumber]/+page.svelte
+  # The Gantt lives here and derives accompanying items from the TREE.
+  - modified: src/frontend/src/routes/estimations/[id]/versions/[versionNumber]/schedule/+page.svelte
   - modified: src/frontend/src/lib/components/schedule/GanttChart.svelte
-  - modified: src/frontend/src/lib/components/schedule/DependencyEditor.svelte
   - modified: src/frontend/src/lib/adapter.ts
   - modified: src/frontend/src/lib/i18n/de.json
   - modified: src/frontend/src/lib/i18n/en.json

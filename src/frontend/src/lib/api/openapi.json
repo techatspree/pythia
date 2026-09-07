@@ -986,6 +986,10 @@
         "type" : "string",
         "enum" : [ "MODERATOR", "ESTIMATOR" ]
       },
+      "PhaseDurationMode" : {
+        "type" : "string",
+        "enum" : [ "EXPLICIT", "AUTOMATIC" ]
+      },
       "PhaseUpdateDto" : {
         "type" : "object",
         "required" : [ "name", "abbreviation" ],
@@ -999,6 +1003,9 @@
           "durationWeeks" : {
             "type" : [ "number", "null" ],
             "format" : "double"
+          },
+          "durationMode" : {
+            "$ref" : "#/components/schemas/PhaseDurationMode"
           }
         }
       },
@@ -1086,6 +1093,9 @@
           "durationWeeks" : {
             "type" : [ "number", "null" ],
             "format" : "double"
+          },
+          "durationMode" : {
+            "$ref" : "#/components/schemas/PhaseDurationMode"
           }
         },
         "required" : [ "name", "abbreviation" ]
