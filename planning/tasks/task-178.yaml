@@ -1,0 +1,234 @@
+id: task-178
+phase: phase-20
+title: "README: introduce dependency-based scheduling"
+depends_on: [task-177]
+description: |
+  Pythia now turns an estimate into a TIMELINE, not just a price, and the README
+  never mentions it. Everything phase-19 and phase-20 delivered — finish-to-start
+  dependencies between items, a graphical net-plan editor, the critical path, a
+  resource-levelled project length, a three-point duration range, the Gantt chart
+  with its Mermaid export, phase-spanning accompanying items, and phase lengths
+  computed from the net plan — is invisible to anyone reading the front page. The
+  README still describes a tool that converts effort into money and stops there.
+
+  Target state: a reader who has never seen Pythia understands from the README
+  that the same three-point numbers they enter for cost also answer "how long
+  will this take, and what is on the critical path?" — described in the README's
+  existing voice, not as a changelog.
+
+  This is a DOCUMENTATION-ONLY task. It adds no UI text (so no i18n catalog
+  change), no service, no domain operation and no frontend flow, so the logging
+  and i18n conventions do not apply. It is assigned phase-20 because it has to
+  describe task-177's phase-aware behaviour alongside the phase-19 net plan, and
+  cannot be written before both exist.
+
+  Decisions already made, so the implementer does not have to choose:
+
+  - PLACEMENT: a new "### From effort to a schedule" subsection under
+    "## Features", inserted IMMEDIATELY BEFORE the existing
+    "### From effort to price". The two conversions then sit side by side —
+    effort into time, effort into money — which is the clearest reading order
+    and needs no renaming of anything that already exists.
+  - NO SCREENSHOT. `docs/images/` has no schedule or Gantt capture, and a
+    README must never reference an image that does not exist. Three of the five
+    existing feature subsections carry no image either, so this is consistent.
+    Producing one is deliberately out of scope.
+  - NO NEW `## Documentation` LINK. There is no `docs/scheduling.md`; do not
+    invent a link to a missing file, and do not write that document here.
+  - Three smaller edits accompany the new subsection so the front page stays
+    coherent: one sentence in "## What it does", one row in the
+    "Why not a spreadsheet?" table, and a schedule branch in the
+    "## How an estimate flows" Mermaid diagram.
+
+  VOICE. Match the surrounding text exactly: second person, benefit first, and
+  the established bullet idiom of a bold lead-in term, an em-dash, then one
+  plain-language sentence (occasionally two). Marketing and introductory in the
+  register the README already uses — confident and concrete, never breathless.
+  No task ids, no version numbers, no class or field names, no Kotlin, no
+  "we implemented". Compare the existing bullets before writing and imitate
+  their length; a bullet twice as long as its neighbours is wrong even if every
+  word is true.
+
+  ACCURACY — the feature set is specific, and overclaiming here is worse than
+  saying less. What is true:
+
+  - Dependencies are FINISH-TO-START edges between items, drawn by dragging in
+    a dependency editor that uses net-plan symbols to distinguish a leaf, an
+    open group and a closed group. Groups participate as roll-ups of their
+    children rather than as separate work.
+  - A cycle is refused AT DROP TIME by a dialog that names the items in the loop
+    and offers to cancel, so the invalid dependency is never created. There is
+    no "fix it afterwards" repair screen.
+  - Team size is a NUMBER OF PEOPLE, and the "planned length" is the
+    resource-levelled result: what a team of that size actually delivers.
+  - Separately, the estimate's uncertainty is carried along the critical chain
+    as an optimistic / expected / pessimistic duration plus a standard
+    deviation. THIS IS A DIFFERENT NUMBER from the planned length, and the
+    planned length need not fall inside that range, because levelling accounts
+    for capacity and the critical chain does not. The UI says so in a hint; the
+    README must not flatten the two into one claim.
+  - The Gantt chart maps working days onto a start date you choose, SKIPPING
+    WEEKENDS ONLY — holidays are deliberately not modelled. Never imply a
+    holiday or resource calendar.
+  - It exports the plan as Mermaid, so the chart can be pasted into a document
+    or a wiki.
+  - Accompanying items — the ones measured in hours per week, like project
+    management or UX support — run across their whole phase in the chart and
+    cannot be the target of a dependency.
+  - A phase's length is either specified by hand or computed from the net plan,
+    switchable per phase.
+  - The critical path is also surfaced as a column on the main estimation table,
+    so it is visible while estimating and not only in the schedule view.
+
+  What is NOT true and must not appear: assigning named people to tasks,
+  tracking actuals against a baseline, burndown or progress reporting, holiday
+  calendars, start-to-start or lag dependencies, and levelling across several
+  projects at once.
+
+steps:
+  - |
+    Read README.md in full first. Pay attention to the bullet idiom in the five
+    existing "### " subsections under "## Features" — bold lead-in term, em-dash,
+    one plain sentence — and to the sentence rhythm of "## What it does". The new
+    text has to be indistinguishable in voice from what is already there.
+  - |
+    Insert a new subsection immediately BEFORE the line "### From effort to price"
+    in README.md, titled exactly:
+      ### From effort to a schedule
+    Write five to seven bullets in the established idiom, covering: drawing
+    finish-to-start dependencies in the editor (with the net-plan symbols for
+    leaf / open group / closed group); the cycle being refused as you draw it,
+    with the loop explained and nothing created; the critical path, surfaced both
+    in the schedule and as a column on the estimation table; team size as a
+    number of people and the resource-levelled planned length that follows; the
+    three-point duration range and its spread along the critical chain, kept
+    clearly distinct from the planned length; the Gantt chart on a start date you
+    choose in working days, with Mermaid export; accompanying hours-per-week items
+    spanning their phase; and phase length either specified or computed from the
+    net plan. Group related points rather than writing one bullet per fact.
+  - |
+    Extend the "## What it does" section with ONE sentence (do not restructure the
+    existing paragraphs) stating that the same three-point numbers also produce a
+    schedule — dependencies, a critical path and a project length — so effort
+    answers both what it costs and how long it takes. Place it so the section
+    still ends on the "defensible offer price" idea, which is the README's main
+    promise.
+  - |
+    Add exactly ONE row to the "Why not a spreadsheet?" table, in the existing
+    three-column shape and voice, contrasting a hand-maintained bar chart that
+    drifts from the estimate against a timeline derived from the estimate itself.
+    Keep the row label short and bold like its neighbours.
+  - |
+    Extend the "## How an estimate flows" Mermaid diagram with the scheduling
+    branch: from the three-point values node, add a schedule node (dependencies →
+    critical path → project length) that leads into the submitted version, so the
+    diagram shows effort feeding BOTH price and schedule. Preserve the existing
+    node ids and edges; add, do not rewrite. Keep the flowchart direction and the
+    `<br/>` label style already used.
+  - |
+    Re-read the new subsection against the accuracy list in this task's
+    description. Specifically confirm the text does not imply a holiday calendar,
+    named-person assignment, actuals or baseline tracking, and does not state or
+    suggest that the planned length lies inside the optimistic-to-pessimistic
+    range.
+  - |
+    Run the full build as a safety net that nothing else was touched:
+      ./gradlew build
+
+validation:
+  - |
+    The new subsection exists, with the exact heading, and sits immediately
+    before the price subsection rather than after it:
+      grep -q "^### From effort to a schedule$" README.md
+      S=$(grep -n "^### From effort to a schedule$" README.md | cut -d: -f1)
+      P=$(grep -n "^### From effort to price$" README.md | cut -d: -f1)
+      test -n "$S" && test -n "$P" && test "$S" -lt "$P"
+  - |
+    It carries five to seven bullets and every one uses the README's bold
+    lead-in + em-dash idiom, so it reads like its neighbours:
+      awk '/^### From effort to a schedule$/{f=1;next} f&&/^### /{exit} f' README.md > /tmp/t178-sec.md
+      N=$(grep -c '^- ' /tmp/t178-sec.md)
+      echo "bullets: $N"
+      test "$N" -ge 5 && test "$N" -le 7
+      B=$(grep -c '^- \*\*.*\*\* —' /tmp/t178-sec.md)
+      echo "idiomatic bullets: $B of $N"
+      test "$B" -eq "$N"
+  - |
+    No bullet is wildly longer than the existing ones. Compare the new section's
+    longest bullet against the longest bullet already in the Features section:
+      awk '/^### From effort to a schedule$/{f=1;next} f&&/^### /{exit} f' README.md > /tmp/t178-sec.md
+      awk '/^### From effort to a schedule$/{s=1} /^### From effort to price$/{s=0} /^## Features$/{f=1} /^## How an estimate flows$/{f=0} f&&!s&&/^- /{print length($0)}' README.md | sort -rn | head -1 > /tmp/t178-max-all
+      grep '^- ' /tmp/t178-sec.md | awk '{print length($0)}' | sort -rn | head -1 > /tmp/t178-max-new
+      echo "longest new: $(cat /tmp/t178-max-new)  longest anywhere in Features: $(cat /tmp/t178-max-all)"
+      test "$(cat /tmp/t178-max-new)" -le "$(cat /tmp/t178-max-all)"
+  - |
+    The section actually covers the feature set rather than gesturing at it —
+    every one of these concepts must appear somewhere in it:
+      awk '/^### From effort to a schedule$/{f=1;next} f&&/^### /{exit} f' README.md > /tmp/t178-sec.md
+      grep -qi "critical" /tmp/t178-sec.md
+      grep -qi "gantt" /tmp/t178-sec.md
+      grep -qi "mermaid" /tmp/t178-sec.md
+      grep -qiE "cycle|loop|circular" /tmp/t178-sec.md
+      grep -qiE "phase" /tmp/t178-sec.md
+      grep -qiE "team|people|capacity" /tmp/t178-sec.md
+  - |
+    NO OVERCLAIMING. None of these may appear anywhere in the new section — each
+    is a capability Pythia does not have, and holidays are explicitly not
+    modelled in the Gantt:
+      awk '/^### From effort to a schedule$/{f=1;next} f&&/^### /{exit} f' README.md > /tmp/t178-sec.md
+      if grep -qiE "holiday|public holiday|bank holiday" /tmp/t178-sec.md; then echo "claims a holiday calendar"; exit 1; fi
+      if grep -qiE "baseline|actuals|burndown|burn-down|progress report" /tmp/t178-sec.md; then echo "claims tracking Pythia does not do"; exit 1; fi
+      if grep -qiE "assign (a |named )?(person|people|resource)|per-person calendar" /tmp/t178-sec.md; then echo "claims named-person assignment"; exit 1; fi
+      if grep -qiE "start-to-start|\\blag\\b|lead time" /tmp/t178-sec.md; then echo "claims dependency kinds that do not exist"; exit 1; fi
+  - |
+    The planned length and the three-point duration range must not be conflated:
+    the text may not claim the planned length falls WITHIN that range, which is
+    exactly what the UI hint warns against:
+      awk '/^### From effort to a schedule$/{f=1;next} f&&/^### /{exit} f' README.md > /tmp/t178-sec.md
+      if grep -qiE "(within|inside|between).{0,40}(optimistic|pessimistic|range)" /tmp/t178-sec.md; then echo "conflates levelled length with the critical-chain spread"; exit 1; fi
+  - |
+    No implementation detail leaks into marketing copy — field, class and module
+    names stay out of the new section (README names Kotlin only in "Built with",
+    so this is scoped to the section, not the file):
+      awk '/^### From effort to a schedule$/{f=1;next} f&&/^### /{exit} f' README.md > /tmp/t178-sec.md
+      if grep -qE "logicalId|teamFte|ProjectSchedule|ScheduledTask|Kotlin|@JsExport|task-1[0-9][0-9]" /tmp/t178-sec.md; then echo "implementation detail in the README copy"; exit 1; fi
+  - |
+    The three accompanying edits landed. The intro gained a schedule sentence,
+    the comparison table gained exactly one row, and the Mermaid diagram grew a
+    schedule branch:
+      awk '/^## What it does$/{f=1;next} f&&/^## /{exit} f' README.md | grep -qiE "schedule|how long|timeline"
+      R=$(awk '/^\| \*\*/{c++} END{print c+0}' README.md)
+      echo "table rows: $R"
+      test "$R" -eq 6
+      awk '/^\| \*\*/ && !/Team estimates|History|Mistakes|Accountability|Trust in the maths/' README.md > /tmp/t178-row
+      grep -qiE "estimate|critical path|dependenc" /tmp/t178-row
+      awk '/^```mermaid$/{f=1} f{print} /^```$/{if(f)exit}' README.md > /tmp/t178-flow.md
+      grep -qiE "schedule|critical" /tmp/t178-flow.md
+  - |
+    The Mermaid block is still well formed — the fence closes, the original nodes
+    survive, and every arrow still connects two declared ids:
+      awk '/^```mermaid$/{f=1} f{print} /^```$/{if(f)exit}' README.md > /tmp/t178-flow.md
+      test "$(grep -c '^```' README.md)" -eq 6   # mermaid + two bash blocks
+      grep -q "A\[Create draft\]" /tmp/t178-flow.md
+      grep -q "G\[Submit version\]" /tmp/t178-flow.md
+      test "$(grep -c -- '-->' /tmp/t178-flow.md)" -ge 12   # the 10 that were there, plus the branch
+      ID=$(grep -oE '[A-Za-z0-9_]+\[[^]]*critical[^]]*\]' /tmp/t178-flow.md | head -1 | sed 's/\[.*//')
+      echo "schedule node: $ID"
+      test -n "$ID"
+      grep -qE "^[[:space:]]*$ID --> G" /tmp/t178-flow.md
+  - |
+    No image was invented: every image the README references must exist on disk.
+      grep -oE 'src="[^"]+\.(png|svg)"' README.md | cut -d'"' -f2 | grep -v '^http' > /tmp/t178-imgs
+      while read -r p; do test -f "$p" || { echo "missing image: $p"; exit 1; }; done < /tmp/t178-imgs
+      echo "images checked: $(wc -l < /tmp/t178-imgs)"
+  - |
+    No link to a document that does not exist was added:
+      grep -oE '\]\(docs/[^)]+\)' README.md | tr -d ']()' > /tmp/t178-links
+      while read -r p; do test -f "$p" || { echo "missing doc: $p"; exit 1; }; done < /tmp/t178-links
+      echo "doc links checked: $(wc -l < /tmp/t178-links)"
+  - |
+    The full build stays green — this task must not have touched anything else:
+      ./gradlew build
+
+outputs:
+  - modified: README.md

@@ -28,6 +28,10 @@ arbitrarily deep tree of packages and items, capture a **three-point estimate**
 expected effort with an explicit risk surcharge — then into money, applying your daily
 rate, effort drivers, additional costs and sales surcharge.
 
+Link the work into a net plan and the same numbers answer how long it will take, too — a
+critical path, a project length levelled across your team, and a Gantt chart, all derived
+from the estimate rather than maintained beside it.
+
 The result is a **total offer price you can defend line by line**, not a number someone
 typed into a cell. Every estimate is versioned, every change is attributable, and the
 whole team can estimate together in a structured session rather than in a meeting where
@@ -47,6 +51,7 @@ Spreadsheets are fine but break easily and are often not fun to use. Pythia adds
 | **History** | `offer_final_v3_REALLY_final.xlsx` | Draft → submitted versions, with a diff between any two |
 | **Mistakes** | Ctrl+Z, until you close the file | Per-user undo/redo that survives a restart |
 | **Accountability** | "Who changed this cell?" | An audit trail of who changed what, and when |
+| **Timeline** | A bar chart redrawn by hand, drifting from the estimate as it changes | Dependencies live on the estimate itself, so the critical path and the chart follow from the numbers |
 | **Trust in the maths** | Formulas copied between sheets, drifting | One calculation engine, compiled once and shared by server and browser — the numbers cannot disagree |
 
 ## Features
@@ -79,6 +84,20 @@ Spreadsheets are fine but break easily and are often not fun to use. Pythia adds
 - **Persistent undo/redo** — per user, surviving a browser restart, with a visible history.
 - **Roles and audit** — VIEWER / ESTIMATOR / ADMIN, with an audit trail behind every change.
 
+### From effort to a schedule
+
+<p align="center">
+  <img src="docs/images/schedule-dependencies.png" alt="The dependency editor: estimation items as boxes linked by finish-to-start arrows, each showing its duration in days" width="900">
+</p>
+
+- **Draw the dependencies** — connect items by dragging an arrow, on a canvas that uses the familiar net-plan symbols for a leaf, an open package and a collapsed one.
+- **Cycles are refused as you draw** — a link that would close a loop names the items caught in it and offers to cancel, so the impossible plan is never created.
+- **The critical path, where you need it** — the chain that decides the end date is marked in the schedule *and* as a column on the estimation table, so you see it while estimating.
+- **People, not a divisor** — say how many people work on it and Pythia levels the work across them, reporting the length a team that size actually delivers.
+- **Duration carries its uncertainty** — the longest chain yields optimistic, expected and pessimistic durations from the three-point numbers you already entered, separately from the levelled length.
+- **A Gantt chart on your start date** — pick a start and the plan lands on the calendar in working days; export it as Mermaid to drop into a document or a wiki.
+- **Phases that keep up** — accompanying work measured in hours per week runs across its whole phase, and a phase's length is either yours to set or computed from the net plan.
+
 ### From effort to price
 
 - Daily rate, risk surcharge and effort-driver surcharge, shown as separate lines rather than baked into one number.
@@ -108,6 +127,8 @@ flowchart LR
     E --> D
     D --> F[Effort + risk + drivers<br/>→ cost → offer price]
     F --> G[Submit version]
+    D --> S[Dependencies → critical path<br/>→ project length]
+    S --> G
     G --> H[Compare versions]
     G --> I[Export xlsx / CSV / Merlin]
     G --> A
@@ -142,6 +163,7 @@ cd src/frontend && npm run test:e2e   # Playwright end-to-end suite
 - [Architecture](docs/architecture.md) — how the pieces fit together and why the domain is shared code
 - [Development](docs/development.md) — prerequisites, build commands, profiles, and troubleshooting
 - [Estimation sessions](docs/estimation-sessions.md) — the collaborative flow in detail
+- [Scheduling](docs/scheduling.md) — dependencies, the critical path, and the two durations a schedule reports
 - [Authentication](docs/authentication.md) — roles, and the pluggable auth modules
 - [Entra ID setup](docs/entra-setup.md) — wiring up Microsoft Entra ID for production
 

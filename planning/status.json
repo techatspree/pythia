@@ -1051,6 +1051,24 @@
       "started_at": "2026-09-04T14:10:13+00:00",
       "completed_at": "2026-09-04T14:27:32+00:00",
       "notes": "TIME_RELATIVE items (hours/week, e.g. project management) should span their whole phase in the Gantt rather than sit as a scheduled task, must be undependable, styled distinctly, and phase length should optionally be computed from the netplan instead of typed"
+    },
+    "task-178": {
+      "status": "done",
+      "started_at": "2026-09-07T14:27:18+00:00",
+      "completed_at": "2026-09-07T14:29:40+00:00",
+      "notes": "Describe the dependency-based project-time estimation feature in README.md in the existing marketing/introductory voice"
+    },
+    "task-179": {
+      "status": "done",
+      "started_at": "2026-09-08T14:12:57+00:00",
+      "completed_at": "2026-09-08T14:25:19+00:00",
+      "notes": "Add docs/scheduling.md, link it from the README, and capture the schedule screenshots"
+    },
+    "task-180": {
+      "status": "pending",
+      "started_at": null,
+      "completed_at": null,
+      "notes": "gen:screenshots leaves the user in English and breaks the e2e suite; restore the prior language"
     }
   }
 }

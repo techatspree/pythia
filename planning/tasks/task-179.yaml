@@ -1,0 +1,260 @@
+id: task-179
+phase: phase-20
+title: "docs/scheduling.md, linked from the README, with shots"
+depends_on: [task-178]
+description: |
+  task-178 put the scheduling feature on the front page in marketing voice, and
+  in doing so exposed two gaps it deliberately left open. Every other major
+  feature has an explanatory document — `docs/estimation-sessions.md`,
+  `docs/authentication.md`, `docs/deployment.md` — and the `## Documentation`
+  list in the README links five of them. Scheduling has none, so a reader who
+  wants to know HOW the critical path, the levelled length and the phase windows
+  are derived has nowhere to go but the source. And the new
+  "### From effort to a schedule" subsection is the only feature subsection with
+  a screenshot-worthy UI and no screenshot, because `docs/images/` holds no
+  capture of the dependency editor or the Gantt.
+
+  Target state: `docs/scheduling.md` exists as the human-facing narrative for the
+  whole scheduling model, the README links it alongside the other five documents,
+  and two new committed screenshots — the dependency editor and the Gantt chart —
+  are produced by the SAME generator that produces the existing four.
+
+  Key decisions already made:
+
+  - REGISTER. `docs/scheduling.md` is a TECHNICAL NARRATIVE, not marketing.
+    `docs/estimation-sessions.md` is the model to imitate: an H1, a short framing
+    paragraph, then `##` sections that explain the model and name the traps.
+    task-178 already owns the marketing register in the README; do not repeat
+    that copy here, and do not restate `src/domain/CLAUDE.md` either — the
+    CLAUDE.md files are instructions for Claude, this document is for a person
+    who has to reason about a schedule.
+  - THE SCREENSHOTS ARE GENERATED, NEVER HAND-CAPTURED.
+    `src/frontend/scripts/capture-screenshots.mjs` (`npm run gen:screenshots`)
+    already drives Playwright's bundled Chromium against a running dev stack and
+    writes `docs/images/*.png`; `docs/images/README.md` says in its own header
+    not to edit by hand. Extend that script; do not add a second mechanism and do
+    not commit a manually taken PNG.
+  - BOTH VIEWS LIVE ON ONE PAGE, so the two shots come from one URL with two
+    selectors. The route is
+    `/estimations/{id}/versions/draft/schedule?draft=true` (the literal `draft`
+    as the version segment — this is the form `e2e/schedule.test.ts` uses), and
+    the components already expose root test ids: `[data-testid="dependency-editor"]`
+    and `[data-testid="gantt-chart"]`. No frontend change is needed to make them
+    targetable.
+  - PIN THE GANTT'S START DATE. `GanttChart.svelte` initialises it to
+    `todayIso()`, so an unpinned capture bakes the capture date into the image and
+    the PNG churns on every regeneration for no reason. Fill
+    `[data-testid="gantt-start-date"]` with a fixed ISO date before shooting, and
+    choose a MONDAY so the first bar begins on a week boundary — use 2026-03-02.
+  - USE THE SEEDED WEBSHOP DRAFT. task-173 seeded dependencies onto exactly that
+    draft, which is why the editor will not be empty. `TestDataSeeder` also sets
+    `draft1.teamFte = 3.0`, with a comment saying that at 1 the parallel work
+    would serialise — so the Gantt will show real parallel bars and there is no
+    missing schedule input to go hunting for. The script already resolves
+    it by offer number as `seed.pert` (offer `WS-2026-001`), so reuse that rather
+    than assuming a project order.
+  - FAIL LOUDLY ON AN EMPTY CAPTURE, in keeping with the script's existing
+    `requireStack()` stance: if the dependency editor renders its empty state
+    (`[data-testid="schedule-empty"]`) or the Gantt renders `[data-testid="gantt-empty"]`,
+    the seed is wrong and the script must exit non-zero rather than commit a
+    picture of nothing.
+  - WHERE THE IMAGES APPEAR. The README's schedule subsection gets ONE — the
+    dependency editor, which is the more distinctive view — using the same
+    `<p align="center">` idiom as the other subsections. `docs/scheduling.md`
+    uses BOTH. Note the path difference: from inside `docs/`, the reference is
+    `images/foo.png`, NOT `docs/images/foo.png`.
+  - The root and module `CLAUDE.md` files are deliberately NOT touched: no
+    endpoint, entity, module or contract changes here, and the module CLAUDE.mds
+    already carry the implementation detail. The new document is discoverable
+    where the other five are, in the README's `## Documentation` list.
+
+  ACCURACY. The same envelope task-178 established applies to the new document,
+  and it is easier to get wrong at length: the Gantt skips weekends and models NO
+  holidays; dependencies are finish-to-start only; team size is a headcount fed
+  into resource levelling; and the levelled planned length is a DIFFERENT reading
+  from the critical-chain optimistic/expected/pessimistic range — it need not
+  fall inside it. There is no named-person assignment, no baseline or actuals
+  tracking, and no start-to-start or lag dependency.
+
+  Substance the document must cover, all of it verifiable in
+  `src/domain/core/src/main/kotlin/io/pythia/model/ProjectSchedule.kt`:
+  what the schedule is derived from; that leaves are the scheduling units while
+  groups participate as roll-ups via `#start`/`#finish` milestones; that
+  unscheduled (hours-per-week) leaves are excluded from the net plan and cannot
+  be depended upon; resource levelling from a headcount; the critical chain and
+  its three-point duration spread, with the levelled-length caveat spelled out;
+  the two `ScheduleErrorKind` cases (`CYCLE`, `INVALID_TEAM_FTE`) and that a
+  cycle is refused as it is drawn; phase windows with `EXPLICIT` vs `AUTOMATIC`
+  duration and the five-working-day week; and the Gantt's working-day mapping
+  plus the Mermaid export.
+
+steps:
+  - |
+    Read `docs/estimation-sessions.md` first to absorb the register and the
+    section rhythm of a docs page here, then read
+    `src/domain/core/src/main/kotlin/io/pythia/model/ProjectSchedule.kt` and
+    `src/frontend/src/routes/estimations/[id]/versions/[versionNumber]/schedule/+page.svelte`
+    so every statement in the new document is checked against the code rather
+    than against the README's marketing summary.
+  - |
+    Write `docs/scheduling.md`: an H1, a short framing paragraph, then `##`
+    sections covering the substance listed in this task's description. Explain the
+    levelled-length-vs-critical-chain distinction explicitly in prose — it is the
+    single most confusing thing about the feature and the UI only has room for a
+    one-line hint. Name the traps a reader would otherwise hit: holidays are not
+    modelled, an hours-per-week item cannot be a dependency target, and a group's
+    dates are derived from its children.
+  - |
+    Extend `src/frontend/scripts/capture-screenshots.mjs`. Give `shoot()` an
+    optional `prepare` callback invoked after navigation and before the capture,
+    so the Gantt's start date can be filled without a second bespoke code path.
+    Add two captures against
+    `${APP}/estimations/${seed.pert.id}/versions/draft/schedule?draft=true`:
+    `schedule-dependencies.png` from `[data-testid="dependency-editor"]`, and
+    `schedule-gantt.png` from `[data-testid="gantt-chart"]` with the start date
+    filled to 2026-03-02 first. Before each, assert the corresponding empty-state
+    test id is absent and throw with a clear message if it is not.
+  - |
+    Update the script's stale header comment and its closing count: it currently
+    says "Three of the four shots use data the dev profile already seeds" and
+    prints "done — 4 screenshots in docs/images/". Both numbers change.
+  - |
+    Regenerate the images against a running dev stack — this is the only way the
+    PNGs may be produced:
+      ./scripts/dev.sh              # in another shell; backend :8090, Vite :5173
+      cd src/frontend && npm run gen:screenshots
+    Confirm it reports six written files and that the two new PNGs look like the
+    dependency editor and the Gantt rather than an empty panel.
+  - |
+    Add the dependency-editor screenshot to the README's
+    "### From effort to a schedule" subsection using the same
+    `<p align="center"><img src="docs/images/…" alt="…" width="900"></p>` idiom as
+    the sibling subsections, with a descriptive alt text.
+  - |
+    Add the new document to the README's `## Documentation` list, in the existing
+    "- [Title](path) — one-line description" form. Place it after the estimation
+    sessions entry so the feature docs stay together.
+  - |
+    Reference both images from `docs/scheduling.md`, remembering that a path in a
+    file inside `docs/` is `images/foo.png` and not `docs/images/foo.png`.
+  - |
+    Run the frontend gate (the capture script is linted — `scripts/*.mjs` is in
+    ESLint's scope and currently reports zero findings) and then the full build:
+      ./gradlew :frontend:check
+      ./gradlew build
+
+validation:
+  - |
+    The document exists, is a real document rather than a stub, and follows the
+    docs-page shape:
+      test -f docs/scheduling.md
+      test "$(wc -l < docs/scheduling.md)" -ge 60
+      grep -qE "^# " docs/scheduling.md
+      test "$(grep -cE "^## " docs/scheduling.md)" -ge 5
+  - |
+    It covers the substance, not just the headings — each of these concepts must
+    appear:
+      grep -qiE "finish-to-start" docs/scheduling.md
+      grep -qiE "critical (path|chain)" docs/scheduling.md
+      grep -qiE "level" docs/scheduling.md
+      grep -qiE "cycle" docs/scheduling.md
+      grep -qiE "phase" docs/scheduling.md
+      grep -qiE "mermaid" docs/scheduling.md
+      grep -qiE "working day" docs/scheduling.md
+  - |
+    The levelled length and the critical-chain spread are explicitly
+    DISTINGUISHED, which is the one thing a long document is most likely to
+    flatten. Require both the distinction and the absence of the false claim:
+      grep -qiE "need not|does not have to|not necessarily|separate" docs/scheduling.md
+      if grep -qiE "(within|inside|between).{0,40}(optimistic|pessimistic)" docs/scheduling.md; then echo "conflates the levelled length with the critical-chain spread"; exit 1; fi
+  - |
+    NO OVERCLAIMING, the same envelope task-178 set for the README:
+      if grep -qiE "holiday" docs/scheduling.md; then echo "claims a holiday calendar; the Gantt skips weekends only"; exit 1; fi
+      if grep -qiE "baseline|actuals|burndown|burn-down" docs/scheduling.md; then echo "claims tracking that does not exist"; exit 1; fi
+      if grep -qiE "start-to-start|\blag\b|lead time" docs/scheduling.md; then echo "claims dependency kinds that do not exist"; exit 1; fi
+  - |
+    The README links it, in the Documentation list, and the target resolves:
+      awk '/^## Documentation$/{f=1;next} f&&/^## /{exit} f' README.md > /tmp/t179-docs
+      grep -qE '^- \[[^]]+\]\(docs/scheduling\.md\) — ' /tmp/t179-docs
+      test -f docs/scheduling.md
+      # the feature docs stay together: scheduling follows estimation sessions
+      test "$(grep -n 'docs/estimation-sessions.md' /tmp/t179-docs | cut -d: -f1)" -lt "$(grep -n 'docs/scheduling.md' /tmp/t179-docs | cut -d: -f1)"
+  - |
+    Every docs link in the README still resolves — the new entry must not be the
+    one that breaks the list:
+      grep -oE '\]\(docs/[^)]+\)' README.md | tr -d ']()' > /tmp/t179-links
+      while read -r p; do test -f "$p" || { echo "missing doc: $p"; exit 1; }; done < /tmp/t179-links
+      echo "doc links checked: $(wc -l < /tmp/t179-links)"
+  - |
+    Both screenshots exist, are real PNGs, and are big enough not to be a blank
+    or failed capture (the existing four run 64-262 KB):
+      for f in docs/images/schedule-dependencies.png docs/images/schedule-gantt.png; do
+        test -f "$f"
+        test "$(wc -c < "$f")" -gt 15000
+        head -c 8 "$f" | od -An -tx1 | tr -d ' \n' | grep -q "^89504e470d0a1a0a$"
+      done
+      echo "png count in docs/images: $(ls docs/images/*.png | wc -l)"
+      test "$(ls docs/images/*.png | wc -l)" -eq 6
+      # A renamed copy of an existing shot would satisfy everything above, so
+      # require each new PNG to be genuinely distinct from every other image.
+      for n in docs/images/schedule-dependencies.png docs/images/schedule-gantt.png; do
+        for o in docs/images/*.png; do
+          [ "$n" = "$o" ] && continue
+          if cmp -s "$n" "$o"; then echo "$n is byte-identical to $o — not a real capture"; exit 1; fi
+        done
+      done
+  - |
+    The capture script — and not a hand-made file — is what produces them, with
+    the pinned date and the existing test ids:
+      S=src/frontend/scripts/capture-screenshots.mjs
+      node --check "$S"
+      grep -q "schedule-dependencies.png" "$S"
+      grep -q "schedule-gantt.png" "$S"
+      grep -q 'data-testid="dependency-editor"' "$S"
+      grep -q 'data-testid="gantt-chart"' "$S"
+      grep -q "2026-03-02" "$S"
+      grep -q 'data-testid="gantt-start-date"' "$S"   # the date must be FILLED, not merely mentioned
+      grep -q "versions/draft/schedule" "$S"
+  - |
+    An empty capture is refused rather than committed, matching the script's
+    existing fail-loudly stance:
+      S=src/frontend/scripts/capture-screenshots.mjs
+      grep -q "schedule-empty" "$S"
+      grep -q "gantt-empty" "$S"
+  - |
+    The script's own counts are not left stale — it must no longer say four:
+      S=src/frontend/scripts/capture-screenshots.mjs
+      if grep -qE "Three of the four|4 screenshots" "$S"; then echo "stale count in the script text"; exit 1; fi
+      grep -qE "6 screenshots" "$S"
+  - |
+    The README shows the dependency editor in the schedule subsection, and every
+    image the README references exists on disk:
+      awk '/^### From effort to a schedule$/{f=1;next} f&&/^### /{exit} f' README.md > /tmp/t179-sec
+      grep -q 'docs/images/schedule-dependencies.png' /tmp/t179-sec
+      grep -qE '<img[^>]+alt="[^"]{20,}"' /tmp/t179-sec
+      grep -oE 'src="[^"]+\.(png|svg)"' README.md | cut -d'"' -f2 | grep -v '^http' > /tmp/t179-imgs
+      while read -r p; do test -f "$p" || { echo "missing image: $p"; exit 1; }; done < /tmp/t179-imgs
+  - |
+    The document's own image paths resolve RELATIVE TO docs/, which is the easy
+    mistake here (`docs/images/...` inside `docs/` would 404 on GitHub):
+      grep -oE '\(images/[^)]+\)|src="images/[^"]+"' docs/scheduling.md | grep -oE 'images/[^)"]+' > /tmp/t179-docimgs
+      test -s /tmp/t179-docimgs
+      while read -r p; do test -f "docs/$p" || { echo "unresolvable from docs/: $p"; exit 1; }; done < /tmp/t179-docimgs
+      if grep -qE '\(docs/images/|src="docs/images/' docs/scheduling.md; then echo "path is relative to the repo root, not to docs/"; exit 1; fi
+      echo "doc images checked: $(wc -l < /tmp/t179-docimgs)"
+  - |
+    The modified capture script introduces no lint finding (scripts/*.mjs is in
+    ESLint's scope and is clean today):
+      ./gradlew :frontend:npmLintReport
+      if jq -e '.[] | select(.filePath | endswith("capture-screenshots.mjs")) | select(.errorCount > 0 or .warningCount > 0)' src/frontend/reports/eslint.json > /dev/null; then echo "new lint finding in the capture script"; exit 1; fi
+  - |
+    The frontend gate and the full build stay green:
+      ./gradlew :frontend:check
+      ./gradlew build
+
+outputs:
+  - created: docs/scheduling.md
+  - created: docs/images/schedule-dependencies.png
+  - created: docs/images/schedule-gantt.png
+  - modified: README.md
+  - modified: src/frontend/scripts/capture-screenshots.mjs
