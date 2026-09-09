@@ -1,5 +1,8 @@
 import { getWsTicket, type SessionDto } from './api';
+import { ApiError } from '$lib/api/errors';
 import { log } from '$lib/log';
+import { get } from 'svelte/store';
+import { _ } from 'svelte-i18n';
 
 // Push-only WebSocket client for a collaborative session (task-066). The server
 // never accepts domain messages — mutations go through the REST api.ts. Auth is
@@ -37,6 +40,11 @@ export function connectSessionSocket(
 ): SessionSocketHandle {
 	let socket: WebSocket | null = null;
 	let closed = false;
+	// Distinct from `closed`, which means "the caller disposed us" (task-169).
+	// This one means "the server says this session will never accept us", so no
+	// further attempt is scheduled. Conflating the two would make the disposer's
+	// meaning ambiguous.
+	let terminal = false;
 	let attempt = 0;
 	let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 	let idleTimer: ReturnType<typeof setTimeout> | null = null;
@@ -94,7 +102,7 @@ export function connectSessionSocket(
 	}
 
 	function scheduleReconnect(): void {
-		if (closed) return;
+		if (closed || terminal) return;
 		const delay = Math.min(BASE_BACKOFF_MS * 2 ** attempt, MAX_BACKOFF_MS);
 		attempt += 1;
 		reconnectTimer = setTimeout(() => void open(), delay);
@@ -107,6 +115,21 @@ export function connectSessionSocket(
 			ticket = await getWsTicket(sessionId);
 		} catch (e) {
 			log.error('session socket: failed to obtain ticket', e);
+			// PERMANENT vs transient, not "too many tries" (task-169). A 404 (the
+			// session row is gone — every dev.sh restart empties the throwaway
+			// database) or a 403 (no longer a participant) will never succeed, so
+			// retrying it every 15s for the life of the tab is pure noise. Anything
+			// else — offline, 5xx, a timeout — keeps retrying forever, because that
+			// is what heals a room after a laptop sleep or a proxy idle-kill, and
+			// task-147 built it deliberately.
+			if (e instanceof ApiError && (e.status === 404 || e.status === 403)) {
+				terminal = true;
+				clearIdleTimer();
+				onConnectionChange(false);
+				onError(get(_)('session.socket.gone'));
+				log.warn('session socket: session is gone, giving up', sessionId, e.status);
+				return;
+			}
 			onError(e instanceof Error ? e.message : String(e));
 			scheduleReconnect();
 			return;

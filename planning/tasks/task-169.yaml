@@ -31,8 +31,18 @@ description: |
   up with an empty database and every previously-created session is gone. Any
   browser tab still open on `/sessions/{id}` then hammers
   `POST /api/sessions/{id}/ws-ticket` every 15s, each attempt logging an error
-  client-side and surfacing a banner. In production the same shape occurs after
-  a session is cancelled while a participant's tab is open.
+  client-side and surfacing a banner.
+
+  **Do not believe that cancelling a session reproduces this** — it does not, and
+  an earlier draft of this task got it wrong. `wsTicket` calls only
+  `sessionService.assertParticipant`, which checks that the row EXISTS and that
+  the caller is a participant; it ignores `status`. `cancel` merely sets
+  `status = CANCELLED` and leaves the row and its participants in place, so the
+  ticket endpoint still answers `200` for a cancelled session. A `404` needs the
+  row to be GONE, which the application itself never does outside task-176's
+  dev-only `DELETE /api/dev/test-data`; a `403` needs a participant to be
+  removed, and no endpoint does that. So the dev-restart case above is the real
+  motivating scenario, plus an administrative cleanup that deletes rows.
 
   ## Do NOT simply cap the retries
 
@@ -118,6 +128,12 @@ steps:
     the retries". The watchdog path that resets `attempt` and reopens must keep
     working untouched.
 
+    Decide the terminal flag deliberately: `socket.ts` already has a `closed`
+    variable that the disposer sets and that is checked at `if (closed) return;`
+    after the ticket await. Reusing it conflates "the caller disposed us" with
+    "the server says this session is gone"; a separate flag keeps both readable.
+    Either way the socket must not reopen afterwards.
+
     Make the terminal state observable: report `onConnectionChange(false)` so
     the room's indicator goes and stays disconnected, and give the user a
     message that says the session is no longer available rather than a bare
@@ -132,14 +148,23 @@ steps:
     Extend `src/frontend/e2e/session-connection.test.ts` (which already pins
     both directions of the indicator, so the terminal state belongs beside it):
 
-      - open a session room, then DELETE the session via
-        `POST /api/sessions/{id}/cancel`, and assert the client stops requesting
-        tickets — count `/ws-ticket` requests via `page.on('request', …)` over a
-        window longer than `MAX_BACKOFF_MS` and assert the count stops growing
+      - open a session room at a session id that DOES NOT EXIST (a random UUID),
+        which makes the ticket call 404 immediately and deterministically with no
+        data to mutate. Count `/ws-ticket` requests via `page.on('request', …)`
+        over a window longer than `MAX_BACKOFF_MS` and assert the count stops
+        growing. Do NOT try to reach this by cancelling a session — see the
+        description; a cancelled session still issues tickets.
+        (If a test ever needs a genuinely deleted session rather than an absent
+        id, task-176's dev-only `DELETE /api/dev/test-data` really does delete
+        sessions.)
       - assert the indicator reports disconnected and the banner shows
         `session.socket.gone` rather than a raw ticket error
       - assert a TRANSIENT failure still retries: this is the regression guard
         for task-147's healing behaviour, so it must not be omitted
+
+    The test covers the **404** branch. `403` is classified as permanent for
+    correctness but has NO reachable trigger today, so do not spend time hunting
+    for a way to exercise it — say so in the test's comment instead.
   - |
     Document it in `.claude/skills/estimation-sessions/SKILL.md`, in the
     "Heartbeat + watchdog (task-147)" paragraph where the reconnect rules
@@ -160,16 +185,21 @@ validation:
       set -e
       E=src/frontend/src/lib/api/errors.ts
       grep -q "class ApiError" "$E"
-      grep -q "status" "$E"
       grep -q "extends Error" "$E"
+      # NOT a bare grep for "status" — errors.ts already mentions it nine times
+      # (messageForStatus, res.status), so that would pass without the change.
+      grep -qE "status: number|readonly status" "$E"
+      grep -qE "throw new ApiError" "$E"
   - |
     A permanent ticket failure is terminal, and the retry path is otherwise
     untouched:
       set -e
       S=src/frontend/src/lib/session/socket.ts
       grep -q "ApiError" "$S"
-      grep -qE "404" "$S"
-      grep -qE "403" "$S"
+      # Anchored on the guard, not on the digits: a comment mentioning 404 would
+      # satisfy a bare grep.
+      grep -qE "status === 404" "$S"
+      grep -qE "status === 403" "$S"
       # the capped-backoff retry must still exist for transient failures
       grep -q "MAX_BACKOFF_MS" "$S"
       grep -q "scheduleReconnect" "$S"

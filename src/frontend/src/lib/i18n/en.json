@@ -498,6 +498,9 @@
       "PHASE1": "Phase 1",
       "PHASE2": "Phase 2"
     },
+    "socket": {
+      "gone": "This session is no longer available. It was deleted, or you are no longer a participant."
+    },
     "conflict": {
       "badge": "{count, plural, one {# conflict} other {# conflicts}}",
       "tooltip": "Estimators picked different buckets",

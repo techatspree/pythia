@@ -498,6 +498,9 @@
       "PHASE1": "Phase 1",
       "PHASE2": "Phase 2"
     },
+    "socket": {
+      "gone": "Diese Sitzung ist nicht mehr verfügbar. Sie wurde gelöscht, oder Sie nehmen nicht mehr an ihr teil."
+    },
     "conflict": {
       "badge": "{count, plural, one {# Konflikt} other {# Konflikte}}",
       "tooltip": "Estimatoren haben unterschiedliche Buckets gewählt",

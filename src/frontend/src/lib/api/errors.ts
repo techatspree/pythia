@@ -8,6 +8,28 @@ export interface ApiErrorBody {
 }
 
 /**
+ * The error `assertOk` throws, carrying the HTTP status alongside the message
+ * (task-169).
+ *
+ * Additive on purpose: it `extends Error` and its `message` is byte-identical to
+ * what was thrown before, so every existing call site — all of which catch
+ * `Error` or read `e.message` — keeps working untouched. Only a caller that
+ * needs to distinguish a PERMANENT failure from a transient one narrows with
+ * `e instanceof ApiError`; the session socket does exactly that to stop
+ * retrying a session that is gone. Do not make callers string-match the message
+ * to recover the status: the text is user-facing and changes.
+ */
+export class ApiError extends Error {
+	constructor(
+		message: string,
+		readonly status: number
+	) {
+		super(message);
+		this.name = 'ApiError';
+	}
+}
+
+/**
  * A meaningful message for a failed status. 401/403 return fixed authorization
  * strings; 404 and everything else return the caller's contextual `fallback`
  * when given, otherwise a generic message.
@@ -24,8 +46,8 @@ export function messageForStatus(status: number, fallback?: string): string {
 }
 
 /**
- * Throws a meaningful `Error` when `res` is not ok (returns immediately when it
- * is). Prefers a non-empty `message` from the JSON error body (e.g. the
+ * Throws a meaningful `ApiError` when `res` is not ok (returns immediately when
+ * it is). The status rides along on the error; the message is unchanged. Prefers a non-empty `message` from the JSON error body (e.g. the
  * backend's authorization mappers), otherwise falls back to
  * `messageForStatus(res.status, fallback)`. Uses `res.clone()` so a caller that
  * still wants the body is unaffected.
@@ -41,5 +63,5 @@ export async function assertOk(res: Response, fallback?: string): Promise<void> 
 	} catch {
 		// Non-JSON error body — fall through to the status-based message.
 	}
-	throw new Error(bodyMessage ?? messageForStatus(res.status, fallback));
+	throw new ApiError(bodyMessage ?? messageForStatus(res.status, fallback), res.status);
 }
