@@ -12,6 +12,9 @@
 //
 // The UI language is per USER, and the README is English, so the capture user is
 // switched to EN first — a German UI under English prose reads as an accident.
+// The previous preference is RESTORED when the script finishes, failures
+// included: the Playwright suite asserts GERMAN text, so a stack left in
+// English fails 28 of its tests with nothing in the output pointing back here.
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -133,59 +136,82 @@ await requireStack();
 mkdirSync(outDir, { recursive: true });
 
 // The language preference lives on the user row, so set it before the browser
-// ever renders (the layout reads it once on load).
+// ever renders (the layout reads it once on load). Read what is there first so
+// the finally below can put it back. GET /api/auth/me does not mutate an
+// existing preference — ensureUser seeds from Accept-Language on first sighting
+// only — and the column is NOT NULL defaulting to German, so the fallback here
+// is unreachable in practice and only guards against a shape change.
+const previousLanguage = (await api('/api/auth/me')).language ?? 'de';
 await api('/api/auth/me/language', { method: 'PUT', body: JSON.stringify({ language: 'en' }) });
 
-const seed = await resolveSeed();
-const sessionId = await seedRevealedSession(seed.pert.id);
+let browser;
+try {
+	const seed = await resolveSeed();
+	const sessionId = await seedRevealedSession(seed.pert.id);
 
-const browser = await chromium.launch();
-const context = await browser.newContext({
-	viewport: { width: 1440, height: 900 },
-	deviceScaleFactor: 2,
-	locale: 'en-GB',
-	storageState: {
-		cookies: [],
-		origins: [{ origin: APP, localStorage: [{ name: 'devAuthSubject', value: 'dev-admin' }] }]
+	browser = await chromium.launch();
+	const context = await browser.newContext({
+		viewport: { width: 1440, height: 900 },
+		deviceScaleFactor: 2,
+		locale: 'en-GB',
+		storageState: {
+			cookies: [],
+			origins: [{ origin: APP, localStorage: [{ name: 'devAuthSubject', value: 'dev-admin' }] }]
+		}
+	});
+	const page = await context.newPage();
+
+	await shoot(
+		page,
+		`${APP}/estimations/${seed.pert.id}/versions/2?draft=true`,
+		'estimation-editor.png'
+	);
+	await shoot(page, `${APP}/sessions/${sessionId}`, 'session-room.png');
+	await shoot(page, `${APP}/estimations/${seed.pert.id}/compare?a=1&b=draft`, 'version-compare.png');
+	await shoot(page, `${APP}/estimations/${seed.bucket.id}/versions/1?draft=true`, 'bucket-editor.png');
+
+	// Both schedule shots come from ONE page: the dependency editor and the Gantt
+	// live on the same route, so they differ only by selector.
+	const scheduleUrl = `${APP}/estimations/${seed.pert.id}/versions/draft/schedule?draft=true`;
+
+	// The inner canvas div, not the `overflow-x-auto` wrapper: the wrapper stretches
+	// to the viewport, so shooting it leaves half the image blank, while the canvas
+	// carries an explicit content width.
+	await shoot(page, scheduleUrl, 'schedule-dependencies.png', {
+		selector: '[data-testid="dependency-editor"] > div',
+		prepare: (p) => refuseEmpty(p, 'schedule-empty', 'The dependency editor')
+	});
+
+	// The chart's start date defaults to TODAY, which would bake the capture date
+	// into the PNG and churn it on every regeneration. Pin it — and pin it to a
+	// Monday, so the first bar starts on a week boundary.
+	await shoot(page, scheduleUrl, 'schedule-gantt.png', {
+		selector: '[data-testid="gantt-chart"]',
+		prepare: async (p) => {
+			await refuseEmpty(p, 'gantt-empty', 'The Gantt chart');
+			await p.locator('[data-testid="gantt-start-date"]').fill('2026-03-02');
+			await p.waitForTimeout(300);
+		}
+	});
+} finally {
+	// Cleanup is best-effort in BOTH halves: a throw in here would replace the
+	// real capture error with a cleanup error and destroy the diagnosis.
+	try {
+		await api('/api/auth/me/language', {
+			method: 'PUT',
+			body: JSON.stringify({ language: previousLanguage })
+		});
+	} catch (e) {
+		console.warn(`could not restore the language preference to ${previousLanguage}: ${e.message}`);
 	}
-});
-const page = await context.newPage();
-
-await shoot(
-	page,
-	`${APP}/estimations/${seed.pert.id}/versions/2?draft=true`,
-	'estimation-editor.png'
-);
-await shoot(page, `${APP}/sessions/${sessionId}`, 'session-room.png');
-await shoot(page, `${APP}/estimations/${seed.pert.id}/compare?a=1&b=draft`, 'version-compare.png');
-await shoot(page, `${APP}/estimations/${seed.bucket.id}/versions/1?draft=true`, 'bucket-editor.png');
-
-// Both schedule shots come from ONE page: the dependency editor and the Gantt
-// live on the same route, so they differ only by selector.
-const scheduleUrl = `${APP}/estimations/${seed.pert.id}/versions/draft/schedule?draft=true`;
-
-// The inner canvas div, not the `overflow-x-auto` wrapper: the wrapper stretches
-// to the viewport, so shooting it leaves half the image blank, while the canvas
-// carries an explicit content width.
-await shoot(page, scheduleUrl, 'schedule-dependencies.png', {
-	selector: '[data-testid="dependency-editor"] > div',
-	prepare: (p) => refuseEmpty(p, 'schedule-empty', 'The dependency editor')
-});
-
-// The chart's start date defaults to TODAY, which would bake the capture date
-// into the PNG and churn it on every regeneration. Pin it — and pin it to a
-// Monday, so the first bar starts on a week boundary.
-await shoot(page, scheduleUrl, 'schedule-gantt.png', {
-	selector: '[data-testid="gantt-chart"]',
-	prepare: async (p) => {
-		await refuseEmpty(p, 'gantt-empty', 'The Gantt chart');
-		await p.locator('[data-testid="gantt-start-date"]').fill('2026-03-02');
-		await p.waitForTimeout(300);
+	try {
+		// Closing the browser closes its contexts. Guarded on `browser` because a
+		// failure in resolveSeed() reaches this block before chromium.launch().
+		if (browser) await browser.close();
+	} catch (e) {
+		console.warn(`could not close the browser: ${e.message}`);
 	}
-});
-
-await context.close();
-await browser.close();
+}
 
 writeFileSync(
 	join(outDir, 'README.md'),

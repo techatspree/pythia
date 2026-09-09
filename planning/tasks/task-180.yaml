@@ -1,0 +1,226 @@
+id: task-180
+phase: phase-18
+title: "gen:screenshots must restore the user's language"
+depends_on: [task-179]
+description: |
+  `npm run gen:screenshots` leaves the dev user in ENGLISH and never puts the
+  preference back, which silently breaks the Playwright suite. This was hit for
+  real during task-179: regenerating the screenshots and then running the e2e
+  suite produced 28 failures, all of them German assertions meeting an English
+  UI — for example `getByTestId('gantt-bar-critical')` expected
+  `/kritischen Kette/` and got "on the critical chain". Nothing in the failure
+  output points at the screenshot script, so the next person to hit this loses
+  an afternoon to it.
+
+  The cause is one line in
+  `src/frontend/scripts/capture-screenshots.mjs`. The UI language is a PER-USER
+  persisted preference, and the README is English, so the script sets the capture
+  user to `en` before rendering — deliberately, and that must not change. What is
+  missing is the other half: it never restores what was there before. The dev
+  seed default is German, so a developer's stack is left in a state the test
+  suite does not expect.
+
+  Target state: the script leaves the user's language exactly as it found it,
+  including when a capture fails part-way, so `npm run gen:screenshots` followed
+  by `npm run test:e2e` is green.
+
+  Key decisions already made:
+
+  - READ, THEN RESTORE. `GET /api/auth/me` returns the persisted preference as
+    `language` on `CurrentUserDto`. Read it BEFORE the `PUT`, remember it, and put
+    it back at the end. Reading is safe and does not mutate an existing
+    preference: `MeResource.me()` calls `ensureUser`, which seeds the language
+    from `Accept-Language` on first sighting ONLY.
+  - RESTORE IN A `finally`. A capture that throws must still restore, otherwise
+    the very run that fails is the one that leaves the stack in English — the
+    worst case, because the developer is then debugging a failure with a second
+    unexplained failure layered on top. The script currently has no wrapper
+    around its top-level work; introduce one.
+  - THE RESTORE IS BEST-EFFORT AND MUST NEVER MASK THE ORIGINAL ERROR. Wrap the
+    restoring call itself so that if it fails, the script warns and lets the
+    original exception surface. A cleanup step that throws over the top of a real
+    error destroys the diagnosis.
+  - RESTORE UNCONDITIONALLY to the remembered value rather than comparing first.
+    Writing `en` back over `en` is a harmless idempotent no-op, and a comparison
+    is one more branch to get wrong.
+  - `User.language` is `nullable = false` and defaults to `SupportedLanguage.DE.code`,
+    so a language is always present. If the read ever yields nothing anyway, fall
+    back to `de` — the same default the entity uses — rather than skipping the
+    restore and leaving English in place.
+  - The browser teardown (`context.close()` / `browser.close()`) belongs in the
+    SAME cleanup path. Today a throwing capture leaks a Chromium process; once a
+    `finally` exists, leaving the teardown outside it would be an odd thing to
+    look at. This is the one adjacent fix in scope.
+  - `PUT /api/auth/me/language` answers **204 No Content**, which the script's
+    `api()` helper already handles by returning null. No change needed there.
+  - Valid codes are `de` and `en`; anything else is a 400.
+
+  EXPLICITLY OUT OF SCOPE: the script also seeds a revealed session with votes
+  through the REST API, which leaves data behind. That is NOT the same class of
+  problem — task-176's `e2e/global-setup.ts` deletes non-seeded projects and
+  sessions before every run, so it self-heals. Do not add cleanup for it here.
+
+  A NOTE ON THE PHASE. This is filed under phase-18 because
+  `capture-screenshots.mjs` is phase-18's deliverable (task-153) and this is a
+  defect in it. `depends_on` names task-179, which is in phase-20 and is already
+  done — it is the most recent change to this same file (it added the two
+  schedule captures and the `prepare` hook), and the fix must be applied on top
+  of that version. The later-phase dependency is deliberate, not an oversight.
+
+steps:
+  - |
+    Read `src/frontend/scripts/capture-screenshots.mjs` in full. The relevant
+    line today is the language switch just after `requireStack()` and
+    `mkdirSync(...)`:
+      await api('/api/auth/me/language', { method: 'PUT', body: JSON.stringify({ language: 'en' }) });
+    Note that everything after it — `resolveSeed()`, `seedRevealedSession()`, the
+    browser launch, the six `shoot()` calls and the teardown — currently runs as
+    unwrapped top-level `await`s.
+  - |
+    Before the switch, read the current preference from `GET /api/auth/me` and
+    keep it in a `const`, falling back to `de` if it is absent. Add a short
+    comment saying WHY it is being kept, naming the symptom: the suite asserts
+    German text, so leaving the user in English fails it.
+  - |
+    Restructure the work that follows into `try { … } finally { … }`. The
+    `finally` restores the remembered language and closes the browser context and
+    browser. Guard the restore with its own `try`/`catch` that warns via
+    `console.warn` and swallows, so a failing restore cannot replace a real
+    capture error. Guard the browser teardown the same way, and make it tolerate
+    the browser never having been launched (a failure in `resolveSeed()` reaches
+    the `finally` before `chromium.launch()`).
+  - |
+    Extend the file's header comment. It already explains why the capture user is
+    switched to English; state that the previous preference is restored
+    afterwards, and that the suite's German assertions are the reason this
+    matters.
+  - |
+    Record the invariant in `src/frontend/CLAUDE.md` next to the existing
+    `gen:screenshots` description: the script must leave the user's language as it
+    found it, because the Playwright suite asserts German UI text and 28 tests
+    fail otherwise, with nothing in the output pointing back at the screenshots.
+    One or two sentences — this is a trap that cost real time and is invisible
+    from the failure message.
+  - |
+    Add the same note to the `gen:screenshots` row's surrounding text in
+    `docs/development.md`, which already tabulates the command and says it needs a
+    running dev stack. One sentence: it restores the user's language when it
+    finishes, so it is safe to run before the e2e suite.
+  - |
+    Verify by hand against a running dev stack (`./scripts/dev.sh`), in BOTH
+    directions, so the fix is a restore and not a hardcoded `de`:
+      curl -s -X PUT -H 'Authorization: Dev dev-admin' -H 'Content-Type: application/json' -d '{"language":"de"}' http://localhost:8090/api/auth/me/language
+      (cd src/frontend && npm run gen:screenshots)
+      curl -s -H 'Authorization: Dev dev-admin' http://localhost:8090/api/auth/me   # expect de
+      curl -s -X PUT -H 'Authorization: Dev dev-admin' -H 'Content-Type: application/json' -d '{"language":"en"}' http://localhost:8090/api/auth/me/language
+      (cd src/frontend && npm run gen:screenshots)
+      curl -s -H 'Authorization: Dev dev-admin' http://localhost:8090/api/auth/me   # expect en
+  - |
+    Confirm the screenshots themselves are unaffected — the six PNGs must still
+    be written and still be in ENGLISH, since the switch to `en` stays. If
+    `git status` shows a screenshot changed beyond noise, open it and check the
+    chrome is not suddenly German.
+  - |
+    Run the gate and the full build:
+      ./gradlew :frontend:check
+      ./gradlew build
+
+validation:
+  - |
+    The prior language is read before it is overwritten, and the file still
+    switches to English on purpose:
+      S=src/frontend/scripts/capture-screenshots.mjs
+      node --check "$S"
+      grep -qE "auth/me['\`]" "$S"   # single-quoted or template-literal path
+      grep -q "language: 'en'" "$S"
+  - |
+    The restore happens in a `finally`, so a failed capture restores too, and the
+    language endpoint is therefore touched TWICE (set, then put back):
+      S=src/frontend/scripts/capture-screenshots.mjs
+      grep -q "finally" "$S"
+      test "$(grep -c "me/language" "$S")" -ge 2
+  - |
+    The cleanup cannot mask a real error — the restore is guarded rather than
+    left to throw out of the `finally`:
+      S=src/frontend/scripts/capture-screenshots.mjs
+      grep -q "console.warn" "$S"
+      awk '/finally/{f=1} f' "$S" | grep -q "catch"
+  - |
+    The browser teardown moved into the same cleanup path rather than being left
+    after the last capture:
+      S=src/frontend/scripts/capture-screenshots.mjs
+      awk '/finally/{f=1} f' "$S" | grep -q "browser.close"
+  - |
+    The header comment and the frontend CLAUDE.md both record the invariant:
+      grep -qiE "restore|restored|puts it back" src/frontend/scripts/capture-screenshots.mjs
+      grep -qiE "gen:screenshots" src/frontend/CLAUDE.md
+      # CO-LOCATED, not merely both present somewhere: "language" already appears
+      # three times in that file for unrelated i18n reasons, so a bare grep for it
+      # passes today and proves nothing. Require the invariant to be recorded on
+      # the same line as the screenshot workflow it constrains.
+      grep -iE "screenshot" src/frontend/CLAUDE.md | grep -qiE "language|German"
+      grep -qiE "gen:screenshots" docs/development.md
+      # Proximity, not same-line: development.md is hard-wrapped at ~90 columns, so
+      # a sentence legitimately spans lines. Require the invariant to be recorded
+      # in the window around the workflow description.
+      W=$(grep -iE -A12 "gen:screenshots" docs/development.md)
+      printf '%s' "$W" | grep -qiE "restore"
+      printf '%s' "$W" | grep -qiE "language"
+  - |
+    BEHAVIOURAL, needs a dev stack up (./scripts/dev.sh; backend :8090). The fix
+    must RESTORE, not hardcode a language, so check both directions:
+      A='Authorization: Dev dev-admin'
+      for L in de en; do
+        curl -sf -X PUT -H "$A" -H 'Content-Type: application/json' -d "{\"language\":\"$L\"}" http://localhost:8090/api/auth/me/language
+        (cd src/frontend && npm run gen:screenshots > /dev/null)
+        GOT=$(curl -sf -H "$A" http://localhost:8090/api/auth/me | jq -r .language)
+        echo "set $L -> after gen:screenshots: $GOT"
+        test "$GOT" = "$L"
+      done
+      # Leave the stack as a developer expects to find it. Without this the loop
+      # ends in English and the acceptance criterion below meets an English UI.
+      curl -sf -X PUT -H "$A" -H 'Content-Type: application/json' -d '{"language":"de"}' http://localhost:8090/api/auth/me/language
+  - |
+    BEHAVIOURAL, needs a dev stack. The FAILURE path restores as well. Run a copy
+    of the script with a throw injected after the language switch and confirm the
+    preference still comes back:
+      A='Authorization: Dev dev-admin'
+      curl -sf -X PUT -H "$A" -H 'Content-Type: application/json' -d '{"language":"de"}' http://localhost:8090/api/auth/me/language
+      # The probe must live under src/frontend so `@playwright/test` resolves, and
+      # scripts/*.mjs is in ESLint's scope, so guarantee cleanup with a trap
+      # rather than a trailing rm that a mid-block failure would skip.
+      trap 'rm -f src/frontend/scripts/.t180-probe.mjs' EXIT
+      awk '/const seed = await resolveSeed\(\);/ && !d {print "throw new Error(\"injected failure\");"; d=1} {print}' src/frontend/scripts/capture-screenshots.mjs > src/frontend/scripts/.t180-probe.mjs
+      (cd src/frontend && node scripts/.t180-probe.mjs) > /dev/null 2>&1 || true
+      rm -f src/frontend/scripts/.t180-probe.mjs
+      GOT=$(curl -sf -H "$A" http://localhost:8090/api/auth/me | jq -r .language)
+      echo "after an injected mid-run failure: $GOT"
+      test "$GOT" = "de"
+  - |
+    THE ACCEPTANCE CRITERION, needs a dev stack. This is the exact sequence that
+    failed 28 tests during task-179; both halves must be green back to back:
+      # Pin the starting state rather than inheriting whatever ran before: the
+      # suite asserts GERMAN text, and German is the seeded default a developer's
+      # stack is actually in.
+      curl -sf -X PUT -H 'Authorization: Dev dev-admin' -H 'Content-Type: application/json' -d '{"language":"de"}' http://localhost:8090/api/auth/me/language
+      cd src/frontend && npm run gen:screenshots && npm run test:e2e
+  - |
+    The screenshots are still produced, still six of them, and none was lost:
+      test "$(ls docs/images/*.png | wc -l)" -eq 6
+      for f in docs/images/schedule-dependencies.png docs/images/schedule-gantt.png docs/images/estimation-editor.png; do
+        test "$(wc -c < "$f")" -gt 15000
+      done
+  - |
+    The modified script introduces no lint finding (it is in ESLint's scope and
+    clean today):
+      ./gradlew :frontend:npmLintReport
+      if jq -e '.[] | select(.filePath | endswith("capture-screenshots.mjs")) | select(.errorCount > 0 or .warningCount > 0)' src/frontend/reports/eslint.json > /dev/null; then echo "new lint finding in the capture script"; exit 1; fi
+  - |
+    The gate and the full build stay green:
+      ./gradlew :frontend:check
+      ./gradlew build
+
+outputs:
+  - modified: src/frontend/scripts/capture-screenshots.mjs
+  - modified: src/frontend/CLAUDE.md
+  - modified: docs/development.md

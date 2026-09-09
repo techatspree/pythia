@@ -379,3 +379,8 @@ rather than writing blank images. It captures against the seeded demo data, swit
 capture user's UI language to English first (the README is English, the seed content is
 German), and seeds one collaborative session through the REST API so the session shot shows
 a revealed round rather than an empty room.
+
+It **restores the language preference it found** when it finishes, failures included, so
+`gen:screenshots` is safe to run before the Playwright suite. Without that the suite meets
+an English UI and fails 28 of its German text assertions, with nothing in the output
+pointing back at the screenshots (task-180).

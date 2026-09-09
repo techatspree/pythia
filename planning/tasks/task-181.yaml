@@ -1,0 +1,175 @@
+id: task-181
+phase: phase-18
+title: "Recapture the schedule shots from a pristine seed"
+depends_on: [task-180]
+description: |
+  The two committed schedule screenshots show numbers that a fresh stack does not
+  reproduce, so they cannot be regenerated without an unexplained diff.
+
+  Measured during task-180. Regenerating on a stack that had just re-seeded
+  produced the SAME graph structure but different per-group durations in
+  `docs/images/schedule-dependencies.png`:
+
+  | box | committed | pristine re-seed |
+  |---|---|---|
+  | U01: Konzeption | 7.1 days | 8.5 days |
+  | U02: Frontend Redesign | 13.7 days | 16.9 days |
+  | U03: Backend & Datenbank | 21.3 days | 18.3 days |
+  | U04: Abnahme & Go-live | 4.3 days | 4.3 days |
+
+  This is NOT rendering nondeterminism, and that was checked rather than assumed:
+  two consecutive runs against one stack produce byte-identical PNGs for the
+  dependency editor, the Gantt and the estimation editor. `TestDataSeeder` is
+  deterministic too — every estimate in it is a hardcoded literal, and the only
+  randomness is `UUID.randomUUID()` for ids, which is not visible.
+
+  The cause is the DATA the committed images were captured against: a long-lived
+  dev database that had accumulated manual edits made through the running UI
+  during phase-19/20 development, rather than an untouched seed. `%dev` runs
+  `schema-management.strategy=drop-and-create`, so restarting the backend re-seeds
+  from scratch — which is exactly what happened between the two captures.
+
+  Target state: all six screenshots are reproducible by anyone who starts a fresh
+  dev stack and runs `npm run gen:screenshots`, and the procedure for getting a
+  pristine stack is written down where the capture workflow is already described.
+
+  A LEAD, NOT A CONCLUSION — the implementer must confirm it before writing
+  anything down as fact. Only the two SCHEDULE shots drifted; the other four,
+  including `estimation-editor.png` which renders the same draft, came back
+  byte-identical. That asymmetry is the interesting part, because both derive
+  from the same estimates. The prime suspect is therefore NOT the estimates but
+  the phase lengths: a group box in the dependency editor shows the group's
+  `offerPT`, which INCLUDES its accompanying hours-per-week item, and that item's
+  effort scales with its phase's `durationWeeks`. task-177 added
+  `PhaseDurationMode`, and `PhasesPanel.svelte` carries an `$effect` that writes a
+  computed length back onto any phase whose mode is `AUTOMATIC`. The seeder does
+  not set a mode, so a seeded phase starts `EXPLICIT` (the V20 column default) and
+  no write-back fires — but a phase switched to `AUTOMATIC` by hand in the running
+  app would have had its `durationWeeks` rewritten, changing the accompanying
+  effort and hence exactly these numbers, while leaving the per-leaf estimates the
+  editor shows untouched. Verify or refute this on a pristine stack; a different
+  mechanism means a different note, and possibly a follow-up task.
+
+  Key decisions already made:
+
+  - RECAPTURE ALL SIX, not just the two. The generator writes all six anyway, and
+    the point is that the whole set is reproducible from a pristine seed. Expect
+    four of them to come out byte-identical to what is committed — if one does
+    NOT, that is a finding to report, not something to quietly commit.
+  - PRISTINE MEANS: backend restarted (so `drop-and-create` re-seeds), and NOTHING
+    done to the data before capturing — no e2e run, no clicking through the app.
+    Capture first, then do anything else.
+  - PROVE REPRODUCIBILITY rather than assert it: regenerate twice on the same
+    pristine stack and require the second run to change nothing.
+  - DO NOT "FIX" THE DRIFT IN CODE HERE. If the investigation turns up a genuine
+    defect — for instance an `AUTOMATIC` phase whose write-back can run on a
+    version the user is only viewing — write it up and propose a follow-up task.
+    This task's deliverable is reproducible images plus an accurate note.
+  - The note belongs in `docs/development.md`, next to the `gen:screenshots`
+    paragraph that already explains the running-stack requirement and the language
+    switch (task-180 added a paragraph there). One or two sentences.
+
+steps:
+  - |
+    Start from a genuinely pristine stack. Stop any running `./scripts/dev.sh`
+    with SIGTERM (never `pkill` the child JVMs — that orphans the Dev Services
+    PostgreSQL container and leaves 5432 bound), then start it again so the dev
+    profile re-seeds via `drop-and-create`. Do NOT run the Playwright suite and do
+    NOT click through the app before capturing.
+  - |
+    Before capturing anything, record what the pristine seed actually contains, so
+    the drift can be explained rather than guessed at. With the stack up, read the
+    Webshop draft's phases and check each one's `durationMode` and `durationWeeks`
+    against the literals in
+    `src/backend/implementation/src/main/kotlin/io/pythia/testdata/TestDataSeeder.kt`
+    (draft1's Konzeption phase is seeded `durationWeeks = 3.0`). Note whether any
+    phase is `AUTOMATIC`.
+  - |
+    Capture: `cd src/frontend && npm run gen:screenshots`. Then run it a SECOND
+    time and confirm `git status docs/images/` reports no further change between
+    the two runs — that is the reproducibility claim, and it must hold before
+    anything is committed.
+  - |
+    Inspect the two schedule PNGs by opening them, not just by file size. Confirm
+    the dependency editor shows the four linked group boxes plus the isolated
+    "U05: Noch zu schätzen", and that the Gantt shows the pinned 2026-03-02 start,
+    the dark-green critical chain and the dashed "Projektbegleitung" row spanning
+    its whole phase.
+  - |
+    Account for the other four. If `estimation-editor.png`, `session-room.png`,
+    `version-compare.png` or `bucket-editor.png` changed, open the changed one and
+    say what differs — do not commit an unexplained change to a screenshot this
+    task did not set out to touch.
+  - |
+    Write the conclusion into `docs/development.md`, in or next to the existing
+    `gen:screenshots` paragraph: capture against a freshly re-seeded stack,
+    because the dev database accumulates edits and the schedule shots in
+    particular depend on data the app itself can rewrite. State the mechanism only
+    as far as it was actually confirmed in step 2 — if it was not confirmed, say
+    that the images must come from a fresh seed without claiming why.
+  - |
+    Stop the dev stack with SIGTERM and confirm no orphaned Dev Services container
+    is left holding 5432.
+  - |
+    Run the gate and the full build (this task changes no code, so this is a
+    safety net that nothing else was disturbed):
+      ./gradlew :frontend:check
+      ./gradlew build
+
+validation:
+  - |
+    All six screenshots are present, real PNGs, and none is a blank or failed
+    capture:
+      test "$(ls docs/images/*.png | wc -l)" -eq 6
+      for f in docs/images/*.png; do
+        test "$(wc -c < "$f")" -gt 15000
+        head -c 8 "$f" | od -An -tx1 | tr -d ' \n' | grep -q "^89504e470d0a1a0a$"
+      done
+  - |
+    The two schedule shots kept their expected geometry — the dependency editor is
+    the content-sized canvas (task-179 tightened that selector) and not the
+    viewport-width wrapper, and the Gantt is the taller full-width chart:
+      python3 -c "import struct;d=open('docs/images/schedule-dependencies.png','rb').read(33);w,h=struct.unpack('>II',d[16:24]);print('dependencies',w,h);exit(0 if w<2000 and h>400 else 1)"
+      python3 -c "import struct;d=open('docs/images/schedule-gantt.png','rb').read(33);w,h=struct.unpack('>II',d[16:24]);print('gantt',w,h);exit(0 if w>2000 and h>1000 else 1)"
+  - |
+    No two screenshots are byte-identical to one another, which is what a
+    copy-rename or a repeated capture of the same page would look like:
+      for a in docs/images/*.png; do
+        for b in docs/images/*.png; do
+          [ "$a" = "$b" ] && continue
+          if cmp -s "$a" "$b"; then echo "$a and $b are identical"; exit 1; fi
+        done
+      done
+  - |
+    REPRODUCIBILITY, needs a pristine dev stack up (restarted, nothing else run
+    against it). A second capture must change nothing — run this with a clean
+    `git status docs/images/` and it must stay clean:
+      test -z "$(git status --porcelain docs/images/)"
+      (cd src/frontend && npm run gen:screenshots > /dev/null)
+      CHANGED=$(git status --porcelain docs/images/ | wc -l | tr -d ' ')
+      echo "files changed by a repeat capture: $CHANGED"
+      test "$CHANGED" -eq 0
+  - |
+    The procedure is written down next to the workflow it constrains. Proximity,
+    not same-line: development.md is hard-wrapped, so a sentence spans lines:
+      grep -qiE "gen:screenshots" docs/development.md
+      W=$(grep -iE -A16 "gen:screenshots" docs/development.md)
+      printf '%s' "$W" | grep -qiE "seed"
+      printf '%s' "$W" | grep -qiE "fresh|pristine|re-seed|restart"
+  - |
+    The note must not overclaim a mechanism that was never confirmed. If it names
+    the phase write-back, it has to name it as the confirmed cause rather than as
+    a guess — so either the words are absent, or they appear without hedging:
+      W=$(grep -iE -A16 "gen:screenshots" docs/development.md)
+      if printf '%s' "$W" | grep -qiE "durationMode|AUTOMATIC"; then
+        printf '%s' "$W" | grep -qiE "confirmed|because|since" || { echo "names the mechanism without stating it was confirmed"; exit 1; }
+      fi
+  - |
+    The gate and the full build stay green:
+      ./gradlew :frontend:check
+      ./gradlew build
+
+outputs:
+  - modified: docs/images/schedule-dependencies.png
+  - modified: docs/images/schedule-gantt.png
+  - modified: docs/development.md

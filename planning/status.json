@@ -1065,10 +1065,16 @@
       "notes": "Add docs/scheduling.md, link it from the README, and capture the schedule screenshots"
     },
     "task-180": {
+      "status": "done",
+      "started_at": "2026-09-09T08:17:37+00:00",
+      "completed_at": "2026-09-09T08:25:25+00:00",
+      "notes": "gen:screenshots leaves the user in English and breaks the e2e suite; restore the prior language"
+    },
+    "task-181": {
       "status": "pending",
       "started_at": null,
       "completed_at": null,
-      "notes": "gen:screenshots leaves the user in English and breaks the e2e suite; restore the prior language"
+      "notes": "Committed schedule screenshots show numbers no fresh stack reproduces; recapture from a pristine seed"
     }
   }
 }
