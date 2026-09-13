@@ -1,0 +1,278 @@
+id: task-183
+phase: phase-15
+title: "xlsx import: endpoint and upload UI"
+depends_on: [task-182]
+description: |
+  `ExcelImporter` can read a workbook this application exported — task-182 made
+  that true for every method — but **nothing calls it**. It has no REST endpoint
+  and no UI; its only caller is `ExcelImporterTreeTest`. A user can export to
+  xlsx and cannot bring the file back.
+
+  Target state: an estimation page offers "Import from Excel", the upload creates
+  a new draft, and the flow behaves exactly like the Merlin import a user already
+  knows — including the confirmation when a draft would be replaced.
+
+  ## This is a mirror of the Merlin import, deliberately
+
+  `POST /api/estimations/{estimationId}/versions/import/merlin` (task-131) is the
+  same problem already solved end to end, and this task copies its shape rather
+  than inventing a second one. Reuse:
+
+  - `EstimationVersionResource.importMerlin` — `@Consumes(MULTIPART_FORM_DATA)`,
+    `@RestForm("file") file: FileUpload`, `@RolesAllowed("ESTIMATOR")`,
+    `@Transactional`, `201` with `EstimationVersionDto`.
+  - `EstimationVersionService.importMerlinDraft` — `requireEstimationWithoutDraft`
+    (404 missing / **409 a draft already exists**), next version number from the
+    latest submitted, `draftRepository.persist`, an `auditLogService.log` entry,
+    `Log.info` either side, and a catch that turns an unreadable file into `400`.
+  - `routes/estimations/[id]/+page.svelte` — a hidden file input, `FormData` +
+    `apiFetch`, a `409` that opens **`ReplaceDraftDialog`** instead of acting, a
+    `400` mapped to a specific message, everything else through `assertOk` and
+    `ErrorBanner`.
+
+  Reuse `ReplaceDraftDialog` as it stands; it is already phrased about replacing
+  a draft, not about Merlin.
+
+  ## The one thing the Merlin flow does not have to worry about
+
+  **A workbook can disagree with the estimation's method, and the importer will
+  not notice.** `ExcelImporter` shapes its column block from
+  `estimation.method` (task-182). Upload a bucket+sampled workbook — five method
+  columns — into a PERT estimation and it reads three columns from the wrong
+  offsets and imports silently wrong numbers. Nothing today prevents that.
+
+  So the import must REFUSE a mismatch: a workbook carrying the `Eimer` sheet is
+  a bucket+sampled export, one without it is PERT. If that disagrees with the
+  target estimation's method, fail with `400` and a message naming both, rather
+  than importing garbage. This is the correctness point of the task; the rest is
+  plumbing that already exists in another shape.
+
+  ## Decisions
+
+  - **Endpoint**: `POST /api/estimations/{estimationId}/versions/import/xlsx`,
+    multipart with a `file` part, in `EstimationVersionResource` beside
+    `importMerlin`. Responses: `201` + `EstimationVersionDto`, `400` (unreadable
+    file, or a method mismatch), `404` (estimation), `409` (draft exists).
+  - **Service**: `EstimationVersionService.importXlsxDraft(estimationId, input)`,
+    mirroring `importMerlinDraft`, with the audit action `IMPORT_XLSX`.
+  - **Do not catch `Exception`** when turning a bad upload into a `400`: detekt's
+    `TooGenericExceptionCaught` will flag it. POI raises its own types for a file
+    that is not an OOXML workbook — catch those and `IllegalArgumentException`.
+  - **No new frontend page.** The control belongs on the estimation detail page
+    next to "Import from Merlin".
+  - **The OpenAPI contract is generated and committed.** Adding an endpoint makes
+    `./gradlew build` rewrite `src/frontend/src/lib/api/openapi.json` and
+    `schema.d.ts`; both must be committed with the change or CI's
+    `verifyOpenApiSchemaCommitted` gate fails. Never edit them by hand.
+  - **The e2e test builds its own fixture** — export a version through the API,
+    then upload that file back. Do not commit a binary .xlsx into the repo.
+  - **i18n**: every new string in BOTH `de.json` and `en.json`, key-for-key, with
+    a real German translation and no inline literal.
+  - **Logging**: backend via `io.quarkus.logging.Log` (INFO with the estimation
+    id, ERROR on the failure path); frontend via `log` from `$lib/log.ts`, never
+    bare `console.*`, with the failure also surfaced through `ErrorBanner`.
+
+  ## Out of scope
+
+  Importing into an EXISTING draft (merging), and any change to what
+  `ExcelImporter` parses — task-182 settled that.
+
+steps:
+  - |
+    Add `importXlsxDraft(estimationId: UUID, input: InputStream): DraftEstimationVersion`
+    to `src/backend/implementation/src/main/kotlin/io/pythia/service/EstimationVersionService.kt`,
+    modelled line for line on `importMerlinDraft` directly above it: reuse
+    `requireEstimationWithoutDraft`, derive the version number from the latest
+    submitted, call `excelImporter.import(input, estimation, newVersionNumber)`,
+    persist, audit with `IMPORT_XLSX`, and log on both sides. Inject
+    `ExcelImporter` alongside the existing importers.
+  - |
+    Guard the method mismatch in that service method, BEFORE importing. Decide the
+    workbook's method by whether it carries `ExcelGermanLabels.Sheets.BUCKETS`
+    (`Eimer`), compare against `estimation.method`, and on disagreement throw a
+    `WebApplicationException` with `Response.Status.BAD_REQUEST` whose message
+    names the workbook's method and the estimation's. Opening the workbook twice
+    is acceptable; a helper that peeks at the sheet names is enough.
+  - |
+    Add the endpoint to
+    `src/backend/implementation/src/main/kotlin/io/pythia/rest/EstimationVersionResource.kt`,
+    beside `importMerlin` and with the same annotations and `@APIResponse` set,
+    at `@Path("/import/xlsx")`. Document the 400 as covering both an unreadable
+    file and a method mismatch.
+  - |
+    Cover it in
+    `src/backend/implementation/src/test/kotlin/io/pythia/rest/EstimationVersionResourceIT.kt`:
+      * a workbook exported from a PERT estimation uploads into a PERT estimation
+        with no draft → 201, and the draft's tree matches
+      * the same upload when a draft already exists → 409
+      * a BUCKET workbook uploaded into a PERT estimation → 400 (the mismatch
+        guard; without it this silently imports wrong numbers)
+      * a file that is not a workbook at all → 400
+  - |
+    Add the upload control to
+    `src/frontend/src/routes/estimations/[id]/+page.svelte`, mirroring the Merlin
+    block already there: a hidden `<input type="file" accept=".xlsx">`, a
+    `runXlsxImport(file, replaceDraft)` that posts `FormData` through `apiFetch`,
+    a `409` that sets a pending-file state and opens the existing
+    `ReplaceDraftDialog`, and `400` mapped to the invalid-file or mismatch
+    message. Surface failures via `ErrorBanner` and `log.error`; never
+    `console.*`.
+  - |
+    Add the strings to BOTH `src/frontend/src/lib/i18n/de.json` and
+    `src/frontend/src/lib/i18n/en.json`, key-for-key, alongside the existing
+    `estimation.importMerlin*` family: `estimation.importXlsx`,
+    `importXlsxHint`, `importXlsxFailed`, `importXlsxInvalidFile`,
+    `importXlsxMethodMismatch`. Real German, never the English sentence pasted
+    across, and no literal in the component.
+  - |
+    Add `src/frontend/e2e/xlsx-import.test.ts`, modelled on
+    `src/frontend/e2e/merlin-import.test.ts`: create an estimation with a
+    submitted version, download its xlsx through
+    `/versions/{n}/export?format=xlsx`, upload that buffer back into a second
+    estimation via the new endpoint through the UI, and assert the draft appears.
+    Build the fixture in the test; do not commit a binary workbook.
+  - |
+    Document the endpoint in `src/backend/CLAUDE.md` under "REST API surface":
+    the xlsx import mirrors the Merlin one, and a workbook whose method disagrees
+    with the estimation is refused with 400 rather than imported — noting WHY
+    (the importer shapes its columns from `estimation.method`, so a mismatch
+    reads the wrong offsets). Also drop the "no REST endpoint and no UI" clause
+    task-182 left in the round-trip paragraph, which this task makes untrue.
+  - |
+    Regenerate and commit the API contract — `./gradlew build` rewrites
+    `src/frontend/src/lib/api/openapi.json` and
+    `src/frontend/src/lib/api/schema.d.ts`. Commit both; never hand-edit them.
+  - |
+    Run the gates:
+      ./gradlew :backend:implementation:test
+      ./gradlew :frontend:check
+      ./gradlew build
+    then, with a dev stack up (./scripts/dev.sh; backend :8090, Vite :5173; stop
+    it with SIGTERM, never by killing the child JVMs):
+      cd src/frontend && npm run test:e2e
+
+validation:
+  - |
+    The endpoint exists on the versions resource, multipart, and mirrors the
+    Merlin one's guarantees:
+      set -e
+      R=src/backend/implementation/src/main/kotlin/io/pythia/rest/EstimationVersionResource.kt
+      grep -q '@Path("/import/xlsx")' "$R"
+      grep -q "importXlsxDraft" "$R"
+      awk '/import\/xlsx/{f=1} f{print} f&&/^    }$/{exit}' "$R" > /tmp/t183-ep
+      grep -q "MULTIPART_FORM_DATA" /tmp/t183-ep
+      grep -q "RestForm" /tmp/t183-ep
+      grep -q 'RolesAllowed("ESTIMATOR")' /tmp/t183-ep
+  - |
+    The service mirrors the Merlin import's rules rather than inventing its own —
+    one draft at a time, a version number, and an audit entry:
+      set -e
+      S=src/backend/implementation/src/main/kotlin/io/pythia/service/EstimationVersionService.kt
+      grep -q "fun importXlsxDraft" "$S"
+      awk '/fun importXlsxDraft/{f=1} f{print} f&&/^    }$/{exit}' "$S" > /tmp/t183-svc
+      grep -q "requireEstimationWithoutDraft" /tmp/t183-svc
+      grep -q "IMPORT_XLSX" /tmp/t183-svc
+      grep -qE "Log\.info" /tmp/t183-svc
+  - |
+    THE CORRECTNESS POINT: a workbook whose method disagrees with the estimation
+    is refused instead of silently misread:
+      set -e
+      S=src/backend/implementation/src/main/kotlin/io/pythia/service/EstimationVersionService.kt
+      grep -qE "Sheets.BUCKETS" "$S"
+      grep -qE "BAD_REQUEST" "$S"
+      grep -qE "BUCKET_SAMPLED_PERT|estimation\.method" "$S"
+  - |
+    The bad-file path does not reach for a blanket catch, which detekt rejects:
+      set -e
+      S=src/backend/implementation/src/main/kotlin/io/pythia/service/EstimationVersionService.kt
+      awk '/fun importXlsxDraft/{f=1} f{print} f&&/^    }$/{exit}' "$S" > /tmp/t183-svc
+      if grep -qE "catch \(e: Exception\)" /tmp/t183-svc; then
+        echo "blanket catch in the xlsx import; detekt TooGenericExceptionCaught will flag it"; exit 1
+      fi
+  - |
+    The backend test covers the mismatch and the 409, not just the happy path —
+    the mismatch is the case that silently corrupts data:
+      set -e
+      T=src/backend/implementation/src/test/kotlin/io/pythia/rest/EstimationVersionResourceIT.kt
+      grep -qE "import/xlsx" "$T"
+      CODE=$(grep -v '^\s*//' "$T")
+      printf '%s' "$CODE" | grep -qE "409"
+      printf '%s' "$CODE" | grep -qE "400"
+      printf '%s' "$CODE" | grep -qiE "mismatch|BUCKET_SAMPLED_PERT"
+  - |
+    The UI posts a multipart upload through apiFetch and reuses the existing
+    replace-draft confirmation rather than silently destroying a draft:
+      set -e
+      P=src/frontend/src/routes/estimations/\[id\]/+page.svelte
+      grep -q "import/xlsx" "$P"
+      grep -q "FormData" "$P"
+      grep -q "ReplaceDraftDialog" "$P"
+      grep -qE "accept=\"\.xlsx\"|accept='\.xlsx'" "$P"
+  - |
+    Frontend conventions hold on the page: no raw fetch, no bare console, errors
+    both logged and surfaced:
+      set -e
+      P=src/frontend/src/routes/estimations/\[id\]/+page.svelte
+      if grep -qE "(^|[^.a-zA-Z])fetch\(" "$P"; then echo "raw fetch on the page"; exit 1; fi
+      if grep -qE "console\." "$P"; then echo "bare console on the page"; exit 1; fi
+      grep -q "log.error" "$P"
+      grep -q "ErrorBanner" "$P"
+  - |
+    Every new string is translated in every catalog, key-for-key, and no German
+    entry is just the English one:
+      set -e
+      python3 -c "
+      import json, pathlib, sys
+      d = pathlib.Path('src/frontend/src/lib/i18n')
+      cats = {p.stem: json.loads(p.read_text()) for p in d.glob('*.json')}
+      def flat(o, p=''):
+          out = {}
+          for k, v in o.items():
+              n = f'{p}.{k}' if p else k
+              out.update(flat(v, n) if isinstance(v, dict) else {n: v})
+          return out
+      f = {l: flat(c) for l, c in cats.items()}
+      ref = set().union(*(set(x) for x in f.values()))
+      bad = {l: sorted(ref - set(x)) for l, x in f.items() if ref - set(x)}
+      keys = ['estimation.importXlsx', 'estimation.importXlsxHint', 'estimation.importXlsxFailed',
+              'estimation.importXlsxInvalidFile', 'estimation.importXlsxMethodMismatch']
+      de, en = f.get('de', {}), f.get('en', {})
+      missing = [k for k in keys if k not in de or k not in en]
+      copied = [k for k in keys if k in de and de.get(k) == en.get(k)]
+      print('catalogs:', sorted(cats), '| mismatch:', bad or 'none')
+      print('missing:', missing or 'none', '| untranslated:', copied or 'none')
+      sys.exit(1 if (bad or missing or copied) else 0)
+      "
+  - |
+    An e2e spec drives the real upload, and builds its own fixture rather than
+    committing a binary workbook:
+      set -e
+      T=src/frontend/e2e/xlsx-import.test.ts
+      test -f "$T"
+      grep -qE "export\?format=xlsx|format=xlsx" "$T"
+      grep -qiE "setInputFiles|FormData" "$T"
+      if git ls-files --error-unmatch src/frontend/e2e/*.xlsx > /dev/null 2>&1; then
+        echo "a binary workbook fixture was committed"; exit 1
+      fi
+  - |
+    The generated API contract was regenerated and committed, not hand-edited:
+      set -e
+      grep -q "/api/estimations/{estimationId}/versions/import/xlsx" src/frontend/src/lib/api/openapi.json
+      grep -q "import/xlsx" src/frontend/src/lib/api/schema.d.ts
+  - |
+    Backend tests, the frontend gate and the full build are green:
+      ./gradlew :backend:implementation:test
+      ./gradlew :frontend:check
+      ./gradlew build
+
+outputs:
+  - modified: src/backend/implementation/src/main/kotlin/io/pythia/rest/EstimationVersionResource.kt
+  - modified: src/backend/implementation/src/main/kotlin/io/pythia/service/EstimationVersionService.kt
+  - modified: src/backend/implementation/src/test/kotlin/io/pythia/rest/EstimationVersionResourceIT.kt
+  - modified: src/frontend/src/routes/estimations/[id]/+page.svelte
+  - modified: src/frontend/src/lib/i18n/de.json
+  - modified: src/frontend/src/lib/i18n/en.json
+  - created: src/frontend/e2e/xlsx-import.test.ts
+  - modified: src/frontend/src/lib/api/openapi.json
+  - modified: src/frontend/src/lib/api/schema.d.ts
+  - modified: src/backend/CLAUDE.md

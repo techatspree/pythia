@@ -46,4 +46,18 @@ interface EstimationMethodModule {
 
     /** Column headers matching the cells returned by [exportRow]. */
     fun exportColumnHeaders(): List<String>
+
+    /**
+     * The inverse of [exportRow] (task-182): rebuild a leaf from the
+     * method-specific cells of an exported row, so a workbook this application
+     * wrote can be read back without the importer learning any method's shape.
+     *
+     * [cells] are exactly the columns [exportColumnHeaders] describes, in that
+     * order. Returns null when they cannot be read as a row of this method — a
+     * malformed row is skipped rather than failing the whole file.
+     *
+     * The item carries only what the cells hold; neutral fields (description,
+     * phase, calculated values) are the caller's to apply.
+     */
+    fun importRow(cells: List<String>): EstimationItem?
 }

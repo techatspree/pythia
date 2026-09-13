@@ -5,7 +5,14 @@ import io.pythia.domain.Estimation
 import io.pythia.domain.draft.DraftAdditionalCost
 import io.pythia.domain.draft.DraftEffortDriver
 import io.pythia.domain.draft.DraftEstimationNode
+import io.pythia.domain.EstimationBucket
+import io.pythia.domain.draft.DraftBucketedItemNode
 import io.pythia.domain.draft.DraftEstimationVersion
+import io.pythia.method.EstimationMethod
+import io.pythia.method.EstimationMethodModule
+import io.pythia.method.EstimationMethodRegistry
+import io.pythia.method.bucketsampled.BucketedEstimationItem
+import io.pythia.model.EstimationItem
 import io.pythia.domain.draft.DraftFixedItemNode
 import io.pythia.domain.draft.DraftGroupNode
 import io.pythia.domain.draft.DraftProjectPhase
@@ -34,6 +41,14 @@ import java.util.UUID
 @ApplicationScoped
 class ExcelImporter {
 
+    private companion object {
+        /** Description sits at 0; the method's own cells start right after it. */
+        const val METHOD_FIRST_COLUMN = 1
+
+        /** The column count the fixed trailing indices were written for. */
+        const val PERT_METHOD_COLUMNS = 3
+    }
+
     fun import(input: InputStream, estimation: Estimation, versionNumber: Int): DraftEstimationVersion {
         Log.info("Importing Excel workbook into estimation ${estimation.id} version $versionNumber")
         val workbook = XSSFWorkbook(input)
@@ -42,14 +57,53 @@ class ExcelImporter {
             this.versionNumber = versionNumber
         }
 
+        // The workbook's method-specific columns are shaped by the estimation's
+        // own method (task-182), exactly as the exporter shaped them on the way
+        // out — same module, same column count, so the two cannot drift.
+        val module = EstimationMethodRegistry.require(estimation.method)
+        Log.info("Import uses method ${estimation.method} for estimation ${estimation.id}")
+        val bucketsByFileId = importBuckets(workbook.getSheet(ExcelGermanLabels.Sheets.BUCKETS), estimation)
+
         importParameters(workbook.getSheet(ExcelGermanLabels.Sheets.PARAMETERS), version)
         importEffortDrivers(workbook.getSheet(ExcelGermanLabels.Sheets.EFFORT_DRIVERS), version)
         importPhases(workbook.getSheet(ExcelGermanLabels.Sheets.PHASES), version)
-        importEstimationItems(workbook.getSheet(ExcelGermanLabels.Sheets.PROJECT_STRUCTURE_PLAN), version)
+        importEstimationItems(
+            workbook.getSheet(ExcelGermanLabels.Sheets.PROJECT_STRUCTURE_PLAN),
+            version,
+            module,
+            bucketsByFileId
+        )
         importAdditionalCosts(workbook.getSheet(ExcelGermanLabels.Sheets.ADDITIONAL_COSTS), version)
 
         workbook.close()
         return version
+    }
+
+    /**
+     * Reads the Eimer sheet and returns `fileBucketId -> bucket of THIS estimation`.
+     *
+     * Matching is by LABEL, never by id: a workbook's bucket ids belong to the
+     * estimation that wrote it and mean nothing here. A label with no bucket yet
+     * is created, so a file can be imported into an estimation that has none.
+     */
+    private fun importBuckets(sheet: Sheet?, estimation: Estimation): Map<String, EstimationBucket> {
+        if (sheet == null) return emptyMap()
+        val byFileId = mutableMapOf<String, EstimationBucket>()
+        for (rowIdx in 1..sheet.lastRowNum) {
+            val row = sheet.getRow(rowIdx) ?: continue
+            val label = row.cellStringValue(0) ?: continue
+            val position = row.cellNumericValue(1)?.toInt() ?: rowIdx - 1
+            val fileId = row.cellStringValue(2) ?: continue
+            val bucket = estimation.buckets.firstOrNull { it.label == label }
+                ?: EstimationBucket().apply {
+                    this.label = label
+                    this.position = position
+                    this.estimation = estimation
+                }.also { estimation.buckets.add(it) }
+            byFileId[fileId] = bucket
+        }
+        Log.debug("Excel import resolved ${byFileId.size} bucket(s) by label")
+        return byFileId
     }
 
     private fun importParameters(sheet: Sheet, version: DraftEstimationVersion) {
@@ -105,7 +159,17 @@ class ExcelImporter {
         }
     }
 
-    private fun importEstimationItems(sheet: Sheet, version: DraftEstimationVersion) {
+    private fun importEstimationItems(
+        sheet: Sheet,
+        version: DraftEstimationVersion,
+        module: EstimationMethodModule,
+        bucketsByFileId: Map<String, EstimationBucket>
+    ) {
+        // Column count and therefore every trailing index follow the METHOD, the
+        // same way ExcelExporter shifts them (task-107/182). Both sides read it
+        // from exportColumnHeaders(), so they move together.
+        val methodColumns = module.exportColumnHeaders().size
+        val shift = methodColumns - PERT_METHOD_COLUMNS
         // The exporter writes one row per node in tree order. We read:
         //   col 0  — indented title/description
         //   col 1..3, 14, 15 — leaf effort/phase/assumptions (unchanged)
@@ -118,7 +182,7 @@ class ExcelImporter {
 
         for (rowIdx in 1..sheet.lastRowNum) {
             val row = sheet.getRow(rowIdx) ?: continue
-            val nodeType = row.cellStringValue(16) ?: continue
+            val nodeType = row.cellStringValue(16 + shift) ?: continue
             val level = (row as XSSFRow).outlineLevel
             val label = row.cellStringValue(0)?.trimStart() ?: ""
 
@@ -126,20 +190,25 @@ class ExcelImporter {
                 "GROUP" -> DraftGroupNode().apply { title = label }
                 "TIME_RELATIVE" -> DraftTimeRelativeItemNode().apply {
                     description = label
-                    unit = row.cellStringValue(18) ?: ExcelGermanLabels.HOURS_PER_WEEK_UNIT
+                    unit = row.cellStringValue(18 + shift) ?: ExcelGermanLabels.HOURS_PER_WEEK_UNIT
                 }
-                "FIXED" -> DraftFixedItemNode().apply { description = label }
+                "FIXED" -> leafNode(row, label, module, methodColumns, bucketsByFileId)
+                    ?: continue
                 else -> continue
             }
 
-            row.cellStringValue(17)?.let { node.logicalId = UUID.fromString(it) }
+            row.cellStringValue(17 + shift)?.let { node.logicalId = UUID.fromString(it) }
 
             if (nodeType != "GROUP") {
-                node.minEffort = row.cellNumericValue(1)
-                node.expectedEffort = row.cellNumericValue(2)
-                node.maxEffort = row.cellNumericValue(3)
-                node.assumptions = row.cellStringValue(15)
-                row.cellStringValue(14)?.let { abbr ->
+                // The effort triple is set by leafNode() for a FIXED row, which
+                // takes it from the method module rather than from fixed columns.
+                if (nodeType == "TIME_RELATIVE") {
+                    node.minEffort = row.cellNumericValue(1)
+                    node.expectedEffort = row.cellNumericValue(2)
+                    node.maxEffort = row.cellNumericValue(3)
+                }
+                node.assumptions = row.cellStringValue(15 + shift)
+                row.cellStringValue(14 + shift)?.let { abbr ->
                     node.phase = version.phases.find { it.abbreviation == abbr }
                 }
             }
@@ -198,23 +267,65 @@ class ExcelImporter {
         }
     }
 
-    private fun Row.cellStringValue(colIdx: Int): String? {
-        val cell = getCell(colIdx) ?: return null
-        return try {
-            cell.stringCellValue.takeIf { it.isNotBlank() }
-        } catch (e: Exception) {
-            Log.debug("Failed to read cell value during Excel import", e)
-            null
+    /**
+     * Builds a leaf from the row's METHOD cells, which the module parses — the
+     * importer never learns which column means what. The resulting draft node is
+     * bucketed when the method produced a bucketed item, so a bucket workbook
+     * round-trips instead of collapsing into plain fixed items.
+     */
+    private fun leafNode(
+        row: Row,
+        label: String,
+        module: EstimationMethodModule,
+        methodColumns: Int,
+        bucketsByFileId: Map<String, EstimationBucket>
+    ): DraftEstimationNode? {
+        val cells = (0 until methodColumns).map { row.cellAsText(METHOD_FIRST_COLUMN + it) }
+        val item: EstimationItem? = module.importRow(cells)
+        if (item == null) {
+            Log.warn("Skipping row '$label': its cells are not a valid row for ${module.method}")
+            return null
+        }
+        return if (item is BucketedEstimationItem) {
+            DraftBucketedItemNode().apply {
+                description = label
+                bucket = bucketsByFileId[item.bucketId]
+                isSample = item.isSample
+                minEffort = item.optimistic
+                expectedEffort = item.likely
+                maxEffort = item.pessimistic
+            }
+        } else {
+            DraftFixedItemNode().apply {
+                description = label
+                minEffort = item.minEffort
+                expectedEffort = item.expectedEffort
+                maxEffort = item.maxEffort
+            }
         }
     }
+}
 
-    private fun Row.cellNumericValue(colIdx: Int): Double? {
-        val cell = getCell(colIdx) ?: return null
-        return try {
-            cell.numericCellValue.takeIf { !it.isNaN() }
-        } catch (e: Exception) {
-            Log.debug("Failed to read cell value during Excel import", e)
-            null
-        }
+/** A cell as text whatever its type — the exporter writes numbers as NUMERIC. */
+private fun Row.cellAsText(colIdx: Int): String =
+    cellStringValue(colIdx) ?: cellNumericValue(colIdx)?.toString() ?: ""
+
+private fun Row.cellStringValue(colIdx: Int): String? {
+    val cell = getCell(colIdx) ?: return null
+    return try {
+        cell.stringCellValue.takeIf { it.isNotBlank() }
+    } catch (e: IllegalStateException) {
+        Log.debug("Failed to read cell value during Excel import", e)
+        null
+    }
+}
+
+private fun Row.cellNumericValue(colIdx: Int): Double? {
+    val cell = getCell(colIdx) ?: return null
+    return try {
+        cell.numericCellValue.takeIf { !it.isNaN() }
+    } catch (e: IllegalStateException) {
+        Log.debug("Failed to read cell value during Excel import", e)
+        null
     }
 }

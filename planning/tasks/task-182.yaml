@@ -1,0 +1,271 @@
+id: task-182
+phase: phase-15
+title: "Bucket Excel round-trip, shaped by the method module"
+depends_on: [task-107]
+description: |
+  task-107 made the xlsx/csv EXPORT dispatch on the estimation's method, and
+  recorded the gap it left: `ExcelImporter` is still positionally PERT-shaped, so
+  a bucket+sampled workbook cannot be read back. This task closes that, and moves
+  the bucket-specific row shaping into the bucket module on both sides of the
+  trip rather than only on the way out.
+
+  ## Scope boundary — read this first
+
+  **There is no xlsx import endpoint and no import UI.** `ExcelImporter` has zero
+  production callers; it is exercised only by
+  `src/backend/implementation/src/test/kotlin/io/pythia/service/ExcelImporterTreeTest.kt`.
+  "Importable" here therefore means the IMPORTER can faithfully read a workbook
+  this application exported, proven by a round-trip test — not that a user can
+  upload one. Wiring a REST endpoint and a frontend flow is a separate task and
+  is explicitly NOT in scope; do not add either.
+
+  ## Current state, verified
+
+  - `EstimationMethodModule` has `exportColumnHeaders()` and `exportRow(item)`.
+    There is **no import counterpart**, so the backend would have to parse each
+    method's cells itself — exactly the duplication the SPI exists to prevent.
+  - `ExcelImporter.import(input, estimation: Estimation, versionNumber: Int)`
+    already receives the `Estimation`, so `estimation.method` is available to it;
+    it simply never looks.
+  - The importer builds nodes from the "Node type" column: `GROUP`,
+    `TIME_RELATIVE`, else `DraftFixedItemNode`. A bucketed leaf exports as
+    `FIXED`, so a round-trip today would silently rebuild bucket items as plain
+    fixed items and drop the bucket entirely.
+  - Buckets (`EstimationBucket`) belong to the **Estimation**, not to a version,
+    and carry `label` and `position`. The workbook has no buckets sheet, and the
+    structure sheet's "Bucket" cell holds the bucket's **UUID**, which means
+    nothing to a reader and nothing to any other estimation.
+  - The workbook already uses one sheet per concern — `Parameter`,
+    `Aufwandstreiber`, `Pakete`, `Projektstrukturplan`, `Zusatzkosten` — all named
+    through `ExcelGermanLabels`, which is deliberately external customer-facing
+    data.
+
+  ## Target state
+
+  A bucket+sampled version exported to xlsx and imported back yields the same
+  tree, the same per-item bucket membership and sample flags, and the same
+  buckets — and the PERT round-trip keeps working byte-for-byte as before.
+
+  ## Key decisions
+
+  - **The SPI gains an import counterpart.** Add
+    `fun importRow(cells: List<String>): EstimationItem?` to
+    `EstimationMethodModule`, symmetric with `exportRow`. Each module parses its
+    OWN cells: PERT's three into a `FixedEstimationItem`, bucket's five into a
+    `BucketedEstimationItem`. Return null when the cells cannot be parsed so the
+    caller can skip a malformed row rather than abort the file. The interface and
+    registry are domain-internal (**not** `@JsExport`), so this adds no
+    TypeScript surface — but the fake module in
+    `src/domain/core/src/test/kotlin/io/pythia/method/EstimationMethodRegistryTest.kt`
+    implements the interface and must gain the new member.
+  - **A `Eimer` (buckets) sheet carries the bucket definitions.** Add
+    `ExcelGermanLabels.Sheets.BUCKETS` plus its column labels, and write one row
+    per bucket: label, position, and the technical id. The structure sheet keeps
+    the id in its "Bucket" cell — the sheet already carries technical columns
+    (`logicalId` at the end, documented as "English tags, not customer labels"),
+    so this is consistent rather than novel.
+  - **Import matches buckets by LABEL, not by id.** A workbook's bucket ids are
+    meaningless in any other estimation. Read the buckets sheet first, find-or-
+    create a bucket on the target estimation by label (creating it with the
+    sheet's position), and build a `fileBucketId -> EstimationBucket` map that
+    resolves the structure sheet's "Bucket" cells. A referenced id with no row in
+    the buckets sheet is a malformed file: log it and skip the row.
+  - **Node type must consider the method.** When the estimation is
+    `BUCKET_SAMPLED_PERT`, a leaf that is neither `GROUP` nor `TIME_RELATIVE`
+    becomes a `DraftBucketedItemNode` (bucket + `isSample` from the method cells),
+    not a `DraftFixedItemNode`.
+  - **Column offsets stay symmetric with the exporter.** task-107 shifts every
+    fixed trailing index by `exportColumnHeaders().size - 3`; the importer must
+    compute the same shift from the same source, so the two cannot drift apart.
+  - **Do not change the export's column ORDER** — the structure sheet's layout is
+    the round-trip contract this task is making good on.
+  - **Logging** per `src/backend/CLAUDE.md`: `Log.info` on import with the
+    estimation id and method, `Log.debug` on rows and buckets read, `Log.error`
+    (or a warn) on a row that cannot be parsed.
+
+steps:
+  - |
+    Add the import counterpart to the SPI in
+    `src/domain/core/src/main/kotlin/io/pythia/method/EstimationMethodModule.kt`:
+      fun importRow(cells: List<String>): EstimationItem?
+    Document it as the inverse of `exportRow`, including that a null means "these
+    cells are not a valid row for this method".
+  - |
+    Implement it in both modules, each parsing only its own shape:
+      * `src/domain/method-threepoint/src/main/kotlin/io/pythia/method/threepoint/ThreePointMethodModule.kt`
+        — three cells to a `FixedEstimationItem` (min, expected, max).
+      * `src/domain/method-bucketsampled/src/main/kotlin/io/pythia/method/bucketsampled/BucketMethodModule.kt`
+        — five cells to a `BucketedEstimationItem` (bucketId, isSample, then the
+        optimistic/likely/pessimistic triple, which is empty for a non-sample).
+    Update the fake module in
+    `src/domain/core/src/test/kotlin/io/pythia/method/EstimationMethodRegistryTest.kt`
+    so the interface still compiles there.
+    Then: ./gradlew :domain:build
+  - |
+    Add the buckets sheet labels to
+    `src/backend/implementation/src/main/kotlin/io/pythia/service/ExcelGermanLabels.kt`
+    — `Sheets.BUCKETS` and an object for its columns (label, position, id) in the
+    same German style as the existing sheets.
+  - |
+    Write the sheet in
+    `src/backend/implementation/src/main/kotlin/io/pythia/service/ExcelExporter.kt`:
+    one row per `estimation.buckets` (ordered by position). The exporter currently
+    takes `(version, method, output)` and has no estimation — pass the buckets in
+    rather than reaching for a repository, and write the sheet only when the
+    method is `BUCKET_SAMPLED_PERT` so a PERT workbook is unchanged.
+
+    Changing that signature breaks the existing call site in
+    `src/backend/implementation/src/test/kotlin/io/pythia/service/ExcelExporterTreeTest.kt`
+    (and `ExcelImporterTreeTest.kt`, which exports before importing) — update
+    them to pass an empty bucket list for the PERT cases.
+  - |
+    Teach `src/backend/implementation/src/main/kotlin/io/pythia/service/ExcelImporter.kt`
+    the method:
+      1. `val module = EstimationMethodRegistry.require(estimation.method)` and
+         `val shift = module.exportColumnHeaders().size - 3`, applied to every
+         fixed column index it reads, mirroring the exporter.
+      2. Read the buckets sheet first in a dedicated
+         `private fun importBuckets(sheet: Sheet, estimation: Estimation): Map<String, EstimationBucket>`
+         that find-or-creates each bucket on `estimation` BY LABEL and returns the
+         `fileBucketId -> EstimationBucket` map.
+      3. For each structure row, slice out the method cells
+         (`METHOD_FIRST_COLUMN` for `exportColumnHeaders().size` cells) and call
+         `module.importRow(cells)`.
+      4. Build a `DraftBucketedItemNode` when the estimation is bucket+sampled and
+         the row is a leaf, resolving its bucket through the map and taking
+         `isSample` from the imported item; otherwise keep today's behaviour.
+      5. Log per the decisions above.
+  - |
+    Extend `src/backend/implementation/src/test/kotlin/io/pythia/service/ExcelImporterTreeTest.kt`
+    (or add a sibling test class) with a BUCKET ROUND TRIP: build a bucket version
+    with two buckets and both sample and non-sample leaves, export it, import it
+    into an estimation that has NO buckets yet, and assert the tree, the bucket
+    labels, their POSITION (that is what the sheet carries the ordering for),
+    each leaf's bucket membership and its `isSample`. Keep the existing
+    PERT round-trip assertions untouched — they are the regression guard that the
+    shift arithmetic did not disturb the PERT layout.
+  - |
+    Document it: in `src/domain/CLAUDE.md` note that the SPI now shapes BOTH
+    directions, and in `src/backend/CLAUDE.md` replace the "Known gap:
+    ExcelImporter is still positionally PERT-shaped" sentence task-107 left with
+    the round-trip contract — buckets matched by label, the shift computed from
+    the same `exportColumnHeaders().size` on both sides.
+  - |
+    Build:
+      ./gradlew :domain:build
+      ./gradlew :backend:implementation:test
+      ./gradlew build
+
+validation:
+  - |
+    The SPI shapes both directions, and every implementer has the new member:
+      set -e
+      S=src/domain/core/src/main/kotlin/io/pythia/method/EstimationMethodModule.kt
+      grep -qE "fun importRow" "$S"
+      grep -qE "fun exportRow" "$S"
+      grep -qE "fun importRow" src/domain/method-threepoint/src/main/kotlin/io/pythia/method/threepoint/ThreePointMethodModule.kt
+      grep -qE "fun importRow" src/domain/method-bucketsampled/src/main/kotlin/io/pythia/method/bucketsampled/BucketMethodModule.kt
+      grep -qE "importRow" src/domain/core/src/test/kotlin/io/pythia/method/EstimationMethodRegistryTest.kt
+  - |
+    The bucket parsing lives in the MODULE, not in the backend importer — the
+    whole point of routing it through the SPI:
+      set -e
+      I=src/backend/implementation/src/main/kotlin/io/pythia/service/ExcelImporter.kt
+      grep -q "importRow" "$I"
+      if grep -qE "BucketedEstimationItem\(" "$I"; then
+        echo "the importer builds a domain bucket item itself; that shape belongs to the module"; exit 1
+      fi
+  - |
+    The importer dispatches on the estimation's method and derives the same
+    column shift the exporter applies, so the two cannot drift:
+      set -e
+      I=src/backend/implementation/src/main/kotlin/io/pythia/service/ExcelImporter.kt
+      grep -qE "EstimationMethodRegistry" "$I"
+      grep -qE "estimation\.method" "$I"
+      grep -qE "exportColumnHeaders\(\)" "$I"
+  - |
+    A bucketed leaf comes back as a bucketed node rather than a plain fixed one:
+      set -e
+      grep -q "DraftBucketedItemNode" src/backend/implementation/src/main/kotlin/io/pythia/service/ExcelImporter.kt
+  - |
+    The buckets sheet exists on both sides and is named through the German labels,
+    not a literal:
+      set -e
+      L=src/backend/implementation/src/main/kotlin/io/pythia/service/ExcelGermanLabels.kt
+      grep -qE "BUCKETS" "$L"
+      grep -q "Sheets.BUCKETS" src/backend/implementation/src/main/kotlin/io/pythia/service/ExcelExporter.kt
+      grep -q "Sheets.BUCKETS" src/backend/implementation/src/main/kotlin/io/pythia/service/ExcelImporter.kt
+  - |
+    Buckets are matched by LABEL — a file's bucket ids mean nothing in another
+    estimation, so an id-only lookup would silently drop every bucket. A bare
+    grep for "label" proves nothing here (the file already mentions it ~20 times
+    for phases and drivers), so check the dedicated function and its body:
+      set -e
+      I=src/backend/implementation/src/main/kotlin/io/pythia/service/ExcelImporter.kt
+      grep -qE "fun importBuckets" "$I"
+      awk '/fun importBuckets/{f=1} f{print} f&&/^    }$/{exit}' "$I" > /tmp/t182-buckets
+      grep -qiE "label" /tmp/t182-buckets
+      grep -qiE "firstOrNull|find|any" /tmp/t182-buckets   # find-or-create, not blind insert
+  - |
+    Logging follows the backend convention:
+      set -e
+      I=src/backend/implementation/src/main/kotlin/io/pythia/service/ExcelImporter.kt
+      # The file already carries one Log.info, so require the import line to name
+      # the METHOD — that is the observation this task adds.
+      grep -qE "Log\.info.*method|Log\.info.*\$\{?estimation\.method" "$I"
+      grep -qE "Log\.(debug|warn|error)" "$I"
+  - |
+    A real BUCKET round trip is covered by a TEST — not by a comment that happens
+    to contain the words. Require a backtick-named @Test mentioning bucket and an
+    assertion on isSample, matching the file's existing idiom:
+      set -e
+      T=$(grep -rl "ExcelImporter" src/backend/implementation/src/test/kotlin)
+      test -n "$T"
+      CODE=$(cat $T | grep -v '^\s*//' | grep -v '^\s*\*')
+      printf '%s' "$CODE" | grep -qE 'fun `[^`]*[Bb]ucket[^`]*`\(\)'
+      printf '%s' "$CODE" | grep -qE 'assert[A-Za-z]*\(.*isSample|isSample.*assert'
+      printf '%s' "$CODE" | grep -qiE "position"   # ordering survives the trip too
+      # the PERT round trip is the regression guard and must still be there
+      printf '%s' "$CODE" | grep -qE 'fun `[^`]*re-import[^`]*`\(\)'
+  - |
+    The buckets sheet is written only for a bucket estimation, so a PERT workbook
+    keeps exactly the sheets it has today:
+      set -e
+      E=src/backend/implementation/src/main/kotlin/io/pythia/service/ExcelExporter.kt
+      grep -qE "BUCKET_SAMPLED_PERT" "$E"
+  - |
+    task-107's export behaviour is untouched — the method still reaches the
+    writers and nothing re-hardcodes PERT:
+      set -e
+      for F in src/backend/implementation/src/main/kotlin/io/pythia/service/CsvExporter.kt \
+               src/backend/implementation/src/main/kotlin/io/pythia/service/ExcelExporter.kt; do
+        if grep -q "require(EstimationMethod.THREE_POINT_PERT)" "$F"; then
+          echo "$F re-hardcodes the method"; exit 1
+        fi
+      done
+  - |
+    The stale "known gap" sentence is gone and the contract is written down:
+      set -e
+      if grep -q "Known gap:" src/backend/CLAUDE.md; then
+        echo "the ExcelImporter gap note is stale now that the round trip works"; exit 1
+      fi
+      grep -qiE "round.?trip" src/backend/CLAUDE.md
+      grep -qiE "importRow|both directions" src/domain/CLAUDE.md
+  - |
+    Domain, backend tests and the full build are green:
+      ./gradlew :domain:build
+      ./gradlew :backend:implementation:test
+      ./gradlew build
+
+outputs:
+  - modified: src/domain/core/src/main/kotlin/io/pythia/method/EstimationMethodModule.kt
+  - modified: src/domain/method-threepoint/src/main/kotlin/io/pythia/method/threepoint/ThreePointMethodModule.kt
+  - modified: src/domain/method-bucketsampled/src/main/kotlin/io/pythia/method/bucketsampled/BucketMethodModule.kt
+  - modified: src/domain/core/src/test/kotlin/io/pythia/method/EstimationMethodRegistryTest.kt
+  - modified: src/backend/implementation/src/main/kotlin/io/pythia/service/ExcelGermanLabels.kt
+  - modified: src/backend/implementation/src/main/kotlin/io/pythia/service/ExcelExporter.kt
+  - modified: src/backend/implementation/src/main/kotlin/io/pythia/service/ExcelImporter.kt
+  - modified: src/backend/implementation/src/test/kotlin/io/pythia/service/ExcelImporterTreeTest.kt
+  - modified: src/backend/implementation/src/test/kotlin/io/pythia/service/ExcelExporterTreeTest.kt
+  - modified: src/domain/CLAUDE.md
+  - modified: src/backend/CLAUDE.md

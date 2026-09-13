@@ -367,7 +367,7 @@ class EstimationVersionResource(
 
         val label = if (versionNumber == "draft") "draft" else "v$versionNumber"
         return when (format) {
-            "xlsx" -> Response.ok(StreamingOutput { os -> excelExporter.export(version, method, os) })
+            "xlsx" -> Response.ok(StreamingOutput { os -> excelExporter.export(version, method, estimation.buckets, os) })
                 .type("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
                 .header("Content-Disposition", "attachment; filename=\"estimation-$label.xlsx\"")
                 .build()

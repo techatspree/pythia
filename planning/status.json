@@ -1077,10 +1077,16 @@
       "notes": "Committed schedule screenshots show numbers no fresh stack reproduces; recapture from a pristine seed"
     },
     "task-182": {
+      "status": "done",
+      "started_at": "2026-09-13T12:57:14+00:00",
+      "completed_at": "2026-09-13T13:07:52+00:00",
+      "notes": "Bucket Excel round-trip: bucket import/export shaping in the method module, exported file re-importable"
+    },
+    "task-183": {
       "status": "pending",
       "started_at": null,
       "completed_at": null,
-      "notes": "Bucket Excel round-trip: bucket import/export shaping in the method module, exported file re-importable"
+      "notes": "No way to upload an xlsx: add the import endpoint and the upload UI, reusing the Merlin import shape"
     }
   }
 }

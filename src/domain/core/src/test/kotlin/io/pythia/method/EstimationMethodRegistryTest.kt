@@ -24,6 +24,8 @@ class EstimationMethodRegistryTest {
         override fun exportRow(item: EstimationItem): List<String> = emptyList()
 
         override fun exportColumnHeaders(): List<String> = emptyList()
+
+        override fun importRow(cells: List<String>): EstimationItem? = null
     }
 
     @BeforeEach

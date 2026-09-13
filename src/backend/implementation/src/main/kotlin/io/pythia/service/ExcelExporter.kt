@@ -1,6 +1,7 @@
 package io.pythia.service
 
 import io.pythia.domain.AdditionalCostType
+import io.pythia.domain.EstimationBucket
 import io.pythia.domain.submitted.SubmittedEstimationNode
 import io.pythia.domain.submitted.SubmittedEstimationVersion
 import io.pythia.domain.submitted.SubmittedGroupNode
@@ -40,11 +41,19 @@ class ExcelExporter {
         const val PERT_METHOD_COLUMNS = 3
     }
 
-    fun export(version: SubmittedEstimationVersion, method: EstimationMethod, output: OutputStream) {
+    fun export(
+        version: SubmittedEstimationVersion,
+        method: EstimationMethod,
+        buckets: List<EstimationBucket>,
+        output: OutputStream
+    ) {
         Log.info("Exporting estimation ${version.estimation?.id} version ${version.versionNumber} to Excel")
         val workbook = XSSFWorkbook()
 
         writeProjectStructurePlan(workbook, version, method)
+        // Only a bucket+sampled workbook gets the Eimer sheet: a PERT export must
+        // keep exactly the sheets it has always had.
+        if (method == EstimationMethod.BUCKET_SAMPLED_PERT) writeBuckets(workbook, buckets)
         writeAdditionalCosts(workbook, version)
         writePhases(workbook, version)
         writeParameters(workbook, version)
@@ -201,6 +210,24 @@ class ExcelExporter {
             val totalWeeks = phase?.durationWeeks ?: 0.0
             row.createCell(3).setCellValue((cost.amountPerWeek ?: cost.amount) * totalWeeks)
         }
+    }
+
+    private fun writeBuckets(workbook: XSSFWorkbook, buckets: List<EstimationBucket>) {
+        val sheet = workbook.createSheet(ExcelGermanLabels.Sheets.BUCKETS)
+        val headerRow = sheet.createRow(0)
+        listOf(
+            ExcelGermanLabels.Buckets.LABEL,
+            ExcelGermanLabels.Buckets.POSITION,
+            ExcelGermanLabels.Buckets.ID
+        ).forEachIndexed { idx, h -> headerRow.createCell(idx).setCellValue(h) }
+
+        buckets.sortedBy { it.position }.forEachIndexed { idx, bucket ->
+            val row = sheet.createRow(idx + 1)
+            row.createCell(0).setCellValue(bucket.label)
+            row.createCell(1).setCellValue(bucket.position.toDouble())
+            row.createCell(2).setCellValue(bucket.id?.toString() ?: "")
+        }
+        Log.debug("Excel export wrote ${buckets.size} bucket(s)")
     }
 
     private fun writePhases(workbook: XSSFWorkbook, version: SubmittedEstimationVersion) {

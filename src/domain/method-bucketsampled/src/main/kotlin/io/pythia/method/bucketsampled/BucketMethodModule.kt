@@ -67,4 +67,31 @@ class BucketMethodModule : EstimationMethodModule {
             listOf(bucketed.bucketId, "false", "", "", "")
         }
     }
+
+    /**
+     * The inverse of [exportRow]: Bucket, Is Sample, then the triple, which is
+     * empty for a non-sample (its values are derived from its bucket's samples,
+     * so re-importing them would invent numbers nobody entered).
+     *
+     * `bucketId` comes back as the id the FILE carried; resolving that to a
+     * bucket of the target estimation is the caller's job, since ids are only
+     * meaningful within the estimation that wrote them.
+     */
+    override fun importRow(cells: List<String>): EstimationItem? {
+        if (cells.size != EXPORT_COLUMNS) return null
+        val bucketId = cells[0]
+        if (bucketId.isBlank()) return null
+        val isSample = cells[1].equals("true", ignoreCase = true)
+        return BucketedEstimationItem(
+            bucketId = bucketId,
+            isSample = isSample,
+            optimistic = if (isSample) cells[2].toDoubleOrNull() else null,
+            likely = if (isSample) cells[3].toDoubleOrNull() else null,
+            pessimistic = if (isSample) cells[4].toDoubleOrNull() else null
+        )
+    }
+
+    private companion object {
+        const val EXPORT_COLUMNS = 5
+    }
 }

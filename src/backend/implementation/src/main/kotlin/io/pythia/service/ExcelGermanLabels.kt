@@ -16,6 +16,20 @@ object ExcelGermanLabels {
         const val PHASES = "Pakete"
         const val PROJECT_STRUCTURE_PLAN = "Projektstrukturplan"
         const val ADDITIONAL_COSTS = "Zusatzkosten"
+        const val BUCKETS = "Eimer"
+    }
+
+    /**
+     * Columns of the Eimer sheet (task-182). A bucket+sampled workbook carries
+     * its buckets so the file can be read back: LABEL is what an import matches
+     * on (ids mean nothing outside the estimation that wrote them), POSITION
+     * preserves their order, and ID is the technical handle the
+     * Projektstrukturplan's Bucket column refers to.
+     */
+    object Buckets {
+        const val LABEL = "Bezeichnung"
+        const val POSITION = "Position"
+        const val ID = "ID"
     }
 
     /** Default unit written/read for time-relative leaves. */

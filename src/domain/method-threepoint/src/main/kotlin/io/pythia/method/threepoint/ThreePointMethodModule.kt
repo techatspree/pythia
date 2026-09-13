@@ -32,4 +32,23 @@ class ThreePointMethodModule : EstimationMethodModule {
         item.expectedEffort.toString(),
         item.maxEffort.toString()
     )
+
+    /**
+     * Min/Expected/Max back into a leaf. A cell that is blank or unparseable
+     * reads as 0.0 — the same value an empty three-point input carries — but a
+     * row with the wrong number of cells is not a PERT row at all.
+     */
+    override fun importRow(cells: List<String>): EstimationItem? {
+        if (cells.size != EXPORT_COLUMNS) return null
+        return FixedEstimationItem(
+            _description = "",
+            _minEffort = cells[0].toDoubleOrNull() ?: 0.0,
+            _expectedEffort = cells[1].toDoubleOrNull() ?: 0.0,
+            _maxEffort = cells[2].toDoubleOrNull() ?: 0.0
+        )
+    }
+
+    private companion object {
+        const val EXPORT_COLUMNS = 3
+    }
 }

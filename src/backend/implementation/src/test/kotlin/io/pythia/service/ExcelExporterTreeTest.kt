@@ -1,6 +1,8 @@
 package io.pythia.service
 
 import io.pythia.domain.submitted.SubmittedEstimationVersion
+import io.pythia.domain.EstimationBucket
+import io.pythia.domain.submitted.SubmittedBucketedItemNode
 import io.pythia.domain.submitted.SubmittedFixedItemNode
 import io.pythia.domain.submitted.SubmittedGroupNode
 import io.pythia.domain.submitted.SubmittedTimeRelativeItemNode
@@ -31,7 +33,7 @@ class ExcelExporterTreeTest {
         val version = TreeFixtures.threeLevel()
 
         val out = ByteArrayOutputStream()
-        exporter.export(version, EstimationMethod.THREE_POINT_PERT, out)
+        exporter.export(version, EstimationMethod.THREE_POINT_PERT, emptyList(), out)
 
         val workbook = XSSFWorkbook(ByteArrayInputStream(out.toByteArray()))
         val sheet = workbook.getSheet("Projektstrukturplan")
@@ -85,6 +87,46 @@ class ExcelExporterTreeTest {
 }
 
 internal object TreeFixtures {
+
+    /**
+     * A bucket+sampled version: two buckets, one sample leaf and one non-sample,
+     * inside a group. The non-sample deliberately carries NO triple — its values
+     * derive from its bucket's samples, so a round-trip must not invent any.
+     */
+    fun bucketed(bucketA: EstimationBucket, bucketB: EstimationBucket): SubmittedEstimationVersion {
+        val sample = SubmittedBucketedItemNode().apply {
+            logicalId = UUID.randomUUID()
+            description = "Sample A"
+            bucket = bucketA
+            isSample = true
+            minEffort = 1.0; expectedEffort = 2.0; maxEffort = 3.0
+            mean = 2.0; variance = 0.1; offerPT = 2.0
+        }
+        val nonSample = SubmittedBucketedItemNode().apply {
+            logicalId = UUID.randomUUID()
+            description = "NonSample B"
+            bucket = bucketB
+            isSample = false
+            mean = 4.0; variance = 0.0; offerPT = 4.0
+        }
+        val group = SubmittedGroupNode().apply {
+            logicalId = UUID.randomUUID()
+            title = "Frontend"
+            mean = 6.0; offerPT = 6.0
+        }
+        sample.parent = group; sample.position = 0
+        nonSample.parent = group; nonSample.position = 1
+        group.children.addAll(listOf(sample, nonSample))
+
+        return SubmittedEstimationVersion().apply {
+            versionNumber = 1
+            totalEffort = 6.0
+            roots.add(group)
+            group.version = this
+            sample.version = this
+            nonSample.version = this
+        }
+    }
 
     fun threeLevel(): SubmittedEstimationVersion {
         // Backend
