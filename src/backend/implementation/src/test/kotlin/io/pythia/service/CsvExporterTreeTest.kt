@@ -6,6 +6,7 @@ import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import java.io.ByteArrayOutputStream
+import io.pythia.method.EstimationMethod
 
 class CsvExporterTreeTest {
 
@@ -21,7 +22,7 @@ class CsvExporterTreeTest {
     fun `three-level tree emits Path column first and Node type column last`() {
         val version = TreeFixtures.threeLevel()
         val out = ByteArrayOutputStream()
-        exporter.export(version, out)
+        exporter.export(version, EstimationMethod.THREE_POINT_PERT, out)
         val csv = out.toByteArray().toString(Charsets.UTF_8)
         val lines = csv.trim().lines()
 

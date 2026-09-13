@@ -627,9 +627,9 @@
       "notes": "Bucket+sampled session-support module (LWW bucket assignment + averaged sample PERT)"
     },
     "task-107": {
-      "status": "pending",
-      "started_at": null,
-      "completed_at": null,
+      "status": "done",
+      "started_at": "2026-09-13T09:58:54+00:00",
+      "completed_at": "2026-09-13T09:58:54+00:00",
       "notes": "Export dispatch: xlsx/csv writers dispatched by estimation method via SPI"
     },
     "task-108": {
@@ -1075,6 +1075,12 @@
       "started_at": null,
       "completed_at": null,
       "notes": "Committed schedule screenshots show numbers no fresh stack reproduces; recapture from a pristine seed"
+    },
+    "task-182": {
+      "status": "pending",
+      "started_at": null,
+      "completed_at": null,
+      "notes": "Bucket Excel round-trip: bucket import/export shaping in the method module, exported file re-importable"
     }
   }
 }

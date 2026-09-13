@@ -14,6 +14,7 @@ import org.junit.jupiter.api.Test
 import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
 import java.util.UUID
+import io.pythia.method.EstimationMethod
 
 class ExcelExporterTreeTest {
 
@@ -30,7 +31,7 @@ class ExcelExporterTreeTest {
         val version = TreeFixtures.threeLevel()
 
         val out = ByteArrayOutputStream()
-        exporter.export(version, out)
+        exporter.export(version, EstimationMethod.THREE_POINT_PERT, out)
 
         val workbook = XSSFWorkbook(ByteArrayInputStream(out.toByteArray()))
         val sheet = workbook.getSheet("Projektstrukturplan")

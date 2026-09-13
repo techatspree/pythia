@@ -13,6 +13,7 @@ import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
+import io.pythia.method.EstimationMethod
 
 class ExcelImporterTreeTest {
 
@@ -30,7 +31,7 @@ class ExcelImporterTreeTest {
         val source = TreeFixtures.threeLevel()
 
         val xlsx = ByteArrayOutputStream()
-        exporter.export(source, xlsx)
+        exporter.export(source, EstimationMethod.THREE_POINT_PERT, xlsx)
 
         val draft = importer.import(ByteArrayInputStream(xlsx.toByteArray()), Estimation(), versionNumber = 1)
 

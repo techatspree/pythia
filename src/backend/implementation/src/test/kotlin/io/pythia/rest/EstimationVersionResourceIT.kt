@@ -887,6 +887,51 @@ class EstimationVersionResourceIT {
         }
     """.trimIndent()
 
+    // task-107: the export takes its column shape from the estimation's OWN
+    // method. Before it, both writers hardcoded THREE_POINT_PERT, so a bucket
+    // estimation exported PERT headers over PERT values — and three places
+    // assumed exactly three method columns while bucket+sampled has five.
+    @Test
+    fun `csv export uses the buckets method columns, not PERT's`() {
+        val eid = createBucketEstimation()
+        val b1 = UUID.randomUUID().toString()
+        val b2 = UUID.randomUUID().toString()
+        given().post("/api/estimations/$eid/versions").then().statusCode(201)
+        given().contentType(ContentType.JSON).body(bucketDraftBody(b1, b2))
+            .`when`().put("/api/estimations/$eid/versions/draft").then().statusCode(200)
+        given().post("/api/estimations/$eid/versions/draft/submit")
+
+        val csv = given()
+            .`when`().get("/api/estimations/$eid/versions/1/export?format=csv")
+            .then().statusCode(200).contentType("text/csv")
+            .extract().asString()
+
+        val lines = csv.trim().lines()
+        val headers = lines.first().split(",")
+        // Five bucket columns, in the method module's own order, and NOT PERT's.
+        assert(headers.contains("Bucket")) { "expected the bucket method columns, got $headers" }
+        assert(headers.contains("Is Sample"))
+        assert(!headers.contains("Min")) { "PERT columns leaked into a bucket export: $headers" }
+        assert(headers.size == 3 + 5 + 3) { "expected 11 columns for bucket, got ${headers.size}" }
+
+        // The sample row carries its bucket id and sample flag from the module.
+        val sampleRow = lines.first { it.startsWith("Sample A1,") }.split(",")
+        assert(sampleRow[headers.indexOf("Bucket")] == b1)
+        assert(sampleRow[headers.indexOf("Is Sample")] == "true")
+
+        // The totals row used to be a literal nine columns with the total pinned
+        // at index 7 — correct only while a method contributed three columns.
+        val groupCol = headers.indexOf("Group")
+        val offerPtCol = headers.indexOf("OfferPT")
+        val totalsRow = lines.first { it.split(",").getOrNull(groupCol) == "Total" }.split(",")
+        assert(totalsRow.size == headers.size) {
+            "totals row has ${totalsRow.size} cells, header has ${headers.size}"
+        }
+        assert(Math.abs(totalsRow[offerPtCol].toDouble() - 12.0) < 0.001) {
+            "total landed in the wrong column: $totalsRow"
+        }
+    }
+
     @Test
     fun `bucket draft computes per-bucket averages on non-sample leaves`() {
         val eid = createBucketEstimation()

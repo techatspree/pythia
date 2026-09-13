@@ -6,6 +6,7 @@ import io.pythia.domain.submitted.SubmittedEstimationVersion
 import io.pythia.domain.submitted.SubmittedGroupNode
 import io.pythia.domain.submitted.SubmittedTimeRelativeItemNode
 import io.pythia.method.EstimationMethod
+import io.pythia.method.EstimationMethodModule
 import io.pythia.method.EstimationMethodRegistry
 import io.quarkus.logging.Log
 import jakarta.enterprise.context.ApplicationScoped
@@ -24,11 +25,26 @@ import java.io.OutputStream
 @ApplicationScoped
 class ExcelExporter {
 
-    fun export(version: SubmittedEstimationVersion, output: OutputStream) {
+    /**
+     * How the estimation's method shapes the sheet: which module supplies a
+     * leaf's cells, and how far the fixed trailing columns move because that
+     * method contributes more or fewer columns than PERT's three.
+     */
+    private class MethodLayout(val module: EstimationMethodModule, val shift: Int)
+
+    private companion object {
+        /** Description sits at column 0; the method block starts right after it. */
+        const val METHOD_FIRST_COLUMN = 1
+
+        /** The column count the fixed trailing indices were written for. */
+        const val PERT_METHOD_COLUMNS = 3
+    }
+
+    fun export(version: SubmittedEstimationVersion, method: EstimationMethod, output: OutputStream) {
         Log.info("Exporting estimation ${version.estimation?.id} version ${version.versionNumber} to Excel")
         val workbook = XSSFWorkbook()
 
-        writeProjectStructurePlan(workbook, version)
+        writeProjectStructurePlan(workbook, version, method)
         writeAdditionalCosts(workbook, version)
         writePhases(workbook, version)
         writeParameters(workbook, version)
@@ -46,16 +62,19 @@ class ExcelExporter {
     private fun allLeaves(version: SubmittedEstimationVersion): List<SubmittedEstimationNode> =
         version.roots.flatMap { collectLeaves(it) }
 
-    private fun writeProjectStructurePlan(workbook: XSSFWorkbook, version: SubmittedEstimationVersion) {
+    private fun writeProjectStructurePlan(
+        workbook: XSSFWorkbook,
+        version: SubmittedEstimationVersion,
+        method: EstimationMethod
+    ) {
         val sheet = workbook.createSheet(ExcelGermanLabels.Sheets.PROJECT_STRUCTURE_PLAN)
 
         val headerRow = sheet.createRow(0)
         // The method-specific input columns (Min/Expected/Max for PERT) are
         // sourced from the SPI module (task-098) — the module is the single
         // source of the PERT column shape across both exporters.
-        val methodColumns = EstimationMethodRegistry
-            .require(EstimationMethod.THREE_POINT_PERT)
-            .exportColumnHeaders()
+        val module = EstimationMethodRegistry.require(method)
+        val methodColumns = module.exportColumnHeaders()
         val headers = listOf(ExcelGermanLabels.ProjectStructure.DESCRIPTION) + methodColumns + listOf(
             ExcelGermanLabels.ProjectStructure.MEAN,
             ExcelGermanLabels.ProjectStructure.MEAN_PER_GROUP,
@@ -74,13 +93,25 @@ class ExcelExporter {
         )
         headers.forEachIndexed { idx, header -> headerRow.createCell(idx).setCellValue(header) }
 
+        // Every column after the method block moves with the method's column
+        // count (PERT 3, bucket+sampled 5). For PERT the shift is 0, so the sheet
+        // this has always produced is unchanged.
+        val layout = MethodLayout(module, methodColumns.size - PERT_METHOD_COLUMNS)
         var rowIdx = 1
         for (root in version.roots) {
-            rowIdx = writeNode(root, depth = 0, sheet = sheet, rowIdx = rowIdx)
+            rowIdx = writeNode(root, depth = 0, sheet = sheet, rowIdx = rowIdx, layout = layout)
         }
+        Log.debug("Excel export wrote ${rowIdx - 1} row(s) for method $method")
     }
 
-    private fun writeNode(node: SubmittedEstimationNode, depth: Int, sheet: Sheet, rowIdx: Int): Int {
+    private fun writeNode(
+        node: SubmittedEstimationNode,
+        depth: Int,
+        sheet: Sheet,
+        rowIdx: Int,
+        layout: MethodLayout
+    ): Int {
+        val shift = layout.shift
         val row = sheet.createRow(rowIdx) as XSSFRow
         // XSSFRow only exposes getOutlineLevel() (reads from the underlying
         // CTRow). To set it, go through the CTRow proxy directly.
@@ -89,39 +120,45 @@ class ExcelExporter {
         when (node) {
             is SubmittedGroupNode -> {
                 row.createCell(0).setCellValue(indent + (node.title ?: ""))
-                row.createCell(5).setCellValue(node.mean)
-                row.createCell(7).setCellValue(node.variance)
-                row.createCell(11).setCellValue(node.offerPT)
-                row.createCell(16).setCellValue("GROUP")
+                row.createCell(5 + shift).setCellValue(node.mean)
+                row.createCell(7 + shift).setCellValue(node.variance)
+                row.createCell(11 + shift).setCellValue(node.offerPT)
+                row.createCell(16 + shift).setCellValue("GROUP")
             }
             else -> {
                 row.createCell(0).setCellValue(indent + (node.description ?: ""))
-                row.createCell(1).setCellValue(node.minEffort ?: 0.0)
-                row.createCell(2).setCellValue(node.expectedEffort ?: 0.0)
-                row.createCell(3).setCellValue(node.maxEffort ?: 0.0)
-                row.createCell(4).setCellValue(node.mean)
-                row.createCell(6).setCellValue(node.variance)
-                row.createCell(8).setCellValue(node.riskSurcharge)
-                row.createCell(9).setCellValue(node.driverSurcharge)
-                row.createCell(10).setCellValue(node.offerPT)
-                row.createCell(12).setCellValue(node.cost)
-                row.createCell(13).setCellValue(node.offerPrice)
-                node.phaseAbbreviation?.let { row.createCell(14).setCellValue(it) }
-                node.assumptions?.let { row.createCell(15).setCellValue(it) }
-                row.createCell(16).setCellValue(
+                // The method's own cells, in the method's own shape (task-107).
+                // Written as NUMERIC wherever the value parses as a number:
+                // ExcelImporter reads these positions back with cellNumericValue(),
+                // so emitting "2.0" as text would break the PERT round-trip.
+                layout.module.exportRow(SubmittedItemMapper.toDomain(node)).forEachIndexed { i, value ->
+                    val c = row.createCell(METHOD_FIRST_COLUMN + i)
+                    val numeric = value.toDoubleOrNull()
+                    if (numeric != null) c.setCellValue(numeric) else c.setCellValue(value)
+                }
+                row.createCell(4 + shift).setCellValue(node.mean)
+                row.createCell(6 + shift).setCellValue(node.variance)
+                row.createCell(8 + shift).setCellValue(node.riskSurcharge)
+                row.createCell(9 + shift).setCellValue(node.driverSurcharge)
+                row.createCell(10 + shift).setCellValue(node.offerPT)
+                row.createCell(12 + shift).setCellValue(node.cost)
+                row.createCell(13 + shift).setCellValue(node.offerPrice)
+                node.phaseAbbreviation?.let { row.createCell(14 + shift).setCellValue(it) }
+                node.assumptions?.let { row.createCell(15 + shift).setCellValue(it) }
+                row.createCell(16 + shift).setCellValue(
                     if (node is SubmittedTimeRelativeItemNode) "TIME_RELATIVE" else "FIXED"
                 )
                 if (node is SubmittedTimeRelativeItemNode) {
-                    node.unit?.let { row.createCell(18).setCellValue(it) }
+                    node.unit?.let { row.createCell(18 + shift).setCellValue(it) }
                 }
             }
         }
-        row.createCell(17).setCellValue(node.logicalId.toString())
+        row.createCell(17 + shift).setCellValue(node.logicalId.toString())
 
         var next = rowIdx + 1
         if (node is SubmittedGroupNode) {
             for (child in node.children) {
-                next = writeNode(child, depth + 1, sheet, next)
+                next = writeNode(child, depth + 1, sheet, next, layout)
             }
         }
         return next

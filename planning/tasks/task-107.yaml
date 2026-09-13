@@ -3,81 +3,142 @@ phase: phase-15
 title: Export dispatch — xlsx/csv writers dispatched by method
 depends_on: [task-102, task-098, task-103]
 description: |
-  Refactor the shared xlsx/csv export pipeline
-  (`EstimationVersionResource` export endpoint + writer) so it
-  looks up the estimation's `method` and delegates the row/column
-  shape into the method module's `exportRow` /
-  `exportColumnHeaders` (declared in the SPI by task-097,
-  implemented by task-098 for PERT and task-102 for
-  bucket+sampled).
+  The xlsx/csv export is hardwired to PERT. It must take its method-specific
+  column shape from the estimation's OWN method, via the SPI.
 
-  ## Frozen decisions (from task-096)
+  ## What is already there (checked, not assumed)
 
-  - **Dispatch layer only.** This task owns the shared
-    file-format plumbing (xlsx sheet setup, csv writer,
-    HTTP response), not any method-specific column shape.
-    Every method-specific column and row already lives in its
-    method's module (task-098 for PERT, task-102 for bucket).
-  - **Neutral columns come first.** The exported row starts
-    with the shared neutral columns (title, path, mean,
-    variance, offerPT, cost, offerPrice) and then appends the
-    method-specific cells returned by the module's
-    `exportRow(item)`. Headers are assembled the same way. This
-    keeps a PERT export forward-compatible with a bucket export
-    for tooling that reads only the neutral columns.
-  - **Endpoint.** No new endpoint. The existing
-    `GET /api/estimations/{eid}/versions/{n}/export?format=xlsx|csv`
-    is refactored in place. The response headers stay the same
-    (filename, content-type).
-  - **Backend test.** Add a `@QuarkusTest` that exports one PERT
-    estimation and one bucket+sampled estimation and asserts
-    the expected header row (neutral + method-specific).
-  - **Logging.** `Log.info` on export start (estimation id +
-    method + format); `Log.debug` on the number of rows written;
-    `Log.error` on any I/O failure path.
-  - **CLAUDE.md.** Update "REST API surface" to note that the
-    export dispatch delegates to the method module's writer.
+  task-098 did half of this and the task text used to describe the other half
+  wrongly. The actual state:
 
-  ## What does NOT belong in this task
+  - **Headers already come from the SPI** — both `CsvExporter` and
+    `ExcelExporter` call
+    `EstimationMethodRegistry.require(EstimationMethod.THREE_POINT_PERT).exportColumnHeaders()`.
+    The module indirection exists; the METHOD is the hardcoded part.
+  - **`exportRow` is dead code.** Nothing in the backend calls it. Leaf cells are
+    built inline: `CsvExporter.nodeCells` emits `minEffort/expectedEffort/maxEffort`
+    directly, and a group emits the literal `"", "", ""`.
+  - **The exporters cannot see the method.** `CsvExporter.export(version, output)`
+    takes a `SubmittedEstimationVersion`, which has no method. The method has to be
+    threaded in from `EstimationVersionResource.exportVersion`, which has the
+    `estimationId` and already calls `ensureEstimationExists(estimationId)`.
 
-  - Any change to method modules (PERT export writer already
-    lives in task-098; bucket export writer already lives in
-    task-102).
-  - Frontend export UI — this task keeps the same download link
-    behaviour.
+  ## The bug this actually fixes: 3 is hardcoded, bucket needs 5
+
+  `ThreePointMethodModule.exportColumnHeaders()` is `Min, Expected, Max` — three
+  columns. `BucketMethodModule.exportColumnHeaders()` is
+  `Bucket, Is Sample, Optimistic, Likely, Pessimistic` — **five**. Three places
+  assume three, and all three silently corrupt a bucket export:
+
+  1. `CsvExporter.nodeCells` writes `"", "", ""` for a group.
+  2. `CsvExporter.nodeCells` writes exactly three effort cells for a leaf.
+  3. The CSV totals row is the literal `",Total,,,,,,${version.totalEffort},"` —
+     nine columns with the total at index 7. `EstimationVersionResourceIT`
+     (`csv export total matches the version total effort`) pins that index.
+
+  Every one of these must be derived from `exportColumnHeaders().size`. This is
+  the part with real consequences; the registry rewiring is comparatively
+  cosmetic.
+
+  ## Column ORDER is frozen as it is — do not "tidy" it
+
+  An earlier version of this task said neutral columns come first and
+  method-specific ones are appended at the end. **That is wrong and would break
+  two things.** The implemented layouts put the method columns in the middle:
+
+  - CSV: `Path, Group, Description, <method columns>, Mean, OfferPT, Node type`
+  - xlsx: `Beschreibung, <method columns>, <German labels…>`
+
+  Moving them would (a) change a customer-facing CSV column order, and (b) break
+  the **Excel round-trip** — `ExcelImporter` reads back what `ExcelExporter`
+  writes, so the sheet's column order is a contract, not a preference. Keep the
+  method columns exactly where they are; only their NUMBER and CONTENT become
+  method-driven.
+
+  ## Getting cells out of the module
+
+  `exportRow(item: EstimationItem)` takes a **KMP domain** item, while the
+  exporters walk `SubmittedEstimationNode` — a JPA entity in
+  `io.pythia.domain.submitted`. There is no submitted → domain mapper today, so
+  this task adds a small one. That is the backend's job by design ("the backend
+  and frontend exist to map persisted state ↔ domain"), and it must NOT be solved
+  by rebuilding the column shape in the backend — that is precisely what the SPI
+  exists to prevent.
+
+  The data is all present: `SubmittedFixedItemNode` carries
+  `minEffort/expectedEffort/maxEffort`, and `SubmittedBucketedItemNode` carries
+  `bucket` and `isSample` alongside the same triple. The backend may import both
+  `FixedEstimationItem` and `BucketedEstimationItem` — it depends on the `:domain`
+  aggregator, and the compiler-enforced ban is on CROSS-METHOD imports inside the
+  domain, not on a consumer using both.
+
+  ## Frozen decisions
+
+  - **Dispatch layer only.** No method module changes.
+  - **Endpoint unchanged.** `GET /api/estimations/{eid}/versions/{n}/export?format=xlsx|csv`
+    is refactored in place; filename and content-type headers stay.
+  - **Logging.** `Log.info` on export start (estimation id + method + format),
+    `Log.debug` on rows written, `Log.error` on a failure path — the static
+    `io.quarkus.logging.Log` API, per `src/backend/CLAUDE.md`.
+  - **CLAUDE.md.** Note in "REST API surface" that export dispatches on the
+    estimation's method and that the column shape comes from the method module.
+  - **No frontend change.** The download link behaviour is untouched.
 
 steps:
   - |
-    Locate the current export code path. It should be under
-    `src/backend/implementation/src/main/kotlin/io/pythia/rest/`
-    (`EstimationVersionResource.export`) plus a writer under
-    `.../service/export/` or a similar folder. Grep:
-      grep -rn "export" src/backend/implementation/src/main/kotlin | grep -i "xlsx\|csv" | head
+    Thread the method in. In
+    `src/backend/implementation/src/main/kotlin/io/pythia/rest/EstimationVersionResource.kt`,
+    `exportVersion` already resolves the estimation; take its `method` and pass it
+    to the exporters. Change both signatures to
+    `export(version: SubmittedEstimationVersion, method: EstimationMethod, output: OutputStream)`.
+    Add the `Log.info` here or in the exporters — estimation id, method, format.
   - |
-    Refactor the writer:
-      1. Load the estimation's method.
-      2. Look up the module via
-         `EstimationMethodRegistry.require(method)`.
-      3. Assemble headers: `NEUTRAL_HEADERS +
-         module.exportColumnHeaders()`.
-      4. For each leaf: `neutralCells(item) + module.exportRow(item)`.
-      5. Write to xlsx or csv as before.
-    Remove any inline PERT-specific column handling in the
-    writer (that logic lives in task-098's module now).
-    `Log.info` on start; `Log.debug` on row count; `Log.error`
-    on failure.
+    Add the submitted → domain mapping, once, in a new
+    `src/backend/implementation/src/main/kotlin/io/pythia/service/SubmittedItemMapper.kt`
+    (`io.pythia.service`). It maps one leaf `SubmittedEstimationNode` to the
+    domain `EstimationItem` the SPI expects:
+      * `SubmittedBucketedItemNode` → `BucketedEstimationItem` with `bucketId`
+        (the bucket's id as a String), `isSample`, and the optimistic/likely/
+        pessimistic triple from `minEffort/expectedEffort/maxEffort`.
+      * anything else → `FixedEstimationItem` with the same triple and the
+        description.
+    Keep it a pure function; it exists only to feed `exportRow`.
   - |
-    Add `@QuarkusTest` (in
-    `.../rest/EstimationVersionResourceIT.kt` or a dedicated
-    `EstimationExportIT.kt`):
-      * PERT estimation with 2 leaves → export xlsx, assert
-        headers = `NEUTRAL + PERT_HEADERS`, row count = 2.
-      * Bucket estimation with 2 buckets + 4 leaves (2 samples,
-        2 non-samples) → export csv, assert headers =
-        `NEUTRAL + BUCKET_HEADERS` and non-sample rows have
-        empty PT cells.
+    In `src/backend/implementation/src/main/kotlin/io/pythia/service/CsvExporter.kt`:
+      1. `val module = EstimationMethodRegistry.require(method)` — delete the
+         hardcoded `EstimationMethod.THREE_POINT_PERT`.
+      2. `val methodColumns = module.exportColumnHeaders()`; keep the header in its
+         current ORDER (`Path, Group, Description, <method>, Mean, OfferPT, Node type`).
+      3. In `nodeCells`, replace the three inline effort cells with
+         `module.exportRow(SubmittedItemMapper.toDomain(node))`, and replace the
+         group's `"", "", ""` with `List(methodColumns.size) { "" }`.
+      4. Build the totals row from the assembled header list instead of the literal
+         `",Total,,,,,,${'$'}{version.totalEffort},"`: the total belongs in the
+         `OfferPT` column, whose index is now
+         `3 + methodColumns.size + 1`. Compute it; do not re-hardcode 7.
+      5. `Log.debug` the row count.
   - |
-    Update `CLAUDE.md` "REST API surface".
+    Do the same in
+    `src/backend/implementation/src/main/kotlin/io/pythia/service/ExcelExporter.kt`:
+    registry lookup from the passed method, method columns kept at their current
+    position (immediately after `Beschreibung`), cells from
+    `module.exportRow(...)`, and any place that assumes three method columns
+    derived from `exportColumnHeaders().size` instead. Do not touch the German
+    labels in `ExcelGermanLabels` — they are the customer's sheet and are
+    deliberately external data.
+  - |
+    Extend `src/backend/implementation/src/test/kotlin/io/pythia/rest/EstimationVersionResourceIT.kt`:
+      * PERT csv export — header row is `Path,Group,Description,Min,Expected,Max,Mean,OfferPT,Node type`,
+        and the existing total-column assertion still holds.
+      * BUCKET csv export — header row carries the five bucket columns, a group row
+        has five empty method cells, and the TOTAL lands in the OfferPT column at
+        its new index. This is the assertion that would have caught the hardcoded
+        nine-column totals row, so it must not be omitted.
+      * PERT xlsx export — the sheet's header row still matches the round-trip
+        shape `ExcelImporter` expects.
+  - |
+    Update `src/backend/CLAUDE.md` "REST API surface" per the frozen decision —
+    that is where the section lives; the root CLAUDE.md has no such heading.
   - |
     Build:
       ./gradlew :backend:implementation:test
@@ -85,30 +146,79 @@ steps:
 
 validation:
   - |
-    Writer no longer references PERT columns directly by name
-    (i.e. the writer is method-agnostic; PERT column strings
-    live only in the PERT module):
-      ! grep -rE "\"Optimistic\"|\"Likely\"|\"Pessimistic\"" \
-          src/backend/implementation/src/main/kotlin/io/pythia/service/export/ 2>/dev/null \
-          || echo "expected: only NEUTRAL headers hard-coded in the writer"
+    Neither exporter hardcodes a method any more — this is the core of the task
+    and it must be checked on BOTH writers:
+      set -e
+      for F in src/backend/implementation/src/main/kotlin/io/pythia/service/CsvExporter.kt \
+               src/backend/implementation/src/main/kotlin/io/pythia/service/ExcelExporter.kt; do
+        if grep -q "THREE_POINT_PERT" "$F"; then echo "$F still hardcodes the method"; exit 1; fi
+        grep -q "exportColumnHeaders" "$F"
+        grep -q "exportRow" "$F"
+      done
   - |
-    Writer uses the registry:
-      grep -rq "EstimationMethodRegistry" src/backend/implementation/src/main/kotlin/io/pythia/
+    The method reaches the exporters as a parameter rather than being guessed:
+      set -e
+      grep -qE "method: EstimationMethod" src/backend/implementation/src/main/kotlin/io/pythia/service/CsvExporter.kt
+      grep -qE "method: EstimationMethod" src/backend/implementation/src/main/kotlin/io/pythia/service/ExcelExporter.kt
+      # the resource must PASS the estimation's method to both writers
+      grep -qE "export\(version, method" src/backend/implementation/src/main/kotlin/io/pythia/rest/EstimationVersionResource.kt
+      grep -qE "estimation\.method" src/backend/implementation/src/main/kotlin/io/pythia/rest/EstimationVersionResource.kt
   - |
-    Logging in place:
-      grep -rq "Log.info" src/backend/implementation/src/main/kotlin/io/pythia/ | head
+    Nothing assumes three method columns any more. The literal nine-column totals
+    row and the three-empty-cell group row are both gone:
+      set -e
+      C=src/backend/implementation/src/main/kotlin/io/pythia/service/CsvExporter.kt
+      if grep -q ',Total,,,,,,' "$C"; then echo "totals row still hardcodes nine columns"; exit 1; fi
+      if grep -qE '"", "", ""' "$C"; then echo "group row still hardcodes three empty method cells"; exit 1; fi
+      grep -qE "exportColumnHeaders\(\)|methodColumns" "$C"
   - |
-    New export test class or additions exist and pass:
-      grep -rq "exportColumnHeaders\|BUCKET_HEADERS\|PERT_HEADERS\|export.*xlsx\|export.*csv" \
-        src/backend/implementation/src/test/kotlin/io/pythia/
+    The submitted → domain mapper exists and is used by both writers, so the
+    column shape is not rebuilt in the backend:
+      set -e
+      M=src/backend/implementation/src/main/kotlin/io/pythia/service/SubmittedItemMapper.kt
+      test -f "$M"
+      grep -qE "BucketedEstimationItem" "$M"
+      grep -qE "FixedEstimationItem" "$M"
+      grep -q "SubmittedItemMapper" src/backend/implementation/src/main/kotlin/io/pythia/service/CsvExporter.kt
+      grep -q "SubmittedItemMapper" src/backend/implementation/src/main/kotlin/io/pythia/service/ExcelExporter.kt
   - |
-    CLAUDE.md documents the dispatch behaviour:
-      grep -q "export" CLAUDE.md
+    Column ORDER is unchanged — the Excel round-trip and the CSV layout are
+    contracts. The CSV header must still start Path,Group,Description and the
+    method columns must still precede Mean:
+      set -e
+      grep -qE 'leading = listOf\("Path", "Group", "Description"\)' src/backend/implementation/src/main/kotlin/io/pythia/service/CsvExporter.kt
+      grep -qE "leading \+ methodColumns \+ trailing" src/backend/implementation/src/main/kotlin/io/pythia/service/CsvExporter.kt
+      grep -qE 'trailing = listOf\("Mean", "OfferPT", "Node type"\)' src/backend/implementation/src/main/kotlin/io/pythia/service/CsvExporter.kt
   - |
-    Full-stack build is green:
+    Logging follows the backend convention (static Log, not a per-class logger):
+      set -e
+      # Log.info on export start belongs in the resource — it is the only place
+      # holding the estimation id, the method AND the format together. The writers
+      # own the row-count debug line.
+      grep -qE "Log\.info.*Exporting" src/backend/implementation/src/main/kotlin/io/pythia/rest/EstimationVersionResource.kt
+      grep -qE "Log\.debug" src/backend/implementation/src/main/kotlin/io/pythia/service/CsvExporter.kt
+      grep -qE "Log\.debug" src/backend/implementation/src/main/kotlin/io/pythia/service/ExcelExporter.kt
+  - |
+    The bucket export is actually covered by a test — a PERT-only test would not
+    have caught any of the hardcoded-three bugs:
+      set -e
+      T=src/backend/implementation/src/test/kotlin/io/pythia/rest/EstimationVersionResourceIT.kt
+      grep -qiE "BUCKET_SAMPLED_PERT|bucket" "$T"
+      grep -qE "Is Sample|Bucket," "$T"
+  - |
+    CLAUDE.md documents the dispatch, not merely the word "export":
+      set -e
+      # the "REST API surface" section lives in the BACKEND CLAUDE.md, not the root one
+      grep -qE "export.*method module|method module.*export|dispatches on the estimation" src/backend/CLAUDE.md
+  - |
+    Backend tests and the full build are green:
+      ./gradlew :backend:implementation:test
       ./gradlew build
 
 outputs:
   - modified: src/backend/implementation/src/main/kotlin/io/pythia/rest/EstimationVersionResource.kt
+  - modified: src/backend/implementation/src/main/kotlin/io/pythia/service/CsvExporter.kt
+  - modified: src/backend/implementation/src/main/kotlin/io/pythia/service/ExcelExporter.kt
+  - created: src/backend/implementation/src/main/kotlin/io/pythia/service/SubmittedItemMapper.kt
   - modified: src/backend/implementation/src/test/kotlin/io/pythia/rest/EstimationVersionResourceIT.kt
-  - modified: CLAUDE.md
+  - modified: src/backend/CLAUDE.md

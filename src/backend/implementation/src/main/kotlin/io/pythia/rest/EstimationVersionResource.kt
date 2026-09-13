@@ -14,6 +14,7 @@ import io.pythia.rest.dto.toDto
 import io.pythia.rest.dto.toLogDto
 import io.pythia.rest.dto.toSummaryDto
 import io.pythia.service.CsvExporter
+import io.quarkus.logging.Log
 import io.pythia.service.CurrentUserService
 import io.pythia.service.DraftMutationJackson
 import io.pythia.service.DraftUpdateApplier
@@ -355,16 +356,22 @@ class EstimationVersionResource(
         @PathParam("versionNumber") versionNumber: String,
         @QueryParam("format") @DefaultValue("xlsx") format: String
     ): Response {
-        ensureEstimationExists(estimationId)
+        // The export shape follows the estimation's OWN method (task-107): the
+        // writers ask that method's SPI module for its columns, so a bucket+sampled
+        // estimation exports bucket columns rather than PERT ones.
+        val estimation = estimationRepository.findById(estimationId)
+            ?: throw NotFoundException("Estimation not found: $estimationId")
+        val method = estimation.method
         val version = resolveVersion(estimationId, versionNumber)
+        Log.info("Exporting estimation $estimationId version $versionNumber as $format (method $method)")
 
         val label = if (versionNumber == "draft") "draft" else "v$versionNumber"
         return when (format) {
-            "xlsx" -> Response.ok(StreamingOutput { os -> excelExporter.export(version, os) })
+            "xlsx" -> Response.ok(StreamingOutput { os -> excelExporter.export(version, method, os) })
                 .type("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
                 .header("Content-Disposition", "attachment; filename=\"estimation-$label.xlsx\"")
                 .build()
-            "csv" -> Response.ok(StreamingOutput { os -> csvExporter.export(version, os) })
+            "csv" -> Response.ok(StreamingOutput { os -> csvExporter.export(version, method, os) })
                 .type("text/csv")
                 .header("Content-Disposition", "attachment; filename=\"estimation-$label.csv\"")
                 .build()
