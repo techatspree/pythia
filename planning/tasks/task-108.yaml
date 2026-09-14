@@ -4,92 +4,194 @@ title: E2E — bucket + sampled full-stack Playwright test
 depends_on: [task-104, task-107]
 description: |
   End-to-end Playwright spec for the bucket + sampled estimation
-  method — creation, editing, sampling, submission, and export.
-  Proves the SPI is wired end-to-end and that a second method
-  works alongside the existing PERT flow without regression.
+  method — bucket administration, assignment, sampling, derivation,
+  submission, and export from the submitted version. Proves the SPI
+  is wired end-to-end and that a second method works alongside the
+  existing PERT flow without regression.
 
-  ## Frozen decisions (from task-096)
+  ## What is ALREADY covered — do not rewrite it
 
-  - **File.** `src/frontend/e2e/estimation-bucket-sampled.spec.ts`.
-  - **Fixture / stack.** Runs against the local dev stack
-    (`./scripts/dev.sh`) — the same target every existing e2e
-    spec uses.
-  - **Auth.** Use the dev auth module (default for e2e).
-  - **What the spec covers, in order.**
-      1. Create a fresh estimation via the UI, selecting
-         `method = Bucket + Sampled Three-Point` on the create
-         dialog.
-      2. On the version editor, open the Bucket panel. Confirm
-         default buckets (XS, S, M, L, XL) are present. Add a
-         sixth bucket "XXL"; rename "L" to "Large"; delete "XXL".
-      3. Add three groups + a mix of items. Assign every leaf to
-         a bucket via the dropdown.
-      4. Mark one leaf per bucket as `isSample` and enter a
-         three-point PERT estimate (optimistic / likely /
-         pessimistic).
-      5. Assert every non-sample leaf shows the derived
-         bucket-average effort in the grid.
-      6. Submit the version. Navigate to the submitted version
-         detail — assert the same derived numbers appear on the
-         non-sample rows and the raw PT values still show on the
-         sample rows.
-      7. Trigger xlsx export from the submitted version.
-         Download the file, load it via the test's xlsx helper,
-         assert the header row contains the neutral columns AND
-         "Bucket", "Is Sample", "Optimistic", "Likely",
-         "Pessimistic".
-  - **Playwright configuration.** No new webserver
-    configuration. Reuse the shared beforeAll/afterAll that
-    other specs use.
-  - **Selectors.** Prefer `getByRole` / `getByLabel` — this is a
-    high-visibility regression test; do not depend on css
-    classes.
-  - **Determinism.** Use fixed timestamps or Playwright's
-    freeze-time helper if the app depends on `Date.now()` (spot
-    check by grepping for `Date.now`); otherwise ignore.
-  - **Runtime.** The spec must finish under 30s so it fits
-    inside the standard e2e budget.
-  - **CLAUDE.md.** No documentation change (e2e specs are not
-    documented invidiually).
+  Four specs already pin parts of this method. This task adds the
+  gap between them, and must not duplicate them:
+
+  - `e2e/create-estimation.spec.ts` — "create estimation with a
+    chosen non-default method (bucket + sampled)" already drives the
+    create dialog and asserts the persisted `method`. Do NOT add a
+    second create-dialog test; seed through the API instead.
+  - `e2e/export.test.ts` — bucket xlsx AND csv download from a
+    DRAFT, asserting real bytes rather than a 401 JSON body.
+    This task's export case must therefore differ by running against
+    a SUBMITTED version and by asserting the method's own columns.
+  - `e2e/bucket-views.test.ts` — the two views and the drag-and-drop
+    re-bucketing between them.
+  - `e2e/bucket-hierarchy.test.ts` — nested-group rendering and the
+    `+ Gruppe` / `+ Element` row actions.
+  - `e2e/treetable-header-fit.test.ts` — bucket header widths in
+    both locales.
+
+  The genuinely new ground is: bucket-panel CRUD, per-leaf bucket
+  assignment through the row dropdown, the sample toggle plus inline
+  three-point entry, the DERIVED bucket average appearing on
+  non-sample rows, submit, the submitted read-only rendering, and
+  export from that submitted version.
+
+  ## Frozen decisions (task-096, corrected against the code)
+
+  - **File.** `src/frontend/e2e/bucket-sampled-flow.test.ts`.
+    `.test.ts`, not `.spec.ts` — 28 of the 29 files in `e2e/` use it.
+  - **Fixture / stack.** The local dev stack (`./scripts/dev.sh`),
+    like every other spec. There is **no shared `beforeAll`/`afterAll`**
+    in this suite and none is to be added: each spec seeds its own
+    data per test through Playwright's `request` fixture, and
+    `e2e/global-setup.ts` resets the database once per run.
+    `e2e/helpers.ts` exports only `loginAsDev` / `logoutDev`.
+  - **Auth.** The shared dev-admin `storageState` from
+    `playwright.config.ts`; API seeding uses
+    `Authorization: Dev dev-admin`.
+  - **Viewport.** `test.use({ viewport: { width: 1400, height: 1000 } })`,
+    matching the other two bucket specs — the editor stacks four
+    panels above the table and three columns are `collapsible`.
+  - **Split into four `test()` blocks.** `playwright.config.ts` sets
+    `timeout: 30_000` PER TEST with `retries: 0`; seven UI scenarios
+    in one test will not fit. One test per concern:
+      1. bucket-panel CRUD,
+      2. assignment + sampling + derivation,
+      3. submit → submitted read-only,
+      4. export from the submitted version.
+
+  - **What the spec covers.**
+      1. *Bucket panel CRUD.* Open a fresh `BUCKET_SAMPLED_PERT`
+         draft. Assert the client-seeded default buckets
+         XS, S, M, L, XL are present (seeded in
+         `versions/[versionNumber]/+page.svelte` when a bucket draft
+         loads with zero buckets — so the seed must NOT send
+         `buckets`, or the defaults never appear). Add a sixth via
+         `+ Bucket` (it arrives labelled `Neu`), rename it to `XXL`,
+         then delete it and assert five remain.
+      2. *Assignment, sampling, derivation.* Switch to the
+         **hierarchy view** — the editor opens in the BUCKET view,
+         which deliberately has no group affordance, so groups are
+         uncreatable there. Seed the group/leaf tree through the API
+         (building three groups by hand through the UI burns the
+         budget and is `bucket-hierarchy.test.ts`'s subject), then in
+         the UI: pick a bucket per leaf from the row `<select>`, tick
+         one leaf per bucket as the sample, and type its
+         optimistic / likely / pessimistic values.
+      3. Assert the non-sample leaves of that bucket show the derived
+         mean. PERT mean of (1, 2, 3) is 2.0, and a bucket's
+         non-samples inherit their bucket's average, so both the
+         sample and its non-samples read `2,00` — **German
+         formatting**: `playwright.config.ts` pins `locale: 'de-DE'`
+         and the grid renders through `formatFixed` in
+         `$lib/format.ts`. Never assert `2.00`.
+      4. *Submit.* Wait for the autosave to land (the editor
+         debounces 800 ms and shows `Gespeichert ✓`) before clicking
+         `Festschreiben`; submit navigates to `/estimations/{id}`.
+      5. *Submitted detail.* Open `/estimations/{id}/versions/1` and
+         assert the read-only banner
+         (`Festgeschrieben — schreibgeschützt`), that the derived
+         numbers still show on non-sample rows, and that the sample
+         row still shows its raw PT triple.
+      6. *Export.* From the submitted version, download the **CSV**
+         and assert the header row carries the neutral columns AND
+         the method's own five: `Bucket,Is Sample,Optimistic,Likely,Pessimistic`.
+         Those come from `BucketMethodModule.exportColumnHeaders()`
+         via `CsvExporter`. Assert the xlsx download is a real zip
+         (`PK`) as well — but **do not try to parse the xlsx**: the
+         frontend has no xlsx parser, there is no "xlsx helper", and
+         adding a dependency is out of scope for this task. The CSV
+         and the xlsx are fed by the SAME `exportColumnHeaders()`
+         call, so the CSV assertion covers the dispatch task-107 added.
+
+  - **Selectors.** Locate the ROW by
+    `[data-testid="tt-row-<logicalId>"]` (the only test id `TreeTable`
+    emits — there is none per cell) and scope everything inside it.
+    `getByRole`/`getByLabel` cannot address the cells: the per-row
+    bucket `<select>` and the three number inputs carry **no
+    accessible name**, and the sample checkbox's `aria-label`
+    (`Als Stichprobe schätzen`) repeats on every row. Inside a LEAF
+    row these are unambiguous — `select`, `input[type="checkbox"]`,
+    `input[type="number"]` `.nth(0|1|2)` in
+    optimistic/likely/pessimistic order, and the derived mean as
+    `span.text-brand-green.tabular-nums` (the critical-path dot
+    shares `text-brand-green` but not `tabular-nums`). Do NOT scope
+    to a GROUP row this way: a group row CONTAINS its descendant rows
+    in the DOM.
+    Page-level chrome keeps roles: `getByTestId('bucket-view-toggle-hierarchy')`,
+    `getByRole('button', { name: 'Festschreiben' })`,
+    `getByRole('button', { name: '+ Bucket' })`,
+    `getByLabel('Bucket-Name')`, `getByLabel('Bucket löschen')`.
+  - **Determinism.** Nothing in this flow reads `Date.now()`; no
+    clock freezing. Seeded project/offer names carry `Date.now()`
+    for uniqueness, as every other spec does.
 
   ## What does NOT belong in this task
 
-  - No production-code changes — this task only adds the spec.
-  - No new backend or frontend changes; if the spec exposes a
-    bug, the fix is a follow-up (report + link to a new task).
+  - **No production-code changes.** In particular, do not add
+    `aria-label`s to the bucket `<select>` or the three number inputs
+    to make `getByLabel` work — that is user-visible text and would
+    require new keys in BOTH `de.json` and `en.json` key-for-key.
+    If the row-scoped selectors above prove insufficient, stop and
+    raise a follow-up task rather than widening this one.
+  - No new Playwright webserver configuration.
+  - If the spec exposes a product bug, report it and link a new
+    task; do not fix it here.
 
 steps:
   - |
-    Read existing e2e specs to match style, waits, and helpers:
-      src/frontend/e2e/estimation-editor.spec.ts (if present) or
-      the equivalent PERT-flow spec.
+    Read the existing bucket specs to match style, seeding idiom and
+    waits — they are the template:
+      src/frontend/e2e/bucket-hierarchy.test.ts
+      src/frontend/e2e/bucket-views.test.ts
+      src/frontend/e2e/export.test.ts
   - |
-    Write
-    `src/frontend/e2e/estimation-bucket-sampled.spec.ts` covering
-    the seven scenarios listed in the description.
+    Write `src/frontend/e2e/bucket-sampled-flow.test.ts` with the four
+    `test()` blocks described above. Seed project + estimation +
+    draft through the API (`POST /api/projects`,
+    `POST /api/projects/{id}/estimations` with
+    `method: 'BUCKET_SAMPLED_PERT'`, `POST /api/estimations/{id}/versions`,
+    `PUT /api/estimations/{id}/versions/draft`); drive only the
+    behaviour under test through the UI.
   - |
-    Verify the dev stack (`./scripts/dev.sh`) is up (Docker
-    running) before running the spec:
-      cd src/frontend && npm run test:e2e -- estimation-bucket-sampled.spec.ts
+    Run the new spec against a running dev stack (Docker must be up):
+      cd src/frontend && npm run test:e2e -- bucket-sampled-flow
     Iterate until green.
   - |
-    Run the full e2e suite once to confirm no regression on
-    existing specs:
+    Run the full e2e suite once to confirm no regression — the suite
+    shares one backend, so a new spec's seeded data can affect others:
       cd src/frontend && npm run test:e2e
   - |
-    Run the full-stack Gradle build one last time:
+    Confirm the repo still builds and the frontend still type-checks:
       ./gradlew build
 
 validation:
   - |
-    E2E spec file exists:
-      test -f src/frontend/e2e/estimation-bucket-sampled.spec.ts
+    E2E spec file exists and follows the directory's naming convention:
+      test -f src/frontend/e2e/bucket-sampled-flow.test.ts
+      ! test -f src/frontend/e2e/estimation-bucket-sampled.spec.ts
   - |
-    Spec covers the key touchpoints:
-      grep -q "Bucket" src/frontend/e2e/estimation-bucket-sampled.spec.ts
-      grep -q "Sample\|isSample" src/frontend/e2e/estimation-bucket-sampled.spec.ts
-      grep -q "export\|Export" src/frontend/e2e/estimation-bucket-sampled.spec.ts
-      grep -q "submit\|Submit" src/frontend/e2e/estimation-bucket-sampled.spec.ts
+    The spec covers the four concerns, and is split so no single test
+    carries all of them (playwright.config.ts timeout is 30s per test):
+      test "$(grep -c "^test(" src/frontend/e2e/bucket-sampled-flow.test.ts)" -ge 4
+  - |
+    It asserts the method's OWN export columns (task-107's dispatch),
+    not merely that a file downloaded:
+      grep -q "Is Sample" src/frontend/e2e/bucket-sampled-flow.test.ts
+      grep -q "Bucket,Is Sample,Optimistic,Likely,Pessimistic" \
+        src/frontend/e2e/bucket-sampled-flow.test.ts
+  - |
+    It exercises submit and the derived (non-sample) value:
+      grep -q "Festschreiben" src/frontend/e2e/bucket-sampled-flow.test.ts
+      grep -q "Festgeschrieben" src/frontend/e2e/bucket-sampled-flow.test.ts
+  - |
+    Numeric assertions use German formatting (locale is pinned to
+    de-DE), so no bare decimal POINT is asserted against the grid:
+      ! grep -nE "toHaveText\(['\"][0-9]+\.[0-9]+['\"]\)" \
+        src/frontend/e2e/bucket-sampled-flow.test.ts
+  - |
+    No production code was changed by this task:
+      git diff --name-only -- src/frontend/src src/backend src/domain | \
+        grep . && exit 1 || true
   - |
     Full Playwright e2e suite passes against the dev stack:
       cd src/frontend && npm run test:e2e
@@ -98,4 +200,4 @@ validation:
       ./gradlew build
 
 outputs:
-  - created: src/frontend/e2e/estimation-bucket-sampled.spec.ts
+  - created: src/frontend/e2e/bucket-sampled-flow.test.ts

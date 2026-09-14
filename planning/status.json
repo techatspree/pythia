@@ -633,9 +633,9 @@
       "notes": "Export dispatch: xlsx/csv writers dispatched by estimation method via SPI"
     },
     "task-108": {
-      "status": "pending",
-      "started_at": null,
-      "completed_at": null,
+      "status": "done",
+      "started_at": "2026-09-14T12:45:24+00:00",
+      "completed_at": "2026-09-14T12:53:53+00:00",
       "notes": "E2E: bucket+sampled full-stack Playwright test (create/estimate/submit/export)"
     },
     "task-109": {
