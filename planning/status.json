@@ -963,10 +963,10 @@
       "notes": "Frontend config is baked into the SPA bundle by Vite at build time, so the frontend image IS the configuration and cannot be promoted between stages; replace VITE_* auth vars with a runtime /config.json served from a ConfigMap"
     },
     "task-163": {
-      "status": "in_progress",
+      "status": "done",
       "started_at": "2026-09-14T15:28:35+00:00",
-      "completed_at": null,
-      "notes": "e2e flake in bucket-views.test.ts 'a leaf can be dragged into an EMPTY bucket': the drag settles and releases, but the leaf keeps its old bucket for the full 5s assertion — a silent no-op drop, a different mechanism from the settle-budget exhaustion already addressed"
+      "completed_at": "2026-09-15T08:40:21+00:00",
+      "notes": "Cross-zone finalize published only one of its two zone payloads, silently losing a KEYBOARD re-bucketing in the bucket view (pointer dispatches target-first, so it was unaffected); fixed in TreeTable.svelte + regression test. Ruled out the anomaly-revert hypothesis by construction. The pointer no-op drop it was originally opened for is NOT fixed — split to task-184."
     },
     "task-164": {
       "status": "done",
@@ -1087,6 +1087,12 @@
       "started_at": null,
       "completed_at": null,
       "notes": "No way to upload an xlsx: add the import endpoint and the upload UI, reusing the Merlin import shape"
+    },
+    "task-184": {
+      "status": "pending",
+      "started_at": null,
+      "completed_at": null,
+      "notes": "Pointer cross-bucket drop is a silent no-op under load (~1/20 full-suite runs); split from task-163, which fixed the keyboard publish defect and ruled out the anomaly-revert and zero-height-zone hypotheses"
     }
   }
 }

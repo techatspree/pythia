@@ -129,10 +129,10 @@ const card = (id: string) => `[data-testid="schedule-card"][data-logical-id="${i
  * HTML5 drag-and-drop, driven through the DataTransfer the browser would build.
  * Deliberately NOT a mouse-move drag: the pointer-driven helper in
  * bucket-views.test.ts exists for svelte-dnd-action's cursor-based detection,
- * whose settled-but-no-op drop is still unexplained (task-163 fixed a separate
- * defect it had been conflated with — a cross-zone move publishing only one of
- * its two finalize payloads — but that one was keyboard-only). This editor uses
- * native draggable/drop, which has no geometry race at all.
+ * whose settled-but-no-op drop is still unexplained (task-184; task-163 fixed a
+ * separate defect it had been conflated with — a cross-zone move publishing
+ * only one of its two finalize payloads — but that one was keyboard-only). This
+ * editor uses native draggable/drop, which has no geometry race at all.
  */
 async function dragDependency(page: Page, fromId: string, toId: string) {
 	const handle = page.locator(`${card(fromId)} [data-testid="schedule-handle"]`);

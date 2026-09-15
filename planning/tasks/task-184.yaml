@@ -1,0 +1,192 @@
+id: task-184
+phase: phase-15
+title: "Pointer cross-bucket drop is a silent no-op under load (split from task-163)"
+depends_on: [task-163]
+description: |
+  `e2e/bucket-views.test.ts` — "a leaf can be dragged into an EMPTY bucket" —
+  fails intermittently under full-suite parallel load and never when the spec
+  runs alone. The leaf's bucket `<select>` keeps its SOURCE bucket for the whole
+  5s assertion: the drag settles, the pointer is released over the target, and
+  the model simply does not move.
+
+  This is the residue of task-163. That task found and fixed a **different**
+  real defect it had been conflated with, and ruled two hypotheses out by
+  construction. **Read the rulings before re-deriving them — this is the fourth
+  time this failure has been chased.**
+
+  ## Measured behaviour
+
+  - Reproduction rate ~**1 in 20** full-suite runs at `--workers=4`. Never once
+    in isolation, and not in ~45 targeted runs of the DnD specs alone.
+  - 2026-09-14: 1/20 gate failure. Expected bucket `ae336729-…`, received
+    `8383e553-…` (the SOURCE bucket); that test took 9.7s against its usual
+    ~4.8s, so the settle loop was running long under contention.
+  - 2026-09-15: 0/20 on an idle machine, same code, flat 95-99s per run.
+    **Absence of failure here is not evidence of a fix** — it is evidence the
+    trigger is contention.
+
+  ## Ruled OUT by task-163 — do not re-investigate
+
+  - **The structural-anomaly check firing mid-move.** Impossible.
+    `svelte-dnd-action`'s `finalizeWithinZone` dispatches to both zones
+    synchronously inside one function with no `await` between them, so
+    `TreeTable`'s `queueMicrotask` checkpoint always observes a whole tree.
+  - **Only one zone's finalize being published.** Real, but **keyboard-only**,
+    and fixed in task-163. The library dispatches `shadowElDropZone` THEN
+    `originDropZone` for a pointer drag (target-first), so the bucket view
+    always received the target's payload on this path. Pinned by
+    `e2e/tree-table-dnd-mouse.test.ts`'s "cross-zone drop commits to the target
+    zone".
+  - **The empty bucket's drop zone having zero height.** `min-h-8` is applied
+    UNCONDITIONALLY when `wrappedChildren.length === 0` (only the *collapsed
+    non-empty* case gates on `dragActive`), and the spec asserts
+    `zoneBox.height > 0` before it drags.
+
+  ## The remaining candidate
+
+  Every surviving explanation reduces to: at release, `shadowElDropZone` was
+  **not** the target bucket row's children zone. `onBucketChildrenChange` in
+  `methods/bucketSampled/EditorModule.svelte` then snaps back —
+
+      if (e.parentPath.length !== 1) { projectionNonce++; return; }   // root zone
+      if (row == null || !isBucketRow(row)) { projectionNonce++; return; }
+      if (target == null) { projectionNonce++; return; }              // unassigned row
+
+  — and if instead `shadowElDropZone === originDropZone`, the library fires only
+  ONE finalize, carrying the source bucket's payload, so `changed === 0` and the
+  same `projectionNonce++` rebuild runs. Both produce exactly the observed
+  symptom. Which one it is decides the fix, so **capture it before changing
+  anything**.
+
+  ## The instrumentation is already in place
+
+  task-163 left `log.debug` calls in `TreeTable.handleZoneEvent` printing, per
+  finalize: zone key, `parentPath`, child count, the library's `trigger`, and
+  whether this was the first zone; plus the publish count and the ids a revert
+  lost. They land in the browser console and therefore in the Playwright trace.
+
+  ## Capturing it — the part that went wrong last time
+
+  - A later run **clears `src/frontend/test-results/`**, so the first attempt
+    lost its trace. Loop until the FIRST failure, copy `test-results` out
+    immediately, then stop.
+  - **A degraded machine voids the result.** After ~19 consecutive full-suite
+    runs on a loaded laptop the suite collapsed: individual tests went from 1.4s
+    to 9-17 minutes and 10 unrelated specs failed (sessions, schedule,
+    header-fit, responsive). That is not the flake. Bound each run with
+    `--global-timeout=420000`, record per-run wall time, and treat anything far
+    off the ~95-99s baseline as environmental — check `uptime` before starting.
+
+  ## Constraints (inherited, all still binding)
+
+  - **Do not add Playwright `retries`.** `playwright.config.ts` argues the case;
+    `retries: 0` stays. A bounded, visible retry INSIDE the test is the
+    established remedy here.
+  - **Do not weaken the cycle protection.** `e2e/tree-table.test.ts`'s "cycle
+    protection rejects dropping a group into its descendant" and
+    `e2e/smoke.test.ts`'s "dragging a group onto its own descendant is a no-op"
+    must stay green.
+  - **Do not revert the `settleAndDrop` deadline** (commit `16810f6`) or the
+    task-163 publish fix.
+  - Frontend logging goes through `log` from `$lib/log.ts`, never `console.*`;
+    user-visible failures still surface via `ErrorBanner`.
+
+  ## Out of scope
+
+  The keyboard publish defect (fixed, task-163) and the session WebSocket flake
+  (task-160). Do not fold either in.
+
+steps:
+  - |
+    Re-read the task-163 findings in `src/frontend/CLAUDE.md` (the two
+    paragraphs under the generic `TreeTable` section) so the ruled-out
+    hypotheses are not re-derived.
+  - |
+    Confirm the machine is idle before spending an hour on capture:
+      uptime            # load should be well under the core count
+      ps -Ao %cpu,comm -r | head -5
+  - |
+    Capture a failing run WITH its trace. Start a fresh stack
+    (`./scripts/dev.sh`, Docker up) and loop until the first failure:
+
+      cd src/frontend
+      for i in $(seq 1 40); do
+        if ! npx playwright test --workers=4 --global-timeout=420000 > "/tmp/cap_$i.log" 2>&1; then
+          echo "FAILED on run $i"; cp -R test-results "/tmp/capture_$i"; break
+        fi
+        echo "run $i ok ($(date +%s))"
+      done
+
+    Then read the browser console entries out of the preserved trace
+    (`npx playwright show-trace /tmp/capture_<i>/<dir>/trace.zip`, or unzip it
+    and grep the `.trace` jsonl for `TreeTable finalize:`).
+  - |
+    From the captured log decide which zone received the drop:
+      - `path=[]` / `zone=__root__`  → the root zone took it
+      - only ONE finalize, `zone=<source bucket>` → shadow never left the source
+      - `zone=<target bucket>` with a correct path → the loss is downstream of
+        TreeTable, in `onBucketChildrenChange` or the autosave
+    Write the finding down before changing behaviour.
+  - |
+    Fix the confirmed cause. Keep the fix in the component that owns the defect
+    — `TreeTable.svelte` if the zone geometry or detection is wrong, the bucket
+    editor if the payload arrives correctly and is then discarded. A test-only
+    change is NOT a fix here: a real user drops into a bucket the same way.
+  - |
+    Add a deterministic regression test if the confirmed cause can be triggered
+    from the UI. If it cannot, say so explicitly and explain what the new
+    coverage does assert — do not present a probabilistic test as deterministic.
+  - |
+    Record the outcome in `src/frontend/CLAUDE.md` beside the task-163
+    paragraphs, and update the `dragDependency` doc comment in
+    `e2e/schedule.test.ts`, which names this task as the open one.
+  - |
+    Run the gate: 20 full-suite runs, all green, per-run time near the ~95-99s
+    baseline. Report the observed count and the residual uncertainty honestly —
+    20 green runs against a 1-in-20 flake is suggestive, not proof.
+  - |
+    `./gradlew :frontend:check`, then `./gradlew build`.
+
+validation:
+  - |
+    The inherited constraints are intact:
+      F=src/frontend
+      grep -q "retries: 0" "$F/playwright.config.ts"
+      grep -q "SETTLE_BUDGET_MS" "$F/e2e/bucket-views.test.ts"
+      grep -q "isStructuralAnomaly" "$F/src/lib/components/treetable/TreeTable.svelte"
+      grep -q "cross-zone drop commits to the target zone" "$F/e2e/tree-table-dnd-mouse.test.ts"
+  - |
+    The cycle-protection tests still exist:
+      F=src/frontend
+      grep -q "cycle protection rejects dropping a group into its descendant" "$F/e2e/tree-table.test.ts"
+      grep -q "dragging a group onto its own descendant is a no-op" "$F/e2e/smoke.test.ts"
+  - |
+    The diagnosis is written down, and the forward reference naming this task
+    as open has been updated:
+      grep -q "task-184" src/frontend/CLAUDE.md
+      ! grep -q "task-184 is still open" src/frontend/e2e/schedule.test.ts
+  - |
+    Behaviour actually changed, carrying its rationale marker:
+      git diff HEAD -- src/frontend/src | grep -q "task-184"
+  - |
+    THE GATE. 20 full-suite runs, zero failures, each near the ~95-99s baseline
+    (a run far off it means the machine degraded and the result is void):
+      cd src/frontend
+      fails=0
+      for i in $(seq 1 20); do
+        npx playwright test --workers=4 --global-timeout=420000 > "/tmp/gate_$i.log" 2>&1 || fails=$((fails + 1))
+      done
+      echo "failed runs: $fails / 20"
+      test "$fails" -eq 0
+  - |
+    ./gradlew :frontend:check
+  - |
+    ./gradlew build
+
+outputs:
+  # The defect is not yet located, so these are the candidate sites rather than
+  # a promise. Whichever is changed, CLAUDE.md and the schedule.test.ts comment
+  # are updated either way.
+  - modified: src/frontend/src/lib/components/treetable/TreeTable.svelte
+  - modified: src/frontend/CLAUDE.md
+  - modified: src/frontend/e2e/schedule.test.ts
