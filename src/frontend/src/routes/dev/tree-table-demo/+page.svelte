@@ -89,8 +89,18 @@
 		return node;
 	}
 
+	// Every `finalize` payload this page is handed, as `path:idCount`, newest
+	// last. A cross-zone move must publish BOTH halves — the source zone losing
+	// the node and the target zone gaining it — and this page re-reads `roots`
+	// for nested zones, so a dropped publish would otherwise be invisible here.
+	// task-163: it was invisible, and the bucket view (which applies the payload
+	// rather than re-reading) silently lost the move. Rendered below so an e2e
+	// test can assert on the publishes themselves, not just their side effects.
+	let publishLog = $state<string[]>([]);
+
 	function handleChildrenChange(e: ChildrenChangeEvent<CatalogNode>) {
 		if (e.phase !== 'finalize') return;
+		publishLog = [...publishLog, `${e.parentPath.join('-') || 'root'}:${e.newChildren.length}`];
 		if (e.parentPath.length === 0) {
 			roots = e.newChildren;
 			return;
@@ -189,4 +199,6 @@
 		rowActions={rowActionsSnippet}
 		footer={totalsFooter}
 	/>
+	<!-- Diagnostic surface for e2e (task-163), not product UI. -->
+	<p class="mt-6 text-xs text-ink-faint" data-testid="publish-log">{publishLog.join(' ')}</p>
 </div>

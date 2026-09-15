@@ -963,8 +963,8 @@
       "notes": "Frontend config is baked into the SPA bundle by Vite at build time, so the frontend image IS the configuration and cannot be promoted between stages; replace VITE_* auth vars with a runtime /config.json served from a ConfigMap"
     },
     "task-163": {
-      "status": "pending",
-      "started_at": null,
+      "status": "in_progress",
+      "started_at": "2026-09-14T15:28:35+00:00",
       "completed_at": null,
       "notes": "e2e flake in bucket-views.test.ts 'a leaf can be dragged into an EMPTY bucket': the drag settles and releases, but the leaf keeps its old bucket for the full 5s assertion — a silent no-op drop, a different mechanism from the settle-budget exhaustion already addressed"
     },

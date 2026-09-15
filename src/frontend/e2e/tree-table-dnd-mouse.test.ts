@@ -178,3 +178,51 @@ test('pointer: dragging a subgroup into a deeper nested subgroup works', async (
 	expect(await directChildIds(page, childrenZone('g2b1'))).toContain('g1b');
 	expect(await directChildIds(page, childrenZone('g1b'))).toEqual(['l3', 'l4']);
 });
+
+/**
+ * task-163 — a cross-zone move must publish BOTH zones' finalize payloads.
+ *
+ * svelte-dnd-action fires `finalize` on the source zone AND the target zone.
+ * `TreeTable` needs a once-per-drag checkpoint for its structural-anomaly
+ * revert, and that checkpoint used to be gated with an early `return` that
+ * skipped the SECOND zone's `onChildrenChange` entirely — so only one half of
+ * the move was ever published.
+ *
+ * That is invisible to a consumer which re-reads `roots` (this demo page does,
+ * for nested zones, and `applyChildren` mutates the bound model for both zones
+ * regardless) — which is why the DOM assertions below pass either way and are
+ * NOT what pins the bug. The bucket-view editor instead applies the PUBLISHED
+ * payload, so a dropped publish silently lost the re-bucketing. `publish-log`
+ * records what the page was actually handed, which is the thing that regressed.
+ *
+ * Driven by KEYBOARD deliberately: the library dispatches source-then-target
+ * for keyboard and target-then-source for pointer, so the keyboard order is the
+ * one where the suppressed second publish is the one that carries the move.
+ */
+test('cross-zone drop commits to the target zone', async ({ page }) => {
+	// Fixture: g1 > [g1a > (l1, l2), g1b > (l3, l4)] — paths [0,0] and [0,1].
+	expect(await directChildIds(page, childrenZone('g1a'))).toEqual(['l1', 'l2']);
+	expect(await directChildIds(page, childrenZone('g1b'))).toEqual(['l3', 'l4']);
+
+	// Keyboard DnD: focus the row, Space to pick up, focus the target zone,
+	// Space to drop. (Playwright's pointer synthesis is geometry-dependent;
+	// the keyboard path is deterministic and is a real user interaction.)
+	await page.locator('[data-testid="tt-row-l1"]').first().focus();
+	await page.keyboard.press('Space');
+	await page.waitForTimeout(200);
+	await page.locator(childrenZone('g1b')).focus();
+	await page.waitForTimeout(200);
+	await page.keyboard.press('Space');
+	await page.waitForTimeout(400);
+
+	// The move itself.
+	expect(await directChildIds(page, childrenZone('g1a'))).toEqual(['l2']);
+	expect(await directChildIds(page, childrenZone('g1b'))).toContain('l1');
+
+	// The point of the test: BOTH zones were published. `0-0` is g1a losing a
+	// child (1 left), `0-1` is g1b gaining one (3). Before the fix only the
+	// first of the two ever arrived.
+	const published = (await page.getByTestId('publish-log').textContent()) ?? '';
+	expect(published).toContain('0-0:1');
+	expect(published).toContain('0-1:3');
+});

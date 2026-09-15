@@ -8,6 +8,7 @@
 	import { SvelteMap, SvelteSet } from 'svelte/reactivity';
 	import type { TreeNodeContext, TreeTableProps } from './types';
 	import DisclosureTriangle from '$lib/ui/DisclosureTriangle.svelte';
+	import { log } from '$lib/log';
 
 	let {
 		roots = $bindable<T[]>([]),
@@ -34,6 +35,12 @@
 	const expandedOverrides = new SvelteMap<string, boolean>();
 	let preDragSnapshot: T[] | null = null;
 	let cycleCheckPending = false;
+
+	// Every zone's finalize payload for the CURRENT drag, drained once the
+	// anomaly checkpoint below has decided whether the drag stands (task-163).
+	// A cross-zone move finalizes twice — source and target — and both halves
+	// have to reach `onChildrenChange`, in arrival order.
+	const pendingPublishes: { parentPath: number[]; newChildren: T[] }[] = [];
 
 	// Live drag buffers, keyed by the zone's parent path (`a-b-c`, root = `''`).
 	// While a pointer drag is in flight svelte-dnd-action inserts a shadow
@@ -106,6 +113,14 @@
 		};
 		nodes.forEach(walk);
 		return { ids, duplicate };
+	}
+
+	// Ids present before the drag but gone after — the detail that says WHICH
+	// node a structural anomaly lost, so a recurrence is diagnosable from a
+	// trace instead of re-derived (task-163).
+	function missingIds(after: T[], before: T[]): string[] {
+		const a = collectIds(after).ids;
+		return [...collectIds(before).ids].filter((id) => !a.has(id));
 	}
 
 	function isStructuralAnomaly(after: T[], before: T[]): boolean {
@@ -205,17 +220,37 @@
 			// model, then commit this zone's final order to the model.
 			dragItems.clear();
 			applyChildren(owner, newChildren);
+			log.debug(
+				`TreeTable finalize: zone=${zoneKeyOf(owner)} path=[${parentPath.join(',')}] ` +
+					`children=${newChildren.length} trigger=${e.detail.info?.trigger ?? '?'} ` +
+					`first=${!cycleCheckPending}`
+			);
+			// A cross-zone move fires finalize on BOTH zones. Every zone's payload is
+			// published (task-163): the checkpoint below must run only once, but
+			// suppressing the SECOND publish silently dropped the target zone's
+			// insertion for any consumer that applies the payload instead of
+			// re-reading `roots` — which is exactly what the bucket view does.
+			pendingPublishes.push({ parentPath, newChildren });
 			if (cycleCheckPending) return;
 			cycleCheckPending = true;
 			queueMicrotask(() => {
 				// Reject structurally invalid results (e.g. a group dropped into its
 				// own descendant via keyboard, which dropFromOthersDisabled does not
 				// cover): restore the pre-drag snapshot.
-				if (preDragSnapshot !== null && isStructuralAnomaly(roots, preDragSnapshot)) {
-					roots = preDragSnapshot;
+				const anomaly = preDragSnapshot !== null && isStructuralAnomaly(roots, preDragSnapshot);
+				if (anomaly) {
+					log.debug(
+						`TreeTable finalize: structural anomaly over ${pendingPublishes.length} zone(s) — ` +
+							`reverting; missing=[${missingIds(roots, preDragSnapshot as T[]).join(',')}]`
+					);
+					roots = preDragSnapshot as T[];
 				} else {
-					onChildrenChange?.({ parentPath, newChildren, phase: 'finalize' });
+					log.debug(`TreeTable finalize: publishing ${pendingPublishes.length} zone payload(s)`);
+					for (const p of pendingPublishes) {
+						onChildrenChange?.({ parentPath: p.parentPath, newChildren: p.newChildren, phase: 'finalize' });
+					}
 				}
+				pendingPublishes.length = 0;
 				preDragSnapshot = null;
 				cycleCheckPending = false;
 				draggedSubtreeIds.clear();
