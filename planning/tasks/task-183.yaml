@@ -30,8 +30,15 @@ description: |
     `400` mapped to a specific message, everything else through `assertOk` and
     `ErrorBanner`.
 
-  Reuse `ReplaceDraftDialog` as it stands; it is already phrased about replacing
-  a draft, not about Merlin.
+  Reuse `ReplaceDraftDialog`, but **it is not method-neutral today** and the
+  task must make it so. Its title, body and cancel come from the generic
+  `estimation.replaceDraft*` family, but its confirm button is hardcoded
+  `$_('estimation.importMerlinReplace')` and it takes only `onconfirm`/
+  `oncancel` — no label prop. Rename that key to `estimation.replaceDraftConfirm`
+  in both catalogs and in the component, so the shared dialog stops being named
+  after one of its two callers. The visible text ("Entwurf ersetzen und
+  importieren" / "Replace draft and import") is already format-neutral and does
+  not change.
 
   ## The one thing the Merlin flow does not have to worry about
 
@@ -52,9 +59,29 @@ description: |
   - **Endpoint**: `POST /api/estimations/{estimationId}/versions/import/xlsx`,
     multipart with a `file` part, in `EstimationVersionResource` beside
     `importMerlin`. Responses: `201` + `EstimationVersionDto`, `400` (unreadable
-    file, or a method mismatch), `404` (estimation), `409` (draft exists).
-  - **Service**: `EstimationVersionService.importXlsxDraft(estimationId, input)`,
-    mirroring `importMerlinDraft`, with the audit action `IMPORT_XLSX`.
+    file), **`422` (method mismatch)**, `404` (estimation), `409` (draft exists).
+    Like `importMerlin`, call `ensureEstimationExists(estimationId)` first.
+  - **Two failures, two statuses — not two 400s.** The UI has to tell "this is
+    not a workbook" from "this workbook is for the other method", and both
+    mapping to `400` leaves one of the two message keys unreachable. `assertOk`
+    throws an `ApiError` carrying `status` (task-169), so the frontend maps by
+    status with no body parsing. `422 Unprocessable Content` is exactly right
+    for a syntactically valid file whose content cannot be processed, and it is
+    unused elsewhere in this codebase.
+  - **Service**: `EstimationVersionService.importXlsxDraft(estimationId, file: Path)`,
+    mirroring `importMerlinDraft`, with the audit action `IMPORT_XLSX`
+    (`auditLogService.log` takes the action as a plain `String`; there is no
+    enum to extend).
+  - **It takes a `Path`, NOT an `InputStream`, and this is the one place it must
+    diverge from the Merlin mirror.** The mismatch guard has to read the sheet
+    names before the import reads the workbook, and `importMerlinDraft`'s
+    `InputStream` is single-pass — the resource hands it
+    `file.uploadedFile().toFile().inputStream().use { … }`, so a peek would
+    consume the stream and leave `excelImporter.import` an exhausted one, making
+    every import fail. The upload is already a file on disk, so pass
+    `file.uploadedFile()` (a `java.nio.file.Path`) and open it twice. Do not
+    "fix" this by buffering the whole workbook into a `ByteArrayInputStream`
+    unless you have a reason to; opening the file twice is cheaper and simpler.
   - **Do not catch `Exception`** when turning a bad upload into a `400`: detekt's
     `TooGenericExceptionCaught` will flag it. POI raises its own types for a file
     that is not an OOXML workbook — catch those and `IllegalArgumentException`.
@@ -79,33 +106,46 @@ description: |
 
 steps:
   - |
-    Add `importXlsxDraft(estimationId: UUID, input: InputStream): DraftEstimationVersion`
+    Add `importXlsxDraft(estimationId: UUID, file: Path): DraftEstimationVersion`
     to `src/backend/implementation/src/main/kotlin/io/pythia/service/EstimationVersionService.kt`,
-    modelled line for line on `importMerlinDraft` directly above it: reuse
+    modelled on `importMerlinDraft` directly above it: `@Transactional`, reuse
     `requireEstimationWithoutDraft`, derive the version number from the latest
-    submitted, call `excelImporter.import(input, estimation, newVersionNumber)`,
-    persist, audit with `IMPORT_XLSX`, and log on both sides. Inject
-    `ExcelImporter` alongside the existing importers.
+    submitted, open the file and call
+    `excelImporter.import(stream, estimation, newVersionNumber)`, persist, audit
+    with `IMPORT_XLSX`, and log on both sides. Inject `ExcelImporter` alongside
+    the existing importers. Takes a `Path` rather than an `InputStream` — see
+    the decision above; the guard in the next step needs a second read.
+  - |
+    Generalise `requireEstimationWithoutDraft`'s two `Log.warn` messages, which
+    currently say "Merlin import rejected: …". It is about to serve two
+    importers, and an xlsx 404/409 logging as a Merlin rejection is the kind of
+    thing that costs an hour during an incident. "Draft import rejected: …" (or
+    an explicit label parameter) — the exception messages themselves are already
+    format-neutral and stay as they are.
   - |
     Guard the method mismatch in that service method, BEFORE importing. Decide the
     workbook's method by whether it carries `ExcelGermanLabels.Sheets.BUCKETS`
     (`Eimer`), compare against `estimation.method`, and on disagreement throw a
-    `WebApplicationException` with `Response.Status.BAD_REQUEST` whose message
-    names the workbook's method and the estimation's. Opening the workbook twice
-    is acceptable; a helper that peeks at the sheet names is enough.
+    `WebApplicationException` with status **422** whose message names the
+    workbook's method and the estimation's. A private helper that opens the file
+    and reads its sheet names is enough — this is the second read the `Path`
+    signature exists for. An unreadable file must still surface as `400`, so the
+    peek's own POI failures belong on that path, not this one.
   - |
     Add the endpoint to
     `src/backend/implementation/src/main/kotlin/io/pythia/rest/EstimationVersionResource.kt`,
     beside `importMerlin` and with the same annotations and `@APIResponse` set,
-    at `@Path("/import/xlsx")`. Document the 400 as covering both an unreadable
-    file and a method mismatch.
+    at `@Path("/import/xlsx")`, including `@Transactional` and the leading
+    `ensureEstimationExists(estimationId)` call. Give it `@APIResponse` entries
+    for `400` (not a readable workbook) and `422` (the workbook's method
+    disagrees with the estimation's) as separate cases.
   - |
     Cover it in
     `src/backend/implementation/src/test/kotlin/io/pythia/rest/EstimationVersionResourceIT.kt`:
       * a workbook exported from a PERT estimation uploads into a PERT estimation
         with no draft → 201, and the draft's tree matches
       * the same upload when a draft already exists → 409
-      * a BUCKET workbook uploaded into a PERT estimation → 400 (the mismatch
+      * a BUCKET workbook uploaded into a PERT estimation → 422 (the mismatch
         guard; without it this silently imports wrong numbers)
       * a file that is not a workbook at all → 400
   - |
@@ -114,16 +154,28 @@ steps:
     block already there: a hidden `<input type="file" accept=".xlsx">`, a
     `runXlsxImport(file, replaceDraft)` that posts `FormData` through `apiFetch`,
     a `409` that sets a pending-file state and opens the existing
-    `ReplaceDraftDialog`, and `400` mapped to the invalid-file or mismatch
-    message. Surface failures via `ErrorBanner` and `log.error`; never
-    `console.*`.
+    `ReplaceDraftDialog`, and a fallback chosen BY STATUS — `400` →
+    `importXlsxInvalidFile`, `422` → `importXlsxMethodMismatch`, anything else →
+    `importXlsxFailed` — passed to `assertOk`. Surface failures via `ErrorBanner`
+    and `log.error`; never `console.*`.
+  - |
+    Make the shared confirmation dialog method-neutral: in
+    `src/frontend/src/lib/components/ReplaceDraftDialog.svelte` replace the
+    hardcoded `$_('estimation.importMerlinReplace')` on its confirm button with
+    `$_('estimation.replaceDraftConfirm')`, and rename that key in both catalogs
+    (same text). The dialog is now shared by two importers and must not be named
+    after one of them. Check no other component still reads the old key.
   - |
     Add the strings to BOTH `src/frontend/src/lib/i18n/de.json` and
     `src/frontend/src/lib/i18n/en.json`, key-for-key, alongside the existing
     `estimation.importMerlin*` family: `estimation.importXlsx`,
     `importXlsxHint`, `importXlsxFailed`, `importXlsxInvalidFile`,
     `importXlsxMethodMismatch`. Real German, never the English sentence pasted
-    across, and no literal in the component.
+    across, and no literal in the component. `importXlsxMethodMismatch` is the
+    one the user most needs to act on, so say what to do ("Diese Datei gehört zu
+    einer Kalkulation mit einer anderen Schätzmethode…"), not merely that it
+    failed. The same edit renames `estimation.importMerlinReplace` to
+    `estimation.replaceDraftConfirm` in both catalogs (see the dialog step).
   - |
     Add `src/frontend/e2e/xlsx-import.test.ts`, modelled on
     `src/frontend/e2e/merlin-import.test.ts`: create an estimation with a
@@ -169,18 +221,26 @@ validation:
       set -e
       S=src/backend/implementation/src/main/kotlin/io/pythia/service/EstimationVersionService.kt
       grep -q "fun importXlsxDraft" "$S"
+      # @Transactional sits ABOVE the fun line, so check it separately.
+      grep -B2 "fun importXlsxDraft" "$S" | grep -q "@Transactional"
       awk '/fun importXlsxDraft/{f=1} f{print} f&&/^    }$/{exit}' "$S" > /tmp/t183-svc
       grep -q "requireEstimationWithoutDraft" /tmp/t183-svc
       grep -q "IMPORT_XLSX" /tmp/t183-svc
       grep -qE "Log\.info" /tmp/t183-svc
+      # It takes the uploaded file's Path, not a single-pass InputStream: the
+      # mismatch guard has to read the workbook before the importer does.
+      grep -qE "fun importXlsxDraft\(.*Path" "$S"
   - |
     THE CORRECTNESS POINT: a workbook whose method disagrees with the estimation
     is refused instead of silently misread:
       set -e
       S=src/backend/implementation/src/main/kotlin/io/pythia/service/EstimationVersionService.kt
       grep -qE "Sheets.BUCKETS" "$S"
-      grep -qE "BAD_REQUEST" "$S"
       grep -qE "BUCKET_SAMPLED_PERT|estimation\.method" "$S"
+      # 422, not a second 400 — the UI maps the two failures to different
+      # messages by status. (A bare BAD_REQUEST grep would pass on the Merlin
+      # path that is already in this file, so it proves nothing here.)
+      grep -qE "422|UNPROCESSABLE" "$S"
   - |
     The bad-file path does not reach for a blanket catch, which detekt rejects:
       set -e
@@ -198,6 +258,7 @@ validation:
       CODE=$(grep -v '^\s*//' "$T")
       printf '%s' "$CODE" | grep -qE "409"
       printf '%s' "$CODE" | grep -qE "400"
+      printf '%s' "$CODE" | grep -qE "422"
       printf '%s' "$CODE" | grep -qiE "mismatch|BUCKET_SAMPLED_PERT"
   - |
     The UI posts a multipart upload through apiFetch and reuses the existing
@@ -208,6 +269,19 @@ validation:
       grep -q "FormData" "$P"
       grep -q "ReplaceDraftDialog" "$P"
       grep -qE "accept=\"\.xlsx\"|accept='\.xlsx'" "$P"
+      # The two failure modes must map to DIFFERENT messages, by status.
+      grep -q "importXlsxInvalidFile" "$P"
+      grep -q "importXlsxMethodMismatch" "$P"
+      grep -qE "422" "$P"
+  - |
+    The shared confirmation dialog is no longer named after one of its two
+    callers:
+      set -e
+      D=src/frontend/src/lib/components/ReplaceDraftDialog.svelte
+      grep -q "estimation.replaceDraftConfirm" "$D"
+      if grep -rq "importMerlinReplace" src/frontend/src; then
+        echo "the Merlin-named replace key is still referenced"; exit 1
+      fi
   - |
     Frontend conventions hold on the page: no raw fetch, no bare console, errors
     both logged and surfaced:
@@ -235,13 +309,16 @@ validation:
       ref = set().union(*(set(x) for x in f.values()))
       bad = {l: sorted(ref - set(x)) for l, x in f.items() if ref - set(x)}
       keys = ['estimation.importXlsx', 'estimation.importXlsxHint', 'estimation.importXlsxFailed',
-              'estimation.importXlsxInvalidFile', 'estimation.importXlsxMethodMismatch']
+              'estimation.importXlsxInvalidFile', 'estimation.importXlsxMethodMismatch',
+              'estimation.replaceDraftConfirm']
+      gone = [k for k in ('estimation.importMerlinReplace',) if k in de or k in en]
       de, en = f.get('de', {}), f.get('en', {})
       missing = [k for k in keys if k not in de or k not in en]
       copied = [k for k in keys if k in de and de.get(k) == en.get(k)]
       print('catalogs:', sorted(cats), '| mismatch:', bad or 'none')
       print('missing:', missing or 'none', '| untranslated:', copied or 'none')
-      sys.exit(1 if (bad or missing or copied) else 0)
+      print('stale merlin-named replace key:', gone or 'none')
+      sys.exit(1 if (bad or missing or copied or gone) else 0)
       "
   - |
     An e2e spec drives the real upload, and builds its own fixture rather than
@@ -270,6 +347,9 @@ outputs:
   - modified: src/backend/implementation/src/main/kotlin/io/pythia/service/EstimationVersionService.kt
   - modified: src/backend/implementation/src/test/kotlin/io/pythia/rest/EstimationVersionResourceIT.kt
   - modified: src/frontend/src/routes/estimations/[id]/+page.svelte
+  # Its confirm button is hardcoded to the Merlin-named key; the dialog is
+  # shared by both importers, so the key becomes `replaceDraftConfirm`.
+  - modified: src/frontend/src/lib/components/ReplaceDraftDialog.svelte
   - modified: src/frontend/src/lib/i18n/de.json
   - modified: src/frontend/src/lib/i18n/en.json
   - created: src/frontend/e2e/xlsx-import.test.ts

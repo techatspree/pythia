@@ -1,0 +1,237 @@
+id: task-185
+phase: phase-17
+title: "Minimal visual design for the exported Excel workbook"
+depends_on: [task-183]
+description: |
+  The xlsx export is content-complete but entirely unstyled: `ExcelExporter`
+  writes bare values into the default cell style. The result is hard to read and
+  looks unfinished next to the rest of the product — and since task-183 gave the
+  workbook an import endpoint and an upload UI, it is now a file users actually
+  hand around, not just a one-way dump.
+
+  ## Current state, verified
+
+  `src/backend/implementation/src/main/kotlin/io/pythia/service/ExcelExporter.kt`
+  (313 lines, `@ApplicationScoped`) creates an `XSSFWorkbook` and writes six
+  sheets — `Projektstrukturplan`, optionally `Eimer`, `Zusatzkosten`, `Pakete`,
+  `Parameter`, `Aufwandstreiber`. It never touches `CellStyle`, `Font`,
+  `setColumnWidth` or `createFreezePane`. Concretely, today:
+
+  - Header rows are indistinguishable from data rows.
+  - Every column is the default ~8.43 characters wide, so `Beschreibung` and
+    `Annahmen, Abgrenzungen, Kommentare` are truncated on screen and the
+    36-character `Logical ID` column shows `#####`-style overflow.
+  - The `Pakete` headers in `ExcelGermanLabels.Phases` deliberately contain
+    newlines (`"Laufzeit\nWochen"`, `"Aufwand\nPT"`, …). With `wrapText` false —
+    the default — Excel renders them as a single run-on line. The intent is
+    already in the data; only the style is missing.
+  - Money (`Kosten`, `Angebots-preis`, `Kosten Entwicklung`, `Betrag`,
+    `Tagessatz`, …) prints as raw doubles like `5280.0`; effort in person-days
+    prints as `6.999999999999999`-shaped values; fractions that are conceptually
+    percentages (`Vertriebszuschlag`, an effort driver's `Faktor`) print as
+    `0.15` rather than `15,0 %`.
+  - Tree depth on `Projektstrukturplan` is conveyed by prefixing column 0 with
+    `"  ".repeat(depth)`, i.e. literal spaces inside the cell VALUE.
+
+  ## Target state
+
+  A deliberately minimal, consistent look, applied by the exporter only — no new
+  dependency, no new REST surface, no frontend change, no change to WHICH values
+  land in WHICH cell:
+
+  - A header band on every sheet: bold white text on the brand green
+    `#009E5A` (the `--color-brand-green` token in `src/frontend/src/app.css`),
+    `wrapText` on so the `Pakete` newlines render, vertically centred, with the
+    header row frozen (`createFreezePane(0, 1)`) so it stays visible while
+    scrolling a long structure plan.
+  - Explicit per-sheet column widths, so nothing is truncated and the wide free
+    text columns get room.
+  - Number formats by column meaning: person-days and variances `#,##0.00`,
+    money `#,##0.00 "€"`, conceptual fractions `0.0 %`, `Position` on the `Eimer`
+    sheet `0`.
+  - Group rows on `Projektstrukturplan` set apart — bold, on a light
+    `#F1F5F9` fill — so the hierarchy is legible at a glance.
+  - Tree depth expressed as real Excel indentation (`CellStyle.indention`) on
+    column 0 instead of literal leading spaces, so the cell VALUE is the clean
+    title and sorting/filtering/copying no longer carry the padding.
+  - The two section titles on `Zusatzkosten` (`Einmalige Kosten`,
+    `Laufende Kosten`) bold.
+
+  ## Constraints the implementer must respect
+
+  **Round-trip fidelity is non-negotiable.** A styled workbook must still import
+  cleanly: `ExcelImporterTreeTest` and every other backend test must stay green
+  without being weakened. Styles never change a cell's value or type, so this
+  holds by construction — with exactly one behavioural change, the indentation
+  switch. That one is safe because `ExcelImporter` already reads column 0 as
+  `row.cellStringValue(0)?.trimStart()` and takes depth from POI's
+  `outlineLevel`, never from the leading spaces; removing the spaces makes
+  `trimStart()` a no-op. Do NOT touch `ExcelImporter.kt` — if it needs a change,
+  the styling approach is wrong.
+
+  **Excel's indent range is 0–15.** Cap with `minOf(depth, 15)`; a deeper tree
+  keeps the maximum indent rather than overflowing the attribute.
+
+  **`XSSFCellStyle` and `XSSFFont` belong to ONE workbook, and Excel caps a
+  workbook at 64k styles.** The exporter is `@ApplicationScoped` — a single
+  instance shared across concurrent requests — so styles must NEVER be fields on
+  `ExcelExporter`, and must never be created per cell. Build one style holder per
+  `export(...)` call and thread it through the private `write*` methods.
+
+  **Do not use `autoSizeColumn`.** It measures glyphs through `java.awt` font
+  metrics, which depends on the fonts installed in whatever container the
+  backend runs in and is slow on large sheets. Widths are explicit constants.
+
+  **Do not add an auto-filter.** `Projektstrukturplan` uses POI row outline
+  levels for the tree; a filter on top of grouped rows hides children
+  independently of their parents and makes the sheet misleading.
+
+  On the bucket+sampled sheet the method's own columns are a mix: `ExcelExporter`
+  already writes a method cell as NUMERIC only when the value parses as a double,
+  and as text otherwise. Apply the numeric style only to the cells that actually
+  came out numeric — never blanket-format that block.
+
+steps:
+  - |
+    Create `src/backend/implementation/src/main/kotlin/io/pythia/service/ExcelStyles.kt`
+    — an internal, workbook-scoped style holder:
+
+      internal class ExcelStyles(private val workbook: XSSFWorkbook)
+
+    Expose lazily-built, CACHED styles (a `MutableMap` per parametrised
+    accessor — never create a style twice):
+
+      val header: XSSFCellStyle              // bold, white, #009E5A solid fill,
+                                             // wrapText, vertical CENTER
+      val sectionTitle: XSSFCellStyle        // bold, no fill
+      fun text(indent: Int, group: Boolean): XSSFCellStyle   // cached by (indent, group)
+      fun number(group: Boolean): XSSFCellStyle              // "#,##0.00"
+      fun money(group: Boolean): XSSFCellStyle               // "#,##0.00 \"€\""
+      fun percent(): XSSFCellStyle                           // "0.0 %"
+      fun integer(): XSSFCellStyle                           // "0"
+      fun wrappedText(): XSSFCellStyle                       // wrapText, top-aligned
+
+    `group = true` adds bold plus a `#F1F5F9` solid fill. Build colours with
+    `XSSFColor(byteArrayOf(0x00, 0x9E.toByte(), 0x5A), null)` (the `IndexedColorMap`
+    overload; the `java.awt.Color` constructor is deprecated), fills with
+    `setFillForegroundColor(color)` + `fillPattern = FillPatternType.SOLID_FOREGROUND`,
+    and number formats via `workbook.createDataFormat().getFormat(pattern)`.
+    Create at most two `XSSFFont` instances (regular, bold) and share them.
+    Put the brand hex, the group-fill hex and the format patterns in a
+    `private companion object` as named constants, and annotate the class
+    `@Suppress("MagicNumber")` for the RGB byte literals, matching the existing
+    suppression style at the top of `ExcelExporter.kt`.
+  - |
+    In `ExcelExporter.export(...)`, construct `val styles = ExcelStyles(workbook)`
+    right after `XSSFWorkbook()` and pass it into every private `write*` method
+    (add it as a parameter — do not stash it in a field). Add one
+    `Log.debug { ... }`-level line recording that the styled workbook was built,
+    keeping the existing `Log.info`/`Log.debug` calls untouched.
+  - |
+    Add a small private helper used by all six sheets, e.g.
+
+      private fun styleHeader(row: XSSFRow, styles: ExcelStyles, height: Short = 32)
+
+    which applies `styles.header` to every created cell in the row and sets
+    `row.heightInPoints`. Call it after each sheet's header cells are created,
+    and call `sheet.createFreezePane(0, 1)` on every sheet (for `Zusatzkosten`,
+    whose header is at row 1 under a section title, freeze at row 0 — i.e. skip
+    the freeze there rather than freezing a meaningless row).
+  - |
+    Style `writeProjectStructurePlan` / `writeNode`:
+    column 0 gets `styles.text(indent = minOf(depth, 15), group = node is SubmittedGroupNode)`
+    and its VALUE loses the `"  ".repeat(depth)` prefix (write the plain title /
+    description); the accumulated group cells (5+shift mean, 7+shift variance,
+    11+shift offerPT) get `styles.number(group = true)`; leaf `mean`, `variance`,
+    `riskSurcharge`, `driverSurcharge`, `offerPT` get `styles.number(false)`;
+    `cost` (12+shift) and `offerPrice` (13+shift) get `styles.money(false)`;
+    the assumptions cell (15+shift) gets `styles.wrappedText()`; and each method
+    cell gets `styles.number(false)` ONLY on the branch that called
+    `setCellValue(numeric)`.
+    Then set explicit widths with `sheet.setColumnWidth(i, chars * 256)`:
+    column 0 → 52, each method column → 13, every numeric column → 13,
+    `Paket` → 10, `Annahmen…` → 45, `Node type` → 13, `Logical ID` → 38,
+    `Unit` → 10 (remember all trailing indices carry `+ shift`).
+  - |
+    Style the remaining sheets:
+    - `Zusatzkosten`: both section-title cells get `styles.sectionTitle`, both
+      header rows the header band, `Betrag` / `Betrag pro Woche` / `Gesamtkosten`
+      get `styles.money(false)`; widths 40 / 16 / 10 / 16.
+    - `Eimer`: `Position` gets `styles.integer()`; widths 32 / 10 / 38.
+    - `Pakete`: `Laufzeit Wochen` and `Aufwand PT` get `styles.number(false)`,
+      the four cost columns `styles.money(false)`; widths 28 / 10 / 12 / 12 /
+      18 / 18 / 18 / 20. Verify the wrapped multi-line headers render — this is
+      the sheet the `wrapText` on the header style exists for.
+    - `Parameter`: `Tagessatz` → `styles.money(false)`,
+      `Standardabweichungsfaktor` → `styles.number(false)`,
+      `Vertriebszuschlag` → `styles.percent()`; widths 32 / 16 / 40, comment
+      column `styles.wrappedText()`.
+    - `Aufwandstreiber`: `Faktor` → `styles.percent()`, `Zusatzaufwand` →
+      `styles.number(false)`, `Kommentar` → `styles.wrappedText()`;
+      widths 40 / 12 / 16 / 45.
+  - |
+    Update `src/backend/implementation/src/test/kotlin/io/pythia/service/ExcelExporterTreeTest.kt`:
+    the column-0 assertion at the `rowAssertions` loop must now expect the bare
+    label (no `"  ".repeat(expectedLevel)` prefix) and additionally assert
+    `row.getCell(0).cellStyle.indention.toInt() == expectedLevel`. Everything
+    else in that test — outline levels, node types, accumulated values, logical
+    ids — stays exactly as it is.
+  - |
+    Add `src/backend/implementation/src/test/kotlin/io/pythia/service/ExcelStyleTest.kt`
+    exercising the styling through a real export of `TreeFixtures.threeLevel()`
+    (install the methods with `StandardMethods.installAll()` in `@BeforeEach`,
+    as the sibling tests do). Assert at least:
+    - every sheet's row 0 header cell is bold and has `wrapText` true;
+    - `sheet.getPaneInformation()` shows a frozen top row on `Projektstrukturplan`;
+    - `sheet.getColumnWidth(0) > sheet.getColumnWidth(1)` on `Projektstrukturplan`;
+    - a group row's column-0 style is bold while a leaf row's is not;
+    - the `Kosten` cell's `cellStyle.dataFormatString` contains `€` and the
+      `Vertriebszuschlag` value cell's contains `%`;
+    - the numeric VALUES are unchanged (e.g. the `Angebots-preis` leaf cell is
+      still `1760.0`), which is what keeps the import contract honest.
+  - |
+    Add a round-trip guard: in `ExcelImporterTreeTest` (or the new style test,
+    whichever already owns a round-trip fixture) assert that a styled export
+    re-imported through `ExcelImporter` yields the same tree — specifically that
+    a group's title and a leaf's description come back WITHOUT leading spaces
+    and at the right depth. If `ExcelImporterTreeTest` already covers this,
+    state so in a comment rather than duplicating the case.
+  - |
+    Run `./gradlew :backend:implementation:test` and `./gradlew staticAnalysis`;
+    both must be green. Manually open an exported workbook once
+    (`./scripts/dev.sh`, export a version as xlsx) to confirm it reads well.
+
+validation:
+  - |
+    test -f src/backend/implementation/src/main/kotlin/io/pythia/service/ExcelStyles.kt
+  - |
+    grep -q "internal class ExcelStyles" src/backend/implementation/src/main/kotlin/io/pythia/service/ExcelStyles.kt
+  - |
+    grep -q "009E5A\|0x9E" src/backend/implementation/src/main/kotlin/io/pythia/service/ExcelStyles.kt
+  - |
+    grep -q "createFreezePane" src/backend/implementation/src/main/kotlin/io/pythia/service/ExcelExporter.kt
+  - |
+    grep -q "setColumnWidth" src/backend/implementation/src/main/kotlin/io/pythia/service/ExcelExporter.kt
+  - |
+    grep -q "indention" src/backend/implementation/src/main/kotlin/io/pythia/service/ExcelStyles.kt
+  - |
+    ! grep -q "autoSizeColumn" src/backend/implementation/src/main/kotlin/io/pythia/service/ExcelExporter.kt
+  - |
+    ! grep -q '"  ".repeat' src/backend/implementation/src/main/kotlin/io/pythia/service/ExcelExporter.kt
+  - |
+    grep -q "Log\." src/backend/implementation/src/main/kotlin/io/pythia/service/ExcelExporter.kt
+  - |
+    test -f src/backend/implementation/src/test/kotlin/io/pythia/service/ExcelStyleTest.kt
+  - |
+    git diff --quiet -- src/backend/implementation/src/main/kotlin/io/pythia/service/ExcelImporter.kt
+  - |
+    ./gradlew :backend:implementation:test
+  - |
+    ./gradlew staticAnalysis
+
+outputs:
+  - created: src/backend/implementation/src/main/kotlin/io/pythia/service/ExcelStyles.kt
+  - created: src/backend/implementation/src/test/kotlin/io/pythia/service/ExcelStyleTest.kt
+  - modified: src/backend/implementation/src/main/kotlin/io/pythia/service/ExcelExporter.kt
+  - modified: src/backend/implementation/src/test/kotlin/io/pythia/service/ExcelExporterTreeTest.kt
+  - modified: src/backend/implementation/src/test/kotlin/io/pythia/service/ExcelImporterTreeTest.kt

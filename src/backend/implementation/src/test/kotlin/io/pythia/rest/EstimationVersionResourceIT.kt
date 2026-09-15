@@ -1248,4 +1248,87 @@ class EstimationVersionResourceIT {
             .body("summary.oldValue.flatten()", hasItem("800"))
             .body("summary.newValue.flatten()", hasItem("900"))
     }
+
+    // ── xlsx import (task-183) ──────────────────────────────────────────────
+    // Every fixture is produced by the application's own exporter through the
+    // REST API, so no binary workbook is committed and the round trip is the
+    // thing under test.
+
+    private fun createEstimation(method: EstimationMethod): String {
+        val projectId = given().contentType(ContentType.JSON)
+            .body("""{"name":"Xlsx ${UUID.randomUUID()}"}""")
+            .`when`().post("/api/projects")
+            .then().statusCode(201).extract().path<String>("id")
+
+        return given().contentType(ContentType.JSON)
+            .body("""{"offer":"XLSX-${UUID.randomUUID()}","method":"$method"}""")
+            .`when`().post("/api/projects/$projectId/estimations")
+            .then().statusCode(201).extract().path<String>("id")
+    }
+
+    /** A workbook exported from a fresh draft of a [method] estimation. */
+    private fun exportedWorkbook(method: EstimationMethod): ByteArray {
+        val sourceId = createEstimation(method)
+        given().`when`().post("/api/estimations/$sourceId/versions").then().statusCode(201)
+        return given()
+            .`when`().get("/api/estimations/$sourceId/versions/draft/export?format=xlsx")
+            .then().statusCode(200).extract().asByteArray()
+    }
+
+    private fun importXlsx(targetId: String, bytes: ByteArray) =
+        given()
+            .multiPart(
+                "file", "estimation.xlsx", bytes,
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            )
+            .`when`().post("/api/estimations/$targetId/versions/import/xlsx")
+
+    @Test
+    fun `xlsx import creates a draft, and a second import conflicts`() {
+        val workbook = exportedWorkbook(EstimationMethod.THREE_POINT_PERT)
+        val targetId = createEstimation(EstimationMethod.THREE_POINT_PERT)
+
+        importXlsx(targetId, workbook)
+            .then().statusCode(201)
+            .body("isDraft", equalTo(true))
+            .body("versionNumber", equalTo(1))
+
+        given().`when`().get("/api/estimations/$targetId/versions/draft")
+            .then().statusCode(200)
+            .body("isDraft", equalTo(true))
+
+        // The "one draft at a time" rule holds for this importer too.
+        importXlsx(targetId, workbook).then().statusCode(409)
+    }
+
+    @Test
+    fun `a workbook from a different method is refused with 422`() {
+        // A bucket+sampled export carries five method columns; read as PERT
+        // (three) every trailing value would come off the wrong offset, so this
+        // must be refused rather than imported. The file is a valid workbook —
+        // it simply cannot be applied here — hence 422 rather than 400.
+        val bucketWorkbook = exportedWorkbook(EstimationMethod.BUCKET_SAMPLED_PERT)
+        val pertEstimationId = createEstimation(EstimationMethod.THREE_POINT_PERT)
+
+        importXlsx(pertEstimationId, bucketWorkbook).then().statusCode(422)
+
+        // …and nothing was created by the rejected upload.
+        given().`when`().get("/api/estimations/$pertEstimationId/versions/draft")
+            .then().statusCode(404)
+    }
+
+    @Test
+    fun `a PERT workbook is refused by a bucket estimation with 422`() {
+        val pertWorkbook = exportedWorkbook(EstimationMethod.THREE_POINT_PERT)
+        val bucketEstimationId = createEstimation(EstimationMethod.BUCKET_SAMPLED_PERT)
+
+        importXlsx(bucketEstimationId, pertWorkbook).then().statusCode(422)
+    }
+
+    @Test
+    fun `an upload that is not a workbook is rejected with 400`() {
+        val targetId = createEstimation(EstimationMethod.THREE_POINT_PERT)
+
+        importXlsx(targetId, "not a spreadsheet".toByteArray()).then().statusCode(400)
+    }
 }

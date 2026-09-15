@@ -145,6 +145,39 @@ class EstimationVersionResource(
         return Response.status(Response.Status.CREATED).entity(draft.toDto(result)).build()
     }
 
+    @POST
+    @Path("/import/xlsx")
+    @Transactional
+    @RolesAllowed("ESTIMATOR")
+    @Consumes(MediaType.MULTIPART_FORM_DATA)
+    @Operation(
+        summary = "Import an Excel workbook exported by this application as a new draft version " +
+            "(method-aware: the workbook must come from an estimation using the same method)"
+    )
+    @APIResponse(
+        responseCode = "201",
+        description = "The created draft with calculated values",
+        content = [Content(schema = Schema(implementation = EstimationVersionDto::class))]
+    )
+    @APIResponse(responseCode = "400", description = "The upload is not a readable .xlsx workbook")
+    @APIResponse(responseCode = "404", description = "Estimation not found")
+    @APIResponse(responseCode = "409", description = "A draft already exists for this estimation")
+    @APIResponse(
+        responseCode = "422",
+        description = "The workbook was exported from an estimation using a different method"
+    )
+    fun importXlsx(
+        @PathParam("estimationId") estimationId: UUID,
+        @RestForm("file") file: FileUpload
+    ): Response {
+        ensureEstimationExists(estimationId)
+        // The PATH, not an InputStream: the service reads the workbook twice —
+        // once to check the method it was written for, once to import it.
+        val draft = versionService.importXlsxDraft(estimationId, file.uploadedFile())
+        val result = versionService.calculateDraft(draft)
+        return Response.status(Response.Status.CREATED).entity(draft.toDto(result)).build()
+    }
+
     @GET
     @Path("/draft")
     @Operation(summary = "Get the draft with on-the-fly calculated values")

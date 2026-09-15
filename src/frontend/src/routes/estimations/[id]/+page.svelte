@@ -117,6 +117,59 @@
 		}
 	}
 
+	// xlsx import (task-183): the same shape as the Merlin import above — the
+	// backend refuses a second draft with 409, which opens the shared
+	// ReplaceDraftDialog rather than destroying the existing one.
+	let xlsxInput = $state<HTMLInputElement | null>(null);
+	let pendingXlsxFile = $state<File | null>(null);
+
+	async function onXlsxFileSelected(e: Event) {
+		const input = e.currentTarget as HTMLInputElement;
+		const file = input.files?.[0];
+		input.value = '';
+		if (!file) return;
+		await runXlsxImport(file, false);
+	}
+
+	async function runXlsxImport(file: File, replaceDraft: boolean) {
+		if (!estimation?.id) return;
+		importing = true;
+		bannerMessage = null;
+		try {
+			if (replaceDraft) {
+				const del = await apiFetch(`/api/estimations/${estimation.id}/versions/draft`, {
+					method: 'DELETE'
+				});
+				await assertOk(del, $_('estimation.importXlsxFailed'));
+			}
+			const form = new FormData();
+			form.append('file', file);
+			const res = await apiFetch(`/api/estimations/${estimation.id}/versions/import/xlsx`, {
+				method: 'POST',
+				body: form
+			});
+			if (res.status === 409 && !replaceDraft) {
+				pendingXlsxFile = file;
+				return;
+			}
+			// Two distinct failures, told apart by STATUS: 400 is "not a readable
+			// workbook", 422 is "a valid workbook, but written for the other
+			// estimation method". Collapsing them would leave the user unable to
+			// tell a corrupt file from one that simply belongs elsewhere.
+			let fallback = $_('estimation.importXlsxFailed');
+			if (res.status === 400) fallback = $_('estimation.importXlsxInvalidFile');
+			else if (res.status === 422) fallback = $_('estimation.importXlsxMethodMismatch');
+			await assertOk(res, fallback);
+			pendingXlsxFile = null;
+			await loadEstimation();
+		} catch (e: any) {
+			log.error('importXlsx failed:', e);
+			bannerMessage = e.message;
+		} finally {
+			importing = false;
+		}
+	}
+
 	// Export (task-133): upload a COPY of the Merlin document, get it back with
 	// this estimation's offerPT written into the matching activities. Mirrors
 	// the import flow above — the chosen File is kept in state so a 409 (the
@@ -217,6 +270,16 @@
 				oncancel={() => (pendingMerlinFile = null)}
 			/>
 		{/if}
+		{#if pendingXlsxFile}
+			<ReplaceDraftDialog
+				onconfirm={() => {
+					const file = pendingXlsxFile;
+					pendingXlsxFile = null;
+					if (file) runXlsxImport(file, true);
+				}}
+				oncancel={() => (pendingXlsxFile = null)}
+			/>
+		{/if}
 		{#if structureDiff}
 			<MerlinStructureDialog
 				diff={structureDiff}
@@ -255,6 +318,21 @@
 				
 				>
 					{$_('estimation.importMerlin')}
+				</Button>
+				<input
+					type="file"
+					accept=".xlsx"
+					class="hidden"
+					data-testid="xlsx-import-input"
+					bind:this={xlsxInput}
+					onchange={onXlsxFileSelected}
+				/>
+				<Button variant="secondary"
+					onclick={() => xlsxInput?.click()}
+					disabled={importing}
+					title={$_('estimation.importXlsxHint')}
+				>
+					{$_('estimation.importXlsx')}
 				</Button>
 				<input
 					type="file"

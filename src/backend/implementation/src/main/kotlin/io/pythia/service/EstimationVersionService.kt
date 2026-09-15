@@ -21,6 +21,7 @@ import io.pythia.domain.submitted.SubmittedGroupNode
 import io.pythia.domain.submitted.SubmittedProjectPhase
 import io.pythia.domain.submitted.SubmittedScheduleDependency
 import io.pythia.domain.submitted.SubmittedTimeRelativeItemNode
+import io.pythia.method.EstimationMethod
 import io.pythia.method.bucketsampled.BucketedEstimationItem
 import io.pythia.method.threepoint.FixedEstimationItem
 import io.pythia.method.threepoint.TimeRelativeEstimationItem
@@ -36,15 +37,29 @@ import jakarta.enterprise.context.ApplicationScoped
 import jakarta.transaction.Transactional
 import jakarta.ws.rs.WebApplicationException
 import jakarta.ws.rs.core.Response
+import org.apache.poi.ooxml.POIXMLException
+import org.apache.poi.openxml4j.exceptions.OpenXML4JRuntimeException
+import org.apache.poi.xssf.usermodel.XSSFWorkbook
+import java.io.IOException
 import java.io.InputStream
+import java.nio.file.Path
 import java.time.Instant
 import java.util.UUID
+import kotlin.io.path.inputStream
 
 // The snapshot/clone tree builders are split into focused private helpers to
 // keep each method's complexity low; that deliberately raises the class's
 // function count past the TooManyFunctions threshold for one cohesive service.
 // LongParameterList is likewise deliberate: these are DI-injected collaborators
 // on a single cohesive service, not a call-site argument list.
+
+// 422 Unprocessable Content: jakarta's `Response.Status` has no constant for it,
+// so the code is named here rather than left as a bare literal. It marks an xlsx
+// whose method disagrees with the estimation's (task-183) — a perfectly valid
+// workbook that simply cannot be applied HERE, which the UI tells apart from an
+// unreadable upload (400) by status alone.
+private const val UNPROCESSABLE_CONTENT = 422
+
 @Suppress("TooManyFunctions", "LongParameterList")
 @ApplicationScoped
 class EstimationVersionService(
@@ -54,6 +69,7 @@ class EstimationVersionService(
     private val draftVersionMapper: DraftVersionMapper,
     private val auditLogService: AuditLogService,
     private val merlinImporter: MerlinImporter,
+    private val excelImporter: ExcelImporter,
     private val systemSettingsService: SystemSettingsService
 ) {
 
@@ -138,17 +154,110 @@ class EstimationVersionService(
         return draft
     }
 
+    /**
+     * Imports an xlsx workbook this application exported as a new draft (task-183).
+     *
+     * Mirrors [importMerlinDraft] with one deliberate difference: it takes the
+     * uploaded file's [Path] rather than an `InputStream`, because the workbook
+     * has to be read TWICE — once to decide which method it was written for, and
+     * once to import it. An `InputStream` is single-pass, so peeking would leave
+     * the importer an exhausted stream.
+     */
+    @Transactional
+    fun importXlsxDraft(estimationId: UUID, file: Path): DraftEstimationVersion {
+        Log.info("Importing xlsx draft for estimation $estimationId")
+        val estimation = requireEstimationWithoutDraft(estimationId)
+        requireWorkbookMatchesMethod(file, estimation)
+        val latestSubmitted = submittedRepository.findLatestByEstimationId(estimationId)
+        val newVersionNumber = (latestSubmitted?.versionNumber ?: 0) + 1
+        val draft = readingWorkbook(estimationId) {
+            file.inputStream().use { excelImporter.import(it, estimation, newVersionNumber) }
+        }
+        draftRepository.persist(draft)
+        auditLogService.log(
+            null, "DraftEstimationVersion", draft.id, "IMPORT_XLSX", "version=$newVersionNumber"
+        )
+        Log.info("Imported xlsx draft ${draft.id} (version=$newVersionNumber) for estimation $estimationId")
+        return draft
+    }
+
+    /**
+     * Refuses a workbook written for a different estimation method.
+     *
+     * [ExcelImporter] shapes its column block from `estimation.method`, so a
+     * bucket+sampled workbook (five method columns) read as PERT (three) would
+     * take every trailing value from the wrong offset and import numbers nobody
+     * entered — silently. The file says which method wrote it: the exporter
+     * writes the `Eimer` sheet on method alone, so its presence is an exact
+     * mirror of this check.
+     *
+     * 422 rather than 400: the upload is a perfectly well-formed workbook, it
+     * just cannot be processed into THIS estimation. The frontend tells the two
+     * failures apart by status, so they must not share one.
+     */
+    private fun requireWorkbookMatchesMethod(file: Path, estimation: Estimation) {
+        val workbookMethod = readingWorkbook(estimation.id) { methodOf(file) }
+        if (workbookMethod != estimation.method) {
+            Log.warn(
+                "xlsx import rejected for estimation ${estimation.id}: " +
+                    "workbook is $workbookMethod, estimation is ${estimation.method}"
+            )
+            throw WebApplicationException(
+                "This workbook was exported from a $workbookMethod estimation, " +
+                    "but this estimation uses ${estimation.method}.",
+                UNPROCESSABLE_CONTENT
+            )
+        }
+    }
+
+    /** Which method wrote this workbook — only a bucket+sampled export has `Eimer`. */
+    private fun methodOf(file: Path): EstimationMethod =
+        file.inputStream().use { stream ->
+            XSSFWorkbook(stream).use { workbook ->
+                if (workbook.getSheet(ExcelGermanLabels.Sheets.BUCKETS) != null) {
+                    EstimationMethod.BUCKET_SAMPLED_PERT
+                } else {
+                    EstimationMethod.THREE_POINT_PERT
+                }
+            }
+        }
+
+    /**
+     * Runs a workbook read, turning "this is not a readable .xlsx" into `400`.
+     *
+     * The single place that names POI's failure set, so the peek and the import
+     * cannot disagree about what counts as unreadable. `NotOfficeXmlFileException`
+     * — POI's "not an OOXML file at all" — extends [IllegalArgumentException],
+     * which is easy to miss: leave it out and an unreadable upload escapes as a
+     * `500` instead of the documented `400`. Anything outside that set is a real
+     * fault and is rethrown untouched, so this never becomes a blanket catch.
+     */
+    private inline fun <T> readingWorkbook(estimationId: UUID?, read: () -> T): T =
+        runCatching(read).getOrElse { e ->
+            when (e) {
+                is IOException, is POIXMLException, is OpenXML4JRuntimeException, is IllegalArgumentException ->
+                    throw invalidWorkbook(estimationId, e)
+                else -> throw e
+            }
+        }
+
+    private fun invalidWorkbook(estimationId: UUID?, e: Throwable): WebApplicationException {
+        Log.error("xlsx import failed for estimation $estimationId: ${e.message}")
+        return WebApplicationException("Invalid Excel workbook: ${e.message}", e, Response.Status.BAD_REQUEST)
+    }
+
     // Loads the estimation for a new draft, enforcing the "one draft at a time"
     // rule (404 if missing, 409 if a draft already exists). Logs the rejection so
-    // a failed Merlin import is diagnosable server-side (task-131 follow-up).
+    // a failed import is diagnosable server-side (task-131 follow-up). Shared by
+    // the Merlin and xlsx importers, so the message names neither (task-183).
     private fun requireEstimationWithoutDraft(estimationId: UUID): Estimation {
         val estimation = estimationRepository.findById(estimationId)
             ?: run {
-                Log.warn("Merlin import rejected: estimation $estimationId not found")
+                Log.warn("Draft import rejected: estimation $estimationId not found")
                 throw WebApplicationException("Estimation not found: $estimationId", Response.Status.NOT_FOUND)
             }
         if (draftRepository.findByEstimationId(estimationId) != null) {
-            Log.warn("Merlin import rejected: a draft already exists for estimation $estimationId")
+            Log.warn("Draft import rejected: a draft already exists for estimation $estimationId")
             throw WebApplicationException(
                 "A draft already exists for estimation $estimationId",
                 Response.Status.CONFLICT

@@ -38,7 +38,7 @@
 			
 				onclick={onconfirm}
 			
-				>{$_('estimation.importMerlinReplace')}</Button>
+				>{$_('estimation.replaceDraftConfirm')}</Button>
 		</div>
 	</div>
 </div>

@@ -1083,9 +1083,9 @@
       "notes": "Bucket Excel round-trip: bucket import/export shaping in the method module, exported file re-importable"
     },
     "task-183": {
-      "status": "pending",
-      "started_at": null,
-      "completed_at": null,
+      "status": "done",
+      "started_at": "2026-09-15T08:53:34+00:00",
+      "completed_at": "2026-09-15T09:05:52+00:00",
       "notes": "No way to upload an xlsx: add the import endpoint and the upload UI, reusing the Merlin import shape"
     },
     "task-184": {
@@ -1093,6 +1093,18 @@
       "started_at": null,
       "completed_at": null,
       "notes": "Pointer cross-bucket drop is a silent no-op under load (~1/20 full-suite runs); split from task-163, which fixed the keyboard publish defect and ruled out the anomaly-revert and zero-height-zone hypotheses"
+    },
+    "task-185": {
+      "status": "pending",
+      "started_at": null,
+      "completed_at": null,
+      "notes": "Exported Excel files have no layout — add a minimal, readable design (header styling, column widths, number formats)"
+    },
+    "task-186": {
+      "status": "pending",
+      "started_at": null,
+      "completed_at": null,
+      "notes": "Bucket estimation UI drops fields the model still carries (assumptions, and whatever else the PERT editor shows) — audit and restore"
     }
   }
 }
