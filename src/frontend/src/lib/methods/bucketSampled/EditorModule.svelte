@@ -299,10 +299,20 @@
 	// node type, and `roots` is $bindable hence invariant), but the metadata and
 	// the per-leaf rendering are defined exactly once: each view's cells branch
 	// on their own row type and then delegate to the shared Leaf snippets.
+	//
+	// This list is diffed against EstimationGrid's `columns` (task-186): `phase`
+	// and `assumptions` were missing here while the model, the database and the
+	// Excel export all carried them, so a bucket estimation could not be given a
+	// Paket at all and its assumptions were visible only in the exported file.
+	// The remaining difference to the PERT grid is deliberate: `type` (FIXED ↔
+	// TIME_RELATIVE) has no meaning for a bucketed leaf, and `pert` is replaced
+	// by `mean`, which for a non-sample is its bucket's average rather than a
+	// triple. Keep the two lists diffed when either gains a column.
 	const columnMeta = [
 		{ key: 'description', header: $_('bucket.colDescription'), width: '1fr' },
 		{ key: 'bucket', header: $_('bucket.colBucket'), width: '8rem' },
 		{ key: 'sample', header: $_('bucket.colSample'), width: '5rem', align: 'center' as const },
+		{ key: 'phase', header: $_('bucket.colPhase'), width: '6rem' },
 		{ key: 'optimistic', header: $_('bucket.colOptimistic'), width: '6rem', align: 'right' as const },
 		{ key: 'likely', header: $_('bucket.colLikely'), width: '6rem', align: 'right' as const },
 		{
@@ -319,6 +329,7 @@
 			align: 'center' as const,
 			collapsible: true
 		},
+		{ key: 'assumptions', header: $_('bucket.colAssumptions'), width: '1fr' },
 		{ key: 'offerPT', header: $_('bucket.colOfferPT'), width: '6rem', align: 'right' as const },
 		{
 			key: 'cost',
@@ -376,7 +387,7 @@
 			value={node.bucketId ?? ''}
 			onchange={(e) => (node.bucketId = e.currentTarget.value === '' ? null : e.currentTarget.value)}
 		>
-			<option value="">{$_('bucket.phaseNone')}</option>
+			<option value="">{$_('bucket.bucketNone')}</option>
 			{#each buckets as b (b.id)}
 				<option value={b.id}>{b.label}</option>
 			{/each}
@@ -385,6 +396,38 @@
 		<span class="px-1 text-sm text-ink-muted"
 			>{buckets.find((b) => b.id === node.bucketId)?.label ?? ''}</span
 		>
+	{/if}
+{/snippet}
+
+{#snippet leafPhase(node: Leaf)}
+	{#if editable && phases.length > 0}
+		<select
+			class="w-full bg-transparent text-sm focus:outline-none focus:ring-1 focus:ring-brand-green/40 rounded px-1 py-0.5"
+			value={node.phaseAbbreviation ?? ''}
+			onchange={(e) =>
+				(node.phaseAbbreviation = e.currentTarget.value === '' ? null : e.currentTarget.value)}
+		>
+			<option value="">{$_('bucket.phaseNone')}</option>
+			{#each phases as p (p.abbreviation)}
+				<option value={p.abbreviation}>{p.abbreviation}</option>
+			{/each}
+		</select>
+	{:else}
+		<span class="px-1 text-xs text-ink-muted">{node.phaseAbbreviation ?? ''}</span>
+	{/if}
+{/snippet}
+
+{#snippet leafAssumptions(node: Leaf)}
+	{#if editable}
+		<input
+			type="text"
+			class="w-full min-w-0 bg-transparent focus:outline-none focus:bg-brand-green/5 focus:ring-1 focus:ring-brand-green/40 rounded px-1 py-0.5"
+			value={node.assumptions ?? ''}
+			placeholder="…"
+			oninput={(e) => (node.assumptions = e.currentTarget.value || null)}
+		/>
+	{:else}
+		<span class="px-1 text-ink-muted">{node.assumptions ?? ''}</span>
 	{/if}
 {/snippet}
 
@@ -460,6 +503,12 @@
 {#snippet hSample(node: Node)}
 	{#if node.type !== 'GROUP'}{@render leafSample(node)}{/if}
 {/snippet}
+{#snippet hPhase(node: Node)}
+	{#if node.type !== 'GROUP'}{@render leafPhase(node)}{/if}
+{/snippet}
+{#snippet hAssumptions(node: Node)}
+	{#if node.type !== 'GROUP'}{@render leafAssumptions(node)}{/if}
+{/snippet}
 {#snippet hOptimistic(node: Node)}
 	{#if node.type !== 'GROUP'}{@render leafNumber(node, 'minEffort')}{/if}
 {/snippet}
@@ -522,6 +571,12 @@
 {/snippet}
 {#snippet bSample(node: BucketViewNode)}
 	{#if !isBucketRow(node)}{@render leafSample(node)}{/if}
+{/snippet}
+{#snippet bPhase(node: BucketViewNode)}
+	{#if !isBucketRow(node)}{@render leafPhase(node)}{/if}
+{/snippet}
+{#snippet bAssumptions(node: BucketViewNode)}
+	{#if !isBucketRow(node)}{@render leafAssumptions(node)}{/if}
 {/snippet}
 {#snippet bOptimistic(node: BucketViewNode)}
 	{#if !isBucketRow(node)}{@render leafNumber(node, 'minEffort')}{/if}
@@ -641,11 +696,13 @@
 				description: hDescription,
 				bucket: hBucket,
 				sample: hSample,
+				phase: hPhase,
 				optimistic: hOptimistic,
 				likely: hLikely,
 				pessimistic: hPessimistic,
 				mean: hMean,
 				criticalPath: hCriticalPath,
+				assumptions: hAssumptions,
 				offerPT: hOfferPT,
 				cost: hCost,
 				offerPrice: hOfferPrice
@@ -685,11 +742,13 @@
 				description: bDescription,
 				bucket: bBucket,
 				sample: bSample,
+				phase: bPhase,
 				optimistic: bOptimistic,
 				likely: bLikely,
 				pessimistic: bPessimistic,
 				mean: bMean,
 				criticalPath: bCriticalPath,
+				assumptions: bAssumptions,
 				offerPT: bOfferPT,
 				cost: bCost,
 				offerPrice: bOfferPrice

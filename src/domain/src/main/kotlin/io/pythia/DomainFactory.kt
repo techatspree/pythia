@@ -78,6 +78,9 @@ fun createTimeRelativeItem(
     _phase = phase
 )
 
+// `assumptions` and `phase` trail `logicalId` rather than preceding it as they
+// do in createTimeRelativeItem: adapter.ts calls this factory POSITIONALLY, so
+// inserting them earlier would silently land its logicalId in assumptions.
 @JsExport
 fun createBucketedItem(
     description: String,
@@ -86,7 +89,9 @@ fun createBucketedItem(
     optimistic: Double = 0.0,
     likely: Double = 0.0,
     pessimistic: Double = 0.0,
-    logicalId: String = newId()
+    logicalId: String = newId(),
+    assumptions: String = "",
+    phase: ProjectPhase? = null
 ): BucketedEstimationItem = BucketedEstimationItem(
     bucketId = bucketId,
     isSample = isSample,
@@ -94,7 +99,9 @@ fun createBucketedItem(
     likely = likely,
     pessimistic = pessimistic,
     _description = description,
-    _logicalId = logicalId
+    _assumptions = assumptions,
+    _logicalId = logicalId,
+    _phase = phase
 )
 
 @JsExport

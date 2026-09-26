@@ -1101,10 +1101,16 @@
       "notes": "Exported Excel files have no layout — add a minimal, readable design (header styling, column widths, number formats)"
     },
     "task-186": {
+      "status": "in_progress",
+      "started_at": "2026-09-16T07:39:07+00:00",
+      "completed_at": null,
+      "notes": "Bucket estimation UI drops fields the model still carries (assumptions, and whatever else the PERT editor shows) — audit and restore"
+    },
+    "task-187": {
       "status": "pending",
       "started_at": null,
       "completed_at": null,
-      "notes": "Bucket estimation UI drops fields the model still carries (assumptions, and whatever else the PERT editor shows) — audit and restore"
+      "notes": "Bucket editor renders a TIME_RELATIVE leaf as if it were bucketed (bucket select, no unit, no type) — split from task-186's audit"
     }
   }
 }

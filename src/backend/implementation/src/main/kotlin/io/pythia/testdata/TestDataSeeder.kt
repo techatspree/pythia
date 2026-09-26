@@ -176,7 +176,9 @@ class TestDataSeeder(
         isSample: Boolean,
         min: Double? = null,
         exp: Double? = null,
-        max: Double? = null
+        max: Double? = null,
+        phase: DraftProjectPhase? = null,
+        assumptions: String? = null
     ) = DraftBucketedItemNode().apply {
         this.version = version
         this.description = description
@@ -185,6 +187,8 @@ class TestDataSeeder(
         this.minEffort = min
         this.expectedEffort = exp
         this.maxEffort = max
+        this.phase = phase
+        this.assumptions = assumptions
     }
 
     // Root-level leaves (no group wrapper): for the bucket + sampled method the
@@ -641,6 +645,29 @@ class TestDataSeeder(
         draft.stdDevFactor = 2.0
         draft.salesSurcharge = 0.12
 
+        // Phases, like the two PERT seeds have. A bucketed leaf is a scheduled
+        // leaf, so without them the Paket column had nothing to offer and the
+        // Pakete panel summed nothing (task-186).
+        val phaseKO = DraftProjectPhase().apply {
+            name = "Konzeption"
+            abbreviation = "KO"
+            durationWeeks = 3.0
+            version = draft
+        }
+        val phaseUM = DraftProjectPhase().apply {
+            name = "Umsetzung"
+            abbreviation = "UM"
+            durationWeeks = 12.0
+            version = draft
+        }
+        val phaseAB = DraftProjectPhase().apply {
+            name = "Abnahme"
+            abbreviation = "AB"
+            durationWeeks = 2.0
+            version = draft
+        }
+        draft.phases.addAll(listOf(phaseKO, phaseUM, phaseAB))
+
         // Each bucket: one sample (three-point) + one non-sample that inherits the
         // bucket's sample mean via EstimationVersion.calculate().
         //
@@ -657,22 +684,37 @@ class TestDataSeeder(
                     draft, "Ingest", listOf(
                         bucketedLeaf(
                             draft, "Ingest connector A", bucketS,
-                            isSample = true, min = 1.0, exp = 2.0, max = 3.0
+                            isSample = true, min = 1.0, exp = 2.0, max = 3.0,
+                            phase = phaseKO,
+                            assumptions = "Quellsystem liefert CSV über SFTP"
                         ),
-                        bucketedLeaf(draft, "Ingest connector B", bucketS, isSample = false)
+                        bucketedLeaf(
+                            draft, "Ingest connector B", bucketS,
+                            isSample = false, phase = phaseKO
+                        )
                     )
                 ),
                 group(
                     draft, "Transform", listOf(
                         bucketedLeaf(
                             draft, "Transform pipeline X", bucketM,
-                            isSample = true, min = 3.0, exp = 5.0, max = 8.0
+                            isSample = true, min = 3.0, exp = 5.0, max = 8.0,
+                            phase = phaseUM,
+                            assumptions = "Bestehende Mappings werden übernommen"
                         ),
-                        bucketedLeaf(draft, "Transform pipeline Y", bucketM, isSample = false)
+                        bucketedLeaf(
+                            draft, "Transform pipeline Y", bucketM,
+                            isSample = false, phase = phaseUM
+                        )
                     )
                 ),
-                bucketedLeaf(draft, "Reporting dashboard", bucketL, isSample = true, min = 5.0, exp = 8.0, max = 13.0),
-                bucketedLeaf(draft, "Data catalog", bucketL, isSample = false)
+                bucketedLeaf(
+                    draft, "Reporting dashboard", bucketL,
+                    isSample = true, min = 5.0, exp = 8.0, max = 13.0,
+                    phase = phaseAB,
+                    assumptions = "Maximal zehn Kennzahlen im ersten Wurf"
+                ),
+                bucketedLeaf(draft, "Data catalog", bucketL, isSample = false, phase = phaseAB)
             )
         )
 
@@ -680,7 +722,8 @@ class TestDataSeeder(
 
         Log.info(
             "Seeded bucket+sampled estimation ${estimation.id} " +
-                "(method=${estimation.method}, buckets=${estimation.buckets.size})"
+                "(method=${estimation.method}, buckets=${estimation.buckets.size}, " +
+                "phases=${draft.phases.size})"
         )
 
         // No schedule graph here, by design (see the class KDoc).

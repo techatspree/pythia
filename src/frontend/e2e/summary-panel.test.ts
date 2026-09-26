@@ -248,10 +248,12 @@ test('summary panel shows a bucket estimation total matching the bucket rows', a
 
 	// …and it equals the sum of what the bucket rows themselves display. Bucket
 	// rows stay visible while collapsed (task-134), so no expansion is needed.
-	// Column 8 of the bucket view's columns is offerPT — it was 7 until task-170
-	// inserted the critical-path column after `mean`. This index is positional
-	// (see `cellText`), so it shifts whenever a column is added to its left.
-	const OFFER_PT_COLUMN = 8;
+	// Column 10 of the bucket view's columns is offerPT — it was 7 until task-170
+	// inserted the critical-path column after `mean`, and 8 until task-186 added
+	// the phase and assumptions columns (after `sample` and after `criticalPath`
+	// respectively). This index is positional (see `cellText`), so it shifts
+	// whenever a column is added to its left.
+	const OFFER_PT_COLUMN = 10;
 	const bucketSum =
 		parseDe(await cellText(page, `bucket:${b1}`, OFFER_PT_COLUMN)) +
 		parseDe(await cellText(page, `bucket:${b2}`, OFFER_PT_COLUMN)) +

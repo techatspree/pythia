@@ -32,6 +32,7 @@ data class BucketedEstimationItem(
     val likely: Double? = null,
     val pessimistic: Double? = null,
     private val _description: String = "",
+    private val _assumptions: String = "",
     private val _logicalId: String = newId(),
     private val _phase: ProjectPhase? = null,
     private val _calculationParameters: CalculationParameters = CalculationParameters(),
@@ -48,7 +49,7 @@ data class BucketedEstimationItem(
     0.0,
     0.0,
     0.0,
-    "",
+    _assumptions,
     _phase,
     _logicalId,
     _calculationParameters,
@@ -89,17 +90,19 @@ data class BucketedEstimationItem(
 
     override val isScheduled: Boolean = true
 
-    // This leaf's inputs are the bucket assignment plus the sample triple — it
-    // does not carry assumptions or a phase, so it replaces the base list
-    // rather than extending it. Order matches what the history panel has
-    // always rendered: bucket, isSample, then the triple.
+    // This leaf's own inputs — the bucket assignment plus the sample triple —
+    // come first, then the two the base list also reports, in the base's order
+    // (task-186). Order is part of the output: the history panel renders these
+    // in sequence.
     @JsExport.Ignore
     override fun diffFields(): List<LeafDiffField> = listOf(
         LeafDiffField.text("bucket", bucketId),
         LeafDiffField.text("isSample", isSample.toString()),
         LeafDiffField.number("optimistic", optimistic),
         LeafDiffField.number("likely", likely),
-        LeafDiffField.number("pessimistic", pessimistic)
+        LeafDiffField.number("pessimistic", pessimistic),
+        LeafDiffField.text("assumptions", assumptions.ifBlank { null }),
+        LeafDiffField.text("phase", phase?.abbreviation)
     )
 
     override fun withCalculationParameters(params: CalculationParameters): BucketedEstimationItem =

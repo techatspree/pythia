@@ -202,8 +202,10 @@ test('a non-sample leaf inherits the average of its bucket', async ({ page, requ
 	// Move half the leaves into bucket B. The row <select> has no accessible
 	// name, but a LEAF row contains no descendant rows, so scoping by row id
 	// makes it unambiguous.
-	await page.locator(`${row(leaf3)} select`).selectOption(bucketB);
-	await page.locator(`${row(leaf4)} select`).selectOption(bucketB);
+	// `.first()` is the BUCKET select: since task-186 a leaf row also carries a
+	// phase select whenever the version has phases (this fixture has none).
+	await page.locator(`${row(leaf3)} select`).first().selectOption(bucketB);
+	await page.locator(`${row(leaf4)} select`).first().selectOption(bucketB);
 
 	// One sample per bucket. The three-point inputs render only once `isSample`
 	// is set, so the checkbox has to come first.
@@ -311,4 +313,81 @@ test('exporting a submitted version carries the method’s own columns', async (
 	const xlsx = await download(/Excel/);
 	expect(xlsx.filename).toBe('estimation-v1.xlsx');
 	expect(xlsx.body.subarray(0, 2).toString('latin1')).toBe('PK');
+});
+
+/**
+ * A draft with phases AND buckets — the combination the phase column needs, and
+ * one no other bucket fixture has (task-186). `leafPhase` falls back to a
+ * read-only span when the version carries no phase, so a phase-less seed would
+ * silently assert nothing.
+ */
+async function seedPhasedDraft(request: APIRequestContext) {
+	const estimationId = await createBucketEstimation(request, 'phased');
+	const bucketId = crypto.randomUUID();
+	const leafId = crypto.randomUUID();
+
+	const putRes = await request.put(`/api/estimations/${estimationId}/versions/draft`, {
+		headers: JSON_HEADERS,
+		data: {
+			stdDevFactor: 0.0,
+			phases: [
+				{ name: 'Konzeption', abbreviation: 'KO', durationWeeks: 3 },
+				{ name: 'Umsetzung', abbreviation: 'UM', durationWeeks: 12 }
+			],
+			buckets: [{ id: bucketId, position: 0, label: 'M' }],
+			roots: [
+				{
+					type: 'BUCKETED',
+					logicalId: leafId,
+					description: 'Ingest connector',
+					bucketId,
+					isSample: true,
+					minEffort: 1,
+					expectedEffort: 2,
+					maxEffort: 3
+				}
+			]
+		}
+	});
+	expect(putRes.status()).toBe(200);
+	return { estimationId, leafId };
+}
+
+test('a bucketed leaf takes an assumption and a phase, and keeps both', async ({
+	page,
+	request
+}) => {
+	const { estimationId, leafId } = await seedPhasedDraft(request);
+	const url = `/estimations/${estimationId}/versions/draft`;
+
+	await openHierarchyView(page, url);
+
+	// Column order is description, bucket, sample, phase, … — so the phase
+	// select is the SECOND one in the row, the bucket picker the first.
+	const phaseSelect = page.locator(`${row(leafId)} select`).nth(1);
+	const assumptions = page.locator(`${row(leafId)} input[type="text"]`).last();
+
+	await phaseSelect.selectOption('UM');
+	await assumptions.fill('Quellsystem liefert CSV');
+
+	// Autosave is debounced; the reload is what proves it reached the backend
+	// rather than only the in-memory model.
+	await expect(page.getByText('Gespeichert')).toBeVisible();
+	await openHierarchyView(page, url);
+
+	await expect(page.locator(`${row(leafId)} select`).nth(1)).toHaveValue('UM');
+	await expect(page.locator(`${row(leafId)} input[type="text"]`).last()).toHaveValue(
+		'Quellsystem liefert CSV'
+	);
+
+	// Both projections render the same leaf: the bucket view must show the same
+	// two values, which is the half that was missing entirely before task-186.
+	// Its bucket rows start collapsed, but a collapsed row keeps its descendants
+	// in the DOM (`invisible`, not `display:none`) and a value assertion needs no
+	// visibility — so the leaf is addressable without expanding anything.
+	await page.getByTestId('bucket-view-toggle-bucket').click();
+	await expect(page.locator(`${row(leafId)} select`).nth(1)).toHaveValue('UM');
+	await expect(page.locator(`${row(leafId)} input[type="text"]`).last()).toHaveValue(
+		'Quellsystem liefert CSV'
+	);
 });

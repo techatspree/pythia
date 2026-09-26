@@ -233,6 +233,9 @@ export function computeEstimation(
 		if (node.type === 'BUCKETED') {
 			// The domain reducer (task-102) derives the per-bucket mean; the
 			// adapter only plumbs the leaf in. Sample values reuse min/expected/max.
+			// `assumptions` and `phase` trail `logicalId` in this factory — see the
+			// comment on createBucketedItem; a bucketed leaf is scheduled, so it
+			// needs its phase for the same task-177 reason the FIXED branch does.
 			return createBucketedItem(
 				node.description,
 				node.bucketId ?? '',
@@ -240,7 +243,9 @@ export function computeEstimation(
 				node.minEffort ?? 0,
 				node.expectedEffort ?? 0,
 				node.maxEffort ?? 0,
-				node.logicalId
+				node.logicalId,
+				node.assumptions ?? '',
+				phaseByAbbr.get(node.phaseAbbreviation ?? '') ?? null
 			);
 		}
 		return createFixedItem(

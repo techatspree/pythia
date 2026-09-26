@@ -1,0 +1,346 @@
+id: task-186
+phase: phase-15
+title: "Bucket method: restore assumptions and phase end-to-end"
+depends_on: [task-182, task-183]
+description: |
+  A bucket+sampled estimation cannot show or edit an item's **assumptions**, and
+  cannot assign an item to a **phase (Paket)** at all — both of which the
+  three-point editor offers, both of which the database stores, and both of which
+  appear in the Excel export. The values are therefore invisible in the product
+  but visible in the file the product produces. This task closes the gap in the
+  two places it actually lives — the domain leaf and the bucket editor — and
+  audits the rest of the bucket surface for the same class of omission.
+
+  ## What was verified, file by file
+
+  **The persistence and REST layers are FINE.** There is one node DTO with
+  optional `assumptions` / `phaseAbbreviation` for every leaf type
+  (`src/frontend/src/lib/api/schema.d.ts`), the columns exist on the shared node
+  table, `ExcelExporter` writes `assumptions` (15 + shift) and the phase
+  abbreviation (14 + shift) straight off the persisted entity, and
+  `ExcelImporter` reads both back. **No REST, DTO or Flyway change is needed or
+  wanted.** Likewise `normalizeRoots` in `src/frontend/src/lib/estimationNodes.ts`
+  already carries `assumptions` and `phaseAbbreviation` on every `Leaf`, so a
+  value that exists in the database survives a bucket-editor autosave untouched —
+  it is simply never rendered.
+
+  The loss happens in exactly four places:
+
+  1. **`BucketedEstimationItem`** (`src/domain/method-bucketsampled/src/main/kotlin/io/pythia/method/bucketsampled/BucketedEstimationItem.kt`)
+     has no `_assumptions` constructor parameter and passes the literal `""` as
+     the 6th positional argument of the `EstimationItem` super constructor —
+     whose 6th parameter IS `assumptions`. So `item.assumptions` is permanently
+     empty for a bucketed leaf on both JVM and JS. Note it DOES already carry
+     `_phase`, and three of the four backend mappers already populate it.
+  2. **`createBucketedItem`** (`src/domain/src/main/kotlin/io/pythia/DomainFactory.kt`,
+     line ~82) exposes neither `assumptions` nor `phase`, unlike its sibling
+     `createTimeRelativeItem` which exposes both.
+  3. **`src/frontend/src/lib/adapter.ts`**, `buildNode`, `BUCKETED` branch:
+     passes description / bucketId / isSample / triple / logicalId and nothing
+     else. The `FIXED` branch above it attaches
+     `phaseByAbbr.get(node.phaseAbbreviation ?? '')` with a comment explaining
+     that a scheduled leaf must carry its phase or `phaseWindows` has nothing to
+     group by (task-177) — and `BucketedEstimationItem.isScheduled` is `true`.
+     The bucket branch was not given the same treatment, so even a phase that
+     arrived from an Excel import is dropped before the client-side calculation.
+  4. **`src/frontend/src/lib/methods/bucketSampled/EditorModule.svelte`**:
+     `columnMeta` (line ~301) lists description, bucket, sample, optimistic,
+     likely, pessimistic, mean, criticalPath, offerPT, cost, offerPrice. The PERT
+     grid (`src/frontend/src/lib/components/EstimationGrid.svelte`, line ~208)
+     lists the same plus **phase** and **assumptions**. The module references
+     `assumptions` and `phaseAbbreviation` exactly once each — both in
+     `makeBucketedLeaf`, initialising them to `null`.
+
+  A fifth, smaller one: `BucketedEstimationItem.diffFields()` returns bucket,
+  isSample and the triple only, so the version-history / compare panel can never
+  report an assumptions or phase change on a bucketed leaf. Its comment ("it does
+  not carry assumptions or a phase") is the assumption this task removes — and is
+  already wrong about the phase.
+
+  ## The dev fixture hides the gap, and must change too
+
+  `src/backend/implementation/src/main/kotlin/io/pythia/testdata/TestDataSeeder.kt`
+  is why this went unnoticed for so long, and it blocks any visual verification
+  of the fix:
+
+  - `bucketedLeaf(version, description, bucket, isSample, min, exp, max)` takes
+    **no phase and no assumptions**, while its siblings `fixedLeaf` and
+    `timeRelativeLeaf` both take a `phase: DraftProjectPhase?`.
+  - `seedDataPlatform()` — the seeded BUCKET_SAMPLED_PERT estimation, offer
+    `DP-2026-001` — never populates `draft.phases` at all, unlike
+    `seedWebshop()` / `seedMobileApp()`, which each create KO / UM / AB. So even
+    after the phase column exists, the dev fixture would render it in its
+    read-only fallback (`phases.length === 0`) and the fix would look like it
+    had not landed.
+  - **No** seeded leaf anywhere sets `assumptions`, so the new column would be
+    empty in every screenshot and every manual check.
+
+  `src/frontend/scripts/capture-screenshots.mjs` shoots `bucket-editor.png` from
+  exactly this estimation (it resolves it by the offer number `DP-2026-001`), and
+  `README.md` embeds that image — so the fixture change requires a recapture, and
+  that recapture is how the new columns become visible in the documentation.
+
+  ## Target state
+
+  A bucketed leaf carries assumptions and a phase everywhere a fixed leaf does:
+  editable in both views of the bucket editor, plumbed through the factory and
+  the frontend adapter into the domain, and reported by the diff. The Excel
+  export is unchanged — it already reads both from the entity — which makes it
+  the reference for "correct" here: after this task the UI shows what the
+  spreadsheet shows.
+
+  ## Constraints
+
+  **`createBucketedItem` is called POSITIONALLY from `adapter.ts` with seven
+  arguments ending in `logicalId`.** Its new `assumptions` and `phase` parameters
+  must therefore be APPENDED AFTER `logicalId`, with defaults — inserting them
+  before it would silently shift the existing call so that `logicalId` lands in
+  `assumptions`. This differs from `createTimeRelativeItem`'s order on purpose;
+  say so in a comment.
+
+  **KMP:** `BucketedEstimationItem` is an `@JsExport @DomainEntity data class`
+  using the underscore-forwarding private-constructor pattern. Adding a parameter
+  is safe (all four call sites use named arguments), but do NOT add a secondary
+  constructor — `@JsExport` requires `@JsName` on those, and two constructors
+  whose value types erase alike clash on the JVM. Do NOT introduce a
+  `super.<computed property>` reference while editing this file: it infinite-loops
+  on Kotlin/JS, which is why `mean`/`variance`/`offerPT` here inline the PERT
+  formula.
+
+  **The PERT seeds stay as they are.** Add the fixture assumptions to the
+  bucket estimation only. `estimation-editor.png` and `schedule-*.png` are
+  captured from `seedWebshop()` / `seedMobileApp()`, and there is no reason to
+  churn three committed screenshots to demonstrate a column PERT already had.
+  `bucket-editor.png` is the only shot this task recaptures.
+
+  **Out of scope, deliberately:** `SubmittedItemMapper` stays as it is — its
+  doc-comment states it populates only what the export SHAPES read, and the
+  assumptions cell is written from the entity, not through the module. No REST,
+  DTO, OpenAPI or migration change. No new bucket math.
+
+  If the audit step turns up a further divergence that is NOT this regression
+  (the known candidate: a bucket estimation can contain a `TIME_RELATIVE` leaf —
+  `ExcelImporter` builds one for any method — which the bucket editor renders as
+  if it were bucketed, with a meaningless bucket select and no unit), do NOT fix
+  it here. Register it with `./scripts/task.sh add "<one-line statement>"` and
+  name the new id in this task's completion notes, the way task-184 was split
+  out of task-163.
+
+steps:
+  - |
+    Add `private val _assumptions: String = ""` to `BucketedEstimationItem`'s
+    constructor, next to `_description`, and replace the literal `""` at the
+    SIXTH positional argument of the `EstimationItem(...)` super call with it
+    (the argument list is description, code, min, expected, max, assumptions,
+    phase, logicalId, …). Leave every other forwarded argument alone.
+  - |
+    Extend `BucketedEstimationItem.diffFields()` with
+    `LeafDiffField.text("assumptions", assumptions.ifBlank { null })` and
+    `LeafDiffField.text("phase", phase?.abbreviation)`, appended after the
+    triple so the order matches the base implementation in
+    `EstimationItem.diffFields()` (bucket, isSample, optimistic, likely,
+    pessimistic, assumptions, phase). Correct the comment above it: the leaf now
+    carries both, and always carried the phase.
+  - |
+    In `src/domain/src/main/kotlin/io/pythia/DomainFactory.kt`, add
+    `assumptions: String = ""` and `phase: ProjectPhase? = null` to
+    `createBucketedItem` **after** `logicalId`, forwarding them as
+    `_assumptions` / `_phase`. Add a short comment stating that the trailing
+    position is deliberate because `adapter.ts` calls this factory positionally.
+  - |
+    Extend `src/domain/method-bucketsampled/src/test/kotlin/io/pythia/method/bucketsampled/BucketedEstimationItemTest.kt`
+    with cases proving (a) `assumptions` round-trips through the constructor
+    instead of coming back empty, (b) `diffFields()` now contains `assumptions`
+    and `phase` in that order after the triple, and (c) `copy()`-based
+    `withCalculatedFromBucket` / `withCalculationParameters` preserve both.
+  - |
+    Run `./gradlew :domain:build` and confirm the regenerated TypeScript
+    declarations pick up the new factory parameters. This task changes an
+    `@JsExport` signature, which is exactly the case `src/frontend/CLAUDE.md`
+    warns about: if `src/frontend/src/lib/domain/domain.d.mts` still shows the
+    seven-parameter `createBucketedItem`, force a full rebuild with
+    `./gradlew :domain:clean :frontend:clean :frontend:check`.
+  - |
+    In `src/frontend/src/lib/adapter.ts`, `buildNode`, `BUCKETED` branch: pass
+    `node.assumptions ?? ''` and `phaseByAbbr.get(node.phaseAbbreviation ?? '') ?? null`
+    as the two new trailing arguments of `createBucketedItem`, mirroring what the
+    `FIXED` branch already does and keeping its task-177 rationale comment in
+    mind (a scheduled leaf without its phase gives `phaseWindows` nothing to
+    group by).
+  - |
+    In `src/frontend/src/lib/methods/bucketSampled/EditorModule.svelte`, add two
+    entries to `columnMeta`: `phase` (`$_('bucket.colPhase')`, width `'6rem'`)
+    directly after `sample`, and `assumptions` (`$_('bucket.colAssumptions')`,
+    width `'1fr'`) directly after `criticalPath` — the same relative positions
+    they hold in `EstimationGrid.svelte`'s `columns`. Then add the snippets the
+    established three-layer pattern in this file requires: shared
+    `leafPhase(node: Leaf)` / `leafAssumptions(node: Leaf)`, hierarchy wrappers
+    `hPhase` / `hAssumptions` (render nothing for a `GROUP`), and bucket-view
+    wrappers `bPhase` / `bAssumptions` (render nothing for a `BucketRow`), wired
+    into both `columnsFor<Node>({…})` and `columnsFor<BucketViewNode>({…})` call
+    sites. Model `leafPhase` on `EstimationGrid.svelte`'s `phaseCell` (a `select`
+    over `phases` keyed by `abbreviation`, falling back to a read-only span when
+    `!editable || phases.length === 0`) and `leafAssumptions` on its
+    `assumptionsCell` (a text `input` writing `e.currentTarget.value || null`).
+    Reuse the existing input/select class strings from this file's sibling
+    snippets — do not retype new utility strings, and no raw neutral palette
+    classes (`text-ink-muted` is the token).
+  - |
+    i18n: add `bucket.colPhase` / `bucket.colAssumptions` to BOTH
+    `src/frontend/src/lib/i18n/de.json` and `en.json`, key-for-key, with the same
+    wording the grid block already uses (`"Phase"` / `"Annahmen"` and
+    `"Phase"` / `"Assumptions"`). The existing `bucket.phaseNone` ("— keine —")
+    is currently the empty option of the BUCKET select — a misnomer. Point the
+    new phase select at `bucket.phaseNone` (where the name finally fits) and add
+    a `bucket.bucketNone` key — again to BOTH catalogs — with the same text for
+    the bucket select, updating `leafBucket` to use it. No other i18n work is
+    needed: the two new `diffFields()` entries are NOT rendered as text, because
+    the compare page consumes `changedFields` as a highlight `Set` and never
+    prints a field name — the same treatment a FIXED leaf's `assumptions` and
+    `phase` already get.
+  - |
+    Audit the rest of the bucket surface against the PERT surface for the same
+    class of omission and record the result as a comment block at the top of
+    `EditorModule.svelte`'s column section. At minimum diff, field by field:
+    `Leaf` in `estimationNodes.ts` against what the bucket editor renders;
+    `columnMeta` against `EstimationGrid.svelte`'s `columns`; and the `BUCKETED`
+    branch of `adapter.ts` `buildNode` against its `FIXED` branch. Fix only the
+    assumptions/phase regression; register anything else with
+    `./scripts/task.sh add` as described in the task description.
+  - |
+    Extend `src/frontend/e2e/bucket-sampled-flow.test.ts` — that spec, not
+    `bucket-views.test.ts`, which is where `outputs` expects the change and which
+    already seeds its own estimation through the API — with a test that types an assumption and picks a phase on a bucketed leaf in the
+    bucket view, reloads, and asserts both persisted — and that the same values
+    are visible in the hierarchy view. Use `log`-free assertions; follow the
+    existing helpers in `src/frontend/e2e/helpers.ts`.
+  - |
+    Update the dev fixture in
+    `src/backend/implementation/src/main/kotlin/io/pythia/testdata/TestDataSeeder.kt`:
+    give `bucketedLeaf(...)` two new trailing parameters
+    `phase: DraftProjectPhase? = null` and `assumptions: String? = null`,
+    assigned to `this.phase` / `this.assumptions` in the `apply` block, matching
+    how `fixedLeaf` already forwards its phase. Defaulting both keeps every
+    existing call compiling.
+  - |
+    In `seedDataPlatform()`, create the three `DraftProjectPhase` rows the other
+    two seeds create — Konzeption/KO, Umsetzung/UM, Abnahme/AB with
+    `durationWeeks` 3.0 / 12.0 / 2.0 and `version = draft` — add them to
+    `draft.phases`, and give every seeded bucketed leaf a phase: the Ingest group
+    KO, the Transform group UM, `Reporting dashboard` and `Data catalog` AB. Put
+    a short German assumption on at least three of the six leaves (this fixture
+    content is intentionally German — see the `TestDataSeeder` note in the root
+    `CLAUDE.md`), so both new columns are non-empty on first load. Extend the
+    existing `Log.info` in that function to report the phase count alongside the
+    bucket count. Leave the "No schedule graph here, by design" comment and its
+    `return 0` untouched — phases are not a dependency graph.
+  - |
+    Update the CLAUDE.md files this change makes stale — both are contracts an
+    implementer is expected to trust:
+    - `src/frontend/CLAUDE.md`, the `adapter.ts` paragraph, spells the factory
+      out literally as
+      `createBucketedItem(description, bucketId, isSample, optimistic, likely, pessimistic, logicalId)`.
+      Extend it with the two new trailing parameters and note in half a sentence
+      that they are trailing because the call is positional.
+    - `src/frontend/CLAUDE.md`, the `methods/bucketSampled/` paragraph, lists the
+      bucket TreeTable's columns (bucket picker, sample toggle, sample-only
+      three-point editor, read-only derived `mean`). Add the phase select and the
+      assumptions field.
+    - `src/domain/CLAUDE.md`, the "Method #2 — bucket + sampled PERT" section:
+      one clause that a `BucketedEstimationItem` carries `assumptions` and a
+      `phase` like any other leaf, and that its `diffFields()` reports both.
+    Do not restructure those files; these are amendments to existing sentences.
+  - |
+    Recapture the documentation screenshot: start the stack
+    (`./scripts/dev.sh`) against a FRESH seed and run
+    `cd src/frontend && npm run gen:screenshots`, which resolves the bucket
+    estimation by offer `DP-2026-001`. Commit only
+    `docs/images/bucket-editor.png` — it must now show the Phase and Annahmen
+    columns populated. If the run rewrites the other shots without a visible
+    change, restore them. Honour task-180: the generator must leave the user's
+    language setting as it found it.
+  - |
+    Run `./gradlew :domain:build`, `./gradlew :frontend:check` and
+    `./gradlew build`; then `cd src/frontend && npm run test:e2e` for the bucket
+    specs. All must be green.
+
+validation:
+  - |
+    grep -q "_assumptions" src/domain/method-bucketsampled/src/main/kotlin/io/pythia/method/bucketsampled/BucketedEstimationItem.kt
+  - |
+    grep -q 'LeafDiffField.text("assumptions"' src/domain/method-bucketsampled/src/main/kotlin/io/pythia/method/bucketsampled/BucketedEstimationItem.kt
+  - |
+    grep -q 'LeafDiffField.text("phase"' src/domain/method-bucketsampled/src/main/kotlin/io/pythia/method/bucketsampled/BucketedEstimationItem.kt
+  - |
+    grep -q "assumptions" src/domain/src/main/kotlin/io/pythia/DomainFactory.kt
+  - |
+    grep -A12 "createBucketedItem" src/domain/src/main/kotlin/io/pythia/DomainFactory.kt | grep -q "phase"
+  - |
+    grep -q "colAssumptions" src/frontend/src/lib/methods/bucketSampled/EditorModule.svelte
+  - |
+    grep -q "colPhase" src/frontend/src/lib/methods/bucketSampled/EditorModule.svelte
+  - |
+    test "$(grep -c 'phaseAbbreviation' src/frontend/src/lib/methods/bucketSampled/EditorModule.svelte)" -gt 1
+  - |
+    test "$(grep -c 'assumptions' src/frontend/src/lib/methods/bucketSampled/EditorModule.svelte)" -gt 1
+  - |
+    ! grep -q "console\." src/frontend/src/lib/methods/bucketSampled/EditorModule.svelte
+  - |
+    python3 - <<'PY'
+    import json, pathlib, sys
+    cats = {p.stem: json.loads(p.read_text())
+            for p in pathlib.Path('src/frontend/src/lib/i18n').glob('*.json')}
+    def flat(o, p=''):
+        s = set()
+        for k, v in o.items():
+            n = f'{p}.{k}' if p else k
+            s |= flat(v, n) if isinstance(v, dict) else {n}
+        return s
+    keys = {l: flat(d) for l, d in cats.items()}
+    ref = set().union(*keys.values())
+    bad = {l: sorted(ref - k) for l, k in keys.items() if ref - k}
+    need = {'bucket.colPhase', 'bucket.colAssumptions', 'bucket.bucketNone'}
+    missing = {l: sorted(need - k) for l, k in keys.items() if need - k}
+    print('key parity:', bad or 'ok', '| new keys:', missing or 'ok')
+    sys.exit(1 if (bad or missing) else 0)
+    PY
+  - |
+    # No REST change: the node DTO already carried both fields, so `./gradlew build`
+    # must regenerate an openapi.json that still contains them and nothing new.
+    # (A commit-time `git diff` check would pass or fail on timing, not on content.)
+    python3 -c "import json;d=json.load(open('src/frontend/src/lib/api/openapi.json'));s=json.dumps(d);assert 'assumptions' in s and 'phaseAbbreviation' in s"
+  - |
+    grep -A10 "private fun bucketedLeaf" src/backend/implementation/src/main/kotlin/io/pythia/testdata/TestDataSeeder.kt | grep -q "phase"
+  - |
+    grep -A12 "private fun bucketedLeaf" src/backend/implementation/src/main/kotlin/io/pythia/testdata/TestDataSeeder.kt | grep -q "assumptions"
+  - |
+    sed -n '/private fun seedDataPlatform/,$p' src/backend/implementation/src/main/kotlin/io/pythia/testdata/TestDataSeeder.kt | grep -q "DraftProjectPhase"
+  - |
+    sed -n '/private fun seedDataPlatform/,$p' src/backend/implementation/src/main/kotlin/io/pythia/testdata/TestDataSeeder.kt | grep -q "draft.phases.addAll"
+  - |
+    grep -q "Log\." src/backend/implementation/src/main/kotlin/io/pythia/testdata/TestDataSeeder.kt
+  - |
+    # Structural only — the recapture itself is verified by eye in the step above
+    # (the shot must show the Phase and Annahmen columns populated).
+    test -f docs/images/bucket-editor.png
+  - |
+    ./gradlew :domain:build
+  - |
+    ./gradlew :frontend:check
+  - |
+    ./gradlew build
+
+outputs:
+  - modified: src/domain/method-bucketsampled/src/main/kotlin/io/pythia/method/bucketsampled/BucketedEstimationItem.kt
+  - modified: src/domain/method-bucketsampled/src/test/kotlin/io/pythia/method/bucketsampled/BucketedEstimationItemTest.kt
+  - modified: src/domain/src/main/kotlin/io/pythia/DomainFactory.kt
+  - modified: src/frontend/src/lib/adapter.ts
+  - modified: src/frontend/src/lib/methods/bucketSampled/EditorModule.svelte
+  - modified: src/frontend/src/lib/i18n/de.json
+  - modified: src/frontend/src/lib/i18n/en.json
+  - modified: src/frontend/e2e/bucket-sampled-flow.test.ts
+  - modified: src/frontend/e2e/summary-panel.test.ts
+  - modified: src/backend/implementation/src/main/kotlin/io/pythia/testdata/TestDataSeeder.kt
+  - modified: src/frontend/CLAUDE.md
+  - modified: src/domain/CLAUDE.md
+  - modified: docs/images/bucket-editor.png
