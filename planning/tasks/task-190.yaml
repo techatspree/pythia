@@ -1,7 +1,7 @@
 id: task-190
 phase: phase-14
 title: "Make the e2e suite locale-independent"
-depends_on: [task-188]
+depends_on: [task-188, task-189]
 description: |
   Close the Page Object work by making the property it was always supposed to
   deliver actually TRUE and actually CHECKED: **no Playwright spec depends on
@@ -119,7 +119,13 @@ description: |
     load-bearing, it does not become wrong.
   - No new e2e coverage; no backend, domain or REST changes. (The
     `PUT /api/auth/me/language` endpoint already exists — task-123.)
-  - The ESLint selector rule is task-189's and is orthogonal to this task.
+  - The ESLint selector rule is task-189's and is orthogonal to this task in
+    substance. The dependency on task-189 exists for one reason: THREE tasks
+    write to `src/frontend/CLAUDE.md` (task-117 adds a placeholder, task-189
+    expands it into the full subsection, this task corrects the statements
+    that become false). Without the edge, task-189 and this task are parallel
+    siblings and whichever lands second rewrites a file the other just
+    changed. Run them in order.
 
 steps:
   - |

@@ -391,6 +391,7 @@
 						type="button"
 						onclick={() => undoStore.undo()}
 						disabled={!undoStore.canUndo}
+						data-testid="undo-toolbar.undo"
 						aria-label={$_('editor.undo')}
 						title={undoTooltip}
 						class="px-3 py-2 text-sm border rounded hover:bg-surface-subtle disabled:opacity-40 disabled:cursor-not-allowed"
@@ -401,6 +402,7 @@
 						type="button"
 						onclick={() => undoStore.redo()}
 						disabled={!undoStore.canRedo}
+						data-testid="undo-toolbar.redo"
 						aria-label={$_('editor.redo')}
 						title={redoTooltip}
 						class="px-3 py-2 text-sm border rounded hover:bg-surface-subtle disabled:opacity-40 disabled:cursor-not-allowed"
@@ -410,6 +412,7 @@
 					<button
 						type="button"
 						onclick={() => (showHistory = !showHistory)}
+						data-testid="undo-toolbar.show-history"
 						aria-label={$_('editor.historyAria')}
 						aria-pressed={showHistory}
 						class="px-3 py-2 text-sm border rounded hover:bg-surface-subtle {showHistory

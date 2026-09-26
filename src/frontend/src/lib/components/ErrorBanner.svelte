@@ -10,6 +10,7 @@
 {#if message}
 	<div
 		role="alert"
+		data-testid="error-banner"
 		class="mb-4 px-4 py-3 bg-red-50 border border-red-200 rounded text-red-800 text-sm flex items-start gap-3"
 	>
 		<span class="flex-1">{message}</span>

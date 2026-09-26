@@ -61,14 +61,17 @@
 	}
 </script>
 
-<div class="mt-4 border rounded-lg">
-	<div class="px-4 py-2 border-b bg-surface-subtle text-sm font-semibold text-ink-body">{$_('history.title')}</div>
+<div class="mt-4 border rounded-lg" data-testid="undo-history.panel">
+	<div
+		class="px-4 py-2 border-b bg-surface-subtle text-sm font-semibold text-ink-body"
+		data-testid="undo-history.title"
+	>{$_('history.title')}</div>
 	{#if ordered.length === 0}
 		<p class="px-4 py-3 text-sm text-ink-faint">{$_('history.empty')}</p>
 	{:else}
 		<ul class="divide-y">
 			{#each ordered as entry (entry.id)}
-				<li class="px-4 py-2 text-sm">
+				<li class="px-4 py-2 text-sm" data-testid="undo-history.entry">
 					<div class="flex items-center justify-between">
 						<div class="min-w-0 truncate">
 							<span class="font-medium text-ink-strong">{entry.userDisplayName}</span>

@@ -49,11 +49,7 @@
 	<div class="flex items-center justify-between mb-3">
 		<h2 class="text-lg font-semibold">{$_('project.detailEstimations')}</h2>
 		<RequiredRole role="ESTIMATOR">
-			<Button
-			
-				onclick={() => (dialogOpen = true)}
-			
-			>
+			<Button data-testid="project-detail.new-offer" onclick={() => (dialogOpen = true)}>
 				{$_('project.detailNewOffer')}
 			</Button>
 		</RequiredRole>

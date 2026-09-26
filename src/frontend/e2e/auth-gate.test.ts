@@ -1,4 +1,5 @@
 import { test, expect, request as playwrightRequest } from '@playwright/test';
+import { DevLoginDialog, ProjectsListPage } from './pages';
 
 // The dev module is strict (no default-user fallback), so the dev backend on
 // :8090 rejects unauthenticated/invalid requests itself — no separate strict
@@ -14,11 +15,13 @@ test.describe('unauthenticated SPA gate', () => {
 	test('unauthenticated SPA visit shows the dev login dialog, not the application UI', async ({
 		page
 	}) => {
-		await page.goto('/projects');
-		await page.waitForLoadState('networkidle');
+		const devLogin = new DevLoginDialog(page);
 
-		await expect(page.locator('[role="dialog"][aria-label="Dev-Anmeldungsauswahl"]')).toBeVisible();
-		await expect(page.locator('[data-testid="dev-login-dev-admin"]')).toBeVisible();
+		await new ProjectsListPage(page).goto();
+
+		await devLogin.expectVisible();
+		await devLogin.expectUserOffered('dev-admin');
+		// No application rows rendered behind the gate.
 		await expect(page.locator('[data-testid^="row-"]')).toHaveCount(0);
 	});
 });

@@ -55,6 +55,7 @@
 			{#if account.roles.includes(r)}
 				<span
 					class="text-xs uppercase tracking-wide px-1.5 py-0.5 rounded bg-brand-green/10 text-brand-green"
+					data-testid="user-menu.role.{r.toLowerCase()}"
 				>{r}</span>
 			{/if}
 		{/each}

@@ -38,6 +38,7 @@
 	role="dialog"
 	aria-modal="true"
 	aria-label={$_('history.conflict.ariaLabel')}
+	data-testid="undo-conflict.dialog"
 >
 	<div class="bg-white rounded-lg shadow-xl p-6 w-full max-w-md">
 		<h2 class="text-lg font-semibold mb-4">{$_('history.conflict.title')}</h2>
@@ -55,10 +56,9 @@
 			>{$_('history.conflict.cancel')}</Button>
 			<Button
 				bind:element={reloadButton}
-			
-				onclick={onreload}
-			
-				>{$_('history.conflict.reload')}</Button>
+				data-testid="undo-conflict.reload"
+				onclick={onreload}>{$_('history.conflict.reload')}</Button
+			>
 		</div>
 	</div>
 </div>

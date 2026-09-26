@@ -1,5 +1,6 @@
 import { test, expect, request as playwrightRequest } from '@playwright/test';
 import { loginAsDev } from './helpers';
+import { CreateProjectDialog, ProjectsListPage } from './pages';
 
 const API = 'http://localhost:8090';
 
@@ -53,15 +54,17 @@ test.describe('creating a project through the UI sends the auth header', () => {
 				(r) => r.url().includes('/api/projects') && r.method() === 'POST'
 			),
 			(async () => {
+				// Locale-agnostic by construction: this spec shares the
+				// dev-estimator user with e2e/language.test.ts, which switches
+				// that user's PERSISTED language to English. Driving the dialog
+				// through testids keeps the two specs independent when they run
+				// in parallel workers — this test is about the Authorization
+				// header, not about wording.
 				await page.goto('/projects');
-				// Locale-agnostic on purpose: this spec shares the dev-estimator
-				// user with e2e/language.test.ts, which switches that user's
-				// PERSISTED language to English. Matching either language keeps
-				// the two specs independent when they run in parallel workers —
-				// this test is about the Authorization header, not about wording.
-				await page.getByRole('button', { name: /Neues Projekt|New Project/ }).click();
-				await page.getByLabel('Name *').fill(projectName);
-				await page.getByRole('button', { name: /^(Anlegen|Create)$/ }).click();
+				await new ProjectsListPage(page).openCreateProjectDialog();
+				const dialog = new CreateProjectDialog(page);
+				await dialog.fillName(projectName);
+				await dialog.submit();
 			})()
 		]);
 
@@ -70,7 +73,8 @@ test.describe('creating a project through the UI sends the auth header', () => {
 		expect(postRequest.headers()['authorization']).toBe('Dev dev-estimator');
 
 		// And because writes require ESTIMATOR, a successful create proves the
-		// header was accepted end-to-end.
+		// header was accepted end-to-end. The project name is test-generated
+		// DATA, so matching its text is correct.
 		await expect(page.getByText(projectName)).toBeVisible();
 	});
 });

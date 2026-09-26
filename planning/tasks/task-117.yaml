@@ -4,9 +4,11 @@ title: "Playwright POM — stage A: infrastructure, testids, create/auth/undo sp
 depends_on: [task-112]
 description: |
   Stand up the Playwright **Page Object Model** layer and migrate the first
-  family of specs onto it. This is stage A of three; stage B (task-188)
-  migrates the remaining specs, stage C (task-189) adds the ESLint rule that
-  keeps the invariant true and documents it.
+  family of specs onto it. This is the first of FOUR related tasks: stage B
+  (task-188) migrates the remaining specs, stage C (task-189) adds the ESLint
+  rule that keeps the invariant true and documents it, and task-190 — a
+  sibling deliverable rather than a fourth stage — makes the suite
+  locale-independent and proves it with a two-language run.
 
   The split is by blast radius, not by convenience: stage A creates the folder,
   fixes the conventions and proves them on six specs. If stage B never lands,
@@ -20,8 +22,10 @@ description: |
   the strings into `de.json`, task-125 added `en.json` and the switcher) and
   the suite did NOT break — because `playwright.config.ts` pins
   `locale: 'de-DE'` so Accept-Language seeds fresh dev users German
-  (task-123/127). That locale pin is why the German assertions still pass, and
-  it stays.
+  (task-123/127). That locale pin is why the German assertions still pass.
+  **This task does not touch it** — task-190 does, replacing it with a
+  server-side language pin. See the frozen decision below before reaching for
+  `playwright.config.ts`.
 
   The original motivation is therefore **deferred, not spent**: locale
   independence is a real goal of this phase, but it is delivered by
@@ -40,7 +44,9 @@ description: |
     `scripts/capture-screenshots.mjs` switches the capture user to English and
     must restore it in a `finally`, because a stack left in English fails 28
     tests with no failure output pointing back at the cause (task-180).
-    Testid-based specs shrink that blast radius.
+    Testid-based specs SHRINK that blast radius; they do not remove it —
+    task-190 retires the hazard outright by re-pinning the language in
+    `global-setup.ts` on every run.
   - **Readability.** `session.test.ts` drives a four-participant Delphi flow
     through 24 raw `getByRole` calls and positional
     `getByRole('spinbutton').nth(0..2)` (that one is stage B, but it is the
@@ -53,7 +59,7 @@ description: |
   property without task-190's gate is how the original version of this task
   ended up resting on an argument nobody had tested.
 
-  ## Frozen decisions (they govern all three stages; do not re-open)
+  ## Frozen decisions (they govern every stage of this work; do not re-open)
 
   - **Testid naming — NEW attributes only.** New testids use
     `<screen>.<element>` in dot-separated lower-kebab, English, e.g.
@@ -196,7 +202,12 @@ description: |
 
   ## Non-goals
 
-  - The other 16 specs and their components — **task-188**.
+  - The other 16 specs and their components — **task-188**. In particular do
+    NOT touch `e2e/bucket-sampled-flow.test.ts` or `e2e/session.test.ts` here,
+    even though both contain German-looking strings: their selectors are
+    stage B's and their formatted-number assertions (`'2,00'`,
+    `'5,0 / 8,0 / 13,0'`) are task-190's. They are the two files most likely
+    to tempt a drive-by fix.
   - Locale independence itself — the server-side language pin, dropping the
     browser-locale pin, the seven formatted-number assertions and the
     two-language gate — **task-190**.
@@ -326,13 +337,19 @@ validation:
       check $C/UndoHistoryPanel.svelte       undo-history.panel
       check $C/UndoConflictDialog.svelte     undo-conflict.dialog
       check $C/UndoConflictDialog.svelte     undo-conflict.reload
-      check $C/UserMenu.svelte               user-menu.role.viewer
       check src/frontend/src/routes/projects/+page.svelte projects.new
+      # Two testids are built per row/role, so the literal never appears in
+      # source; assert the template and let the e2e run prove the runtime value
+      # (user-menu.test.ts asserts all three role badges by testid).
+      grep -q 'data-testid="user-menu.role.{' $C/UserMenu.svelte \
+        || { echo "missing user-menu.role.* template in UserMenu"; exit 1; }
+      grep -q 'data-testid="project-list.row.{' $C/ProjectList.svelte \
+        || { echo "missing project-list.row.* template in ProjectList"; exit 1; }
       R="src/frontend/src/routes/estimations/[id]/versions/[versionNumber]/+page.svelte"
       check "$R" undo-toolbar.undo
       check "$R" undo-toolbar.redo
       check "$R" undo-toolbar.show-history
-      grep -q 'data-testid=' $C/ProjectList.svelte || { echo "no row testid in ProjectList"; exit 1; }
+
   - |
     `logout-button` was NOT renamed (language.test.ts depends on it):
       grep -q 'data-testid="logout-button"' src/frontend/src/lib/components/UserMenu.svelte

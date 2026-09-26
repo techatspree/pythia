@@ -1,4 +1,10 @@
 import { test, expect, type Page } from '@playwright/test';
+import {
+	UndoConflictDialog,
+	UndoHistoryPanel,
+	UndoToolbar,
+	VersionEditorPage
+} from './pages';
 
 const API = 'http://localhost:8090';
 
@@ -90,34 +96,34 @@ test('undo/redo revert and re-apply via toolbar buttons', async ({ page }) => {
 	const versionNumber = await createDraft(page, estimationId);
 	await populateDraft(page, estimationId);
 
-	await page.goto(`/estimations/${estimationId}/versions/${versionNumber}?draft=true`);
-	await page.waitForLoadState('networkidle');
+	const editor = new VersionEditorPage(page);
+	const toolbar = new UndoToolbar(page);
 
-	const cellSelector = '[data-cell="0-0-1"]';
-	await expect(page.locator(cellSelector)).toHaveValue('2');
+	await editor.gotoDraft(estimationId, versionNumber);
 
-	await page.locator(cellSelector).fill('9');
+	const cell = editor.cell('0-0-1');
+	await expect(cell).toHaveValue('2');
+
+	await cell.fill('9');
 	await page.waitForTimeout(1500); // debounce + PUT + history refresh
 	await page.waitForLoadState('networkidle');
-	await expect(page.locator(cellSelector)).toHaveValue('9');
+	await expect(cell).toHaveValue('9');
 
-	const undoBtn = page.getByRole('button', { name: 'Rückgängig' });
-	await expect(undoBtn).toBeEnabled();
+	await expect(toolbar.undoButton).toBeEnabled();
 	const undoResp = page.waitForResponse(
 		(r) => r.url().includes('/versions/draft/undo') && r.request().method() === 'POST'
 	);
-	await undoBtn.click();
+	await toolbar.undo();
 	await undoResp;
-	await expect(page.locator(cellSelector)).toHaveValue('2');
+	await expect(cell).toHaveValue('2');
 
-	const redoBtn = page.getByRole('button', { name: 'Wiederholen' });
-	await expect(redoBtn).toBeEnabled();
+	await expect(toolbar.redoButton).toBeEnabled();
 	const redoResp = page.waitForResponse(
 		(r) => r.url().includes('/versions/draft/redo') && r.request().method() === 'POST'
 	);
-	await redoBtn.click();
+	await toolbar.redo();
 	await redoResp;
-	await expect(page.locator(cellSelector)).toHaveValue('9');
+	await expect(cell).toHaveValue('9');
 });
 
 test('Verlauf button toggles the history section under the toolbar', async ({ page }) => {
@@ -126,32 +132,35 @@ test('Verlauf button toggles the history section under the toolbar', async ({ pa
 	const versionNumber = await createDraft(page, estimationId);
 	await populateDraft(page, estimationId);
 
-	await page.goto(`/estimations/${estimationId}/versions/${versionNumber}?draft=true`);
-	await page.waitForLoadState('networkidle');
+	const editor = new VersionEditorPage(page);
+	const toolbar = new UndoToolbar(page);
+	const historyPanel = new UndoHistoryPanel(page);
+
+	await editor.gotoDraft(estimationId, versionNumber);
 
 	// Record a mutation so the panel has a row.
-	await page.locator('[data-cell="0-0-1"]').fill('9');
+	await editor.cell('0-0-1').fill('9');
 	await page.waitForTimeout(1500);
 	await page.waitForLoadState('networkidle');
 
-	const verlaufBtn = page.getByRole('button', { name: 'Verlauf anzeigen' });
-	await expect(verlaufBtn).toHaveAttribute('aria-pressed', 'false');
+	await toolbar.expectHistoryPressed(false);
 
-	await verlaufBtn.click();
+	await toolbar.toggleHistory();
 
 	// The button reflects the open state, and the panel is already in view —
 	// it renders directly under the toolbar (task-109), so NO scrolling is
 	// involved. Do not add a scroll here: that would let the old
 	// scroll-into-view workaround be reintroduced without failing this test.
-	await expect(verlaufBtn).toHaveAttribute('aria-pressed', 'true');
-	const panelHeader = page.getByText('Verlauf', { exact: true }).last();
-	await expect(panelHeader).toBeInViewport();
+	await toolbar.expectHistoryPressed(true);
+	await historyPanel.expectTitleInViewport();
+	// Page-global `ul li` on purpose: AppHeader's nav is deliberately NOT a
+	// <ul>/<li> list and this count is what guards that (see
+	// src/frontend/CLAUDE.md). Do not narrow it to the panel's own rows.
 	await expect(page.locator('ul li')).not.toHaveCount(0);
 
-	// Toggling off hides it again. Note "Verlauf" also matches the toolbar
-	// button's own label, so assert on the panel's rows rather than its header.
-	await verlaufBtn.click();
-	await expect(verlaufBtn).toHaveAttribute('aria-pressed', 'false');
+	// Toggling off hides it again.
+	await toolbar.toggleHistory();
+	await toolbar.expectHistoryPressed(false);
 	await expect(page.locator('ul li')).toHaveCount(0);
 });
 
@@ -161,14 +170,17 @@ test('undo conflict opens the dialog; reload adopts the other user value', async
 	const versionNumber = await createDraft(page, estimationId);
 	await populateDraft(page, estimationId);
 
-	await page.goto(`/estimations/${estimationId}/versions/${versionNumber}?draft=true`);
-	await page.waitForLoadState('networkidle');
+	const editor = new VersionEditorPage(page);
+	const toolbar = new UndoToolbar(page);
+	const conflictDialog = new UndoConflictDialog(page);
 
-	const cellSelector = '[data-cell="0-0-1"]';
-	await expect(page.locator(cellSelector)).toHaveValue('2');
+	await editor.gotoDraft(estimationId, versionNumber);
+
+	const cell = editor.cell('0-0-1');
+	await expect(cell).toHaveValue('2');
 
 	// dev-admin (the UI) edits → records a mutation attributed to dev-admin.
-	await page.locator(cellSelector).fill('9');
+	await cell.fill('9');
 	await page.waitForTimeout(1500);
 	await page.waitForLoadState('networkidle');
 
@@ -195,15 +207,15 @@ test('undo conflict opens the dialog; reload adopts the other user value', async
 	const undoResp = page.waitForResponse(
 		(r) => r.url().includes('/versions/draft/undo') && r.request().method() === 'POST'
 	);
-	await page.getByRole('button', { name: 'Rückgängig' }).click();
+	await toolbar.undo();
 	expect((await undoResp).status()).toBe(409);
 
-	const dialog = page.getByRole('dialog', { name: 'Konflikt beim Rückgängigmachen' });
-	await expect(dialog).toBeVisible();
-	await expect(dialog).toContainText('Dev Estimator');
+	await conflictDialog.expectVisible();
+	// 'Dev Estimator' is the blocking fixture user's display name — data.
+	await expect(conflictDialog.dialog).toContainText('Dev Estimator');
 
-	// "Aktuellen Stand neu laden" closes the dialog and adopts the value 5.
-	await page.getByRole('button', { name: 'Aktuellen Stand neu laden' }).click();
-	await expect(dialog).toBeHidden();
-	await expect(page.locator(cellSelector)).toHaveValue('5');
+	// Reloading closes the dialog and adopts the other user's value 5.
+	await conflictDialog.reload();
+	await conflictDialog.expectHidden();
+	await expect(cell).toHaveValue('5');
 });

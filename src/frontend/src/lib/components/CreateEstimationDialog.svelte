@@ -86,7 +86,11 @@
 </script>
 
 {#if open}
-	<div class="fixed inset-0 bg-black/50 flex items-center justify-center z-50" role="dialog">
+	<div
+		class="fixed inset-0 bg-black/50 flex items-center justify-center z-50"
+		role="dialog"
+		data-testid="create-estimation.dialog"
+	>
 		<div class="bg-white rounded-lg shadow-xl p-6 w-full max-w-md">
 			<h2 class="text-lg font-semibold mb-4">{$_('dialog.createEstimation.title')}</h2>
 
@@ -97,6 +101,7 @@
 					<label class="block text-sm font-medium mb-1" for="offer">{$_('dialog.createEstimation.offerLabel')}</label>
 					<input
 						id="offer"
+						data-testid="create-estimation.offer-input"
 						bind:value={offer}
 						class="w-full border rounded px-3 py-2 text-sm"
 						required
@@ -104,7 +109,7 @@
 				</div>
 				<div class="mb-3">
 					<label class="block text-sm font-medium mb-1" for="method">{$_('dialog.createEstimation.methodLabel')}</label>
-					<Select id="method" bind:value={method}>
+					<Select id="method" data-testid="create-estimation.method-select" bind:value={method}>
 						{#each availableMethods as m (m.method)}
 							<option value={m.method}>{m.label}</option>
 						{/each}
@@ -114,16 +119,19 @@
 					<label class="block text-sm font-medium mb-1" for="description">{$_('dialog.createEstimation.descriptionLabel')}</label>
 					<textarea
 						id="description"
+						data-testid="create-estimation.description-input"
 						bind:value={description}
 						rows="3"
 						class="w-full border rounded px-3 py-2 text-sm"
 					></textarea>
 				</div>
 				<div class="flex justify-end gap-2">
-					<Button variant="secondary" onclick={handleCancel}
-						>{$_('dialog.createEstimation.cancel')}</Button
+					<Button
+						variant="secondary"
+						data-testid="create-estimation.cancel"
+						onclick={handleCancel}>{$_('dialog.createEstimation.cancel')}</Button
 					>
-					<Button type="submit" disabled={loading}>
+					<Button type="submit" data-testid="create-estimation.submit" disabled={loading}>
 						{loading ? $_('dialog.createEstimation.saving') : $_('dialog.createEstimation.save')}
 					</Button>
 				</div>

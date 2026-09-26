@@ -17,6 +17,7 @@
 	role="dialog"
 	aria-modal="true"
 	aria-label={$_('dialog.devLogin.ariaLabel')}
+	data-testid="dev-login.dialog"
 >
 	<div class="bg-white rounded-lg shadow-lg p-6 w-full max-w-sm">
 		<!-- The mark is standalone here, so it carries a real alt: the installation's

@@ -45,7 +45,7 @@
 <div class="p-6">
 	<div class="flex items-center justify-between mb-6">
 		<h1 class="text-2xl font-bold">{$_('project.pageTitle')}</h1>
-		<Button onclick={() => showCreate = true}>
+		<Button data-testid="projects.new" onclick={() => showCreate = true}>
 			{$_('project.pageNewProject')}
 		</Button>
 	</div>

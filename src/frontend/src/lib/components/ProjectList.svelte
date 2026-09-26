@@ -25,7 +25,7 @@
 			</thead>
 			<tbody>
 				{#each projects as project (project.id)}
-					<tr class="border-b hover:bg-surface-subtle">
+					<tr class="border-b hover:bg-surface-subtle" data-testid="project-list.row.{project.id}">
 						<td class="px-4 py-3">
 							<a href={resolve('/projects/[id]', { id: project.id })} class="text-brand-green hover:underline font-medium">
 								{project.name}

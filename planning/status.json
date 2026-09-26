@@ -687,9 +687,9 @@
       "notes": "Let the user choose the estimation method (from all registered method modules) when creating a new estimation, instead of always defaulting to PERT three-point"
     },
     "task-117": {
-      "status": "pending",
-      "started_at": null,
-      "completed_at": null,
+      "status": "done",
+      "started_at": "2026-09-26T16:09:15+00:00",
+      "completed_at": "2026-09-26T17:13:50+00:00",
       "notes": "Playwright POM stage A: e2e/pages infrastructure, data-testids, create/auth/undo specs (stage B = task-188, stage C = task-189)"
     },
     "task-118": {
