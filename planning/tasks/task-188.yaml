@@ -1,0 +1,300 @@
+id: task-188
+phase: phase-14
+title: "Playwright POM — stage B: sessions, bucket, import/export, schedule, tree table"
+depends_on: [task-117]
+description: |
+  Stage B of the Page Object Model migration (task-117 is stage A, task-189 is
+  stage C). Stage A created `src/frontend/e2e/pages/`, froze the conventions
+  and migrated six specs. Stage B migrates the remaining sixteen, after which
+  **no spec in the tree matches on a translated literal** — which is what
+  makes stage C's ESLint rule enforceable rather than aspirational.
+
+  Read task-117's "Frozen decisions" section first; every one of them governs
+  this task too. The ones that bite most often here:
+
+  - New testids are dotted `<screen>.<element>`; the ~90 existing flat-kebab
+    ones (`tt-row-*`, `schedule-card`, `publish-log`, …) are NEVER renamed.
+  - Role-only `getByRole('dialog'|'alert'|'alertdialog'|'spinbutton'|'listitem')`
+    stays. `getByText(<variable>)` stays.
+  - The generic `treetable/TreeTable.svelte` is deliberately
+    un-internationalised, so its ENGLISH aria-labels (`"Children"`,
+    `"Root nodes"`, `"Collapse"`, `"Expand"`) are correct tier-2 locators and
+    must NOT be replaced. Only the GERMAN ones go.
+  - `e2e/language.test.ts` is never migrated; `e2e/auth.test.ts` is pure API
+    and untouched.
+
+  ## `smoke.test.ts` is in scope, despite appearances
+
+  It opens with ~130 lines of `page.request` seeding and looks like a sibling
+  of `auth.test.ts`. It is 518 lines, and its second half drives the real
+  version editor:
+  `locator('button', { hasText: 'Gruppe hinzufügen' })`, German dndzone
+  aria-labels (`[aria-label="Unterelemente von G2"]` at lines 384/451/502) and
+  a styling-class locator (`p.text-red-600` at line 134, which becomes the
+  `error-banner` testid stage A added). The API-seeding half stays as it is.
+
+  ## Residuals that NO automated rule can catch
+
+  Stage C's ESLint rule works on call syntax. These four patterns reach the
+  same translated strings through syntax that ALSO carries brand names,
+  formatted numbers and seeded data, so they cannot be banned — they are
+  pinned by string-exact greps in `validation` instead:
+
+  1. **German inside `toContainText` / `toHaveText`:**
+     `session-connection.test.ts:151,230` (`'nicht mehr verfügbar'`),
+     `session-setup.test.ts:110,113,119` (`'… von 40 ausgewählt'`),
+     `session.test.ts:255` (`'Pausiert'`), `schedule.test.ts:413`
+     (`'zugeklappt'`).
+     Legitimate neighbours that must NOT be touched: `'Pythia'` /
+     `'Contoso GmbH'` (brand names, `branding`/`system-settings`), `'2,00'`
+     (formatted numbers, `bucket-sampled-flow`), `'Alpha'` / `'Beta'` (seeded
+     item names, `schedule`), `'Added after the import'` (`merlin-export`).
+  2. **German `aria-label` in a raw locator:** `smoke.test.ts:384,451,502`
+     (`[aria-label="Unterelemente von …"]`). Give the children zone a testid
+     through `TreeTable`'s existing `childrenZoneAttrs` hook rather than
+     renaming the aria-label, which is real accessibility text.
+  3. **Label indirection the grep and the ESLint rule both MISS:**
+     `export.test.ts:117` and `bucket-sampled-flow.test.ts:291` each define
+     `download(label: RegExp)` and call `getByRole('button', { name: label })`.
+     The translated regex lives at the CALLER, outside any banned call.
+     Hand-migrate both onto a testid-keyed method on the export PO.
+  4. **A styling-class locator:** `smoke.test.ts:134` (`p.text-red-600`) →
+     the `error-banner` testid.
+
+  ## Stage-B scope
+
+  ### Components (add `data-testid`)
+
+    * src/frontend/src/lib/components/ReplaceDraftDialog.svelte
+      (`replace-draft.dialog|confirm|cancel` — the `'Entwurf ersetzen?'`
+      dialog shared by merlin-import and xlsx-import)
+    * src/frontend/src/lib/components/MerlinStructureDialog.svelte
+      (`merlin-structure.dialog|overwrite|cancel`)
+    * src/frontend/src/lib/components/ConnectionLostDialog.svelte
+      (`connection-lost.dialog|acknowledge`)
+    * src/frontend/src/lib/components/EstimationDetail.svelte
+      (`estimation-detail.import-merlin|import-xlsx`; the existing
+      `estimation-detail.method*` testids stay)
+    * src/frontend/src/lib/components/VersionList.svelte — the export/import
+      triggers both `download(label)` helpers reach
+    * src/frontend/src/lib/components/AppHeader.svelte (`app-nav.back` for
+      `navigation.test.ts`'s `'Zur Schätzung'` link)
+    * src/frontend/src/lib/components/EstimationGrid.svelte and
+      src/frontend/src/lib/components/treetable/TreeTable.svelte — a
+      per-column header-cell testid so `tree-table.test.ts` and
+      `treetable-responsive.test.ts` stop grepping `'Stückpreis'` and
+      `'text=' + header`; a footer-total testid for
+      `locator('text=/Total: €[0-9]/')`; and a children-zone testid via
+      `childrenZoneAttrs` for `smoke.test.ts`. Add testids ONLY where a spec
+      currently greps text — do not scattergun the grid.
+    * src/frontend/src/lib/methods/bucketSampled/EditorModule.svelte
+      (`bucket.add-bucket|name-input|delete|add-group-row|add-item|add-group|save-state`)
+    * src/frontend/src/lib/session/PhaseOnePanel.svelte,
+      src/frontend/src/lib/session/PhaseTwoPanel.svelte,
+      src/frontend/src/routes/sessions/[id]/+page.svelte
+      (`session.submit-estimate|agree|finalize-item|to-phase-two|start|
+      min-input|expected-input|max-input|status|progress` — the named inputs
+      replace the positional `getByRole('spinbutton').nth(0..2)`)
+    * src/frontend/src/routes/sessions/+page.svelte
+      (`session-setup.select-all|clear-selection|start|selected-count|error`)
+    * src/frontend/src/routes/estimations/[id]/versions/[versionNumber]/schedule/+page.svelte
+      (`schedule.edit-dependencies|critical-path-legend`; the existing
+      `schedule-*` testids stay)
+
+  ### New PO files under `src/frontend/e2e/pages/` (plus barrel re-exports)
+
+  `AppNav.ts`, `TreeTable.ts`, `BucketEditor.ts`, `ReplaceDraftDialog.ts`,
+  `MerlinStructureDialog.ts`, `ImportExportMenu.ts`, `SessionSetupPage.ts`,
+  `SessionRoomPage.ts`, `ConnectionLostDialog.ts`, `SchedulePage.ts`.
+  `index.ts` gains their exports.
+
+  ### Specs to migrate (16)
+
+  `session.test.ts` (the largest — 24 `getByRole` with a name, 7 `getByText`),
+  `session-setup.test.ts`, `session-connection.test.ts`,
+  `merlin-import.test.ts`, `merlin-export.test.ts`, `xlsx-import.test.ts`,
+  `bucket-hierarchy.test.ts`, `bucket-views.test.ts`,
+  `bucket-sampled-flow.test.ts`, `connection-lost.test.ts`,
+  `navigation.test.ts`, `schedule.test.ts`, `export.test.ts`,
+  `tree-table.test.ts`, `treetable-responsive.test.ts`, `smoke.test.ts`.
+
+  ## Non-goals
+
+  - The ESLint rule and the `src/frontend/CLAUDE.md` subsection — **task-189**.
+  - No rename of existing flat-kebab testids, no spec-file renames.
+  - No new e2e coverage, no backend/domain/REST changes, no
+    `playwright.config.ts` change.
+  - `branding.test.ts`, `tree-table-alignment.test.ts`,
+    `treetable-header-fit.test.ts`, `summary-panel.test.ts`,
+    `system-settings.test.ts` and `tree-table-dnd-mouse.test.ts` already carry
+    no translated literal — leave them alone.
+
+steps:
+  - |
+    Read task-117's frozen decisions and the POs it landed, then the
+    stage-B components and specs (parallel). Re-audit rather than trusting
+    this file's line numbers:
+      grep -rnE "getByRole\(|getByText\(|getByLabel\(|getByPlaceholder\(|hasText:|locator\(['\"]text=" src/frontend/e2e/*.ts
+      grep -rnE "to(ContainText|HaveText)\([[:space:]]*['\"/]" src/frontend/e2e/*.ts
+      grep -rnE "aria-label=\"[^\"]*[äöüßÄÖÜ]" src/frontend/e2e/*.ts
+  - |
+    Add the stage-B `data-testid` attributes. Same rules as stage A: outermost
+    interactive node, no presentational wrappers, no renames of existing
+    testids. For the tree table, route the children-zone testid through the
+    existing `childrenZoneAttrs` hook rather than editing the aria-label.
+  - |
+    Add the ten stage-B POs and re-export them from `index.ts`. Give
+    `SessionRoomPage` named `fillEstimate(min, expected, max)` /
+    `submitEstimate()` / `agree()` / `finalizeItem()` methods so the
+    positional spinbutton indexing disappears from `session.test.ts`.
+  - |
+    Migrate the sixteen stage-B specs. `smoke.test.ts`'s API-seeding first
+    half stays; its version-editor second half moves onto the POs and
+    `p.text-red-600` becomes the `error-banner` testid.
+  - |
+    Hand-migrate the two `download(label: RegExp)` helpers (`export.test.ts`,
+    `bucket-sampled-flow.test.ts`) onto a testid-keyed PO method — the
+    translated regex lives at the caller and no automated gate will find it.
+  - |
+    Clear the four residual patterns listed in the description
+    (`toContainText`/`toHaveText` German, German aria-labels, the two
+    `download` helpers, `p.text-red-600`) WITHOUT touching their legitimate
+    neighbours (brand names, formatted numbers, seeded item names, the
+    English TreeTable aria-labels).
+  - |
+    Build and prove it:
+      ./gradlew :frontend:check
+      ./gradlew build
+    Then the full suite against a running `./scripts/dev.sh` stack (backend on
+    :8090, Docker up; `global-setup.ts` resets fixture data first):
+      cd src/frontend && npx playwright test
+
+validation:
+  - |
+    The stage-B POs exist and the barrel re-exports them:
+      for f in AppNav TreeTable BucketEditor ReplaceDraftDialog \
+               MerlinStructureDialog ImportExportMenu SessionSetupPage \
+               SessionRoomPage ConnectionLostDialog SchedulePage; do
+        test -f "src/frontend/e2e/pages/$f.ts" || { echo "missing PO: $f"; exit 1; }
+        grep -q "$f" src/frontend/e2e/pages/index.ts || { echo "not exported: $f"; exit 1; }
+      done
+  - |
+    Every stage-B component carries a testid:
+      for f in \
+        src/frontend/src/lib/components/ReplaceDraftDialog.svelte \
+        src/frontend/src/lib/components/MerlinStructureDialog.svelte \
+        src/frontend/src/lib/components/ConnectionLostDialog.svelte \
+        src/frontend/src/lib/components/EstimationDetail.svelte \
+        src/frontend/src/lib/components/VersionList.svelte \
+        src/frontend/src/lib/components/AppHeader.svelte \
+        src/frontend/src/lib/components/EstimationGrid.svelte \
+        src/frontend/src/lib/components/treetable/TreeTable.svelte \
+        src/frontend/src/lib/methods/bucketSampled/EditorModule.svelte \
+        src/frontend/src/lib/session/PhaseOnePanel.svelte \
+        src/frontend/src/lib/session/PhaseTwoPanel.svelte \
+        src/frontend/src/routes/sessions/+page.svelte \
+        src/frontend/src/routes/sessions/[id]/+page.svelte \
+        src/frontend/src/routes/estimations/[id]/versions/[versionNumber]/schedule/+page.svelte \
+      ; do grep -q "data-testid=" "$f" || { echo "missing testid: $f"; exit 1; }; done
+  - |
+    **The tree-wide invariant**: with stage A and stage B both landed, NO spec
+    matches on a translated literal. `e2e/pages/**` is a subdirectory (not
+    matched by these globs) and `e2e/language.test.ts` is the one allowlisted
+    file — it asserts DE vs EN text by design:
+      cd src/frontend
+      BAN="getByRole\\([^)]*name:[[:space:]]*['\"/]|getByText\\([[:space:]]*['\"/]"
+      BAN="$BAN|getBy(Label|Placeholder)\\([[:space:]]*['\"]|locator\\([[:space:]]*['\"]text="
+      BAN="$BAN|hasText:[[:space:]]*['\"]"
+      fail=0
+      for f in $(ls e2e/*.test.ts e2e/*.spec.ts | grep -v '^e2e/language.test.ts$'); do
+        if grep -nE "$BAN" "$f"; then echo "translated literal in $f"; fail=1; fi
+      done
+      exit $fail
+  - |
+    The residuals no AST rule can catch are gone. Each grep names the exact
+    German string, because the same syntax legitimately carries brand names,
+    formatted numbers and seeded data elsewhere in these files:
+      cd src/frontend
+      ! grep -rn "nicht mehr verfügbar" e2e/session-connection.test.ts
+      ! grep -rn "von 40 ausgewählt" e2e/session-setup.test.ts
+      ! grep -rn "'Pausiert'" e2e/session.test.ts
+      ! grep -rn "'zugeklappt'" e2e/schedule.test.ts
+      ! grep -rn "Unterelemente von" e2e/smoke.test.ts
+      ! grep -rn "p.text-red-600" e2e/smoke.test.ts
+      ! grep -rn "label: RegExp" e2e/export.test.ts e2e/bucket-sampled-flow.test.ts
+  - |
+    The ENGLISH aria-labels of the generic TreeTable were NOT collaterally
+    removed (they are correct tier-2 locators, not a translation):
+      grep -q 'aria-label="Children"' src/frontend/e2e/tree-table.test.ts
+      grep -q 'aria-label="Collapse"' src/frontend/e2e/tree-table-alignment.test.ts
+  - |
+    The positional spinbutton indexing is gone from the session spec:
+      ! grep -n "getByRole('spinbutton')" src/frontend/e2e/session.test.ts
+  - |
+    Every spec that drives a user-facing control imports a Page Object
+    (`auth.test.ts` is pure API and `language.test.ts` is allowlisted, so
+    both are absent by design; so are the specs that were already
+    testid-only):
+      cd src/frontend
+      for f in create-estimation.spec.ts endpoint-authorization.test.ts \
+               authorization-error.test.ts auth-gate.test.ts user-menu.test.ts \
+               undo.test.ts session.test.ts session-setup.test.ts \
+               session-connection.test.ts merlin-import.test.ts \
+               merlin-export.test.ts xlsx-import.test.ts bucket-hierarchy.test.ts \
+               bucket-views.test.ts bucket-sampled-flow.test.ts \
+               connection-lost.test.ts navigation.test.ts schedule.test.ts \
+               export.test.ts tree-table.test.ts treetable-responsive.test.ts \
+               smoke.test.ts; do
+        grep -q "from './pages'" "e2e/$f" || { echo "no POM import: $f"; exit 1; }
+      done
+  - |
+    Static analysis and the full build are green:
+      ./gradlew :frontend:check
+      ./gradlew build
+  - |
+    Full Playwright suite passes against a running `./scripts/dev.sh` stack
+    (backend on :8090, Docker up for Dev Services):
+      cd src/frontend && npx playwright test
+
+outputs:
+  - created: src/frontend/e2e/pages/AppNav.ts
+  - created: src/frontend/e2e/pages/TreeTable.ts
+  - created: src/frontend/e2e/pages/BucketEditor.ts
+  - created: src/frontend/e2e/pages/ReplaceDraftDialog.ts
+  - created: src/frontend/e2e/pages/MerlinStructureDialog.ts
+  - created: src/frontend/e2e/pages/ImportExportMenu.ts
+  - created: src/frontend/e2e/pages/SessionSetupPage.ts
+  - created: src/frontend/e2e/pages/SessionRoomPage.ts
+  - created: src/frontend/e2e/pages/ConnectionLostDialog.ts
+  - created: src/frontend/e2e/pages/SchedulePage.ts
+  - modified: src/frontend/e2e/pages/index.ts
+  - modified: src/frontend/e2e/session.test.ts
+  - modified: src/frontend/e2e/session-setup.test.ts
+  - modified: src/frontend/e2e/session-connection.test.ts
+  - modified: src/frontend/e2e/merlin-import.test.ts
+  - modified: src/frontend/e2e/merlin-export.test.ts
+  - modified: src/frontend/e2e/xlsx-import.test.ts
+  - modified: src/frontend/e2e/bucket-hierarchy.test.ts
+  - modified: src/frontend/e2e/bucket-views.test.ts
+  - modified: src/frontend/e2e/bucket-sampled-flow.test.ts
+  - modified: src/frontend/e2e/connection-lost.test.ts
+  - modified: src/frontend/e2e/navigation.test.ts
+  - modified: src/frontend/e2e/schedule.test.ts
+  - modified: src/frontend/e2e/export.test.ts
+  - modified: src/frontend/e2e/tree-table.test.ts
+  - modified: src/frontend/e2e/treetable-responsive.test.ts
+  - modified: src/frontend/e2e/smoke.test.ts
+  - modified: src/frontend/src/lib/components/ReplaceDraftDialog.svelte
+  - modified: src/frontend/src/lib/components/MerlinStructureDialog.svelte
+  - modified: src/frontend/src/lib/components/ConnectionLostDialog.svelte
+  - modified: src/frontend/src/lib/components/EstimationDetail.svelte
+  - modified: src/frontend/src/lib/components/VersionList.svelte
+  - modified: src/frontend/src/lib/components/AppHeader.svelte
+  - modified: src/frontend/src/lib/components/EstimationGrid.svelte
+  - modified: src/frontend/src/lib/components/treetable/TreeTable.svelte
+  - modified: src/frontend/src/lib/methods/bucketSampled/EditorModule.svelte
+  - modified: src/frontend/src/lib/session/PhaseOnePanel.svelte
+  - modified: src/frontend/src/lib/session/PhaseTwoPanel.svelte
+  - modified: src/frontend/src/routes/sessions/+page.svelte
+  - modified: src/frontend/src/routes/sessions/[id]/+page.svelte
+  - modified: src/frontend/src/routes/estimations/[id]/versions/[versionNumber]/schedule/+page.svelte

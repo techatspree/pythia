@@ -1,0 +1,213 @@
+id: task-189
+phase: phase-14
+title: "Playwright POM — stage C: ESLint gate and documentation"
+depends_on: [task-117, task-188]
+description: |
+  Stage C of the Page Object Model migration (task-117 stage A, task-188
+  stage B). Stages A and B left the suite with **no translated literal in any
+  spec**. Stage C makes that state permanent: an ESLint rule that fails
+  `:frontend:check` when a spec reaches for a translated label again, plus the
+  `src/frontend/CLAUDE.md` subsection that explains the convention to whoever
+  writes the next spec.
+
+  Nothing here changes behaviour. It is the smallest of the three tasks and
+  the one that gives the other two their durability — without it, the next
+  spec written under deadline reintroduces `getByRole('button', { name: 'Speichern' })`
+  and nothing objects.
+
+  **Run task-188's tree-wide invariant check before starting.** If it does not
+  pass, this rule cannot land green and the problem is stage B's, not this
+  task's.
+
+  ## The flat-config trap — read this before writing the rule
+
+  `src/frontend/eslint.config.js` ALREADY declares `no-restricted-syntax` for
+  `files: ['**/*.ts', '**/*.svelte']` to ban raw `fetch(...)` in favour of
+  `apiFetch`. ESLint flat config **replaces** a rule's options for matching
+  files rather than merging them, so a new config block that sets
+  `no-restricted-syntax` for `e2e/**/*.ts` would SILENTLY DISABLE the
+  raw-`fetch` ban throughout the e2e tree — and `e2e/global-setup.ts` carries
+  a comment that explicitly relies on that ban being live there.
+
+  **The new block must re-declare the `fetch` entry alongside the selector
+  entries.** A dedicated validation item probes for exactly this, because the
+  failure mode is silent: nothing errors, a ban simply stops existing.
+
+  The file already contains the precedent for scoped overrides — the
+  `src/lib/api/fetch.ts` block that turns `no-restricted-syntax` off for the
+  one legitimate raw-fetch site.
+
+  ## Entries to declare
+
+  Scope: files under `src/frontend/e2e/**`, with
+  `ignores: ['e2e/pages/**', 'e2e/language.test.ts']`.
+
+  1. `CallExpression[callee.property.name='getByRole']` whose second argument
+     object has a `name` property with a **Literal** value (string or regex) —
+     any role, not just `'button'`.
+  2. `CallExpression[callee.property.name='getByText']` with a Literal first
+     argument.
+  3. `CallExpression[callee.property.name=/^getBy(Label|Placeholder)$/]` with
+     a Literal first argument.
+  4. `CallExpression[callee.property.name='locator']` whose first argument is
+     a Literal matching `/^\s*text=/`, or a `BinaryExpression` whose left
+     operand is such a Literal (catches `locator('text=' + header)`).
+  5. A `hasText` property with a Literal value in any options object — it
+     reaches the same strings by another door
+     (`locator('button', { hasText: … })`, `filter({ hasText: … })`).
+  6. The existing raw-`fetch` entry, re-declared verbatim.
+
+  Message for 1–5 (single line): "e2e specs must go through Page Objects (see
+  src/frontend/e2e/pages/); do not match on a translated label."
+
+  ## What the rule must NOT flag
+
+  These are correct and appear throughout the migrated suite. If the rule
+  fires on any of them, the selector is too broad:
+
+  - Role-only calls: `getByRole('dialog')`, `getByRole('alert')`,
+    `getByRole('alertdialog')`, `getByRole('spinbutton')`,
+    `getByRole('listitem')` — no translated string, and the right
+    accessibility-level handle.
+  - `getByText(<variable>)` — `getByText(uniqueOffer)`,
+    `getByText(projectName)` match test-generated DATA, not UI chrome.
+  - English `aria-label` locators for the generic `treetable/TreeTable.svelte`
+    (`"Children"`, `"Root nodes"`, `"Collapse"`, `"Expand"`) — that component
+    is deliberately un-internationalised.
+
+  ## The two exemptions, and why each is in the config rather than in a comment
+
+  - **`e2e/pages/**`** — the POs are WHERE selectors are supposed to live.
+  - **`e2e/language.test.ts`** — it exists to prove `'Projekte'` → `'Projects'`
+    and `'Abmelden'` → `'Logout'` across a language switch, and asserts
+    `toHaveText` on `[data-testid="logout-button"]` in both languages.
+    Asserting translated text is its entire purpose. The `ignores` entry
+    carries a comment saying so, or the next reader deletes it as an oversight.
+
+  Note that `e2e/treetable-header-fit.test.ts` also runs in both locales
+  (task-140 — the header-overflow defect is translation-dependent) but needs
+  NO exemption: it is already testid-driven and measures `scrollWidth`.
+
+  ## Documentation
+
+  The subsection goes in **`src/frontend/CLAUDE.md`**, not the root
+  `CLAUDE.md`: frontend and e2e detail lives in the module file, next to the
+  existing notes on the `globalSetup` fixture reset (task-176), the
+  `locale: 'de-DE'` pin, and `Button.svelte` forwarding `{...rest}` so
+  `data-testid` reaches the real element. If the root `CLAUDE.md` gains
+  anything it is at most a one-line pointer.
+
+  It must cover:
+
+  - Where the POs live and the shape they take (stand-alone class, `Page` in
+    the constructor, intent-level `async` methods, no base class).
+  - `<screen>.<element>` for NEW testids, and that the ~90 existing
+    flat-kebab ones are deliberately left alone — this is the detail a future
+    session is most likely to "tidy up" wrongly.
+  - The ESLint ban, its two exemptions, and what it deliberately does not flag.
+  - **The flat-config trap**, so the next person extending the e2e rules does
+    not silently drop the fetch ban.
+  - The honest motivation: rename fragility, NOT "specs break under English" —
+    the `locale: 'de-DE'` pin already prevents that, and writing the wrong
+    reason into CLAUDE.md is how the stale justification survived this long.
+
+steps:
+  - |
+    Verify the ground is clean before adding a gate that assumes it. Run
+    task-188's tree-wide invariant check; if it fails, stop — the remaining
+    literals are stage B's scope, not this task's.
+  - |
+    Read `src/frontend/eslint.config.js` in full, in particular the existing
+    `no-restricted-syntax` block for `['**/*.ts', '**/*.svelte']` and the
+    `src/lib/api/fetch.ts` override beneath it.
+  - |
+    Add ONE config block scoped to `e2e/**/*.ts` with
+    `ignores: ['e2e/pages/**', 'e2e/language.test.ts']` and a comment
+    explaining the `language.test.ts` exemption. Declare all six
+    `no-restricted-syntax` entries from the description — the five selector
+    bans PLUS the re-declared raw-`fetch` entry.
+  - |
+    Prove the rule both fires and does not over-fire, using throwaway probe
+    files (never append to a tracked spec). Then delete the probes.
+  - |
+    Add the subsection to `src/frontend/CLAUDE.md` covering the six points in
+    the description.
+  - |
+    Build and prove nothing regressed:
+      ./gradlew :frontend:check
+      ./gradlew build
+    Then the full suite against a running `./scripts/dev.sh` stack (backend on
+    :8090, Docker up; `global-setup.ts` resets fixture data first):
+      cd src/frontend && npx playwright test
+
+validation:
+  - |
+    The rule FIRES on each banned form. Throwaway probe, deleted afterwards:
+      cd src/frontend
+      {
+        echo "import { test } from '@playwright/test';"
+        echo "test('probe', async ({ page }) => {"
+        echo "  await page.getByText('Rückgängig').click();"
+        echo "  await page.getByLabel('Angebot *').fill('x');"
+        echo "  await page.getByRole('button', { name: 'Speichern' }).click();"
+        echo "  await page.getByRole('heading', { name: /Projekte/ }).click();"
+        echo "  await page.locator('button', { hasText: 'Gruppe hinzufügen' }).click();"
+        echo "  await page.locator('text=Total').click();"
+        echo '});'
+      } > e2e/__lint-probe.test.ts
+      ! npx eslint e2e/__lint-probe.test.ts
+      rm e2e/__lint-probe.test.ts
+  - |
+    The rule does NOT over-fire on the legitimate forms the migrated suite
+    relies on. This probe must lint CLEAN:
+      cd src/frontend
+      {
+        echo "import { test, expect } from '@playwright/test';"
+        echo "test('probe', async ({ page }) => {"
+        echo "  const uniqueOffer = 'x';"
+        echo "  await expect(page.getByRole('dialog')).toBeVisible();"
+        echo "  await expect(page.getByRole('alert')).toBeVisible();"
+        echo "  await page.getByRole('spinbutton').nth(0).fill('1');"
+        echo "  await expect(page.getByText(uniqueOffer)).toBeVisible();"
+        echo "  await page.getByTestId('create-estimation.submit').click();"
+        echo "  await page.locator('[aria-label=\"Children\"]').first().click();"
+        echo '});'
+      } > e2e/__lint-ok-probe.test.ts
+      npx eslint e2e/__lint-ok-probe.test.ts
+      rm e2e/__lint-ok-probe.test.ts
+  - |
+    The new block did NOT clobber the raw-fetch ban in e2e (flat config
+    replaces rule options rather than merging them, and `global-setup.ts`
+    depends on that ban):
+      cd src/frontend
+      printf 'await fetch("/api/x");\n' > e2e/__fetch-probe.test.ts
+      ! npx eslint e2e/__fetch-probe.test.ts
+      rm e2e/__fetch-probe.test.ts
+  - |
+    Both exemptions hold — the allowlisted spec and the PO folder lint clean
+    while containing exactly what the rule bans elsewhere:
+      cd src/frontend
+      npx eslint e2e/language.test.ts
+      npx eslint e2e/pages
+  - |
+    The whole e2e tree lints clean:
+      cd src/frontend && npx eslint e2e
+  - |
+    `src/frontend/CLAUDE.md` documents the convention, the exemptions and the
+    flat-config trap:
+      grep -q "e2e/pages" src/frontend/CLAUDE.md
+      grep -q "Page Object" src/frontend/CLAUDE.md
+      grep -q "language.test.ts" src/frontend/CLAUDE.md
+      grep -qi "flat config\|replaces rather than merges\|no-restricted-syntax" src/frontend/CLAUDE.md
+  - |
+    Static analysis and the full build are green:
+      ./gradlew :frontend:check
+      ./gradlew build
+  - |
+    Full Playwright suite passes against a running `./scripts/dev.sh` stack
+    (backend on :8090, Docker up for Dev Services):
+      cd src/frontend && npx playwright test
+
+outputs:
+  - modified: src/frontend/eslint.config.js
+  - modified: src/frontend/CLAUDE.md

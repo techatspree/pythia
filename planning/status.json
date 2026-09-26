@@ -690,7 +690,7 @@
       "status": "pending",
       "started_at": null,
       "completed_at": null,
-      "notes": "Playwright: introduce Page Object Model — abstract dialog/button labels from tests"
+      "notes": "Playwright POM stage A: e2e/pages infrastructure, data-testids, create/auth/undo specs (stage B = task-188, stage C = task-189)"
     },
     "task-118": {
       "status": "done",
@@ -1111,6 +1111,18 @@
       "started_at": null,
       "completed_at": null,
       "notes": "Bucket editor renders a TIME_RELATIVE leaf as if it were bucketed (bucket select, no unit, no type) — split from task-186's audit"
+    },
+    "task-188": {
+      "status": "pending",
+      "started_at": null,
+      "completed_at": null,
+      "notes": "Playwright POM stage B: sessions, bucket, merlin/xlsx, export, schedule, tree table, smoke"
+    },
+    "task-189": {
+      "status": "pending",
+      "started_at": null,
+      "completed_at": null,
+      "notes": "Playwright POM stage C: ESLint gate banning translated-label selectors + src/frontend/CLAUDE.md"
     }
   }
 }
