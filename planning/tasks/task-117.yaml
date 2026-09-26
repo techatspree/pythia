@@ -23,8 +23,15 @@ description: |
   (task-123/127). That locale pin is why the German assertions still pass, and
   it stays.
 
-  The original motivation is therefore spent. What remains is narrower and
-  still real:
+  The original motivation is therefore **deferred, not spent**: locale
+  independence is a real goal of this phase, but it is delivered by
+  **task-190**, which pins the dev users' language server-side, drops the
+  browser-locale pin and gates on a full `E2E_LANG=en` run. Removing
+  translated labels from the specs (stages A–C) is a PREREQUISITE for that
+  and not a substitute — a grep for German literals is a proxy; the
+  two-language run is the proof.
+
+  What stages A–C buy on their own:
 
   - **Rename fragility.** A translated label is a moving target no compiler
     checks. Every catalog edit is a silent e2e break found only by a full
@@ -39,8 +46,12 @@ description: |
     `getByRole('spinbutton').nth(0..2)` (that one is stage B, but it is the
     clearest example of what the POs buy).
 
-  Do NOT re-justify this work as "specs break under English" — that is no
-  longer true, and a gate built on it would be theatre.
+  What you must NOT do is claim stage A (or B, or C) makes the suite
+  locale-independent. It does not: formatted numbers with a German decimal
+  comma survive all three stages by design (`bucket-sampled-flow.test.ts`,
+  `session.test.ts`), and nothing here runs the suite in English. Claiming the
+  property without task-190's gate is how the original version of this task
+  ended up resting on an argument nobody had tested.
 
   ## Frozen decisions (they govern all three stages; do not re-open)
 
@@ -91,7 +102,13 @@ description: |
     no DOM. Untouched, imports no PO. (`smoke.test.ts` LOOKS like one but is
     518 lines and drives the real version editor; it is stage B.)
   - **NO backend / domain / plumbing changes**, and **no change to
-    `playwright.config.ts`** — the `locale: 'de-DE'` pin stays.
+    `playwright.config.ts`** in this task — the `locale: 'de-DE'` pin stays
+    for now and is removed by **task-190**, which replaces it with a
+    server-side language pin in `global-setup.ts`. Do not pre-empt that here:
+    dropping the pin before the specs are migrated makes the suite LESS
+    deterministic, because Accept-Language only seeds a dev user on first
+    sighting (task-123) and an already-provisioned user keeps whatever
+    language the last run left.
   - **File-rename policy.** Do not rename spec files; the `*.spec.ts` /
     `*.test.ts` inconsistency is unrelated and a follow-up.
   - **`e2e/helpers.ts` and `e2e/global-setup.ts` stay as they are** — auth and
@@ -106,10 +123,20 @@ description: |
     * src/frontend/src/lib/components/CreateProjectDialog.svelte
       (`create-project.dialog|name-input|submit|cancel`)
     * src/frontend/src/lib/components/ProjectDetail.svelte (`project-detail.new-offer`)
+    * src/frontend/src/routes/projects/+page.svelte (`projects.new`) — the
+      "Neues Projekt" button is `$_('project.pageNewProject')` on the ROUTE,
+      not in `ProjectList.svelte`, which renders only the table. Both
+      `authorization-error.test.ts` and `endpoint-authorization.test.ts` click
+      it, so stage A cannot be completed without this file.
     * src/frontend/src/lib/components/ProjectList.svelte
-      (`projects.new`, `project-list.row` per row, keyed by project id)
+      (`project-list.row` per row, keyed by project id — the `<tr>`/`<a>` rows
+      only; this file has NO "new project" button)
     * src/frontend/src/lib/components/ErrorBanner.svelte
-      (`error-banner` on the outer `role="alert"` element)
+      (`error-banner` on the outer `role="alert"` element). Note this testid
+      has no stage-A consumer — the six specs here use role-only
+      `getByRole('alert')`, which stays legal. It is added now because the
+      component is a stage-A file and `smoke.test.ts:134` (stage B,
+      task-188) replaces `p.text-red-600` with it.
     * src/frontend/src/lib/components/DevLoginDialog.svelte (`dev-login.dialog`
       on the root — replaces the `[aria-label="Dev-Anmeldungsauswahl"]` grep;
       the existing `dev-login-{subjectId}` per-user testids stay)
@@ -125,6 +152,18 @@ description: |
 
   `$lib/ui/Button.svelte` forwards `{...rest}`, so `data-testid` reaches the
   real element — never add a wrapper `<div>` to carry one.
+
+  **Every label the specs match on is an i18n KEY, not source text.** Grepping
+  the components for `'Neues Angebot'` finds only `src/lib/i18n/de.json`. Map
+  the string to its key there first, then grep for the key: `project.detailNewOffer`
+  → `ProjectDetail.svelte`, `project.pageNewProject` → `routes/projects/+page.svelte`,
+  `dialog.createProject.create` → `CreateProjectDialog.svelte`,
+  `dialog.createEstimation.save` → `CreateEstimationDialog.svelte`,
+  `dialog.devLogin.ariaLabel` → `DevLoginDialog.svelte`,
+  `editor.undo|redo|historyAria` → the version-editor route,
+  `history.conflict.reload|ariaLabel` → `UndoConflictDialog.svelte`,
+  `history.title` → `UndoHistoryPanel.svelte`. That indirection is exactly how
+  the `projects.new` placement was got wrong in an earlier draft of this task.
 
   ### New PO files under `src/frontend/e2e/pages/`
 
@@ -158,9 +197,16 @@ description: |
   ## Non-goals
 
   - The other 16 specs and their components — **task-188**.
-  - The ESLint rule, the `src/frontend/CLAUDE.md` subsection and the
+  - Locale independence itself — the server-side language pin, dropping the
+    browser-locale pin, the seven formatted-number assertions and the
+    two-language gate — **task-190**.
+  - The ESLint rule and the FULL `src/frontend/CLAUDE.md` subsection, and the
     tree-wide invariant gate — **task-189**. Stage A's gate is scoped to its
     own six specs on purpose; a tree-wide gate cannot pass until stage B lands.
+    Stage A does add a **two-line placeholder note** to
+    `src/frontend/CLAUDE.md`, so that if stages B and C slip, the new
+    convention is not documented only in a planning YAML. task-189 expands
+    that note; it does not replace a missing one.
   - No rename of the ~90 existing flat-kebab testids.
   - No new e2e coverage, no backend/domain/REST changes.
 
@@ -175,11 +221,13 @@ steps:
       grep -rhoE 'data-testid="[^"]+"' src/frontend/src/ | sort -u
       grep -rnE "getByRole\(|getByText\(|getByLabel\(|getByPlaceholder\(|hasText:|locator\(['\"]text=" src/frontend/e2e/*.ts
   - |
-    Add the stage-A `data-testid` attributes. One testid per interactive
-    element, on the OUTERMOST interactive node (`<button>`, `<input>`,
-    `<select>`, `<dialog>`, the `role="alert"` div) — never on a
-    presentational wrapper. Do NOT rename `logout-button`. This step touches
-    no e2e file.
+    Add the stage-A `data-testid` attributes to the ELEVEN files in the scope
+    list — nine components plus `routes/projects/+page.svelte` (the
+    `projects.new` button) and the version-editor route (the undo toolbar).
+    One testid per interactive element, on the OUTERMOST interactive node
+    (`<button>`, `<input>`, `<select>`, `<dialog>`, the `role="alert"` div) —
+    never on a presentational wrapper. Do NOT rename `logout-button`. This
+    step touches no e2e file.
   - |
     Create `src/frontend/e2e/pages/` with the twelve stage-A POs and the
     `index.ts` barrel. Each PO is stand-alone (no base class), takes a `Page`,
@@ -211,6 +259,14 @@ steps:
     `getByPlaceholder`, `hasText` and `locator('[aria-label="<German>"]')`.
     Keep the data matches and role-only calls listed in the scope section.
   - |
+    Add a short placeholder note to `src/frontend/CLAUDE.md` (module file, NOT
+    the root — frontend and e2e detail lives next to the existing notes on the
+    `globalSetup` fixture reset and the `de-DE` locale pin). Two lines are
+    enough at this stage: e2e Page Objects live in `src/frontend/e2e/pages/`,
+    and NEW testids use `<screen>.<element>` while the existing flat-kebab
+    ones are deliberately never renamed. task-189 expands this into the full
+    subsection with the ESLint rule and its exemptions.
+  - |
     Build and run the migrated specs against a live stack:
       ./gradlew :frontend:check
       # with ./scripts/dev.sh running (backend on :8090, Docker up):
@@ -241,19 +297,42 @@ validation:
       test -f src/frontend/e2e/pages/UndoToolbar.ts
       test -f src/frontend/e2e/pages/UndoConflictDialog.ts
       test -f src/frontend/e2e/pages/UndoHistoryPanel.ts
+    …and the barrel EXPORTS every one of them — a file that exists but is not
+    re-exported breaks the `from './pages'` import the next item checks:
+      for f in ProjectsListPage ProjectDetailPage CreateProjectDialog \
+               CreateEstimationDialog DevLoginDialog ErrorBanner UserMenu \
+               VersionEditorPage UndoToolbar UndoConflictDialog UndoHistoryPanel; do
+        grep -q "$f" src/frontend/e2e/pages/index.ts \
+          || { echo "not exported from barrel: $f"; exit 1; }
+      done
   - |
-    Every stage-A component carries a testid:
-      for f in \
-        src/frontend/src/lib/components/CreateEstimationDialog.svelte \
-        src/frontend/src/lib/components/CreateProjectDialog.svelte \
-        src/frontend/src/lib/components/ProjectDetail.svelte \
-        src/frontend/src/lib/components/ProjectList.svelte \
-        src/frontend/src/lib/components/ErrorBanner.svelte \
-        src/frontend/src/lib/components/DevLoginDialog.svelte \
-        src/frontend/src/lib/components/UndoHistoryPanel.svelte \
-        src/frontend/src/lib/components/UndoConflictDialog.svelte \
-        src/frontend/src/lib/components/UserMenu.svelte \
-      ; do grep -q "data-testid=" "$f" || { echo "missing testid: $f"; exit 1; }; done
+    Every stage-A file carries the SPECIFIC new testid, not merely "a"
+    testid. A bare `grep -q data-testid=` would pass vacuously for four of
+    these — `ProjectDetail.svelte`, `DevLoginDialog.svelte`, `UserMenu.svelte`
+    and the version-editor route already carry 1, 1, 2 and 6 attributes
+    respectively before this task starts:
+      check() { grep -q "data-testid=\"$2\"" "$1" || { echo "missing $2 in $1"; exit 1; }; }
+      C=src/frontend/src/lib/components
+      check $C/CreateEstimationDialog.svelte create-estimation.dialog
+      check $C/CreateEstimationDialog.svelte create-estimation.offer-input
+      check $C/CreateEstimationDialog.svelte create-estimation.method-select
+      check $C/CreateEstimationDialog.svelte create-estimation.submit
+      check $C/CreateProjectDialog.svelte    create-project.dialog
+      check $C/CreateProjectDialog.svelte    create-project.name-input
+      check $C/CreateProjectDialog.svelte    create-project.submit
+      check $C/ProjectDetail.svelte          project-detail.new-offer
+      check $C/ErrorBanner.svelte            error-banner
+      check $C/DevLoginDialog.svelte         dev-login.dialog
+      check $C/UndoHistoryPanel.svelte       undo-history.panel
+      check $C/UndoConflictDialog.svelte     undo-conflict.dialog
+      check $C/UndoConflictDialog.svelte     undo-conflict.reload
+      check $C/UserMenu.svelte               user-menu.role.viewer
+      check src/frontend/src/routes/projects/+page.svelte projects.new
+      R="src/frontend/src/routes/estimations/[id]/versions/[versionNumber]/+page.svelte"
+      check "$R" undo-toolbar.undo
+      check "$R" undo-toolbar.redo
+      check "$R" undo-toolbar.show-history
+      grep -q 'data-testid=' $C/ProjectList.svelte || { echo "no row testid in ProjectList"; exit 1; }
   - |
     `logout-button` was NOT renamed (language.test.ts depends on it):
       grep -q 'data-testid="logout-button"' src/frontend/src/lib/components/UserMenu.svelte
@@ -283,6 +362,10 @@ validation:
                user-menu.test.ts undo.test.ts; do
         grep -q "from './pages'" "e2e/$f" || { echo "no POM import: $f"; exit 1; }
       done
+  - |
+    `src/frontend/CLAUDE.md` carries the placeholder note (task-189 expands
+    it; this proves the convention is not documented only in planning YAML):
+      grep -q "e2e/pages" src/frontend/CLAUDE.md
   - |
     Static analysis and the full build are green:
       ./gradlew :frontend:check
@@ -322,4 +405,6 @@ outputs:
   - modified: src/frontend/src/lib/components/UndoHistoryPanel.svelte
   - modified: src/frontend/src/lib/components/UndoConflictDialog.svelte
   - modified: src/frontend/src/lib/components/UserMenu.svelte
+  - modified: src/frontend/src/routes/projects/+page.svelte
   - modified: src/frontend/src/routes/estimations/[id]/versions/[versionNumber]/+page.svelte
+  - modified: src/frontend/CLAUDE.md

@@ -90,6 +90,13 @@ description: |
 
   ## Documentation
 
+  **task-117 already left a two-line placeholder there** (where the POs live,
+  and the `<screen>.<element>` rule for new testids). This task EXPANDS that
+  note into the full subsection — it does not write it from nothing, and the
+  `grep -q "e2e/pages"` validation below therefore passes before this task
+  starts. The greps that actually distinguish stage C are the
+  `language.test.ts` and flat-config ones.
+
   The subsection goes in **`src/frontend/CLAUDE.md`**, not the root
   `CLAUDE.md`: frontend and e2e detail lives in the module file, next to the
   existing notes on the `globalSetup` fixture reset (task-176), the
@@ -107,9 +114,13 @@ description: |
   - The ESLint ban, its two exemptions, and what it deliberately does not flag.
   - **The flat-config trap**, so the next person extending the e2e rules does
     not silently drop the fetch ban.
-  - The honest motivation: rename fragility, NOT "specs break under English" —
-    the `locale: 'de-DE'` pin already prevents that, and writing the wrong
-    reason into CLAUDE.md is how the stale justification survived this long.
+  - The honest motivation: **rename fragility**, and removing translated
+    labels as the PREREQUISITE for locale independence — which task-190
+    delivers and proves with a full `E2E_LANG=en` run. Do not write "this
+    makes the suite locale-independent" into CLAUDE.md: at the end of stage C
+    it is not, because formatted numbers with a German decimal comma are still
+    asserted. If task-190 has already landed when you write this, say so and
+    point at its gate; if it has not, say the property is pending.
 
 steps:
   - |

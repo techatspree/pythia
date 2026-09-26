@@ -1,0 +1,233 @@
+id: task-190
+phase: phase-14
+title: "Make the e2e suite locale-independent"
+depends_on: [task-188]
+description: |
+  Close the Page Object work by making the property it was always supposed to
+  deliver actually TRUE and actually CHECKED: **no Playwright spec depends on
+  the UI language.** Stages A–C (task-117 / task-188 / task-189) remove
+  translated LABELS from the specs and keep them out with an ESLint rule. That
+  is a proxy. This task makes the suite pass in German and in English, and
+  adds the run that proves it.
+
+  ## What still ties the suite to German after stage B
+
+  1. **Formatted numbers — seven assertions.** `$lib/format.ts` formats by the
+     USER's language, so a decimal comma is German output:
+       * `e2e/bucket-sampled-flow.test.ts:228,229,230,231,261,262`
+         — `toHaveText('2,00')` / `'4,00'`
+       * `e2e/session.test.ts:126`
+         — `toHaveText('5,0 / 8,0 / 13,0')`
+     Under English these render `2.00` and `5.0 / 8.0 / 13.0`. task-188
+     deliberately preserves them (it lists `'2,00'` as a legitimate
+     non-label string), so they arrive here untouched.
+  2. **A currency assertion**: `e2e/tree-table.test.ts:37`
+     `locator('text=/Total: €[0-9]/')` — German puts the symbol last
+     (`1.234,56 €`), English first (`€1,234.56`). task-188 migrates the
+     selector; this task must confirm the surviving assertion is
+     symbol-position-agnostic.
+  3. **The ambient locale itself.** Only `language.test.ts` and
+     `treetable-header-fit.test.ts` set their user's language explicitly. Every
+     other spec inherits whatever the shared dev users happen to carry.
+
+  ## The trap: removing the config pin alone makes things WORSE
+
+  `playwright.config.ts` pins `locale: 'de-DE'`, and it is tempting to think
+  deleting that line is the whole task. It is not, and doing only that would
+  reduce determinism:
+
+  - Accept-Language seeds a dev user's language **only on first sighting**
+    (task-123). The dev provider then re-reads the PERSISTED value from
+    `GET /api/auth/me` on startup (task-127).
+  - So for an already-provisioned `dev-admin`, the browser locale changes
+    nothing — the suite would simply inherit whatever language the last run,
+    or `scripts/capture-screenshots.mjs`, left behind. An `en-US` run would
+    then render GERMAN and pass while proving nothing at all.
+
+  **The browser locale is the wrong lever.** `$lib/format.ts` takes the locale
+  as a parameter and callers pass `$locale ?? DEFAULT_LOCALE`, where `$locale`
+  is driven by `setUserLanguage(...)` off the account's persisted language —
+  not by the browser. The deterministic lever is the PERSISTED user language.
+
+  ## The design
+
+  **`e2e/global-setup.ts` pins the shared users' language explicitly**, right
+  after its existing fixture reset, for each of the three shared dev subjects
+  (`dev-admin`, `dev-estimator`, `dev-viewer`):
+
+      PUT /api/auth/me/language  { "language": <E2E_LANG ?? 'de'> }
+
+  with the `Authorization: Dev <subject>` header the reset already uses (the
+  PUT also provisions the user, so it doubles as a deterministic reset). It
+  logs the language it pinned, like the reset logs its counts.
+
+  This is strictly better than the config pin on four counts:
+
+  - It is deterministic regardless of what a previous run left behind, which
+    the Accept-Language route never was.
+  - It makes `E2E_LANG=en npx playwright test` a REAL English run, so the
+    gate below actually tests something.
+  - It **retires the task-180 hazard**: a `capture-screenshots.mjs` run that
+    fails to restore the language can no longer fail 28 tests, because the
+    next run re-pins it. Keep that script's `finally` anyway — it is good
+    hygiene for a human's dev stack — but it stops being load-bearing, and
+    `src/frontend/CLAUDE.md` must stop saying that it is.
+  - Specs with a DEDICATED user (`language.test.ts`,
+    `treetable-header-fit.test.ts`) keep setting their own language in
+    `beforeEach`; the global pin only improves their starting point. Do not
+    remove their per-spec handling.
+
+  **`playwright.config.ts`: drop `locale: 'de-DE'`.** With the language pinned
+  server-side it no longer decides anything. Removing it is the point — while
+  it remains, a reader reasonably concludes the suite is German by
+  construction. If a browser locale is wanted for realism, it must be set from
+  the same `E2E_LANG` value so the two can never disagree.
+
+  ## Assertion conversions
+
+  Make the seven number assertions locale-agnostic rather than pinning a
+  language around them — a spec that switches the SHARED `dev-admin` would
+  contaminate every spec running in parallel against the one backend, which is
+  exactly why `language.test.ts` uses a dedicated user:
+
+      await expect(meanOf(page, leaf1)).toHaveText(/^2[.,]00$/);
+      await expect(est.getByTestId('aggregate-mean'))
+        .toHaveText(/^5[.,]0 \/ 8[.,]0 \/ 13[.,]0$/);
+
+  The value is still asserted; only the separator is freed. Where the
+  component already carries a testid, exposing the raw number as a
+  `data-value` attribute and asserting THAT is stronger and also acceptable —
+  but do not add attributes to components purely to avoid a regex.
+
+  **Do not weaken the two specs that legitimately assert locale-specific
+  text.** `language.test.ts` must keep asserting `'Abmelden'` vs `'Logout'`
+  (that IS its subject) and `treetable-header-fit.test.ts` must keep measuring
+  in both locales (the header-overflow defect is translation-dependent,
+  task-140). Both set their own language, so neither depends on an ambient
+  one — they satisfy the rule rather than breaking it.
+
+  ## The gate
+
+  The suite must pass under BOTH languages. That is the only check that proves
+  the property; every grep in stages A–C is a proxy for it.
+
+  ## Non-goals
+
+  - No change to `$lib/format.ts`, the i18n catalogs, or any component's
+    rendering. This is a test-suite property, not a product change.
+  - No removal of `capture-screenshots.mjs`'s `finally` — it stops being
+    load-bearing, it does not become wrong.
+  - No new e2e coverage; no backend, domain or REST changes. (The
+    `PUT /api/auth/me/language` endpoint already exists — task-123.)
+  - The ESLint selector rule is task-189's and is orthogonal to this task.
+
+steps:
+  - |
+    Read, in parallel:
+      src/frontend/e2e/global-setup.ts        (the reset this extends)
+      src/frontend/playwright.config.ts       (the locale pin and storageState)
+      src/frontend/e2e/language.test.ts       (the per-spec language idiom to copy)
+      src/frontend/e2e/treetable-header-fit.test.ts
+      src/frontend/src/lib/format.ts          (confirm locale is a parameter, not the browser's)
+    Then re-audit the locale-dependent assertions rather than trusting this
+    file's line numbers:
+      grep -rnE "to(HaveText|ContainText)\([[:space:]]*['\"][0-9]+[.,][0-9]" src/frontend/e2e/*.ts
+      grep -rnE "€|[0-9]\.[0-9]{3}|[0-9]{2}\.[0-9]{2}\.[0-9]{4}" src/frontend/e2e/*.ts
+  - |
+    Extend `e2e/global-setup.ts`: after the existing `DELETE /api/dev/test-data`
+    reset, PUT `/api/auth/me/language` for `dev-admin`, `dev-estimator` and
+    `dev-viewer` with `process.env.E2E_LANG ?? 'de'`, each with its own
+    `Authorization: Dev <subject>` header. Expect 204. Log the pinned language
+    the way the reset logs its counts. A failure here fails loudly — every
+    test is about to depend on it.
+  - |
+    Remove `locale: 'de-DE'` from `playwright.config.ts`. If a browser locale
+    is kept for realism, derive it from the same `E2E_LANG` value so the two
+    can never disagree. Update the comment: the language is pinned
+    server-side by `global-setup.ts`, because Accept-Language only seeds a
+    user on FIRST sighting and therefore cannot re-language an existing one.
+  - |
+    Convert the seven formatted-number assertions
+    (`bucket-sampled-flow.test.ts` ×6, `session.test.ts` ×1) to
+    separator-agnostic regexes, and confirm the surviving currency assertion
+    in `tree-table.test.ts` does not depend on the €-symbol position.
+  - |
+    Run the suite BOTH ways against a running `./scripts/dev.sh` stack and fix
+    what falls out:
+      cd src/frontend
+      E2E_LANG=en npx playwright test
+      E2E_LANG=de npx playwright test
+    Expect the English run to surface leftovers stages A–C could not see —
+    assertions on text that is neither a label nor a number.
+  - |
+    Update `src/frontend/CLAUDE.md`. Three existing statements become WRONG
+    and must be corrected, not merely supplemented:
+      * that `playwright.config.ts` pins `locale: 'de-DE'` so Accept-Language
+        seeds fresh dev users German (the i18n section);
+      * that the Playwright suite asserts German UI text, so a stack left in
+        English fails 28 tests (the brand-assets section, task-180);
+      * any wording implying the suite is German by construction.
+    Replace with: the suite is locale-independent and proven so by the
+    `E2E_LANG=en` run; `global-setup.ts` pins the shared dev users' language;
+    `capture-screenshots.mjs` keeps its `finally` as hygiene but is no longer
+    load-bearing; `language.test.ts` and `treetable-header-fit.test.ts` set
+    their own language by design.
+  - |
+    Build:
+      ./gradlew :frontend:check
+      ./gradlew build
+
+validation:
+  - |
+    `global-setup.ts` pins the language for all three shared dev subjects:
+      grep -q "auth/me/language" src/frontend/e2e/global-setup.ts
+      grep -q "E2E_LANG" src/frontend/e2e/global-setup.ts
+      for s in dev-admin dev-estimator dev-viewer; do
+        grep -q "$s" src/frontend/e2e/global-setup.ts \
+          || { echo "global-setup does not pin $s"; exit 1; }
+      done
+  - |
+    The browser-locale pin is gone, or is derived from E2E_LANG rather than
+    hardcoded:
+      cd src/frontend
+      ! grep -nE "locale:[[:space:]]*'de-DE'" playwright.config.ts
+  - |
+    No spec asserts a locale-specific NUMBER format any more (a decimal comma
+    or dot inside a quoted expectation):
+      cd src/frontend
+      ! grep -rnE "to(HaveText|ContainText)\([[:space:]]*['\"][0-9]+[.,][0-9]" e2e/*.ts
+  - |
+    The two specs that legitimately assert locale-specific TEXT still do, and
+    still set their own language — this task must not have "fixed" them:
+      grep -q "auth/me/language" src/frontend/e2e/language.test.ts
+      grep -q "auth/me/language" src/frontend/e2e/treetable-header-fit.test.ts
+      grep -q "Abmelden" src/frontend/e2e/language.test.ts
+      grep -q "Logout" src/frontend/e2e/language.test.ts
+  - |
+    `src/frontend/CLAUDE.md` no longer claims the suite is German by
+    construction, and records the new property:
+      ! grep -n "fails 28 tests" src/frontend/CLAUDE.md
+      ! grep -nE "pins \`?locale: 'de-DE'\`?" src/frontend/CLAUDE.md
+      grep -q "E2E_LANG" src/frontend/CLAUDE.md
+  - |
+    Static analysis and the full build are green:
+      ./gradlew :frontend:check
+      ./gradlew build
+  - |
+    **The gate.** The full suite passes in BOTH languages against a running
+    `./scripts/dev.sh` stack (backend on :8090, Docker up). Run them
+    sequentially, never in parallel — they share one backend and one set of
+    dev users. English FIRST so the stack is left German for the next
+    developer (`--list` would not do: it does not execute `globalSetup`, so it
+    re-pins nothing):
+      cd src/frontend
+      E2E_LANG=en npx playwright test
+      E2E_LANG=de npx playwright test
+
+outputs:
+  - modified: src/frontend/e2e/global-setup.ts
+  - modified: src/frontend/playwright.config.ts
+  - modified: src/frontend/e2e/bucket-sampled-flow.test.ts
+  - modified: src/frontend/e2e/session.test.ts
+  - modified: src/frontend/e2e/tree-table.test.ts
+  - modified: src/frontend/CLAUDE.md

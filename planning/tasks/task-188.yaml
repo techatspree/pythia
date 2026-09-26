@@ -45,10 +45,18 @@ description: |
      `session-setup.test.ts:110,113,119` (`'… von 40 ausgewählt'`),
      `session.test.ts:255` (`'Pausiert'`), `schedule.test.ts:413`
      (`'zugeklappt'`).
-     Legitimate neighbours that must NOT be touched: `'Pythia'` /
-     `'Contoso GmbH'` (brand names, `branding`/`system-settings`), `'2,00'`
-     (formatted numbers, `bucket-sampled-flow`), `'Alpha'` / `'Beta'` (seeded
-     item names, `schedule`), `'Added after the import'` (`merlin-export`).
+     Neighbours that must NOT be touched IN THIS TASK: `'Pythia'` /
+     `'Contoso GmbH'` (brand names, `branding`/`system-settings`), `'Alpha'` /
+     `'Beta'` (seeded item names, `schedule`), `'Added after the import'`
+     (`merlin-export`) — none of these is a translated label.
+     `'2,00'` / `'5,0 / 8,0 / 13,0'` (formatted numbers,
+     `bucket-sampled-flow.test.ts` ×6 and `session.test.ts:126`) are a
+     different case: they are not labels either, but they ARE
+     locale-dependent — `$lib/format.ts` formats by the user's language, so
+     English renders `2.00`. Leave them exactly as they are here; **task-190**
+     converts them to separator-agnostic regexes as part of making the suite
+     locale-independent. Do not "fix" them in passing, and do not treat their
+     presence as a stage-B failure.
   2. **German `aria-label` in a raw locator:** `smoke.test.ts:384,451,502`
      (`[aria-label="Unterelemente von …"]`). Give the children zone a testid
      through `TreeTable`'s existing `childrenZoneAttrs` hook rather than
@@ -121,6 +129,10 @@ description: |
   ## Non-goals
 
   - The ESLint rule and the `src/frontend/CLAUDE.md` subsection — **task-189**.
+  - Locale independence — **task-190**. Stage B removes translated LABELS;
+    formatted numbers, the `locale: 'de-DE'` config pin and the
+    `E2E_LANG=en` gate are that task's. Stage B is its prerequisite, not its
+    substitute.
   - No rename of existing flat-kebab testids, no spec-file renames.
   - No new e2e coverage, no backend/domain/REST changes, no
     `playwright.config.ts` change.
