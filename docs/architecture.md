@@ -211,3 +211,43 @@ load or reload).
 Exception: `TreeTable`'s `collapsed` stays a deliberately local `$state` seeded
 from the `initialCollapsed` prop — it is private expand/collapse UI state that
 the page does not own, so it is not bindable.
+
+## Testing: Page Objects, not labels
+
+The Playwright suite is structured as a **Page Object Model**. Specs describe
+user intent; every selector lives behind a class in `src/frontend/e2e/pages/` —
+one stand-alone class per screen or modal, taking a `Page` in its constructor
+and exposing intent-level `async` methods. There is deliberately **no shared
+base class**: an abstract `BasePage` with a `.page` field and generic helpers
+buys nothing and hides the selectors twice.
+
+The invariant the layer exists to protect is that **no spec matches on a
+translated label**. A label is a moving target that no compiler checks, so
+without this every i18n catalog edit is a silent e2e break found only by a full
+suite run against a live stack. Components therefore carry stable
+`data-testid` attributes, and the locator precedence inside a Page Object is:
+`getByTestId(...)` first; `getByRole(...)` with a role only, or with an English
+`aria-label`, where a testid cannot be attached; a raw attribute selector last.
+
+Testids are English and never translated. **New** ones use
+`<screen>.<element>` in dot-separated lower-kebab (`create-estimation.offer-input`,
+`undo-toolbar.undo`); the roughly ninety pre-existing flat-kebab ones
+(`logout-button`, `tt-row-*`, `schedule-card`, …) are deliberately **never
+renamed**, so a file mixing both spellings is correct rather than sloppy.
+
+`src/frontend/eslint.config.js` enforces the ban for `e2e/**/*.ts` and fails
+`:frontend:check`. Three things stay legal by design and the rule is written
+not to flag them: role-only `getByRole('dialog'|'alert'|'spinbutton')`, which
+carries no translated string; `getByText(<variable>)`, which matches
+test-generated data rather than UI chrome; and the English `aria-label`s of the
+generic `TreeTable`, which is intentionally un-internationalised. Two files are
+exempt — `e2e/pages/**`, where selectors belong, and `e2e/language.test.ts`,
+whose entire subject is asserting translated text across a language switch.
+
+Where a spec must assert a genuinely translated sentence it reads the expected
+string from the i18n catalog **by key** rather than hardcoding it; where it
+cares about a number, the value is mirrored onto a data attribute. Both keep
+the assertion meaningful without pinning the suite to one language.
+
+The mechanics, the flat-config trap that governs extending the ESLint rule, and
+the per-component pitfalls live in `src/frontend/CLAUDE.md`.

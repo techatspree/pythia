@@ -90,6 +90,26 @@ description: |
 
   ## Documentation
 
+  **Four files, not one.** The original scope named only
+  `src/frontend/CLAUDE.md`; that was too narrow, because the Page Object Model
+  is an architectural convention and the places a reader or a future task
+  author actually looks are elsewhere:
+
+  - **`src/frontend/CLAUDE.md`** — the full mechanics (below). The detail lives
+    here and the other three point at it.
+  - **`CLAUDE.md` (root)** — one bullet in "Frontend hard rules", beside the
+    `apiFetch`, `ErrorBanner` and i18n bans. Those bullets are the always-loaded
+    contract; a ban that fails `:frontend:check` belongs among them.
+  - **`docs/architecture.md`** — a "Testing: Page Objects, not labels"
+    subsection under *Frontend conventions*. That document had **no testing
+    section at all**, so the structure of the suite was undocumented at the
+    architecture level even though error handling and state management were.
+  - **`.claude/commands/add-task.md`** — a style rule beside the Logging one,
+    so every task authored from now on specifies a Page Object and a testid
+    instead of a label selector. Without it the convention decays at the point
+    new work is planned, which is the one place it cannot be enforced by
+    ESLint.
+
   **task-117 already left a two-line placeholder there** (where the POs live,
   and the `<screen>.<element>` rule for new testids). This task EXPANDS that
   note into the full subsection — it does not write it from nothing, and the
@@ -222,3 +242,6 @@ validation:
 outputs:
   - modified: src/frontend/eslint.config.js
   - modified: src/frontend/CLAUDE.md
+  - modified: CLAUDE.md
+  - modified: docs/architecture.md
+  - modified: .claude/commands/add-task.md
