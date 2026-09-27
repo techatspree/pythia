@@ -1,12 +1,12 @@
 import { test, expect } from '@playwright/test';
+import { TreeTable } from './pages';
 
 test('TreeTable shows all columns at full viewport', async ({ page }) => {
 	await page.setViewportSize({ width: 1280, height: 720 });
 	await page.goto('/dev/tree-table-demo');
 	await page.waitForLoadState('networkidle');
 
-	const headerStückpreis = page.getByText('Stückpreis', { exact: true });
-	await expect(headerStückpreis).toBeVisible();
+	await new TreeTable(page).expectColumnVisible('unitPrice');
 });
 
 test('TreeTable hides collapsible columns when narrow AND inner wrapper scrolls horizontally', async ({
@@ -16,9 +16,10 @@ test('TreeTable hides collapsible columns when narrow AND inner wrapper scrolls 
 	await page.goto('/dev/tree-table-demo');
 	await page.waitForLoadState('networkidle');
 
-	// The "Stückpreis" header text is hidden because unitPrice is
-	// collapsible and the container is narrower than the 900 px default.
-	await expect(page.getByText('Stückpreis', { exact: true })).toHaveCount(0);
+	// The unitPrice header TEXT is blanked because the column is collapsible
+	// and the container is narrower than the 900 px default. The cell itself
+	// stays in the grid, so assert on its text rather than its presence.
+	await new TreeTable(page).expectColumnCollapsed('unitPrice');
 
 	// The inner .overflow-x-auto wrapper has natural width > viewport.
 	const scrollHost = page.locator('.overflow-x-auto').first();

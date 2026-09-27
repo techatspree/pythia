@@ -1,5 +1,6 @@
 import { test, expect, type APIRequestContext } from '@playwright/test';
 import { readFileSync } from 'node:fs';
+import { ImportExportMenu } from './pages';
 
 /**
  * The version editor's xlsx/csv export.
@@ -107,14 +108,13 @@ async function seedPertDraft(request: APIRequestContext): Promise<string> {
 async function downloadExport(
 	page: import('@playwright/test').Page,
 	estimationId: string,
-	label: RegExp
+	format: 'xlsx' | 'csv'
 ): Promise<{ filename: string; body: Buffer }> {
 	await page.goto(`/estimations/${estimationId}/versions/draft`);
 	await page.waitForLoadState('networkidle');
 
-	await page.locator('details > summary', { hasText: /^Export$/ }).click();
 	const downloadPromise = page.waitForEvent('download');
-	await page.getByRole('button', { name: label }).click();
+	await new ImportExportMenu(page).export(format);
 	const download = await downloadPromise;
 	const path = await download.path();
 	return { filename: download.suggestedFilename(), body: readFileSync(path) };
@@ -122,7 +122,7 @@ async function downloadExport(
 
 test('bucket estimation exports a real xlsx, not a 401 JSON body', async ({ page, request }) => {
 	const estimationId = await seedBucketDraft(request);
-	const { filename, body } = await downloadExport(page, estimationId, /Excel/);
+	const { filename, body } = await downloadExport(page, estimationId, 'xlsx');
 
 	expect(filename).toBe('estimation-draft.xlsx');
 	// xlsx is a zip container: "PK\x03\x04". A JSON error body starts with "{".
@@ -132,7 +132,7 @@ test('bucket estimation exports a real xlsx, not a 401 JSON body', async ({ page
 
 test('bucket estimation exports a real csv, not a 401 JSON body', async ({ page, request }) => {
 	const estimationId = await seedBucketDraft(request);
-	const { filename, body } = await downloadExport(page, estimationId, /CSV/);
+	const { filename, body } = await downloadExport(page, estimationId, 'csv');
 
 	expect(filename).toBe('estimation-draft.csv');
 	const text = body.toString('utf8');
@@ -142,7 +142,7 @@ test('bucket estimation exports a real csv, not a 401 JSON body', async ({ page,
 
 test('pert estimation exports a real xlsx, not a 401 JSON body', async ({ page, request }) => {
 	const estimationId = await seedPertDraft(request);
-	const { filename, body } = await downloadExport(page, estimationId, /Excel/);
+	const { filename, body } = await downloadExport(page, estimationId, 'xlsx');
 
 	expect(filename).toBe('estimation-draft.xlsx');
 	expect(body.subarray(0, 2).toString('latin1')).toBe('PK');

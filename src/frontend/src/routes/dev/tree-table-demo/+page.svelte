@@ -179,7 +179,9 @@
 {/snippet}
 
 {#snippet totalsFooter(rs: CatalogNode[])}
-	<span class="font-semibold">Total: €{rootsTotal(rs).toFixed(2)}</span>
+	<span class="font-semibold" data-testid="tt-demo.total"
+		>Total: €{rootsTotal(rs).toFixed(2)}</span
+	>
 {/snippet}
 
 <div class="p-8 max-w-5xl mx-auto">

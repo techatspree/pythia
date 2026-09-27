@@ -1,4 +1,5 @@
 import { test, expect, type Page, type APIRequestContext } from '@playwright/test';
+import { BucketEditor } from './pages';
 
 /**
  * The bucket + sampled editor's two views (task-132): a per-bucket projection
@@ -500,7 +501,7 @@ test('hierarchy view shows nested groups and shares the model with the bucket vi
 	await expect(page.locator(groupChildren)).toHaveCount(2);
 
 	// Add a child item to the group via its own row action.
-	await page.locator(row(groupId)).getByRole('button', { name: '+ Element' }).first().click();
+	await new BucketEditor(page).addChildItemIn(page.locator(row(groupId))).click();
 	await expect(page.locator(groupChildren)).toHaveCount(3);
 
 	// Switching back proves both views render the same model: the new leaf was

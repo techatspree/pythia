@@ -1,4 +1,5 @@
 import { test, expect, type Page, type Locator } from '@playwright/test';
+import { TreeTable } from './pages';
 
 async function keyboardReorder(page: Page, sourceRow: Locator, direction: 'up' | 'down') {
 	await sourceRow.focus();
@@ -26,15 +27,18 @@ test('tree-table demo renders header, all rows, and footer total', async ({ page
 	await page.goto('/dev/tree-table-demo');
 	await page.waitForLoadState('networkidle');
 
-	for (const header of ['Name', 'Menge', 'Stückpreis', 'Summe']) {
-		await expect(page.locator('text=' + header).first()).toBeVisible();
+	const table = new TreeTable(page);
+
+	for (const key of ['name', 'quantity', 'unitPrice', 'lineTotal']) {
+		await table.expectColumnVisible(key);
 	}
 
-	for (const id of ['g1', 'g1a', 'g1b', 'g2', 'g2a', 'g2b', 'l1', 'l2', 'l3', 'l4', 'l5', 'l6', 'l7', 'l8']) {
-		await expect(page.locator(`[data-testid="tt-row-${id}"]`)).toBeVisible();
-	}
+	await table.expectRowsVisible([
+		'g1', 'g1a', 'g1b', 'g2', 'g2a', 'g2b',
+		'l1', 'l2', 'l3', 'l4', 'l5', 'l6', 'l7', 'l8'
+	]);
 
-	await expect(page.locator('text=/Total: €[0-9]/')).toBeVisible();
+	await expect(page.getByTestId('tt-demo.total')).toContainText(/€[0-9]/);
 });
 
 test('collapsing a group hides its descendants', async ({ page }) => {

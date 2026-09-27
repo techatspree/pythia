@@ -453,6 +453,7 @@
 						class="py-2 px-2 min-w-0 overflow-hidden whitespace-normal break-words leading-tight {alignClass(
 							col.align
 						)}"
+						data-testid="tt-header-cell.{col.key}"
 						title={col.header}
 					>
 						{isCollapsed(col.key) ? '' : col.header}

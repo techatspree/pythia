@@ -74,6 +74,7 @@
 			<button
 				type="button"
 				onclick={addBucket}
+				data-testid="bucket.add-bucket"
 				class="text-xs text-brand-green hover:text-brand-green-hover"
 				title={$_('bucket.addTitle')}>{$_('bucket.add')}</button
 			>
@@ -102,12 +103,14 @@
 						type="text"
 						class="bg-transparent text-sm w-24 focus:outline-none focus:ring-1 focus:ring-brand-green/40 rounded px-1"
 						value={bucket.label}
+						data-testid="bucket.name-input"
 						aria-label={$_('bucket.nameAria')}
 						oninput={(e) => (bucket.label = e.currentTarget.value)}
 					/>
 					<button
 						type="button"
 						onclick={() => removeBucket(bucket.id)}
+						data-testid="bucket.delete"
 						class="text-ink-faint hover:text-red-500 leading-none"
 						aria-label={$_('bucket.deleteAria')}
 						title={$_('bucket.deleteTitle')}>✕</button

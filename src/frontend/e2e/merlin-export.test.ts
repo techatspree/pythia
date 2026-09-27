@@ -1,5 +1,6 @@
 import { test, expect, type APIRequestContext } from '@playwright/test';
 import { readFileSync } from 'node:fs';
+import { MerlinStructureDialog } from './pages';
 
 /**
  * Merlin export (task-133): the estimation's offerPT is written back into a
@@ -106,13 +107,14 @@ test('a drifted structure asks the user before overwriting Merlin', async ({ pag
 	await page.getByTestId('merlin-export-input').setInputFiles(`../../${SAMPLE}`);
 
 	// The 409 opens the decision dialog rather than failing the export.
-	const dialog = page.getByRole('dialog', { name: 'Struktur weicht ab' });
+	const structureDialog = new MerlinStructureDialog(page);
+	const dialog = structureDialog.dialog;
 	await expect(dialog).toBeVisible();
 	await expect(dialog).toContainText('Added after the import');
 
 	// Confirming overwrites the Merlin structure and completes the download.
 	const downloadPromise = page.waitForEvent('download');
-	await dialog.getByRole('button', { name: 'Struktur überschreiben' }).click();
+	await structureDialog.overwrite();
 	const download = await downloadPromise;
 	expect(download.suggestedFilename()).toContain('estimated');
 });

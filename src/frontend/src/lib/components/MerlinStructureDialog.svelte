@@ -46,6 +46,7 @@
 	role="dialog"
 	aria-modal="true"
 	aria-label={$_('merlin.diffTitle')}
+	data-testid="merlin-structure.dialog"
 >
 	<div class="bg-white rounded-lg shadow-xl p-6 w-full max-w-lg">
 		<h2 class="text-lg font-semibold mb-4">{$_('merlin.diffTitle')}</h2>
@@ -67,16 +68,15 @@
 		{/each}
 
 		<div class="flex justify-end gap-2 mt-4">
-			<Button variant="secondary"
+			<Button
+				variant="secondary"
 				bind:element={cancelButton}
-			
-				onclick={oncancel}
-			>{$_('merlin.cancel')}</Button>
-			<Button variant="danger"
-			
-				onclick={onconfirm}
-			
-				>{$_('merlin.overwrite')}</Button>
+				data-testid="merlin-structure.cancel"
+				onclick={oncancel}>{$_('merlin.cancel')}</Button
+			>
+			<Button variant="danger" data-testid="merlin-structure.overwrite" onclick={onconfirm}
+				>{$_('merlin.overwrite')}</Button
+			>
 		</div>
 	</div>
 </div>

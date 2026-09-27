@@ -258,10 +258,19 @@
 	}
 
 	function legacyZoneAttrs(parent: Node | null): Record<string, string> {
-		if (parent == null) return { 'aria-label': $_('grid.ariaRootNodes') };
+		// `data-zone-of` carries the group's TITLE — test data, not translated
+		// chrome — so e2e can address a specific drop zone without matching the
+		// German aria-label around it (task-188). The aria-label stays: it is
+		// real accessibility text and must remain translated.
+		if (parent == null)
+			return { 'aria-label': $_('grid.ariaRootNodes'), 'data-zone': 'root' };
 		if (parent.type === 'GROUP')
-			return { 'aria-label': $_('grid.ariaChildrenOf', { values: { title: parent.title ?? '' } }) };
-		return { 'aria-label': $_('grid.ariaChildren') };
+			return {
+				'aria-label': $_('grid.ariaChildrenOf', { values: { title: parent.title ?? '' } }),
+				'data-zone': 'children',
+				'data-zone-of': parent.title ?? ''
+			};
+		return { 'aria-label': $_('grid.ariaChildren'), 'data-zone': 'children' };
 	}
 
 	const gridTemplateColumns = $derived(
@@ -493,12 +502,14 @@
 			<button
 				type="button"
 				onclick={() => addChildGroupAt(ctx.path)}
+				data-testid="grid.add-group"
 				class="text-xs text-brand-green hover:text-brand-green-hover"
 				title={$_('grid.actionAddChildGroupTitle')}>{$_('grid.actionAddChildGroup')}</button
 			>
 			<button
 				type="button"
 				onclick={() => addChildLeafAt(ctx.path)}
+				data-testid="grid.add-item"
 				class="text-xs text-brand-green hover:text-brand-green-hover"
 				title={$_('grid.actionAddChildItemTitle')}>{$_('grid.actionAddChildItem')}</button
 			>
@@ -547,11 +558,9 @@
 		<div class="p-10 text-center text-ink-faint">
 			<p class="mb-4 text-sm">{$_('grid.empty')}</p>
 			{#if editable}
-				<Button
-				
-					onclick={addRootGroup}
-				
-					>{$_('grid.addGroup')}</Button>
+				<Button data-testid="grid.add-group-row" onclick={addRootGroup}
+					>{$_('grid.addGroup')}</Button
+				>
 			{/if}
 		</div>
 	{:else}
@@ -573,6 +582,7 @@
 				<button
 					type="button"
 					onclick={addRootGroup}
+					data-testid="grid.add-group-row"
 					class="text-sm text-brand-green hover:text-brand-green-hover">{$_('grid.addGroupRow')}</button
 				>
 			</div>

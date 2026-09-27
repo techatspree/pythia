@@ -1,4 +1,5 @@
 import { test, expect, type Page, type Locator } from '@playwright/test';
+import { EstimationGrid } from './pages';
 
 const API = 'http://localhost:8090';
 
@@ -130,8 +131,10 @@ function collectErrors(page: Page): string[] {
 
 /** Asserts the page shows no error message in the UI */
 async function expectNoUiError(page: Page, context: string) {
-	// Only match actual error paragraphs (class="text-red-600"), not delete buttons or hover states
-	const errorEl = page.locator('p.text-red-600').first();
+	// The shared ErrorBanner, not a styling class: the old colour-utility
+	// selector also matched delete buttons and hover states, and a Tailwind
+	// colour class is not a contract.
+	const errorEl = page.getByTestId('error-banner').first();
 	const visible = await errorEl.isVisible().catch(() => false);
 	if (visible) {
 		const text = await errorEl.textContent();
@@ -334,16 +337,18 @@ test('build a three-level tree via UI buttons', async ({ page }) => {
 	await page.goto(`/estimations/${estimationId}/versions/${versionNumber}?draft=true`);
 	await page.waitForLoadState('networkidle');
 
-	// Empty-state "Gruppe hinzufügen" button creates the first root group with a default leaf.
-	await page.locator('button', { hasText: 'Gruppe hinzufügen' }).first().click();
+	const grid = new EstimationGrid(page);
+
+	// Empty-state "add root group" button creates the first root group with a default leaf.
+	await grid.addRootGroup();
 	await page.waitForTimeout(200);
 
-	// "+ Gruppe" button on the root group adds a nested sub-group.
-	await page.locator('[data-testid="row-0"] button', { hasText: '+ Gruppe' }).click();
+	// The per-row "add child group" action on the root group adds a nested sub-group.
+	await grid.addChildGroupIn(grid.row('0')).click();
 	await page.waitForTimeout(200);
 
-	// "+ Element" button on the nested sub-group adds a leaf inside it.
-	await page.locator('[data-testid="row-0-1"] button', { hasText: '+ Element' }).click();
+	// The per-row "add child item" action on the nested sub-group adds a leaf inside it.
+	await grid.addChildItemIn(grid.row('0-1')).click();
 	await page.waitForTimeout(1500); // autosave debounce + flush
 
 	// Reload and verify via the REST API that the structure survived.
@@ -379,9 +384,10 @@ test('drag a leaf into a different group reparents it', async ({ page }) => {
 	await page.waitForLoadState('networkidle');
 
 	// L1 sits at path 0-0 (root index 0 = G1, child index 0 = L1).
-	// G2's children-zone is the dndzone div with aria-label="Unterelemente von G2".
+	// G2's children-zone, addressed by the group TITLE (test data) rather than
+	// the German aria-label around it.
 	const sourceRow = page.locator('[data-testid="row-0-0"]');
-	const targetZone = page.locator('[aria-label="Unterelemente von G2"]');
+	const targetZone = new EstimationGrid(page).childrenZoneOf('G2');
 	await keyboardReparent(page, sourceRow, targetZone);
 
 	const fetched = await page.request.get(`${API}/api/estimations/${estimationId}/versions/draft`, { headers: API_HEADERS }).then((r) => r.json());
@@ -446,9 +452,9 @@ test('dragging a group onto its own descendant is a no-op (cycle protection)', a
 	await page.waitForLoadState('networkidle');
 
 	const g1Row = page.locator('[data-testid="row-0"]');
-	// InnerG's children-zone has aria-label="Unterelemente von InnerG"; dropping G1
-	// inside it would create a cycle (G1 contains InnerG, can't contain itself).
-	const innerGZone = page.locator('[aria-label="Unterelemente von InnerG"]');
+	// Dropping G1 into InnerG's children-zone would create a cycle (G1 contains
+	// InnerG, so it cannot contain itself).
+	const innerGZone = new EstimationGrid(page).childrenZoneOf('InnerG');
 	await keyboardReparent(page, g1Row, innerGZone);
 
 	// Tree must be unchanged — cycle protection restored the snapshot.
@@ -499,7 +505,7 @@ test('drag a subgroup into a deeper nested subgroup reparents it', async ({ page
 
 	// Sub is the first child of G1 (path 0-0). Drop it into Deep's children zone.
 	const subRow = page.locator('[data-testid="row-0-0"]');
-	const deepZone = page.locator('[aria-label="Unterelemente von Deep"]');
+	const deepZone = new EstimationGrid(page).childrenZoneOf('Deep');
 	await keyboardReparent(page, subRow, deepZone);
 
 	const fetched = await page.request.get(`${API}/api/estimations/${estimationId}/versions/draft`, { headers: API_HEADERS }).then((r) => r.json());

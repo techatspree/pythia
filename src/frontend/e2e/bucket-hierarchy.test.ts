@@ -1,4 +1,5 @@
 import { test, expect, type Page, type APIRequestContext } from '@playwright/test';
+import { BucketEditor } from './pages';
 
 /**
  * The bucket + sampled editor's HIERARCHY view — rendering AND creation.
@@ -179,18 +180,15 @@ test('a GROUP row exposes the + Gruppe / + Element actions', async ({ page }) =>
 	// its descendant rows in the DOM, so an unscoped lookup inside the outer row
 	// also matches the inner group's buttons. DOM order puts a row's own actions
 	// before its children, so `.first()` is the outer group's own button.
+	const editor = new BucketEditor(page);
 	const groupRow = page.locator(row(outerId));
-	await expect(
-		groupRow.getByRole('button', { name: '+ Gruppe', exact: true }).first()
-	).toBeVisible();
-	await expect(
-		groupRow.getByRole('button', { name: '+ Element', exact: true }).first()
-	).toBeVisible();
+	await expect(editor.addChildGroupIn(groupRow)).toBeVisible();
+	await expect(editor.addChildItemIn(groupRow)).toBeVisible();
 
 	// …and deliberately absent on a leaf: `hierarchyActions` gates both on
 	// `node.type === 'GROUP'`. That is the chicken-and-egg the next test pins.
 	const leafRow = page.locator(row(deepLeafId));
-	await expect(leafRow.getByRole('button', { name: '+ Gruppe', exact: true })).toHaveCount(0);
+	await expect(leafRow.getByTestId('bucket.add-group')).toHaveCount(0);
 });
 
 // The bug this spec was written to characterise (task-150): a flat draft had no
@@ -204,8 +202,9 @@ test('a flat bucket draft can grow its first group, and that group is then usabl
 	const { estimationId } = await seedFlat(page.request);
 	await openHierarchyView(page, estimationId);
 
-	const addGroup = page.getByRole('button', { name: '+ Gruppe hinzufügen', exact: true });
-	const addItem = page.getByRole('button', { name: '+ Element hinzufügen', exact: true });
+	const editor = new BucketEditor(page);
+	const addGroup = editor.addGroupRowButton;
+	const addItem = editor.addItemRowButton;
 	await expect(addItem).toBeVisible();
 	await expect(addGroup).toBeVisible();
 
@@ -227,11 +226,9 @@ test('a flat bucket draft can grow its first group, and that group is then usabl
 	// The previously unreachable per-row actions are now reachable on it — the
 	// loop that was impossible before. `.first()` because a group row contains
 	// its descendants, so an unscoped lookup would also match theirs.
-	const addChildItem = groupRow.getByRole('button', { name: '+ Element', exact: true }).first();
+	const addChildItem = editor.addChildItemIn(groupRow);
 	await expect(addChildItem).toBeVisible();
-	await expect(
-		groupRow.getByRole('button', { name: '+ Gruppe', exact: true }).first()
-	).toBeVisible();
+	await expect(editor.addChildGroupIn(groupRow)).toBeVisible();
 
 	// Adding a child through that action puts a row inside the group's zone.
 	await addChildItem.click();

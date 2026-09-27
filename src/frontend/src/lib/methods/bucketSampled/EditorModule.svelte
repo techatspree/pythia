@@ -614,12 +614,14 @@
 			<button
 				type="button"
 				onclick={() => addChildGroupAt(ctx.path)}
+				data-testid="bucket.add-group"
 				class="text-xs text-brand-green hover:text-brand-green-hover"
 				title={$_('grid.actionAddChildGroupTitle')}>{$_('grid.actionAddChildGroup')}</button
 			>
 			<button
 				type="button"
 				onclick={() => addChildLeafAt(ctx.path)}
+				data-testid="bucket.add-item"
 				class="text-xs text-brand-green hover:text-brand-green-hover"
 				title={$_('grid.actionAddChildItemTitle')}>{$_('grid.actionAddChildItem')}</button
 			>
@@ -684,8 +686,14 @@
 			<p class="mb-4 text-sm">{$_('bucket.itemsEmpty')}</p>
 			{#if editable}
 				<div class="flex items-center justify-center gap-2">
-					<Button onclick={addItem}>{$_('bucket.addItem')}</Button>
-					<Button variant="secondary" onclick={addRootGroup}>{$_('bucket.addGroupRow')}</Button>
+					<Button data-testid="bucket.add-item-row" onclick={addItem}
+						>{$_('bucket.addItem')}</Button
+					>
+					<Button
+						variant="secondary"
+						data-testid="bucket.add-group-row"
+						onclick={addRootGroup}>{$_('bucket.addGroupRow')}</Button
+					>
 				</div>
 			{/if}
 		</div>
@@ -719,12 +727,17 @@
 			     renders on a GROUP row, so without a ROOT-level add-group a flat
 			     draft can never grow its first group (task-150). -->
 			<div class="p-3 border-t bg-surface-subtle/40 flex items-center gap-4">
-				<button type="button" onclick={addItem} class="text-sm text-brand-green hover:text-brand-green-hover"
+				<button
+					type="button"
+					onclick={addItem}
+					data-testid="bucket.add-item-row"
+					class="text-sm text-brand-green hover:text-brand-green-hover"
 					>{$_('bucket.addItemRow')}</button
 				>
 				<button
 					type="button"
 					onclick={addRootGroup}
+					data-testid="bucket.add-group-row"
 					class="text-sm text-brand-green hover:text-brand-green-hover"
 					>{$_('bucket.addGroupRow')}</button
 				>
@@ -762,7 +775,11 @@
 		/>
 		{#if editable}
 			<div class="p-3 border-t bg-surface-subtle/40">
-				<button type="button" onclick={addItem} class="text-sm text-brand-green hover:text-brand-green-hover"
+				<button
+					type="button"
+					onclick={addItem}
+					data-testid="bucket.add-item-row"
+					class="text-sm text-brand-green hover:text-brand-green-hover"
 					>{$_('bucket.addItemRow')}</button
 				>
 			</div>

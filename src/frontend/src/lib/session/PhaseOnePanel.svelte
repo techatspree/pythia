@@ -95,25 +95,20 @@
 		<div class="grid grid-cols-3 gap-3">
 			<label class="text-sm">
 				<span class="block mb-1">{$_('session.phaseOne.optimistic')}</span>
-				<input type="number" min="0" step="0.5" bind:value={optimistic} class="w-full border rounded px-2 py-1 text-sm text-right" />
+				<input type="number" min="0" step="0.5" data-testid="session.min-input" bind:value={optimistic} class="w-full border rounded px-2 py-1 text-sm text-right" />
 			</label>
 			<label class="text-sm">
 				<span class="block mb-1">{$_('session.phaseOne.likely')}</span>
-				<input type="number" min="0" step="0.5" bind:value={likely} class="w-full border rounded px-2 py-1 text-sm text-right" />
+				<input type="number" min="0" step="0.5" data-testid="session.expected-input" bind:value={likely} class="w-full border rounded px-2 py-1 text-sm text-right" />
 			</label>
 			<label class="text-sm">
 				<span class="block mb-1">{$_('session.phaseOne.pessimistic')}</span>
-				<input type="number" min="0" step="0.5" bind:value={pessimistic} class="w-full border rounded px-2 py-1 text-sm text-right" />
+				<input type="number" min="0" step="0.5" data-testid="session.max-input" bind:value={pessimistic} class="w-full border rounded px-2 py-1 text-sm text-right" />
 			</label>
 		</div>
 
 		<div class="flex items-center gap-3">
-			<Button
-			
-				onclick={submit}
-				disabled={busy}
-			
-			>
+			<Button data-testid="session.submit-estimate" onclick={submit} disabled={busy}>
 				{submitted ? $_('session.phaseOne.resubmit') : $_('session.phaseOne.submit')}
 			</Button>
 			{#if submitted}
@@ -144,12 +139,7 @@
 					class="w-full border rounded px-3 py-2 text-sm"
 				></textarea>
 			</div>
-			<Button
-			
-				onclick={reveal}
-				disabled={busy}
-			
-			>
+			<Button data-testid="session.to-phase-two" onclick={reveal} disabled={busy}>
 				{$_('session.phaseOne.advance')}
 			</Button>
 		</div>

@@ -204,15 +204,15 @@
 			<div class="grid grid-cols-3 gap-3">
 				<label class="text-sm">
 					<span class="block mb-1">{$_('session.phaseOne.optimistic')}</span>
-					<input type="number" min="0" step="0.5" bind:value={optimistic} class="w-full border rounded px-2 py-1 text-sm text-right" />
+					<input type="number" min="0" step="0.5" data-testid="session.min-input" bind:value={optimistic} class="w-full border rounded px-2 py-1 text-sm text-right" />
 				</label>
 				<label class="text-sm">
 					<span class="block mb-1">{$_('session.phaseOne.likely')}</span>
-					<input type="number" min="0" step="0.5" bind:value={likely} class="w-full border rounded px-2 py-1 text-sm text-right" />
+					<input type="number" min="0" step="0.5" data-testid="session.expected-input" bind:value={likely} class="w-full border rounded px-2 py-1 text-sm text-right" />
 				</label>
 				<label class="text-sm">
 					<span class="block mb-1">{$_('session.phaseOne.pessimistic')}</span>
-					<input type="number" min="0" step="0.5" bind:value={pessimistic} class="w-full border rounded px-2 py-1 text-sm text-right" />
+					<input type="number" min="0" step="0.5" data-testid="session.max-input" bind:value={pessimistic} class="w-full border rounded px-2 py-1 text-sm text-right" />
 				</label>
 			</div>
 			<div class="flex items-center gap-3">
@@ -227,10 +227,9 @@
 				</Button>
 				{#if !store.isModerator}
 					<Button
-					
+						data-testid="session.agree"
 						onclick={toggleAgree}
 						disabled={busy || store.myParticipant?.agreed}
-					
 					>
 						{$_('session.phaseTwo.agree')}
 					</Button>
@@ -244,19 +243,18 @@
 
 	{#if store.isModerator}
 		<div class="flex items-center gap-3">
-			<span class="text-sm {allAgreed ? 'text-green-600' : 'text-ink-muted'}">
+			<span
+				class="text-sm {allAgreed ? 'text-green-600' : 'text-ink-muted'}"
+				data-testid="session.agreement-status"
+				data-all-agreed={allAgreed}
+			>
 				{allAgreed
 					? $_('session.phaseTwo.allAgreed')
 					: $_('session.phaseTwo.notAllAgreed', {
 							values: { count: agreedCount, total: estimators.length }
 						})}
 			</span>
-			<Button class="ml-auto"
-			
-				onclick={finalizeItem}
-				disabled={busy}
-			
-			>
+			<Button class="ml-auto" data-testid="session.finalize-item" onclick={finalizeItem} disabled={busy}>
 				{$_('session.phaseTwo.finalize')}
 			</Button>
 		</div>

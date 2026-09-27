@@ -310,12 +310,12 @@
 					bind:this={fileInput}
 					onchange={onMerlinFileSelected}
 				/>
-				<Button variant="secondary"
-				
+				<Button
+					variant="secondary"
+					data-testid="estimation-detail.import-merlin"
 					onclick={() => fileInput?.click()}
 					disabled={importing}
 					title={$_('estimation.importMerlinHint')}
-				
 				>
 					{$_('estimation.importMerlin')}
 				</Button>
@@ -327,7 +327,9 @@
 					bind:this={xlsxInput}
 					onchange={onXlsxFileSelected}
 				/>
-				<Button variant="secondary"
+				<Button
+					variant="secondary"
+					data-testid="estimation-detail.import-xlsx"
 					onclick={() => xlsxInput?.click()}
 					disabled={importing}
 					title={$_('estimation.importXlsxHint')}

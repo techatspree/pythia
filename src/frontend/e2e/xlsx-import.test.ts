@@ -1,8 +1,27 @@
 import { test, expect, type APIRequestContext } from '@playwright/test';
+import { readFileSync } from 'node:fs';
+import { ErrorBanner, ImportExportMenu, ReplaceDraftDialog } from './pages';
 
 const API = 'http://localhost:8090';
 const LOCAL = 'http://localhost:5173';
 const H = { Authorization: 'Dev dev-admin' } as const;
+
+/**
+ * The exact string a catalog key renders to. Used instead of a hardcoded
+ * German sentence so the assertion pins the KEY the code chose, not the
+ * wording — which is what keeps it meaningful after task-190 makes the suite
+ * locale-independent.
+ */
+function catalogText(key: string): string {
+	const catalog = JSON.parse(
+		readFileSync(new URL('../src/lib/i18n/de.json', import.meta.url), 'utf-8')
+	) as Record<string, unknown>;
+	const value = key
+		.split('.')
+		.reduce<unknown>((node, part) => (node as Record<string, unknown>)?.[part], catalog);
+	if (typeof value !== 'string') throw new Error(`i18n key not found: ${key}`);
+	return value;
+}
 
 /**
  * xlsx import (task-183): the estimation detail page uploads a workbook this
@@ -73,7 +92,7 @@ test('a workbook exported from one estimation imports as a draft in another', as
 		const targetId = await createEstimation(page.request, 'THREE_POINT_PERT');
 
 		await page.goto(`/estimations/${targetId}`);
-		await expect(page.getByRole('button', { name: 'Aus Excel importieren' })).toBeVisible();
+		await new ImportExportMenu(page).expectImportXlsxVisible();
 
 		// Drive the hidden input directly — the button opens a native picker.
 		const importResponse = page.waitForResponse(
@@ -115,9 +134,11 @@ test('a workbook written for another method is refused, in the user’s language
 		await page.getByTestId('xlsx-import-input').setInputFiles(upload(bucketWorkbook));
 		expect((await importResponse).status()).toBe(422);
 
-		// The refusal reaches the user as the translated mismatch message — not a
-		// generic failure, and not the backend's English sentence.
-		await expect(page.getByText(/anderen Schätzmethode/)).toBeVisible();
+		// The refusal reaches the user as the SPECIFIC mismatch message — not a
+		// generic failure, and not the backend's English sentence. The expected
+		// text is read from the catalog rather than hardcoded, so this asserts
+		// the right KEY was chosen without pinning the spec to German wording.
+		await new ErrorBanner(page).expectMessage(catalogText('estimation.importXlsxMethodMismatch'));
 
 		// Nothing was created by the rejected upload.
 		const draft = await page.request.get(`${API}/api/estimations/${pertId}/versions/draft`, {
@@ -149,12 +170,13 @@ test('importing when a draft exists asks to confirm before replacing it', async 
 		await page.goto(`/estimations/${targetId}`);
 		await page.getByTestId('xlsx-import-input').setInputFiles(upload(workbook));
 
-		const dialog = page.getByRole('dialog', { name: 'Entwurf ersetzen?' });
+		const replaceDraft = new ReplaceDraftDialog(page);
+		const dialog = replaceDraft.dialog;
 		await expect(dialog).toBeVisible();
 
 		// Confirming replaces the draft and imports; the shared dialog's confirm
 		// label is method-neutral since task-183.
-		await dialog.getByRole('button', { name: 'Entwurf ersetzen und importieren' }).click();
+		await replaceDraft.confirm();
 
 		await expect
 			.poll(async () => {

@@ -1,4 +1,5 @@
 import { test, expect, type APIRequestContext } from '@playwright/test';
+import { SessionSetupPage } from './pages';
 
 /**
  * The session setup page's item picker (task-151).
@@ -81,7 +82,7 @@ test('the item list scrolls internally instead of stretching the page', async ({
 	expect(box.scroll).toBeGreaterThan(box.client);
 
 	// And the submit is reachable — one short scroll, not a marathon.
-	const start = page.getByRole('button', { name: 'Sitzung starten', exact: true });
+	const start = new SessionSetupPage(page).startButton;
 
 	// The list therefore does not push the rest of the form down: measure from
 	// the top of the picker to the bottom of the submit button. Deliberately NOT
@@ -105,18 +106,19 @@ test('the selected count tracks the checkboxes', async ({ page }) => {
 	await page.goto(`/sessions?projectId=${projectId}&estimationId=${estimationId}`);
 	await page.waitForLoadState('networkidle');
 
-	// Only the not-yet-estimated leaves are preselected (task-128): 10 per group.
-	const count = page.getByText(/^\d+ von 40 ausgewählt$/);
-	await expect(count).toHaveText('20 von 40 ausgewählt');
+	const setup = new SessionSetupPage(page);
 
-	await page.getByRole('button', { name: 'Auswahl aufheben', exact: true }).click();
-	await expect(count).toHaveText('0 von 40 ausgewählt');
+	// Only the not-yet-estimated leaves are preselected (task-128): 10 per group.
+	await setup.expectSelectedCount(20, 40);
+
+	await setup.clearSelection();
+	await setup.expectSelectedCount(0, 40);
 
 	// With nothing selected the reason for the dead start button is stated.
-	await expect(page.getByText('Mindestens ein Eintrag muss ausgewählt sein.')).toBeVisible();
+	await setup.expectNoneSelectedHint();
 
-	await page.getByRole('button', { name: 'Alle auswählen', exact: true }).click();
-	await expect(count).toHaveText('40 von 40 ausgewählt');
+	await setup.selectAll();
+	await setup.expectSelectedCount(40, 40);
 });
 
 test('the panels on the page share one width', async ({ page }) => {
@@ -148,6 +150,9 @@ test('each item shows the group it sits in', async ({ page }) => {
 
 	// The picker flattens the tree, so without the ancestor path two leaves in
 	// different groups would be indistinguishable.
-	await expect(page.getByText('Alpha', { exact: true }).first()).toBeVisible();
-	await expect(page.getByText('Beta', { exact: true }).first()).toBeVisible();
+	// 'Alpha' / 'Beta' are seeded GROUP names — test data, not UI chrome — so
+	// assert them on the picker rather than as a page-wide text lookup.
+	const picker = new SessionSetupPage(page).itemPicker;
+	await expect(picker).toContainText('Alpha');
+	await expect(picker).toContainText('Beta');
 });

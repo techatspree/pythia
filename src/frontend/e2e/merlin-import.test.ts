@@ -1,5 +1,6 @@
 import { test, expect, type APIRequestContext } from '@playwright/test';
 import { fileURLToPath } from 'node:url';
+import { ImportExportMenu, ReplaceDraftDialog } from './pages';
 
 const API = 'http://localhost:8090';
 const LOCAL = 'http://localhost:5173';
@@ -39,7 +40,7 @@ test('import a Merlin project file creates a draft with the WBS tree', async ({ 
 		const estimationId = await createEstimation(page.request);
 
 		await page.goto(`/estimations/${estimationId}`);
-		await expect(page.getByRole('button', { name: 'Aus Merlin importieren' })).toBeVisible();
+		await new ImportExportMenu(page).expectImportMerlinVisible();
 
 		// Drive the hidden file input directly (the button opens a native picker).
 		const importResponse = page.waitForResponse(
@@ -75,14 +76,15 @@ test('importing when a draft exists asks to confirm before replacing it', async 
 		await page.getByTestId('merlin-import-input').setInputFiles(SAMPLE);
 
 		// The destructive replace is gated behind a confirmation dialog.
-		const dialog = page.getByRole('dialog', { name: 'Entwurf ersetzen?' });
+		const replaceDraft = new ReplaceDraftDialog(page);
+		const dialog = replaceDraft.dialog;
 		await expect(dialog).toBeVisible();
 
 		// Confirm → the draft is deleted and re-imported from the WBS.
 		const importResponse = page.waitForResponse(
 			(r) => r.url().includes('/versions/import/merlin') && r.request().method() === 'POST'
 		);
-		await dialog.getByRole('button', { name: 'Entwurf ersetzen und importieren' }).click();
+		await replaceDraft.confirm();
 		expect((await importResponse).status()).toBe(201);
 		await expect(dialog).toBeHidden();
 

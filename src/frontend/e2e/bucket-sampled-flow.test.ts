@@ -1,5 +1,6 @@
 import { expect, test, type APIRequestContext, type Page } from '@playwright/test';
 import { readFileSync } from 'node:fs';
+import { BucketEditor, ImportExportMenu } from './pages';
 
 /**
  * The bucket + sampled method end to end (task-108): the gap between the specs
@@ -173,14 +174,15 @@ test('the bucket panel seeds XS…XL and supports add, rename and delete', async
 	// A fresh bucket draft is seeded client-side with the five default sizes so
 	// the estimator can assign items immediately. `toHaveValues` is for a
 	// multi-select, not a list of text inputs, so read the labels out directly.
-	const names = page.getByLabel('Bucket-Name');
+	const editor = new BucketEditor(page);
+	const names = editor.bucketNames;
 	const labels = () =>
 		names.evaluateAll((els) => els.map((e) => (e as HTMLInputElement).value));
 
 	await expect.poll(labels).toEqual(['XS', 'S', 'M', 'L', 'XL']);
 
 	// Add: the new bucket arrives under the placeholder label.
-	await page.getByRole('button', { name: '+ Bucket' }).click();
+	await editor.addBucket();
 	await expect(names).toHaveCount(6);
 	await expect(names.nth(5)).toHaveValue('Neu');
 
@@ -189,7 +191,7 @@ test('the bucket panel seeds XS…XL and supports add, rename and delete', async
 	await expect.poll(labels).toEqual(['XS', 'S', 'M', 'L', 'XL', 'XXL']);
 
 	// Delete it again — the five defaults survive untouched.
-	await page.getByLabel('Bucket löschen').nth(5).click();
+	await editor.deleteBucket(5);
 	await expect.poll(labels).toEqual(['XS', 'S', 'M', 'L', 'XL']);
 });
 
@@ -243,13 +245,13 @@ test('submitting freezes the derived numbers into a read-only version', async ({
 
 	await page.goto(`/estimations/${estimationId}/versions/draft`);
 	await page.waitForLoadState('networkidle');
-	await page.getByRole('button', { name: 'Festschreiben' }).click();
+	await new BucketEditor(page).submit();
 
 	// Submit navigates back to the estimation detail.
 	await expect(page).toHaveURL(new RegExp(`/estimations/${estimationId}$`));
 
 	await openHierarchyView(page, `/estimations/${estimationId}/versions/1`);
-	await expect(page.getByText('Festgeschrieben — schreibgeschützt')).toBeVisible();
+	await new BucketEditor(page).expectSubmittedReadOnly();
 
 	// The sample keeps its raw PT triple (rendered verbatim when read-only)…
 	const raw = page.locator(`${row(sampleId)} span.tabular-nums`);
@@ -285,10 +287,9 @@ test('exporting a submitted version carries the method’s own columns', async (
 	await page.goto(`/estimations/${estimationId}/versions/1`);
 	await page.waitForLoadState('networkidle');
 
-	async function download(label: RegExp) {
-		await page.locator('details > summary', { hasText: /^Export$/ }).click();
+	async function download(format: 'xlsx' | 'csv') {
 		const downloadPromise = page.waitForEvent('download');
-		await page.getByRole('button', { name: label }).click();
+		await new ImportExportMenu(page).export(format);
 		const file = await downloadPromise;
 		const path = await file.path();
 		return { filename: file.suggestedFilename(), body: readFileSync(path) };
@@ -297,7 +298,7 @@ test('exporting a submitted version carries the method’s own columns', async (
 	// `estimation-v1`, not `estimation-1`: the name comes from the backend's
 	// Content-Disposition (`v$versionNumber` for a submitted snapshot), which
 	// `downloadResponse` prefers over the route's own fallback string.
-	const csv = await download(/CSV/);
+	const csv = await download('csv');
 	expect(csv.filename).toBe('estimation-v1.csv');
 	// The header is the neutral columns with the METHOD's five spliced in —
 	// BucketMethodModule.exportColumnHeaders() reached through CsvExporter
@@ -310,7 +311,7 @@ test('exporting a submitted version carries the method’s own columns', async (
 	// need no separate assertion — only that real spreadsheet bytes arrive
 	// rather than a JSON error body. There is no xlsx parser in this project
 	// and task-108 deliberately does not add one.
-	const xlsx = await download(/Excel/);
+	const xlsx = await download('xlsx');
 	expect(xlsx.filename).toBe('estimation-v1.xlsx');
 	expect(xlsx.body.subarray(0, 2).toString('latin1')).toBe('PK');
 });
@@ -372,7 +373,7 @@ test('a bucketed leaf takes an assumption and a phase, and keeps both', async ({
 
 	// Autosave is debounced; the reload is what proves it reached the backend
 	// rather than only the in-memory model.
-	await expect(page.getByText('Gespeichert')).toBeVisible();
+	await new BucketEditor(page).expectSaved();
 	await openHierarchyView(page, url);
 
 	await expect(page.locator(`${row(leafId)} select`).nth(1)).toHaveValue('UM');

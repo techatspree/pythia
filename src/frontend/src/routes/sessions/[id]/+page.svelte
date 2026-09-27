@@ -138,12 +138,14 @@
 		{@const s = store.session}
 		<a
 			href={resolve('/estimations/[id]', { id: s.estimationId })}
+			data-testid="session.back-to-estimation"
 			class="text-sm text-brand-green hover:underline mb-4 inline-block"
 			>{$_('session.room.backToEstimation')}</a
 		>
 		<div class="flex items-center gap-3 mb-4">
 			<h1 class="text-2xl font-bold">{s.title}</h1>
 			<Badge variant="brand"
+				data-testid="session.status"
 				>{$_(`session.status.${s.status}`)}</Badge
 			>
 			<span
@@ -210,7 +212,7 @@
 				{#if store.isModerator}
 					<p class="text-sm text-ink-muted mb-3">{$_('session.room.startHint')}</p>
 					<div class="flex items-center gap-3">
-						<Button onclick={startSession}>
+						<Button data-testid="session.start" onclick={startSession}>
 							{$_('session.room.start')}
 						</Button>
 						<Button variant="secondary" onclick={cancelSession}>
@@ -228,7 +230,12 @@
 					class="flex items-center gap-3 px-4 py-2 bg-brand-green/10 text-brand-green text-xs font-semibold uppercase tracking-wide"
 				>
 					<h2>{$_('session.room.currentItem')}</h2>
-					<span class="font-normal normal-case tracking-normal text-brand-green/70">
+					<span
+						class="font-normal normal-case tracking-normal text-brand-green/70"
+						data-testid="session.item-position"
+						data-position={s.currentItemIndex + 1}
+						data-total={s.items.length}
+					>
 						{$_('session.room.itemPosition', {
 							values: { position: s.currentItemIndex + 1, total: s.items.length }
 						})}

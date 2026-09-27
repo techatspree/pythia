@@ -1,5 +1,22 @@
 import { test, expect, type APIRequestContext, type Page } from '@playwright/test';
 import { readFileSync } from 'node:fs';
+import { TreeTable } from './pages';
+
+/**
+ * The exact string a catalog key renders to. Used instead of a hardcoded German
+ * fragment so the assertion pins the KEY the UI chose, not its wording.
+ */
+function catalogText(key: string): string {
+	const catalog = JSON.parse(
+		readFileSync(new URL('../src/lib/i18n/de.json', import.meta.url), 'utf-8')
+	) as Record<string, unknown>;
+	const value = key
+		.split('.')
+		.reduce<unknown>((node, part) => (node as Record<string, unknown>)?.[part], catalog);
+	if (typeof value !== 'string') throw new Error(`i18n key not found: ${key}`);
+	return value;
+}
+
 
 // The API request fixture carries no auth of its own; the dev module needs an
 // explicit `Dev <subjectId>` header, as every other spec does.
@@ -278,10 +295,10 @@ test('the version editor links to the schedule page, and keeps the numbers', asy
 	await expect(page.getByTestId('dependency-editor')).toHaveCount(0);
 
 	// Criticality moved onto the estimation grid instead.
-	await expect(page.getByText('Krit. Pfad', { exact: true })).toBeVisible();
+	await expect(new TreeTable(page).headerCell('criticalPath')).toBeVisible();
 
 	// The link opens the dedicated page, which renders the graph.
-	await page.getByRole('link', { name: /Abhängigkeiten bearbeiten/ }).click();
+	await page.getByTestId('schedule.edit-dependencies').click();
 	await page.waitForLoadState('networkidle');
 	await expect(page.getByTestId('schedule-page-title')).toBeVisible();
 	await expect(page.getByTestId('dependency-editor')).toBeVisible();
@@ -409,8 +426,11 @@ test('leaf, open group and closed group are visually distinct', async ({ page, r
 	// The collapsed group is drawn as a stack — the outline behind it.
 	await expect(page.getByTestId('schedule-card-stack')).toHaveCount(1);
 
-	// And the kind reaches a screen reader, so it is not colour-only.
-	await expect(kind('group-closed')).toContainText('zugeklappt');
+	// And the kind reaches a screen reader, so it is not colour-only. The
+	// sr-only sentence is interpolated, so match the distinctive fragment of
+	// the catalog entry rather than hardcoding the German word.
+	const closedSr = catalogText('schedule.editor.kindGroupClosed').split('{title}')[1].trim();
+	await expect(kind('group-closed')).toContainText(closedSr);
 });
 
 /**

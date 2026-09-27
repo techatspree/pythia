@@ -24,21 +24,21 @@
 	role="dialog"
 	aria-modal="true"
 	aria-label={$_('estimation.replaceDraftTitle')}
+	data-testid="replace-draft.dialog"
 >
 	<div class="bg-white rounded-lg shadow-xl p-6 w-full max-w-md">
 		<h2 class="text-lg font-semibold mb-4">{$_('estimation.replaceDraftTitle')}</h2>
 		<p class="text-sm text-ink-muted mb-4">{$_('estimation.replaceDraftBody')}</p>
 		<div class="flex justify-end gap-2">
-			<Button variant="secondary"
+			<Button
+				variant="secondary"
 				bind:element={cancelButton}
-			
-				onclick={oncancel}
-			>{$_('estimation.replaceDraftCancel')}</Button>
-			<Button variant="danger"
-			
-				onclick={onconfirm}
-			
-				>{$_('estimation.replaceDraftConfirm')}</Button>
+				data-testid="replace-draft.cancel"
+				onclick={oncancel}>{$_('estimation.replaceDraftCancel')}</Button
+			>
+			<Button variant="danger" data-testid="replace-draft.confirm" onclick={onconfirm}
+				>{$_('estimation.replaceDraftConfirm')}</Button
+			>
 		</div>
 	</div>
 </div>

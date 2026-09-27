@@ -1,4 +1,22 @@
 import { test, expect, type APIRequestContext, type BrowserContext } from '@playwright/test';
+import { SessionRoomPage } from './pages';
+import { readFileSync } from 'node:fs';
+
+/**
+ * The exact string a catalog key renders to. Used instead of a hardcoded German
+ * fragment so the assertion pins the KEY the UI chose, not its wording.
+ */
+function catalogText(key: string): string {
+	const catalog = JSON.parse(
+		readFileSync(new URL('../src/lib/i18n/de.json', import.meta.url), 'utf-8')
+	) as Record<string, unknown>;
+	const value = key
+		.split('.')
+		.reduce<unknown>((node, part) => (node as Record<string, unknown>)?.[part], catalog);
+	if (typeof value !== 'string') throw new Error(`i18n key not found: ${key}`);
+	return value;
+}
+
 
 const API = 'http://localhost:8090';
 const LOCAL = 'http://localhost:5173';
@@ -66,10 +84,9 @@ async function setUp(req: APIRequestContext, title = 'E2E Session') {
 }
 
 async function fillTriple(ctx: BrowserContext, min: string, expected: string, max: string) {
-	const page = ctx.pages()[0];
-	await page.getByRole('spinbutton').nth(0).fill(min);
-	await page.getByRole('spinbutton').nth(1).fill(expected);
-	await page.getByRole('spinbutton').nth(2).fill(max);
+	// Named inputs rather than positional number-field indexing: the old form
+	// silently re-targeted the moment a field was added to the panel.
+	await new SessionRoomPage(ctx.pages()[0]).fillEstimate(min, expected, max);
 }
 
 test('two-phase session: broadcast, blind count, reveal aggregate, finalize + write-back', async ({
@@ -79,6 +96,8 @@ test('two-phase session: broadcast, blind count, reveal aggregate, finalize + wr
 	const estCtx = await browser.newContext({ baseURL: LOCAL, locale: 'de-DE', storageState: seed('dev-estimator') });
 	const mod = await modCtx.newPage();
 	const est = await estCtx.newPage();
+	const modRoom = new SessionRoomPage(mod);
+	const estRoom = new SessionRoomPage(est);
 
 	try {
 		const { estimationId, leafIds, sessionId } = await setUp(mod.request);
@@ -91,15 +110,15 @@ test('two-phase session: broadcast, blind count, reveal aggregate, finalize + wr
 		await expect(est.getByTestId('participant')).toHaveCount(2);
 
 		// Moderator starts the session → both move to PHASE1.
-		await mod.getByRole('button', { name: 'Sitzung starten' }).click();
-		await expect(mod.getByRole('button', { name: 'Schätzung abgeben' })).toBeVisible();
-		await expect(est.getByRole('button', { name: 'Schätzung abgeben' })).toBeVisible();
+		await modRoom.start();
+		await expect(modRoom.submitEstimateButton).toBeVisible();
+		await expect(estRoom.submitEstimateButton).toBeVisible();
 
 		// 3. Both submit blind PHASE1 triples (divergent, to trigger the highlight).
 		await fillTriple(estCtx, '2', '4', '6');
-		await est.getByRole('button', { name: 'Schätzung abgeben' }).click();
+		await estRoom.submitEstimate();
 		await fillTriple(modCtx, '8', '12', '20');
-		await mod.getByRole('button', { name: 'Schätzung abgeben' }).click();
+		await modRoom.submitEstimate();
 
 		// Moderator sees the count reach 2/2 but NO values/aggregate in PHASE1.
 		await expect(mod.getByTestId('phase1-count')).toContainText('2');
@@ -107,7 +126,7 @@ test('two-phase session: broadcast, blind count, reveal aggregate, finalize + wr
 
 		// 4. Moderator reveals → both see the votes table + aggregate; the displayed
 		// mean must equal the backend AggregateDto.
-		await mod.getByRole('button', { name: 'Zu Phase 2 (aufdecken)' }).click();
+		await modRoom.advanceToPhaseTwo();
 		await expect(mod.getByTestId('aggregate')).toBeVisible();
 		await expect(est.getByTestId('aggregate')).toBeVisible();
 		await expect(est.getByTestId('diverged-banner')).toBeVisible();
@@ -127,28 +146,28 @@ test('two-phase session: broadcast, blind count, reveal aggregate, finalize + wr
 
 		// 5. Estimator revises + agrees; moderator finalizes item 1.
 		await fillTriple(estCtx, '4', '8', '12');
-		await est.getByRole('button', { name: 'Überarbeitung abgeben' }).click();
-		await est.getByRole('button', { name: 'Ich stimme zu' }).click();
+		await estRoom.submitRevision();
+		await estRoom.agree();
 		// The agree broadcast reaches the moderator's all-agreed indicator.
-		await expect(mod.getByText('Alle Schätzer haben zugestimmt.')).toBeVisible();
-		await mod.getByRole('button', { name: 'Eintrag abschließen' }).click();
+		await modRoom.expectAllAgreed();
+		await modRoom.finalizeItem();
 
 		// Advances to item 2 PHASE1 in both contexts.
-		await expect(mod.getByText('Eintrag 2 von 2')).toBeVisible();
-		await expect(est.getByRole('button', { name: 'Schätzung abgeben' })).toBeVisible();
+		await modRoom.expectItemPosition(2, 2);
+		await expect(estRoom.submitEstimateButton).toBeVisible();
 
 		// Item 2: both submit, reveal, finalize → session FINALIZED.
 		await fillTriple(estCtx, '3', '5', '7');
-		await est.getByRole('button', { name: 'Schätzung abgeben' }).click();
+		await estRoom.submitEstimate();
 		await fillTriple(modCtx, '3', '5', '7');
-		await mod.getByRole('button', { name: 'Schätzung abgeben' }).click();
-		await mod.getByRole('button', { name: 'Zu Phase 2 (aufdecken)' }).click();
+		await modRoom.submitEstimate();
+		await modRoom.advanceToPhaseTwo();
 		await expect(mod.getByTestId('aggregate')).toBeVisible();
-		await mod.getByRole('button', { name: 'Eintrag abschließen' }).click();
+		await modRoom.finalizeItem();
 
 		// 6. Both see the FINALIZED summary.
-		await expect(mod.getByText('Sitzung abgeschlossen')).toBeVisible();
-		await expect(est.getByText('Sitzung abgeschlossen')).toBeVisible();
+		await expect(modRoom.summaryTitle).toBeVisible();
+		await expect(estRoom.summaryTitle).toBeVisible();
 
 		// The draft leaves now hold the finalized (written-back) triples. Compare
 		// each leaf against the session's finalTriple rather than hardcoded numbers.
@@ -204,6 +223,8 @@ test('suspend parks the room, resume continues it, end-early keeps the results',
 	});
 	const mod = await modCtx.newPage();
 	const est = await estCtx.newPage();
+	const modRoom = new SessionRoomPage(mod);
+	const estRoom = new SessionRoomPage(est);
 	const H = { Authorization: 'Dev dev-admin' };
 
 	try {
@@ -213,18 +234,18 @@ test('suspend parks the room, resume continues it, end-early keeps the results',
 		await est.goto(`/sessions/${sessionId}`);
 		await expect(mod.getByTestId('participant')).toHaveCount(2);
 
-		await mod.getByRole('button', { name: 'Sitzung starten' }).click();
-		await expect(est.getByRole('button', { name: 'Schätzung abgeben' })).toBeVisible();
+		await modRoom.start();
+		await expect(estRoom.submitEstimateButton).toBeVisible();
 
 		// Item 1 goes the whole way — its triple reaches the draft leaf at once.
 		await fillTriple(estCtx, '2', '4', '6');
-		await est.getByRole('button', { name: 'Schätzung abgeben' }).click();
+		await estRoom.submitEstimate();
 		await fillTriple(modCtx, '2', '4', '6');
-		await mod.getByRole('button', { name: 'Schätzung abgeben' }).click();
-		await mod.getByRole('button', { name: 'Zu Phase 2 (aufdecken)' }).click();
+		await modRoom.submitEstimate();
+		await modRoom.advanceToPhaseTwo();
 		await expect(mod.getByTestId('aggregate')).toBeVisible();
-		await mod.getByRole('button', { name: 'Eintrag abschließen' }).click();
-		await expect(mod.getByText('Eintrag 2 von 2')).toBeVisible();
+		await modRoom.finalizeItem();
+		await modRoom.expectItemPosition(2, 2);
 
 		// The moderator controls must READ as buttons (task-154). Both were
 		// `variant="ghost"` — grey text with no border or background — so
@@ -244,7 +265,7 @@ test('suspend parks the room, resume continues it, end-early keeps the results',
 		await mod.getByTestId('session-suspend').click();
 		await expect(mod.getByTestId('session-suspended')).toBeVisible();
 		await expect(est.getByTestId('session-suspended')).toBeVisible();
-		await expect(est.getByRole('button', { name: 'Schätzung abgeben' })).toHaveCount(0);
+		await expect(estRoom.submitEstimateButton).toHaveCount(0);
 		// The moderator's controls are moderator-only.
 		await expect(est.getByTestId('session-resume')).toHaveCount(0);
 
@@ -252,7 +273,7 @@ test('suspend parks the room, resume continues it, end-early keeps the results',
 		await est.goto('/sessions');
 		await expect(
 			est.getByRole('listitem').filter({ hasText: title }).first()
-		).toContainText('Pausiert');
+		).toContainText(catalogText('session.status.SUSPENDED'));
 		await est.goto(`/sessions/${sessionId}`);
 		// Navigating back re-created the estimator's socket. Wait for it to be
 		// live before the moderator acts: a broadcast sent while this socket is
@@ -265,8 +286,8 @@ test('suspend parks the room, resume continues it, end-early keeps the results',
 
 		// Resume continues exactly where it stopped: item 2, PHASE1.
 		await mod.getByTestId('session-resume').click();
-		await expect(mod.getByText('Eintrag 2 von 2')).toBeVisible();
-		await expect(est.getByRole('button', { name: 'Schätzung abgeben' })).toBeVisible();
+		await modRoom.expectItemPosition(2, 2);
+		await expect(estRoom.submitEstimateButton).toBeVisible();
 
 		// End early with item 2 only half-voted.
 		//
@@ -281,7 +302,7 @@ test('suspend parks the room, resume continues it, end-early keeps the results',
 		const votePosted = est.waitForResponse(
 			(r) => r.url().includes('/votes') && r.request().method() === 'POST'
 		);
-		await est.getByRole('button', { name: 'Schätzung abgeben' }).click();
+		await estRoom.submitEstimate();
 		await mod.getByTestId('session-end-early').click();
 		await expect(mod.getByTestId('session-ended-early')).toBeVisible();
 		await expect(est.getByTestId('session-ended-early')).toBeVisible();
@@ -290,9 +311,9 @@ test('suspend parks the room, resume continues it, end-early keeps the results',
 		// above would not catch a room that reverts a moment later.
 		await votePosted;
 		await expect(est.getByTestId('session-ended-early')).toBeVisible();
-		await expect(est.getByRole('button', { name: 'Schätzung abgeben' })).toHaveCount(0);
+		await expect(estRoom.submitEstimateButton).toHaveCount(0);
 		// The early-ended room shows the SAME summary the FINALIZED one does.
-		await expect(mod.getByText('Sitzung abgeschlossen')).toBeVisible();
+		await expect(modRoom.summaryTitle).toBeVisible();
 
 		const sRes = await mod.request.get(`${API}/api/sessions/${sessionId}`, { headers: H });
 		const session = await sRes.json();

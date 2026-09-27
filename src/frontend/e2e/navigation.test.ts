@@ -1,4 +1,5 @@
 import { test, expect, type APIRequestContext, type Page } from '@playwright/test';
+import { SessionRoomPage } from './pages';
 
 const API = 'http://localhost:8090';
 
@@ -87,8 +88,11 @@ test('the same header and menu render on every route, including a session room',
 	await expect(page.getByTestId('nav-projects')).toBeVisible();
 	await expect(page.getByTestId('nav-sessions')).toBeVisible();
 
-	// The old room chrome is gone.
-	await expect(page.getByText('Pythia · Session')).toHaveCount(0);
+	// The old room chrome is gone. `AppHeader` is the SINGLE top bar (task-141),
+	// so exactly one <header> may exist here — a room that re-grew its own
+	// chrome would make this two. Structural rather than a text match, which
+	// also keeps it independent of the installation-overridable brand name.
+	await expect(page.locator('header')).toHaveCount(1);
 
 	expect(errors, 'the room must not throw').toEqual([]);
 });
@@ -122,7 +126,7 @@ test('the session room links back to its estimation', async ({ page, request }) 
 	const { estimationId, sessionId } = await seedSession(request);
 
 	await page.goto(`/sessions/${sessionId}`);
-	const back = page.getByRole('link', { name: 'Zur Schätzung' });
+	const back = new SessionRoomPage(page).backToEstimation;
 	await expect(back).toBeVisible();
 
 	await back.click();

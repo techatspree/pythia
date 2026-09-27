@@ -384,7 +384,9 @@
 				{#if saveStatus === 'saving'}
 					<span class="text-sm text-ink-faint">{$_('editor.saving')}</span>
 				{:else if saveStatus === 'saved'}
-					<span class="text-sm text-green-600">{$_('editor.saved')}</span>
+					<span class="text-sm text-green-600" data-testid="editor.saved"
+						>{$_('editor.saved')}</span
+					>
 				{/if}
 				{#if versionData.isDraft}
 					<button
@@ -421,26 +423,28 @@
 					>
 						{$_('editor.history')}
 					</button>
-					<Button
-						onclick={submitVersion}
-					
-					>
+					<Button data-testid="editor.submit" onclick={submitVersion}>
 						{$_('editor.submit')}
 					</Button>
 				{/if}
 				<details class="relative" bind:open={exportMenuOpen}>
-					<summary class="px-4 py-2 text-sm border rounded cursor-pointer select-none">{$_('editor.export')}</summary>
+					<summary
+						class="px-4 py-2 text-sm border rounded cursor-pointer select-none"
+						data-testid="export-menu.open">{$_('editor.export')}</summary
+					>
 					<div class="absolute right-0 mt-1 bg-white border rounded shadow text-sm z-10">
 						<button
 							type="button"
 							class="block w-full text-left px-4 py-2 hover:bg-surface-subtle disabled:opacity-40 disabled:cursor-not-allowed"
 							disabled={exporting}
+							data-testid="export-menu.xlsx"
 							onclick={() => exportVersion('xlsx')}
 						>{$_('editor.exportXlsx')}</button>
 						<button
 							type="button"
 							class="block w-full text-left px-4 py-2 hover:bg-surface-subtle disabled:opacity-40 disabled:cursor-not-allowed"
 							disabled={exporting}
+							data-testid="export-menu.csv"
 							onclick={() => exportVersion('csv')}
 						>{$_('editor.exportCsv')}</button>
 					</div>
@@ -463,6 +467,7 @@
 		{#if !versionData.isDraft}
 			<div
 				class="mb-4 px-4 py-3 bg-amber-50 border border-amber-200 rounded text-amber-800 text-sm"
+				data-testid="editor.submitted-banner"
 			>
 				{$_('editor.submittedReadOnly')}
 			</div>
@@ -555,6 +560,7 @@
 						}) + (versionData.isDraft ? '?draft=true' : '')}
 						variant="secondary"
 						size="sm"
+						data-testid="schedule.edit-dependencies"
 					>
 						{$_('schedule.page.open')}
 					</Button>

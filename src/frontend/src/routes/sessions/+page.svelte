@@ -246,7 +246,12 @@
 					class="flex items-center gap-3 px-4 py-2 bg-brand-green/10 text-brand-green text-xs font-semibold uppercase tracking-wide"
 				>
 					<span>{$_('session.setup.items')}</span>
-					<span class="font-normal normal-case tracking-normal text-brand-green/70">
+					<span
+						class="font-normal normal-case tracking-normal text-brand-green/70"
+						data-testid="session-setup.selected-count"
+						data-selected={selected.size}
+						data-total={leaves.length}
+					>
 						{$_('session.setup.selectedCount', {
 							values: { selected: selected.size, total: leaves.length }
 						})}
@@ -254,11 +259,17 @@
 					<div
 						class="ml-auto flex items-center gap-3 font-normal normal-case tracking-normal"
 					>
-						<button type="button" onclick={selectAll} class="hover:underline"
-							>{$_('session.setup.selectAll')}</button
+						<button
+							type="button"
+							onclick={selectAll}
+							data-testid="session-setup.select-all"
+							class="hover:underline">{$_('session.setup.selectAll')}</button
 						>
-						<button type="button" onclick={deselectAll} class="hover:underline"
-							>{$_('session.setup.deselectAll')}</button
+						<button
+							type="button"
+							onclick={deselectAll}
+							data-testid="session-setup.clear-selection"
+							class="hover:underline">{$_('session.setup.deselectAll')}</button
 						>
 					</div>
 				</div>
@@ -266,7 +277,7 @@
 			<!-- Capped and scrollable (task-151): a real draft has dozens of leaves,
 			     and an uncapped list pushed the title field, the moderator checkbox
 			     and the start button below the fold. -->
-			<div class="max-h-72 overflow-y-auto divide-y">
+			<div class="max-h-72 overflow-y-auto divide-y" data-testid="session-setup.item-picker">
 				{#each leaves as leaf (leaf.logicalId)}
 					{@const isSelected = selected.has(leaf.logicalId)}
 					<label
@@ -308,12 +319,14 @@
 		</label>
 
 		<div class="flex items-center gap-3">
-			<Button onclick={start} disabled={!canStart}>
+			<Button data-testid="session-setup.start" onclick={start} disabled={!canStart}>
 				{$_('session.setup.start')}
 			</Button>
 			<!-- Say WHY the button is dead rather than leaving the user to guess. -->
 			{#if selected.size === 0}
-				<span class="text-xs text-ink-muted">{$_('session.setup.noneSelected')}</span>
+				<span class="text-xs text-ink-muted" data-testid="session-setup.error"
+					>{$_('session.setup.noneSelected')}</span
+				>
 			{/if}
 		</div>
 	{:else if estimationId && !noDraft}
