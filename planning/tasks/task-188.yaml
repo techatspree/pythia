@@ -5,9 +5,15 @@ depends_on: [task-117]
 description: |
   Stage B of the Page Object Model migration (task-117 is stage A, task-189 is
   stage C). Stage A created `src/frontend/e2e/pages/`, froze the conventions
-  and migrated six specs. Stage B migrates the remaining sixteen, after which
+  and migrated six specs. Stage B migrates the remaining fifteen, after which
   **no spec in the tree matches on a translated literal** — which is what
   makes stage C's ESLint rule enforceable rather than aspirational.
+
+  > **This task has been executed** (commit `8fa2834`). Sections below that
+  > survey the tree — the residuals list and the per-spec census — describe the
+  > state BEFORE it ran and carry line numbers that no longer resolve; they are
+  > kept for their reasoning, not as coordinates. "What the implementation
+  > found" immediately below is the current, corrected picture.
 
   Read task-117's "Frozen decisions" section first; every one of them governs
   this task too. The ones that bite most often here:
@@ -23,6 +29,52 @@ description: |
   - `e2e/language.test.ts` is never migrated; `e2e/auth.test.ts` is pure API
     and untouched.
 
+  ## What the implementation found (task-188, as built)
+
+  Three placements in the component list above were wrong and are corrected
+  here, all for the same reason task-117 warned about — the label is an i18n
+  KEY, so grepping components for the German text finds only `de.json`:
+
+  - `'Aus Merlin importieren'` / `'Aus Excel importieren'` are
+    `estimation.importMerlin` / `estimation.importXlsx` on
+    **`routes/estimations/[id]/+page.svelte`**, not `EstimationDetail.svelte`.
+    `EstimationDetail.svelte` and `VersionList.svelte` needed no change.
+  - `'Zur Schätzung'` is `session.room.backToEstimation` on
+    **`routes/sessions/[id]/+page.svelte`**, not `AppHeader.svelte`. No
+    `AppNav` PO was needed.
+  - The bucket panel's `'+ Bucket'` / `'Bucket-Name'` / `'Bucket löschen'` live
+    in **`BucketPanel.svelte`**, not `EditorModule.svelte`.
+
+  Two further files came into scope: **`routes/dev/tree-table-demo/+page.svelte`**
+  (its footer total, which `tree-table.test.ts` matched as `text=/Total: €/`)
+  and **`SessionSummary.svelte`** (`'Sitzung abgeschlossen'`). A `SchedulePage`
+  PO proved unnecessary — one `schedule.edit-dependencies` testid covered it.
+
+  **Three assertions had to be strengthened rather than merely re-pointed**, or
+  the migration would have silently weakened them: `'Eintrag 2 von 2'` and
+  `'Alle Schätzer haben zugestimmt.'` became `data-position`/`data-total` and
+  `data-all-agreed` attributes (asserting element visibility alone would have
+  passed at any position and before anyone agreed), and
+  `getByText('Pythia · Session')` became a structural `header` count of 1 (the
+  old chrome has no testid to be absent, so a testid check would have passed
+  trivially).
+
+  **The trap most likely to recur: one control, two panels.** `fillTriple`
+  broke after migration because PHASE 1 and PHASE 2 render *different*
+  components (`PhaseOnePanel` / `PhaseTwoPanel`) carrying the same three number
+  fields — a testid added to one silently fails in the other, while the old
+  positional index had matched whichever panel was on screen. Both now carry
+  `session.{min,expected,max}-input`. The same shape applies to the estimation
+  grid's empty-state versus footer "add root group" buttons, which is why they
+  deliberately SHARE one `grid.add-group-row` testid: they never render
+  together, and `.first()` relied on exactly that.
+
+  Where a spec genuinely asserts a translated sentence — the xlsx
+  method-mismatch refusal, the socket-gone notice, the session status badge and
+  the schedule card's sr-only kind — the expected text is now read from the
+  catalog by KEY via a small `catalogText()` helper, which keeps the assertion
+  meaningful without hardcoding German.
+
   ## `smoke.test.ts` is in scope, despite appearances
 
   It opens with ~130 lines of `page.request` seeding and looks like a sibling
@@ -33,7 +85,10 @@ description: |
   a styling-class locator (`p.text-red-600` at line 134, which becomes the
   `error-banner` testid stage A added). The API-seeding half stays as it is.
 
-  ## Residuals that NO automated rule can catch
+  ## Residuals that NO automated rule can catch (historical)
+
+  > Line numbers describe the pre-migration tree. All seven are clean now —
+  > the greps that prove it are in `validation`.
 
   Stage C's ESLint rule works on call syntax. These four patterns reach the
   same translated strings through syntax that ALSO carries brand names,
@@ -127,7 +182,8 @@ description: |
 
   ### Specs to migrate (15)
 
-  `session.test.ts` (the largest — 24 `getByRole` with a name, 7 `getByText`),
+  `session.test.ts` (the largest — it carried 24 `getByRole` with a name and
+  7 `getByText` before this task; both are 0 now),
   `session-setup.test.ts`, `session-connection.test.ts`,
   `merlin-import.test.ts`, `merlin-export.test.ts`, `xlsx-import.test.ts`,
   `bucket-hierarchy.test.ts`, `bucket-views.test.ts`,
@@ -140,14 +196,15 @@ description: |
   `toContainText` respectively. Neither trips the selector ban, so a grep will
   report them clean; that is expected, not a reason to skip them.
 
-  **`bucket-views.test.ts` has exactly ONE banned hit**
-  (`getByRole('button', { name: '+ Element' })`), so it is nearly free. It is
+  **`bucket-views.test.ts` had exactly ONE banned hit**
+  (`getByRole('button', { name: '+ Element' })`), so it was nearly free. It is
   also the home of the OPEN task-184 flake ("a leaf can be dragged into an
   EMPTY bucket"). If that test fails during this work, it is almost certainly
   NOT the migration: it was confirmed pre-existing during task-117 by running
   the full suite on a clean tree, where it failed identically. Note it also
   reproduced IN ISOLATION there, which contradicts the "never in isolation"
-  claim in `src/frontend/CLAUDE.md` — do not spend the task chasing it.
+  claim in `src/frontend/CLAUDE.md` — do not spend the task chasing it. It did
+  NOT reproduce while this task ran: the final full suite was 122/122.
 
   ## Non-goals
 
@@ -172,42 +229,6 @@ description: |
     `endpoint-authorization.test.ts`, `authorization-error.test.ts`,
     `auth-gate.test.ts`, `user-menu.test.ts`, `undo.test.ts`) are DONE — a
     re-audit will find them clean; do not revisit them.
-
-  ## What the implementation found (task-188, as built)
-
-  Three placements in the component list above were wrong and are corrected
-  here, all for the same reason task-117 warned about — the label is an i18n
-  KEY, so grepping components for the German text finds only `de.json`:
-
-  - `'Aus Merlin importieren'` / `'Aus Excel importieren'` are
-    `estimation.importMerlin` / `estimation.importXlsx` on
-    **`routes/estimations/[id]/+page.svelte`**, not `EstimationDetail.svelte`.
-    `EstimationDetail.svelte` and `VersionList.svelte` needed no change.
-  - `'Zur Schätzung'` is `session.room.backToEstimation` on
-    **`routes/sessions/[id]/+page.svelte`**, not `AppHeader.svelte`. No
-    `AppNav` PO was needed.
-  - The bucket panel's `'+ Bucket'` / `'Bucket-Name'` / `'Bucket löschen'` live
-    in **`BucketPanel.svelte`**, not `EditorModule.svelte`.
-
-  Two further files came into scope: **`routes/dev/tree-table-demo/+page.svelte`**
-  (its footer total, which `tree-table.test.ts` matched as `text=/Total: €/`)
-  and **`SessionSummary.svelte`** (`'Sitzung abgeschlossen'`). A `SchedulePage`
-  PO proved unnecessary — one `schedule.edit-dependencies` testid covered it.
-
-  **Three assertions had to be strengthened rather than merely re-pointed**, or
-  the migration would have silently weakened them: `'Eintrag 2 von 2'` and
-  `'Alle Schätzer haben zugestimmt.'` became `data-position`/`data-total` and
-  `data-all-agreed` attributes (asserting element visibility alone would have
-  passed at any position and before anyone agreed), and
-  `getByText('Pythia · Session')` became a structural `header` count of 1 (the
-  old chrome has no testid to be absent, so a testid check would have passed
-  trivially).
-
-  Where a spec genuinely asserts a translated sentence — the xlsx
-  method-mismatch refusal, the socket-gone notice, the session status badge and
-  the schedule card's sr-only kind — the expected text is now read from the
-  catalog by KEY via a small `catalogText()` helper, which keeps the assertion
-  meaningful without hardcoding German.
 
 steps:
   - |

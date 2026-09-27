@@ -90,6 +90,74 @@ export default [
 	},
 
 	{
+		// e2e specs drive Page Objects (`e2e/pages/`); they never reach into the
+		// DOM by a TRANSLATED label, which is a moving target no compiler checks
+		// (task-189). Two deliberate exemptions:
+		//   - `e2e/pages/**` is WHERE selectors are supposed to live;
+		//   - `e2e/language.test.ts` exists to prove 'Projekte' → 'Projects' and
+		//     'Abmelden' → 'Logout' across a language switch, so asserting
+		//     translated text is its entire purpose. Do not delete it as an
+		//     oversight.
+		// `e2e/treetable-header-fit.test.ts` also runs in both locales but needs
+		// NO exemption: it is testid-driven and measures scrollWidth.
+		files: ['e2e/**/*.ts'],
+		ignores: ['e2e/pages/**', 'e2e/language.test.ts'],
+		rules: {
+			'no-restricted-syntax': [
+				'error',
+				// Flat config REPLACES a rule's options rather than merging them, so
+				// this block would silently drop the raw-`fetch` ban for the whole
+				// e2e tree if the entry were not repeated here. `e2e/global-setup.ts`
+				// depends on that ban being live. Do not remove it.
+				{
+					selector: "CallExpression[callee.name='fetch']",
+					message:
+						"Use apiFetch from '$lib/api/fetch' (it attaches the Authorization header) instead of raw fetch."
+				},
+				{
+					// getByRole(..., { name: <literal> }) — any role, not just 'button'.
+					// A role-only getByRole('dialog'|'alert'|…) carries no translated
+					// string and stays legal.
+					selector:
+						"CallExpression[callee.property.name='getByRole'] > ObjectExpression > Property[key.name='name'] > :matches(Literal, TemplateLiteral)",
+					message:
+						'e2e specs must go through Page Objects (see src/frontend/e2e/pages/); do not match on a translated label.'
+				},
+				{
+					// getByText('…') with a LITERAL. getByText(<variable>) matches
+					// test-generated data and stays legal.
+					selector:
+						"CallExpression[callee.property.name='getByText'] > :matches(Literal, TemplateLiteral):first-child",
+					message:
+						'e2e specs must go through Page Objects (see src/frontend/e2e/pages/); do not match on a translated label.'
+				},
+				{
+					selector:
+						"CallExpression[callee.property.name=/^getBy(Label|Placeholder)$/] > :matches(Literal, TemplateLiteral):first-child",
+					message:
+						'e2e specs must go through Page Objects (see src/frontend/e2e/pages/); do not match on a translated label.'
+				},
+				{
+					// locator('text=…'), and locator('text=' + header) — the
+					// concatenated form is how one of these hid before task-188.
+					selector:
+						"CallExpression[callee.property.name='locator'] > Literal[value=/^\\s*text=/]:first-child, CallExpression[callee.property.name='locator'] > BinaryExpression:first-child > Literal[value=/^\\s*text=/].left",
+					message:
+						'e2e specs must go through Page Objects (see src/frontend/e2e/pages/); do not match on a translated label.'
+				},
+				{
+					// { hasText: '…' } reaches the same strings by another door, in
+					// locator(sel, { hasText }) and in filter({ hasText }).
+					selector:
+						"Property[key.name='hasText'] > :matches(Literal, TemplateLiteral)",
+					message:
+						'e2e specs must go through Page Objects (see src/frontend/e2e/pages/); do not match on a translated label.'
+				}
+			]
+		}
+	},
+
+	{
 		// Build-time Node scripts (e.g. the icon generator): they run under Node,
 		// not the browser, so `console` / `Buffer` and friends must be in scope.
 		files: ['scripts/**/*.mjs'],
