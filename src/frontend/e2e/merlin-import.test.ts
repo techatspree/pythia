@@ -34,7 +34,7 @@ async function createEstimation(req: APIRequestContext): Promise<string> {
 }
 
 test('import a Merlin project file creates a draft with the WBS tree', async ({ browser }) => {
-	const ctx = await browser.newContext({ baseURL: LOCAL, locale: 'de-DE', storageState: seed('dev-admin') });
+	const ctx = await browser.newContext({ baseURL: LOCAL, storageState: seed('dev-admin') });
 	const page = await ctx.newPage();
 	try {
 		const estimationId = await createEstimation(page.request);
@@ -62,7 +62,7 @@ test('import a Merlin project file creates a draft with the WBS tree', async ({ 
 });
 
 test('importing when a draft exists asks to confirm before replacing it', async ({ browser }) => {
-	const ctx = await browser.newContext({ baseURL: LOCAL, locale: 'de-DE', storageState: seed('dev-admin') });
+	const ctx = await browser.newContext({ baseURL: LOCAL, storageState: seed('dev-admin') });
 	const page = await ctx.newPage();
 	try {
 		const estimationId = await createEstimation(page.request);

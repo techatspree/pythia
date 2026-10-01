@@ -1125,9 +1125,9 @@
       "notes": "Playwright POM stage C: ESLint gate banning translated-label selectors + src/frontend/CLAUDE.md"
     },
     "task-190": {
-      "status": "pending",
-      "started_at": null,
-      "completed_at": null,
+      "status": "done",
+      "started_at": "2026-09-30T12:50:10+00:00",
+      "completed_at": "2026-09-30T13:13:19+00:00",
       "notes": "Playwright: make the e2e suite locale-independent — pin dev-user language in global-setup, drop the de-DE config pin, gate on a full E2E_LANG=en run"
     }
   }

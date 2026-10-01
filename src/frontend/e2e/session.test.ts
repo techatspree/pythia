@@ -1,22 +1,6 @@
 import { test, expect, type APIRequestContext, type BrowserContext } from '@playwright/test';
+import { catalogText } from './helpers';
 import { SessionRoomPage } from './pages';
-import { readFileSync } from 'node:fs';
-
-/**
- * The exact string a catalog key renders to. Used instead of a hardcoded German
- * fragment so the assertion pins the KEY the UI chose, not its wording.
- */
-function catalogText(key: string): string {
-	const catalog = JSON.parse(
-		readFileSync(new URL('../src/lib/i18n/de.json', import.meta.url), 'utf-8')
-	) as Record<string, unknown>;
-	const value = key
-		.split('.')
-		.reduce<unknown>((node, part) => (node as Record<string, unknown>)?.[part], catalog);
-	if (typeof value !== 'string') throw new Error(`i18n key not found: ${key}`);
-	return value;
-}
-
 
 const API = 'http://localhost:8090';
 const LOCAL = 'http://localhost:5173';
@@ -92,8 +76,8 @@ async function fillTriple(ctx: BrowserContext, min: string, expected: string, ma
 test('two-phase session: broadcast, blind count, reveal aggregate, finalize + write-back', async ({
 	browser
 }) => {
-	const modCtx = await browser.newContext({ baseURL: LOCAL, locale: 'de-DE', storageState: seed('dev-admin') });
-	const estCtx = await browser.newContext({ baseURL: LOCAL, locale: 'de-DE', storageState: seed('dev-estimator') });
+	const modCtx = await browser.newContext({ baseURL: LOCAL, storageState: seed('dev-admin') });
+	const estCtx = await browser.newContext({ baseURL: LOCAL, storageState: seed('dev-estimator') });
 	const mod = await modCtx.newPage();
 	const est = await estCtx.newPage();
 	const modRoom = new SessionRoomPage(mod);
@@ -141,8 +125,8 @@ test('two-phase session: broadcast, blind count, reveal aggregate, finalize + wr
 		expect(agg.meanMin).toBe(5);
 		expect(agg.meanExpected).toBe(8);
 		expect(agg.meanMax).toBe(13);
-		// Domain-computed display (German locale grouping) matches the backend mean.
-		await expect(est.getByTestId('aggregate-mean')).toHaveText('5,0 / 8,0 / 13,0');
+		// Domain-computed display matches the backend mean, in either decimal format.
+		await expect(est.getByTestId('aggregate-mean')).toHaveText(/^5[.,]0 \/ 8[.,]0 \/ 13[.,]0$/);
 
 		// 5. Estimator revises + agrees; moderator finalizes item 1.
 		await fillTriple(estCtx, '4', '8', '12');
@@ -213,12 +197,10 @@ test('suspend parks the room, resume continues it, end-early keeps the results',
 	const title = 'E2E Suspend Session';
 	const modCtx = await browser.newContext({
 		baseURL: LOCAL,
-		locale: 'de-DE',
 		storageState: seed('dev-admin')
 	});
 	const estCtx = await browser.newContext({
 		baseURL: LOCAL,
-		locale: 'de-DE',
 		storageState: seed('dev-estimator')
 	});
 	const mod = await modCtx.newPage();

@@ -1,4 +1,5 @@
 import { test, expect, type Page, type APIRequestContext } from '@playwright/test';
+import { parseNumber } from './helpers';
 
 /**
  * The version editor's whole-estimation summary panel (task-139).
@@ -162,14 +163,8 @@ async function seedBucket(request: APIRequestContext): Promise<{
 	return { estimationId, b1, b2 };
 }
 
-/** Playwright pins `locale: 'de-DE'`, so rendered numbers use '.' as the
- *  thousands separator and ',' as the decimal mark. */
-function parseDe(text: string): number {
-	return parseFloat(text.trim().replace(/\./g, '').replace(',', '.'));
-}
-
 async function readNumber(page: Page, testId: string): Promise<number> {
-	return parseDe(await page.getByTestId(testId).innerText());
+	return parseNumber(await page.getByTestId(testId).innerText());
 }
 
 /**
@@ -255,9 +250,9 @@ test('summary panel shows a bucket estimation total matching the bucket rows', a
 	// whenever a column is added to its left.
 	const OFFER_PT_COLUMN = 10;
 	const bucketSum =
-		parseDe(await cellText(page, `bucket:${b1}`, OFFER_PT_COLUMN)) +
-		parseDe(await cellText(page, `bucket:${b2}`, OFFER_PT_COLUMN)) +
-		parseDe(await cellText(page, 'bucket:unassigned', OFFER_PT_COLUMN));
+		parseNumber(await cellText(page, `bucket:${b1}`, OFFER_PT_COLUMN)) +
+		parseNumber(await cellText(page, `bucket:${b2}`, OFFER_PT_COLUMN)) +
+		parseNumber(await cellText(page, 'bucket:unassigned', OFFER_PT_COLUMN));
 	expect(bucketSum).toBeCloseTo(panelOfferPT, 1);
 
 	expect(errors).toEqual([]);

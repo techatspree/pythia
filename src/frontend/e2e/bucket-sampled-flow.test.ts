@@ -1,5 +1,6 @@
 import { expect, test, type APIRequestContext, type Page } from '@playwright/test';
 import { readFileSync } from 'node:fs';
+import { catalogText } from './helpers';
 import { BucketEditor, ImportExportMenu } from './pages';
 
 /**
@@ -184,7 +185,7 @@ test('the bucket panel seeds XS…XL and supports add, rename and delete', async
 	// Add: the new bucket arrives under the placeholder label.
 	await editor.addBucket();
 	await expect(names).toHaveCount(6);
-	await expect(names.nth(5)).toHaveValue('Neu');
+	await expect(names.nth(5)).toHaveValue(catalogText('bucket.defaultLabel'));
 
 	// Rename.
 	await names.nth(5).fill('XXL');
@@ -225,12 +226,12 @@ test('a non-sample leaf inherits the average of its bucket', async ({ page, requ
 
 	// PERT means: (1 + 4·2 + 3)/6 = 2 and (2 + 4·4 + 6)/6 = 4. Each bucket has a
 	// single sample, so its average IS that sample's mean — which is what the
-	// non-sample rows must now show. Formatting is German: playwright.config.ts
-	// pins locale de-DE and the grid renders through $lib/format.ts.
-	await expect(meanOf(page, leaf1)).toHaveText('2,00');
-	await expect(meanOf(page, leaf2)).toHaveText('2,00');
-	await expect(meanOf(page, leaf3)).toHaveText('4,00');
-	await expect(meanOf(page, leaf4)).toHaveText('4,00');
+	// non-sample rows must now show. The grid formats through $lib/format.ts in
+	// the user's language, so only the decimal separator is left free.
+	await expect(meanOf(page, leaf1)).toHaveText(/^2[.,]00$/);
+	await expect(meanOf(page, leaf2)).toHaveText(/^2[.,]00$/);
+	await expect(meanOf(page, leaf3)).toHaveText(/^4[.,]00$/);
+	await expect(meanOf(page, leaf4)).toHaveText(/^4[.,]00$/);
 
 	// The derivation is a projection, not a copy: a non-sample leaf keeps its
 	// own inputs empty (the em dash) rather than acquiring the sample's triple.
@@ -260,8 +261,8 @@ test('submitting freezes the derived numbers into a read-only version', async ({
 	await expect(raw.nth(2)).toHaveText('3');
 
 	// …and both rows still carry the derived mean.
-	await expect(meanOf(page, sampleId)).toHaveText('2,00');
-	await expect(meanOf(page, derivedId)).toHaveText('2,00');
+	await expect(meanOf(page, sampleId)).toHaveText(/^2[.,]00$/);
+	await expect(meanOf(page, derivedId)).toHaveText(/^2[.,]00$/);
 
 	// Read-only really is read-only. The text and number cells collapse to
 	// spans; the sample checkbox is the one input that still renders, and it

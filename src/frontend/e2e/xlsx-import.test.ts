@@ -1,27 +1,10 @@
 import { test, expect, type APIRequestContext } from '@playwright/test';
-import { readFileSync } from 'node:fs';
+import { catalogText } from './helpers';
 import { ErrorBanner, ImportExportMenu, ReplaceDraftDialog } from './pages';
 
 const API = 'http://localhost:8090';
 const LOCAL = 'http://localhost:5173';
 const H = { Authorization: 'Dev dev-admin' } as const;
-
-/**
- * The exact string a catalog key renders to. Used instead of a hardcoded
- * German sentence so the assertion pins the KEY the code chose, not the
- * wording — which is what keeps it meaningful after task-190 makes the suite
- * locale-independent.
- */
-function catalogText(key: string): string {
-	const catalog = JSON.parse(
-		readFileSync(new URL('../src/lib/i18n/de.json', import.meta.url), 'utf-8')
-	) as Record<string, unknown>;
-	const value = key
-		.split('.')
-		.reduce<unknown>((node, part) => (node as Record<string, unknown>)?.[part], catalog);
-	if (typeof value !== 'string') throw new Error(`i18n key not found: ${key}`);
-	return value;
-}
 
 /**
  * xlsx import (task-183): the estimation detail page uploads a workbook this
@@ -83,7 +66,6 @@ test('a workbook exported from one estimation imports as a draft in another', as
 }) => {
 	const ctx = await browser.newContext({
 		baseURL: LOCAL,
-		locale: 'de-DE',
 		storageState: seed('dev-admin')
 	});
 	const page = await ctx.newPage();
@@ -116,7 +98,6 @@ test('a workbook written for another method is refused, in the user’s language
 }) => {
 	const ctx = await browser.newContext({
 		baseURL: LOCAL,
-		locale: 'de-DE',
 		storageState: seed('dev-admin')
 	});
 	const page = await ctx.newPage();
@@ -153,7 +134,6 @@ test('a workbook written for another method is refused, in the user’s language
 test('importing when a draft exists asks to confirm before replacing it', async ({ browser }) => {
 	const ctx = await browser.newContext({
 		baseURL: LOCAL,
-		locale: 'de-DE',
 		storageState: seed('dev-admin')
 	});
 	const page = await ctx.newPage();

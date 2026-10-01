@@ -1,22 +1,7 @@
 import { test, expect, type APIRequestContext, type Page } from '@playwright/test';
 import { readFileSync } from 'node:fs';
+import { catalogPattern, catalogText } from './helpers';
 import { TreeTable } from './pages';
-
-/**
- * The exact string a catalog key renders to. Used instead of a hardcoded German
- * fragment so the assertion pins the KEY the UI chose, not its wording.
- */
-function catalogText(key: string): string {
-	const catalog = JSON.parse(
-		readFileSync(new URL('../src/lib/i18n/de.json', import.meta.url), 'utf-8')
-	) as Record<string, unknown>;
-	const value = key
-		.split('.')
-		.reduce<unknown>((node, part) => (node as Record<string, unknown>)?.[part], catalog);
-	if (typeof value !== 'string') throw new Error(`i18n key not found: ${key}`);
-	return value;
-}
-
 
 // The API request fixture carries no auth of its own; the dev module needs an
 // explicit `Dev <subjectId>` header, as every other spec does.
@@ -655,7 +640,10 @@ test('the Gantt renders the levelled plan and exports it as Mermaid', async ({ p
 	// as well as colour.
 	const critical = page.getByTestId('gantt-bar-critical');
 	expect(await critical.count()).toBeGreaterThan(0);
-	await expect(critical.first()).toHaveAttribute('aria-label', /kritischen Kette/);
+	await expect(critical.first()).toHaveAttribute(
+		'aria-label',
+		catalogPattern('schedule.gantt.barCriticalAria')
+	);
 
 	// Assert the exported BYTES, not merely that a click happened.
 	const downloadPromise = page.waitForEvent('download');
@@ -775,7 +763,7 @@ test('accompanying work spans its phase and never enters the graph', async ({ pa
 	// Its Gantt bar spans the phase window instead of its own duration.
 	await expect(page.getByTestId('gantt-bar-accompanying')).toHaveCount(1);
 	const acc = page.getByTestId('gantt-bar-accompanying').first();
-	await expect(acc).toHaveAttribute('aria-label', /begleitende Aufgabe/);
+	await expect(acc).toHaveAttribute('aria-label', catalogPattern('schedule.gantt.accompanyingAria'));
 
 	const bars = await page.evaluate(() => {
 		const q = (s: string) => document.querySelector(s) as HTMLElement | null;

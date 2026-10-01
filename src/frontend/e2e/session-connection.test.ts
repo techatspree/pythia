@@ -1,22 +1,5 @@
 import { test, expect, type APIRequestContext } from '@playwright/test';
-import { readFileSync } from 'node:fs';
-
-/**
- * The exact string a catalog key renders to. Used instead of a hardcoded German
- * fragment so the assertion pins the KEY the room chose — "this session is gone"
- * rather than a raw ticket error — without pinning the spec to German wording.
- */
-function catalogText(key: string): string {
-	const catalog = JSON.parse(
-		readFileSync(new URL('../src/lib/i18n/de.json', import.meta.url), 'utf-8')
-	) as Record<string, unknown>;
-	const value = key
-		.split('.')
-		.reduce<unknown>((node, part) => (node as Record<string, unknown>)?.[part], catalog);
-	if (typeof value !== 'string') throw new Error(`i18n key not found: ${key}`);
-	return value;
-}
-
+import { catalogText } from './helpers';
 
 const API = 'http://localhost:8090';
 const LOCAL = 'http://localhost:5173';
@@ -73,7 +56,6 @@ async function setUp(req: APIRequestContext) {
 test('the connection indicator reports a live socket', async ({ browser }) => {
 	const ctx = await browser.newContext({
 		baseURL: LOCAL,
-		locale: 'de-DE',
 		storageState: seed('dev-admin')
 	});
 	const page = await ctx.newPage();
@@ -89,7 +71,6 @@ test('the connection indicator reports a live socket', async ({ browser }) => {
 test('the indicator flips to disconnected when the socket dies', async ({ browser }) => {
 	const ctx = await browser.newContext({
 		baseURL: LOCAL,
-		locale: 'de-DE',
 		storageState: seed('dev-admin')
 	});
 	const page = await ctx.newPage();
@@ -150,7 +131,6 @@ test('a session that is gone stops the ticket retry loop', async ({ browser }) =
 	test.setTimeout(45_000);
 	const ctx = await browser.newContext({
 		baseURL: LOCAL,
-		locale: 'de-DE',
 		storageState: seed('dev-admin')
 	});
 	const page = await ctx.newPage();
@@ -188,7 +168,6 @@ test('a session that is gone stops the ticket retry loop', async ({ browser }) =
 test('a transient ticket failure keeps retrying', async ({ browser }) => {
 	const ctx = await browser.newContext({
 		baseURL: LOCAL,
-		locale: 'de-DE',
 		storageState: seed('dev-admin')
 	});
 	const page = await ctx.newPage();
@@ -224,7 +203,6 @@ test('a transient ticket failure keeps retrying', async ({ browser }) => {
 test('a terminal ticket failure marks the room disconnected', async ({ browser }) => {
 	const ctx = await browser.newContext({
 		baseURL: LOCAL,
-		locale: 'de-DE',
 		storageState: seed('dev-admin')
 	});
 	const page = await ctx.newPage();

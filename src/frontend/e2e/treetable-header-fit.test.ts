@@ -1,5 +1,5 @@
 import { test, expect, type Page, type APIRequestContext } from '@playwright/test';
-import { loginAsDev } from './helpers';
+import { E2E_LANG, loginAsDev } from './helpers';
 
 /**
  * TreeTable column headers must never paint outside their own column (task-140).
@@ -13,6 +13,8 @@ import { loginAsDev } from './helpers';
  * `scrollWidth <= clientWidth`. It runs in BOTH locales because the defect is
  * translation-dependent — "PESSIMISTISCH" and "PESSIMISTIC" need different
  * widths, so a German-only check would let an English regression through.
+ * The first test measures dev-admin in the run's language (`E2E_LANG`); the
+ * second switches dev-estimator to the OTHER one, so every run covers both.
  */
 
 // Wide enough that no `collapsible` column is auto-hidden by
@@ -22,6 +24,7 @@ test.use({ viewport: { width: 1400, height: 1000 } });
 const API = 'http://localhost:8090';
 const ADMIN = { Authorization: 'Dev dev-admin' } as const;
 const JSON_HEADERS = { 'Content-Type': 'application/json', ...ADMIN } as const;
+const OTHER_LANG = E2E_LANG === 'de' ? 'en' : 'de';
 
 async function seedProject(request: APIRequestContext, name: string): Promise<string> {
 	const res = await request.post('/api/projects', { headers: JSON_HEADERS, data: { name } });
@@ -155,20 +158,21 @@ test('every TreeTable header fits its column', async ({ page, request }) => {
 	const pertId = await seedPertDraft(request);
 	const bucketId = await seedBucketDraft(request);
 
-	await checkAllEditors(page, pertId, bucketId, 'de');
+	await checkAllEditors(page, pertId, bucketId, E2E_LANG);
 
 	expect(errors, 'uncaught page errors').toEqual([]);
 });
 
-test.describe('English', () => {
-	// A DEDICATED dev user, not the globally pre-seeded dev-admin: specs run in
-	// parallel against ONE backend, and the language preference is persisted
-	// per user — switching dev-admin to English would break the German
-	// assertions in every other spec, and an "restore it afterwards" step does
-	// not run when an assertion fails mid-test.
+test.describe('other language', () => {
+	// dev-estimator, not the globally pre-seeded dev-admin: specs run in
+	// parallel against ONE backend and the language preference is persisted per
+	// user, so switching dev-admin would re-language every other spec. It is NOT
+	// dedicated, though — session.test.ts and undo.test.ts act as it too, and a
+	// session test running in parallel while this one holds it in OTHER_LANG sees
+	// the wrong language. A known limitation until a fourth dev user exists.
 	test.use({ storageState: { cookies: [], origins: [] } });
 
-	test('every TreeTable header fits its column in English', async ({ page, request }) => {
+	test(`every TreeTable header fits its column in ${OTHER_LANG}`, async ({ page, request }) => {
 		const errors: string[] = [];
 		page.on('pageerror', (e) => errors.push(e.message));
 
@@ -178,20 +182,20 @@ test.describe('English', () => {
 		await loginAsDev(page, 'dev-estimator');
 		const res = await page.request.put(`${API}/api/auth/me/language`, {
 			headers: { Authorization: 'Dev dev-estimator', 'Content-Type': 'application/json' },
-			data: { language: 'en' }
+			data: { language: OTHER_LANG }
 		});
-		expect(res.status(), 'PUT /api/auth/me/language en').toBe(204);
+		expect(res.status(), `PUT /api/auth/me/language ${OTHER_LANG}`).toBe(204);
 
-		await checkAllEditors(page, pertId, bucketId, 'en');
+		await checkAllEditors(page, pertId, bucketId, OTHER_LANG);
 
 		expect(errors, 'uncaught page errors').toEqual([]);
 	});
 
 	test.afterEach(async ({ page }) => {
-		// Leave the dedicated user German so the next run starts clean.
+		// Restore the RUN's language, not a hardcoded one: dev-estimator is shared.
 		await page.request.put(`${API}/api/auth/me/language`, {
 			headers: { Authorization: 'Dev dev-estimator', 'Content-Type': 'application/json' },
-			data: { language: 'de' }
+			data: { language: E2E_LANG }
 		});
 	});
 });

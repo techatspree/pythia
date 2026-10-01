@@ -1,10 +1,13 @@
 import { test, expect, type Page } from '@playwright/test';
-import { loginAsDev } from './helpers';
+import { E2E_LANG, loginAsDev } from './helpers';
 
 // The language preference is persisted per-user on the backend. This spec runs
-// as a DEDICATED dev user (dev-estimator), NOT the globally pre-seeded dev-admin,
-// so persisting a switch here can never contaminate the German assertions in the
-// rest of the suite (files run in parallel against one shared backend).
+// as dev-estimator, NOT the globally pre-seeded dev-admin, so the switch it
+// persists never reaches the specs that act as dev-admin. dev-estimator is NOT
+// dedicated, though: session.test.ts and undo.test.ts act as it too, and a
+// session test running in parallel while this spec holds it in a language other
+// than E2E_LANG sees the wrong language. That race is a known limitation until a
+// fourth dev user exists (files run in parallel against one shared backend).
 const API = 'http://localhost:8090';
 const AUTH = { Authorization: 'Dev dev-estimator' } as const;
 
@@ -24,12 +27,13 @@ test.describe('language switch + reload persistence', () => {
 
 	test.beforeEach(async ({ page }) => {
 		await loginAsDev(page, 'dev-estimator');
+		// German explicitly, whatever E2E_LANG is: this spec's subject IS the DE→EN switch.
 		await setLanguage(page, 'de');
 	});
 
 	test.afterEach(async ({ page }) => {
-		// Leave the dedicated user German so the next run starts clean.
-		await setLanguage(page, 'de');
+		// Restore the RUN's language, not a hardcoded one: dev-estimator is shared.
+		await setLanguage(page, E2E_LANG);
 	});
 
 	test('German default → switch to English → survives a reload', async ({ page }) => {

@@ -41,7 +41,6 @@ test.describe('system settings', () => {
 	}) => {
 		const ctx = await browser.newContext({
 			baseURL: LOCAL,
-			locale: 'de-DE',
 			storageState: seed('dev-admin')
 		});
 		const page = await ctx.newPage();
@@ -81,7 +80,6 @@ test.describe('system settings', () => {
 	}) => {
 		const ctx = await browser.newContext({
 			baseURL: LOCAL,
-			locale: 'de-DE',
 			storageState: seed('dev-admin')
 		});
 		const page = await ctx.newPage();
@@ -121,7 +119,6 @@ test.describe('system settings', () => {
 	test('standard effort drivers seed a first draft', async ({ browser }) => {
 		const ctx = await browser.newContext({
 			baseURL: LOCAL,
-			locale: 'de-DE',
 			storageState: seed('dev-admin')
 		});
 		const page = await ctx.newPage();

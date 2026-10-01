@@ -1,4 +1,5 @@
 import { test, expect, type Page, type APIRequestContext } from '@playwright/test';
+import { catalogText } from './helpers';
 import { BucketEditor } from './pages';
 
 /**
@@ -385,7 +386,7 @@ test('reordering bucket chips keeps every bucket', async ({ page, request }) => 
 	const errors: string[] = [];
 	page.on('pageerror', (e) => errors.push(String(e)));
 
-	const handles = page.locator('[title="Ziehen zum Sortieren"]');
+	const handles = page.locator(`[title="${catalogText('bucket.dragTitle')}"]`);
 	const from = await handles.nth(0).boundingBox();
 	const to = await handles.nth(2).boundingBox();
 	if (!from || !to) throw new Error('bucket drag handles not found');

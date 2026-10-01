@@ -16,7 +16,6 @@ test('connection loss blocks the app until the backend returns and the user ackn
 }) => {
 	const ctx = await browser.newContext({
 		baseURL: LOCAL,
-		locale: 'de-DE',
 		storageState: seed('dev-admin')
 	});
 	const page = await ctx.newPage();

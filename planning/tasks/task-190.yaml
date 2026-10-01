@@ -12,21 +12,42 @@ description: |
 
   ## What still ties the suite to German after stage B
 
+  (Line numbers below were re-audited on 2026-09-29 and will drift — step 1
+  re-greps rather than trusting them.)
+
   1. **Formatted numbers — seven assertions.** `$lib/format.ts` formats by the
      USER's language, so a decimal comma is German output:
-       * `e2e/bucket-sampled-flow.test.ts:228,229,230,231,261,262`
+       * `e2e/bucket-sampled-flow.test.ts:230,231,232,233,263,264`
          — `toHaveText('2,00')` / `'4,00'`
-       * `e2e/session.test.ts:126`
+       * `e2e/session.test.ts:145`
          — `toHaveText('5,0 / 8,0 / 13,0')`
      Under English these render `2.00` and `5.0 / 8.0 / 13.0`. task-188
      deliberately preserves them (it lists `'2,00'` as a legitimate
      non-label string), so they arrive here untouched.
-  2. **A currency assertion**: `e2e/tree-table.test.ts:37`
-     `locator('text=/Total: €[0-9]/')` — German puts the symbol last
-     (`1.234,56 €`), English first (`€1,234.56`). task-188 migrates the
-     selector; this task must confirm the surviving assertion is
-     symbol-position-agnostic.
-  3. **The ambient locale itself.** Only `language.test.ts` and
+  2. **A German number PARSER**: `e2e/summary-panel.test.ts` `parseDe()`
+     (~line 165, commented "Playwright pins `locale: 'de-DE'`") strips `.` as
+     a thousands separator and turns `,` into the decimal mark. Under English
+     `1,234.56` parses as `1.23456`. Neither audit grep matches it — it is a
+     function, not a quoted expectation.
+  3. **Catalog lookups pinned to German**: `schedule`, `xlsx-import`,
+     `session-connection` and `session` each carry an identical local
+     `catalogText(key)` that reads `../src/lib/i18n/de.json`. That idiom
+     (task-188) is correct — it pins the KEY, not the wording — but the
+     catalog it reads must follow the run's language, or every translated
+     sentence those specs assert fails under English.
+  4. **Hardcoded browser locales in specs**: 17
+     `browser.newContext({ locale: 'de-DE', … })` calls across
+     `connection-lost`, `merlin-import`, `session-connection`, `session`,
+     `system-settings` and `xlsx-import`. They no longer decide the rendered
+     language (see "The trap" below), but they are the same "German by
+     construction" signal as the config pin and must go with it.
+  5. **The currency assertion is NOT a dependency**: `e2e/tree-table.test.ts:41`
+     asserts `toContainText(/€[0-9]/)` on `tt-demo.total`, and
+     `routes/dev/tree-table-demo/+page.svelte` renders it as a hardcoded
+     `Total: €{….toFixed(2)}` — that fixture is deliberately exempt from
+     i18n and `$lib/format.ts`, so its output is identical in both languages.
+     Confirm and leave it unchanged.
+  6. **The ambient locale itself.** Only `language.test.ts` and
      `treetable-header-fit.test.ts` set their user's language explicitly. Every
      other spec inherits whatever the shared dev users happen to carry.
 
@@ -72,10 +93,36 @@ description: |
     next run re-pins it. Keep that script's `finally` anyway — it is good
     hygiene for a human's dev stack — but it stops being load-bearing, and
     `src/frontend/CLAUDE.md` must stop saying that it is.
-  - Specs with a DEDICATED user (`language.test.ts`,
-    `treetable-header-fit.test.ts`) keep setting their own language in
-    `beforeEach`; the global pin only improves their starting point. Do not
+  - `language.test.ts` and `treetable-header-fit.test.ts` keep setting their
+    own language; the global pin only improves their starting point. Do not
     remove their per-spec handling.
+
+  **`dev-estimator` is NOT a dedicated user**, whatever those two specs'
+  comments say. Only three dev users exist (`DEV_USERS` in
+  `src/backend/implementation/.../auth/dev/DevUser.kt`), and `session.test.ts`
+  and `undo.test.ts` also act as `dev-estimator`. Two consequences:
+
+  - Both specs' `afterEach` hooks currently reset `dev-estimator` to a
+    hardcoded `'de'`. Under `E2E_LANG=en` that leaves the user German for
+    every later spec. They must restore the RUN's language
+    (`E2E_LANG ?? 'de'`) instead.
+  - While either spec holds `dev-estimator` in its non-run language, a
+    `session.test.ts` test running in parallel as the same user sees the
+    wrong language. That race exists today and this task does not introduce
+    it. Fixing it properly means adding a fourth dev user, which is a
+    backend change and out of scope. Record it in `src/frontend/CLAUDE.md`
+    and in both specs' comments. If the gate runs flake on it, serialise
+    the two language specs against the session spec, and do not add retries.
+    `test.describe.configure({ mode: 'serial' })` only orders tests WITHIN a
+    file, so it does not help here. Use a separate Playwright `project` with
+    `dependencies` instead.
+
+  **One source for the run language.** Export it once from `e2e/helpers.ts`:
+  `export const E2E_LANG = …` reads `process.env.E2E_LANG ?? 'de'`, and throws
+  unless it is a supported catalog (`de` | `en`), so a typo fails before any
+  test runs instead of surfacing as 28 confusing failures. `global-setup.ts`,
+  the shared `catalogText()`, the number parser and both `afterEach` hooks
+  all import it, so they cannot disagree.
 
   **`playwright.config.ts`: drop `locale: 'de-DE'`.** With the language pinned
   server-side it no longer decides anything. Removing it is the point — while
@@ -98,6 +145,19 @@ description: |
   component already carries a testid, exposing the raw number as a
   `data-value` attribute and asserting THAT is stronger and also acceptable —
   but do not add attributes to components purely to avoid a regex.
+
+  **`summary-panel.test.ts`'s `parseDe`** becomes a locale-aware
+  `parseNumber(text)` in `e2e/helpers.ts`, which reads the group and decimal
+  separators for `E2E_LANG` from `Intl.NumberFormat(...).formatToParts` instead
+  of hardcoding them. That is test-side PARSING of rendered output, not a
+  second formatter, so it does not violate the `$lib/format.ts` single-source
+  rule. It must not import `$lib/format.ts` either, because `$lib` aliases are
+  unavailable in the node-side spec context.
+
+  **The four `catalogText()` copies** collapse into one exported
+  `catalogText(key)` in `e2e/helpers.ts` that reads
+  `../src/lib/i18n/${E2E_LANG}.json` and throws on a missing key, like the
+  copies do today. The per-spec copies are deleted, not left beside it.
 
   **Do not weaken the two specs that legitimately assert locale-specific
   text.** `language.test.ts` must keep asserting `'Abmelden'` vs `'Logout'`
@@ -135,28 +195,66 @@ steps:
       src/frontend/e2e/language.test.ts       (the per-spec language idiom to copy)
       src/frontend/e2e/treetable-header-fit.test.ts
       src/frontend/src/lib/format.ts          (confirm locale is a parameter, not the browser's)
-    Then re-audit the locale-dependent assertions rather than trusting this
-    file's line numbers:
+      src/frontend/e2e/helpers.ts             (where E2E_LANG, catalogText, parseNumber go)
+      src/frontend/e2e/summary-panel.test.ts  (parseDe)
+      src/frontend/src/routes/dev/tree-table-demo/+page.svelte  (confirm the hardcoded € total)
+    Then re-audit the locale dependencies rather than trusting this file's
+    line numbers. The greps cover assertions, parsers, catalog reads, browser
+    locales and shared-user language writes:
       grep -rnE "to(HaveText|ContainText)\([[:space:]]*['\"][0-9]+[.,][0-9]" src/frontend/e2e/*.ts
       grep -rnE "€|[0-9]\.[0-9]{3}|[0-9]{2}\.[0-9]{2}\.[0-9]{4}" src/frontend/e2e/*.ts
+      grep -rnE "parseDe|replace\(','|i18n/de\.json|i18n/en\.json" src/frontend/e2e
+      grep -rnE "locale:[[:space:]]*'(de|en)-" src/frontend/e2e src/frontend/playwright.config.ts
+      grep -rn "auth/me/language" src/frontend/e2e
+      grep -rln "dev-estimator" src/frontend/e2e
+  - |
+    Extend `e2e/helpers.ts` with the three shared pieces (see the design):
+      * `E2E_LANG`: `process.env.E2E_LANG ?? 'de'`, validated against
+        `de` | `en`, throwing otherwise;
+      * `catalogText(key)`: reads `../src/lib/i18n/${E2E_LANG}.json` and
+        throws on a missing key;
+      * `parseNumber(text)`: separators derived from
+        `Intl.NumberFormat(E2E_LANG).formatToParts(1234.5)`.
+    Then delete the four local `catalogText` copies (`schedule`,
+    `xlsx-import`, `session-connection`, `session`) and import the shared one.
+    Replace `parseDe` in `summary-panel.test.ts` with `parseNumber`, and
+    remove its "Playwright pins `locale: 'de-DE'`" comment.
   - |
     Extend `e2e/global-setup.ts`: after the existing `DELETE /api/dev/test-data`
     reset, PUT `/api/auth/me/language` for `dev-admin`, `dev-estimator` and
-    `dev-viewer` with `process.env.E2E_LANG ?? 'de'`, each with its own
+    `dev-viewer` with `E2E_LANG` (imported from `./helpers`), each with its own
     `Authorization: Dev <subject>` header. Expect 204. Log the pinned language
-    the way the reset logs its counts. A failure here fails loudly — every
-    test is about to depend on it.
+    the way the reset logs its counts. A failure here fails loudly, because
+    every test depends on it. It runs on the 404 (non-dev-profile) path too,
+    since the language endpoint is not dev-only, so do the pin before or
+    independently of that early `return`.
   - |
-    Remove `locale: 'de-DE'` from `playwright.config.ts`. If a browser locale
-    is kept for realism, derive it from the same `E2E_LANG` value so the two
-    can never disagree. Update the comment: the language is pinned
-    server-side by `global-setup.ts`, because Accept-Language only seeds a
-    user on FIRST sighting and therefore cannot re-language an existing one.
+    Remove `locale: 'de-DE'` from `playwright.config.ts`, and every hardcoded
+    `locale: 'de-DE'` from the `browser.newContext({...})` calls in the specs
+    (`connection-lost`, `merlin-import`, `session-connection`, `session`,
+    `system-settings`, `xlsx-import`). A context created by `browser.newContext`
+    does NOT inherit `use.locale`, so if a browser locale is kept for realism,
+    it must be derived from `E2E_LANG` in the config AND in every one of those
+    calls. Dropping it everywhere is simpler and preferred. Update the config
+    comment: the language is pinned server-side by `global-setup.ts`, because
+    Accept-Language only seeds a user on FIRST sighting and therefore cannot
+    re-language an existing one.
   - |
     Convert the seven formatted-number assertions
     (`bucket-sampled-flow.test.ts` ×6, `session.test.ts` ×1) to
-    separator-agnostic regexes, and confirm the surviving currency assertion
-    in `tree-table.test.ts` does not depend on the €-symbol position.
+    separator-agnostic regexes. Confirm that `tree-table.test.ts`'s `/€[0-9]/`
+    targets the dev demo's hardcoded, locale-exempt total, and leave that
+    file unchanged.
+  - |
+    Fix the shared-user language handling in `language.test.ts` and
+    `treetable-header-fit.test.ts`:
+      * both `afterEach` hooks restore `E2E_LANG`, not a hardcoded `'de'`;
+      * `language.test.ts`'s `beforeEach` keeps setting `'de'` explicitly,
+        because its subject is the DE→EN switch and it must keep asserting
+        `'Abmelden'` then `'Logout'`;
+      * rewrite both files' comments that call `dev-estimator` "DEDICATED" or
+        refer to "the German assertions in the rest of the suite". State that
+        it is shared with `session`/`undo`, and name the parallel race.
   - |
     Run the suite BOTH ways against a running `./scripts/dev.sh` stack and fix
     what falls out:
@@ -166,18 +264,29 @@ steps:
     Expect the English run to surface leftovers stages A–C could not see —
     assertions on text that is neither a label nor a number.
   - |
-    Update `src/frontend/CLAUDE.md`. Three existing statements become WRONG
+    Update `src/frontend/CLAUDE.md`. Four existing statements become WRONG
     and must be corrected, not merely supplemented:
       * that `playwright.config.ts` pins `locale: 'de-DE'` so Accept-Language
         seeds fresh dev users German (the i18n section);
       * that the Playwright suite asserts German UI text, so a stack left in
         English fails 28 tests (the brand-assets section, task-180);
-      * any wording implying the suite is German by construction.
+      * the Page Object subsection's "The suite is still German by
+        configuration (`playwright.config.ts` pins `locale: 'de-DE'`); task-190
+        makes it … Until then, do not describe the suite as
+        locale-independent" (added by task-189). Now that task-190 has landed,
+        it becomes a statement of the property;
+      * the TreeTable header-fit paragraph's claim that its English case runs
+        under "a dedicated `dev-estimator` user". It is shared with the
+        session and undo specs.
     Replace with: the suite is locale-independent and proven so by the
-    `E2E_LANG=en` run; `global-setup.ts` pins the shared dev users' language;
-    `capture-screenshots.mjs` keeps its `finally` as hygiene but is no longer
-    load-bearing; `language.test.ts` and `treetable-header-fit.test.ts` set
-    their own language by design.
+    `E2E_LANG=en` run; `E2E_LANG` (from `e2e/helpers.ts`) is the single
+    source for the run language; `global-setup.ts` pins the shared dev users'
+    language to it; spec catalog lookups go through the shared
+    `catalogText()`; `capture-screenshots.mjs` keeps its `finally` as hygiene
+    but is no longer load-bearing; `language.test.ts` and
+    `treetable-header-fit.test.ts` set their own language by design and
+    restore `E2E_LANG` afterwards; and the `dev-estimator` parallel race is a
+    known limitation until a fourth dev user exists.
   - |
     Build:
       ./gradlew :frontend:check
@@ -196,7 +305,31 @@ validation:
     The browser-locale pin is gone, or is derived from E2E_LANG rather than
     hardcoded:
       cd src/frontend
-      ! grep -nE "locale:[[:space:]]*'de-DE'" playwright.config.ts
+      ! grep -rnE "locale:[[:space:]]*'de-DE'" playwright.config.ts e2e
+  - |
+    The run language has ONE source, and nothing in the specs reads a fixed
+    catalog or parses numbers the German way:
+      cd src/frontend
+      grep -q "export const E2E_LANG" e2e/helpers.ts
+      grep -q "export function catalogText" e2e/helpers.ts
+      grep -q "export function parseNumber" e2e/helpers.ts
+      ! grep -rnE "i18n/(de|en)\.json" e2e/*.ts
+      ! grep -rn "function catalogText" e2e/*.test.ts
+      ! grep -rn "parseDe" e2e
+      ! grep -rn "process.env.E2E_LANG" e2e --include='*.test.ts'
+  - |
+    Neither language spec resets the shared `dev-estimator` to a hardcoded
+    German on the way out. Their `afterEach` restores `E2E_LANG`:
+      cd src/frontend
+      for f in e2e/language.test.ts e2e/treetable-header-fit.test.ts; do
+        awk '/afterEach/,/^\t}\);/' "$f" | grep -q "E2E_LANG" \
+          || { echo "$f afterEach does not restore E2E_LANG"; exit 1; }
+      done
+      ! grep -n "DEDICATED dev user" e2e/language.test.ts
+  - |
+    The tree-table currency check stays as it is, because it targets the
+    locale-exempt demo:
+      grep -q 'Total: €' src/frontend/src/routes/dev/tree-table-demo/+page.svelte
   - |
     No spec asserts a locale-specific NUMBER format any more (a decimal comma
     or dot inside a quoted expectation):
@@ -214,6 +347,8 @@ validation:
     construction, and records the new property:
       ! grep -n "fails 28 tests" src/frontend/CLAUDE.md
       ! grep -nE "pins \`?locale: 'de-DE'\`?" src/frontend/CLAUDE.md
+      ! grep -n "still German by configuration" src/frontend/CLAUDE.md
+      ! grep -n "dedicated \`dev-estimator\`" src/frontend/CLAUDE.md
       grep -q "E2E_LANG" src/frontend/CLAUDE.md
   - |
     Static analysis and the full build are green:
@@ -231,9 +366,23 @@ validation:
       E2E_LANG=de npx playwright test
 
 outputs:
+  - modified: src/frontend/e2e/helpers.ts            # E2E_LANG, catalogText, parseNumber
   - modified: src/frontend/e2e/global-setup.ts
   - modified: src/frontend/playwright.config.ts
   - modified: src/frontend/e2e/bucket-sampled-flow.test.ts
-  - modified: src/frontend/e2e/session.test.ts
-  - modified: src/frontend/e2e/tree-table.test.ts
+  - modified: src/frontend/e2e/session.test.ts       # number regex, shared catalogText, locale
+  - modified: src/frontend/e2e/summary-panel.test.ts # parseDe → parseNumber
+  - modified: src/frontend/e2e/schedule.test.ts      # shared catalogText
+  - modified: src/frontend/e2e/xlsx-import.test.ts   # shared catalogText, locale
+  - modified: src/frontend/e2e/session-connection.test.ts  # shared catalogText, locale
+  - modified: src/frontend/e2e/connection-lost.test.ts     # locale
+  - modified: src/frontend/e2e/merlin-import.test.ts       # locale
+  - modified: src/frontend/e2e/system-settings.test.ts     # locale
+  - modified: src/frontend/e2e/language.test.ts            # afterEach restores E2E_LANG, comments
+  - modified: src/frontend/e2e/treetable-header-fit.test.ts # afterEach restores E2E_LANG, comments
   - modified: src/frontend/CLAUDE.md
+  # NOT modified: src/frontend/e2e/tree-table.test.ts — its €-total assertion
+  # targets the locale-exempt dev demo (confirmed in step 1, left unchanged).
+  # After landing, suggest an auto-memory note: the e2e run language is
+  # E2E_LANG, pinned server-side by global-setup.ts; dev-estimator is shared,
+  # not dedicated.

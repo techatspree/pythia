@@ -1,4 +1,5 @@
 import { test, expect, type Page, type APIRequestContext } from '@playwright/test';
+import { catalogText } from './helpers';
 import { BucketEditor } from './pages';
 
 /**
@@ -211,7 +212,7 @@ test('a flat bucket draft can grow its first group, and that group is then usabl
 	// A flat draft has no group row: nothing carries the group-title input.
 	const groupRow = page
 		.locator('[data-testid^="tt-row-"]')
-		.filter({ has: page.locator('input[placeholder="Gruppentitel…"]') });
+		.filter({ has: page.locator(`input[placeholder="${catalogText('bucket.groupTitlePlaceholder')}"]`) });
 	await expect(groupRow).toHaveCount(0);
 
 	const allRows = page.locator('[data-testid^="tt-row-"]');
