@@ -1,0 +1,307 @@
+id: task-191
+phase: phase-14
+title: "e2e lint: ban translated attribute selectors, and gate it"
+depends_on: [task-190]
+description: |
+  Close two gaps in the e2e translated-label ban (task-189) that task-190's
+  first `E2E_LANG=en` run exposed.
+
+  ## Gap 1: the rule cannot see translated text inside attribute selectors
+
+  task-190's English run failed on five German literals that
+  `src/frontend/eslint.config.js` let through, because none of them uses one
+  of the banned Playwright APIs:
+
+    * `page.locator('[title="Ziehen zum Sortieren"]')`        (bucket-views)
+    * `page.locator('input[placeholder="Gruppentitel…"]')`    (bucket-hierarchy)
+    * `toHaveAttribute('aria-label', /kritischen Kette/)`      (schedule)
+    * `toHaveAttribute('aria-label', /begleitende Aufgabe/)`   (schedule)
+    * `toHaveValue('Neu')`                                     (bucket-sampled-flow)
+
+  task-190 fixed all five through `catalogText()` / `catalogPattern()` from
+  `e2e/helpers.ts`. But today only a full English suite run would catch the
+  next one, and that is a 3-minute run against a live stack, not a lint.
+
+  The target: two more `no-restricted-syntax` entries in the e2e block.
+
+  1. **Attribute selectors with a literal value.** Flag any string `Literal`,
+     and any template-literal QUASI (`TemplateElement`), that contains
+     `[title=…]`, `[placeholder=…]`, `[aria-label=…]` or `[alt=…]` (with any
+     CSS attribute operator, `=` `*=` `^=` `$=` `~=` `|=`), where the value
+     starts with a literal character. Match it ANYWHERE, not only as a
+     `locator(...)` argument, because specs build selectors in constants
+     (`tree-table-dnd-mouse.test.ts`: `const ROOT_ZONE = '[aria-label="Root nodes"]'`)
+     and inside `page.evaluate` strings (`tree-table.test.ts:72`).
+  2. **`toHaveAttribute` on a translatable attribute with a literal
+     expectation.** Flag `toHaveAttribute(<a>, <b>)` when `<a>` is
+     `'aria-label' | 'title' | 'placeholder' | 'alt'` and `<b>` is a string
+     literal, a regex literal, or a template literal with no expressions.
+  3. **`getByTitle` / `getByAltText` with a literal.** These are the
+     Playwright-API doors to the same two attributes, and the existing ban
+     omits them: banning `[title=…]` while allowing `getByTitle('Ziehen…')`
+     would just move the next leftover to the API form. This is not a new
+     entry. Widen the existing `getBy(Label|Placeholder)` entry's regex to
+     `/^getBy(Label|Placeholder|Title|AltText)$/`. Neither API is used
+     anywhere under `e2e/` today, so this adds zero findings.
+
+  **What must stay legal** (the rule must produce ZERO findings on today's
+  e2e tree, which is verified to hold):
+
+    * The four English aria-labels of the generic `treetable/TreeTable.svelte`:
+      `"Children"`, `"Root nodes"`, `"Collapse"`, `"Expand"`. That component is
+      deliberately un-internationalised, and about 19 selectors depend on these.
+    * A template literal that interpolates the value, e.g.
+      `` `[title="${catalogText('bucket.dragTitle')}"]` ``. The quasi then ENDS
+      at the opening quote, and the regex must not flag that. This is the trap
+      in the obvious regex: a negative lookahead such as `(?!\2)` SUCCEEDS at
+      end of string, so it must be written `(?!\2|$)`.
+    * `toHaveAttribute` on a non-translatable attribute
+      (`'data-node-kind', 'leaf'`, `'aria-current', 'page'`), on a
+      `catalogText(...)` / `catalogPattern(...)` call, or on one of the four
+      TreeTable labels.
+    * `[data-testid=…]` and every other attribute selector.
+    * The existing exemptions, `e2e/pages/**` and `e2e/language.test.ts`. They
+      are unchanged, because the new entries live in the same block.
+
+  A prototype of entries 1 and 2 was run against a probe file and the whole
+  e2e tree on 2026-10-01. It flagged all seven bad probe cases and none of the good ones,
+  and found 0 findings in the tree. These are its selectors (written with
+  `String.raw` so the regex is not double-escaped):
+
+      const TRANSLATABLE_ATTR_SELECTOR = String.raw`/\[(title|placeholder|aria-label|alt)[*^$~|]?=\s*(?:(["'])(?!\2|$)(?!(?:Children|Root nodes|Collapse|Expand)\2)|(?![\s"']|$)(?!(?:Children|Root nodes|Collapse|Expand)\]))/`;
+      const TRANSLATABLE_ATTR_NAME = String.raw`/^(aria-label|title|placeholder|alt)$/`;
+      const TREETABLE_LABEL = String.raw`/^(Children|Root nodes|Collapse|Expand)$/`;
+
+      `Literal[value=${TRANSLATABLE_ATTR_SELECTOR}]`
+      `TemplateElement[value.cooked=${TRANSLATABLE_ATTR_SELECTOR}]`
+      `CallExpression[callee.property.name='toHaveAttribute'][arguments.0.value=${TRANSLATABLE_ATTR_NAME}] > Literal:nth-child(2):not([value=${TREETABLE_LABEL}])`
+      `CallExpression[callee.property.name='toHaveAttribute'][arguments.0.value=${TRANSLATABLE_ATTR_NAME}] > TemplateLiteral:nth-child(2)[expressions.length=0]`
+
+  Treat these as a known-good starting point, not a contract. If you change
+  them, the stdin probe in `validation` is the check that matters.
+
+  **`toHaveValue` is deliberately OUT of scope.** All 14 of its literal uses in
+  today's tree are test DATA (`'2'`, `'9'`, `'UM'`, `'Contoso GmbH'`), and a
+  syntactic rule cannot tell those from a translated default like `'Neu'`.
+  Banning it would push data through indirection for no gain. Record it in
+  `src/frontend/CLAUDE.md` as a reviewer's responsibility, with `'Neu'` as the
+  example, and as something only the `E2E_LANG=en` run catches.
+
+  ## Gap 2: the ban is not actually enforced
+
+  `src/frontend/CLAUDE.md` (Page Object subsection), the root `CLAUDE.md`
+  ("Frontend hard rules") and `.claude/commands/add-task.md` all say the ban
+  FAILS `:frontend:check`. It does not. `:frontend:check` runs ESLint only
+  through `npmLintReport` → `npm run lint:report`, which wraps both `eslint`
+  calls in `|| true` "so the build stays green regardless of findings"
+  (`src/frontend/build.gradle.kts`, task-056). A violation lands in
+  `reports/eslint.json` and nothing fails. That is the same decay
+  `checkDesignTokens` (task-149) was made blocking to prevent.
+
+  Make the e2e subset blocking, the way task-149 did for design tokens. This
+  is enforceable only because the baseline is zero: `npx eslint e2e` exits 0
+  today (verified 2026-10-01). It must still exit 0 once the new entries
+  land, and the step that adds them checks this.
+
+  Four more places describe ESLint as purely informational and become partly
+  false once the gate lands, so each gets an "except `e2e/`, which `lintE2e`
+  enforces" qualification: `docs/development.md` ("The reports are currently
+  **informational**"), `docs/architecture.md` ("ESLint … run as Gradle tasks
+  with informational reports"), `.claude/commands/implement-task.md` step 7
+  ("the reports are *informational*: the build stays green even when there
+  are findings"), and the comment at the top of `.github/workflows/ci.yaml`'s
+  main job, which lists what `:frontend:check` gates. The implement-task one
+  matters most, because it is what a future implementer reads.
+
+  The gate is scoped to `e2e/` ONLY. The rest of the frontend keeps the
+  informational policy, because its legacy baseline has findings. Note that
+  the gate runs EVERY rule configured for `e2e/**`, not only
+  `no-restricted-syntax`. So a new `@typescript-eslint/no-explicit-any` in a
+  spec will fail the build too. That is accepted: the baseline is zero for
+  those rules as well, and a second lint config restricted to one rule would
+  be a second source of truth for the e2e rules.
+
+  ## Non-goals
+
+  - No change to any spec's behaviour. The prototype shows the current tree
+    is already clean, so no spec should need editing. If one does, the task
+    spec is wrong; stop and report rather than widen the allow-list
+    silently.
+  - No change to the frontend-wide informational lint policy, to
+    `lint:report`, or to the SARIF/HTML static-analysis report.
+  - No new allow-list entries beyond the four TreeTable labels.
+
+steps:
+  - |
+    Read `src/frontend/eslint.config.js` (the e2e block and its comments, in
+    particular the flat-config note about re-declaring the `fetch` entry),
+    `src/frontend/build.gradle.kts` (`npmLintReport`, `checkDesignTokens`, and
+    the `check` wiring), `src/frontend/package.json` (`lint`, `lint:report`),
+    and the Page Object subsection of `src/frontend/CLAUDE.md`.
+    Confirm the baseline: `cd src/frontend && npx eslint e2e` exits 0.
+  - |
+    In `src/frontend/eslint.config.js`, define the three regex constants
+    (`TRANSLATABLE_ATTR_SELECTOR`, `TRANSLATABLE_ATTR_NAME`, `TREETABLE_LABEL`)
+    above `export default`, using `String.raw`. Append the four selectors from
+    the description to the EXISTING e2e `no-restricted-syntax` array, with
+    the same Page Object message as the other entries. Do NOT create a second
+    `no-restricted-syntax` block or a second e2e config object: flat config
+    REPLACES a rule's options per matching file, so a second block would
+    silently drop the `fetch` ban and the existing label entries. Keep the
+    re-declared `fetch` entry first, where it is.
+    In the same array, widen the existing `getBy(Label|Placeholder)` entry's
+    `callee.property.name` regex to `/^getBy(Label|Placeholder|Title|AltText)$/`,
+    and extend its comment to say why.
+    Comment each new entry the way the existing ones are commented: what it
+    catches, which task-190 leftover motivated it, and why the four TreeTable
+    labels and the end-of-quasi case are allowed.
+    Re-run `npx eslint e2e`; it must still exit 0.
+  - |
+    Make the e2e subset blocking:
+      * `src/frontend/package.json`: add `"lint:e2e": "eslint e2e playwright.config.ts"`.
+        Unlike `lint:report`, it is NOT wrapped in `|| true`.
+      * `src/frontend/build.gradle.kts`: register `lintE2e` as an `NpmTask`
+        running `npm run lint:e2e` (dependsOn `tasks.npmInstall`), with a
+        comment modelled on `checkDesignTokens`'s. It must say this gate is
+        deliberately UNLIKE `npmLintReport`, that it fails the build, and that
+        it is enforceable only because the e2e baseline is zero. Add it to
+        `tasks.named("check") { dependsOn(...) }`.
+      * Update the `npmLintReport` comment ("always exits 0 … informational")
+        to say the e2e subset is the exception, gated by `lintE2e`.
+  - |
+    Update the docs so they describe what is now true:
+      * `src/frontend/CLAUDE.md`, Page Object subsection. Add the two new
+        forms, and `getByTitle`/`getByAltText`, to the list of banned forms, and the four TreeTable labels and
+        `catalogText()` interpolation to the list of what stays legal. Add
+        the end-of-quasi regex trap to the paragraph about extending these
+        rules. State that `lintE2e` is what makes the ban fail
+        `:frontend:check`. Add the `toHaveValue` non-goal as a reviewer's
+        responsibility that only the `E2E_LANG=en` run catches. Rewrite the
+        sentence task-190 added ("The first English run caught five German
+        literals the ESLint rule cannot see …"): four of the five are now
+        lint-caught, and `toHaveValue` is the one that is not.
+      * Root `CLAUDE.md`, the "e2e specs drive Page Objects" bullet under
+        "Frontend hard rules": add the attribute-selector and
+        `toHaveAttribute` forms, and `getByTitle`/`getByAltText`, to the
+        banned list.
+      * `.claude/commands/add-task.md`, the "e2e tests" style rule: add the
+        same forms to its banned list.
+      * The four places that call ESLint purely informational: qualify each
+        with "except the `e2e/` subset, which `lintE2e` enforces".
+          - `docs/development.md` (the "reports are currently
+            **informational**" paragraph under static analysis);
+          - `docs/architecture.md` ("… run as Gradle tasks with informational
+            reports");
+          - `.claude/commands/implement-task.md` step 7 ("the reports are
+            *informational*");
+          - `.github/workflows/ci.yaml`, the comment above the main job that
+            lists what `:frontend:check` gates. Add the e2e lint gate to it.
+            This is a comment change only, not a workflow change.
+  - |
+    Build:
+      ./gradlew :frontend:check
+      ./gradlew build
+
+validation:
+  - |
+    The new entries exist, in the single e2e `no-restricted-syntax` array, and
+    the `fetch` ban is still declared there:
+      cd src/frontend
+      grep -q "TRANSLATABLE_ATTR_SELECTOR" eslint.config.js
+      grep -q "toHaveAttribute" eslint.config.js
+      grep -q "TemplateElement" eslint.config.js
+      grep -q "getBy(Label|Placeholder|Title|AltText)" eslint.config.js
+      test "$(grep -c "'no-restricted-syntax'" eslint.config.js)" -eq 3   # global, fetch.ts off, e2e
+      test "$(grep -c "callee.name='fetch'" eslint.config.js)" -eq 2
+  - |
+    The rule flags every bad form and none of the good ones. This is the
+    behavioural check, run on stdin so no violating file is ever written into
+    `e2e/`. Expect exactly lines 3–11 to be flagged by the Page Object message:
+      cd src/frontend
+      probe=$(mktemp)
+      cat > "$probe" <<'EOF'
+    declare const page: { locator(s: string): unknown; getByTitle(s: string): unknown; getByAltText(s: string): unknown }; declare const expect: (x: unknown) => { toHaveAttribute(a: string, b: unknown): Promise<void> }; declare function catalogText(k: string): string; declare const id: string;
+    export async function bad() {
+      page.locator('[title="Ziehen zum Sortieren"]');
+      page.locator('input[placeholder="Gruppentitel…"]');
+      page.locator(`${id} [aria-label="Kinder"]`);
+      page.locator('img[alt=Logo]');
+      await expect(page).toHaveAttribute('aria-label', /kritischen Kette/);
+      await expect(page).toHaveAttribute('title', 'Ziehen');
+      await expect(page).toHaveAttribute('placeholder', `Neu`);
+      page.getByTitle('Ziehen zum Sortieren');
+      page.getByAltText('Firmenlogo');
+    }
+    export async function good() {
+      page.locator('[aria-label="Children"]');
+      page.locator(`${id} > [aria-label="Children"] > [data-testid^="tt-row-"]`);
+      page.locator('button[aria-label="Collapse"]');
+      page.locator('[aria-label="Root nodes"]');
+      page.locator(`[title="${catalogText('bucket.dragTitle')}"]`);
+      page.locator(`input[placeholder="${catalogText('x')}"]`);
+      page.locator('[data-testid="tt-row-g1"]');
+      await expect(page).toHaveAttribute('aria-label', catalogText('x'));
+      await expect(page).toHaveAttribute('data-node-kind', 'leaf');
+      await expect(page).toHaveAttribute('aria-current', 'page');
+      await expect(page).toHaveAttribute('aria-label', 'Expand');
+      page.getByTitle(id);
+      page.getByAltText(catalogText('brand.logoAlt'));
+    }
+    EOF
+      got=$(npx eslint --stdin --stdin-filename e2e/task191-probe.test.ts -f json < "$probe" \
+        | jq -r '[.[0].messages[] | select(.ruleId=="no-restricted-syntax") | .line] | unique | join(",")')
+      rm -f "$probe"
+      test "$got" = "3,4,5,6,7,8,9,10,11" || { echo "flagged lines: $got (want 3..11)"; exit 1; }
+  - |
+    The exemptions still hold: the same violating line is NOT flagged in a
+    Page Object or in the language spec:
+      cd src/frontend
+      for f in e2e/pages/Probe.ts e2e/language.test.ts; do
+        n=$(printf "declare const page: { locator(s: string): unknown };\nexport const x = page.locator('[title=\"Ziehen\"]');\n" \
+          | npx eslint --stdin --stdin-filename "$f" -f json | jq '[.[0].messages[] | select(.ruleId=="no-restricted-syntax")] | length')
+        test "$n" -eq 0 || { echo "$f is no longer exempt"; exit 1; }
+      done
+  - |
+    Today's e2e tree is clean under the extended rule, and the gate is
+    wired into `check` and actually blocks:
+      cd src/frontend
+      npx eslint e2e playwright.config.ts
+      grep -q '"lint:e2e"' package.json
+      ! grep -E '"lint:e2e".*\|\| true' package.json
+      grep -q 'lintE2e' build.gradle.kts
+      grep -A3 'tasks.named("check")' build.gradle.kts | grep -q 'lintE2e'
+      cd ../..
+      ./gradlew :frontend:lintE2e
+  - |
+    No spec changed (the tree was already clean; a spec edit means the rule
+    or the allow-list is wrong):
+      git diff --quiet -- src/frontend/e2e
+  - |
+    The docs describe the new forms and the real gate:
+      grep -q "lintE2e" src/frontend/CLAUDE.md
+      grep -q "toHaveAttribute" src/frontend/CLAUDE.md
+      grep -q "toHaveValue" src/frontend/CLAUDE.md
+      grep -q "toHaveAttribute" CLAUDE.md
+      grep -q "toHaveAttribute" .claude/commands/add-task.md
+      for f in docs/development.md docs/architecture.md .claude/commands/implement-task.md .github/workflows/ci.yaml; do
+        grep -q "lintE2e" "$f" || { echo "$f does not mention the lintE2e gate"; exit 1; }
+      done
+      ! grep -n "the ESLint rule cannot see" src/frontend/CLAUDE.md
+  - |
+    Build is green:
+      ./gradlew :frontend:check
+      ./gradlew build
+
+outputs:
+  - modified: src/frontend/eslint.config.js
+  - modified: src/frontend/package.json          # lint:e2e
+  - modified: src/frontend/build.gradle.kts      # lintE2e, wired into check
+  - modified: src/frontend/CLAUDE.md
+  - modified: CLAUDE.md
+  - modified: .claude/commands/add-task.md
+  - modified: .claude/commands/implement-task.md   # step 7: e2e lint is the exception
+  - modified: docs/development.md                  # "informational" qualified
+  - modified: docs/architecture.md                 # "informational" qualified
+  - modified: .github/workflows/ci.yaml            # comment only: lists the e2e lint gate
+  # NOT modified: any file under src/frontend/e2e/ — verified clean under the
+  # extended rule on 2026-10-01.
