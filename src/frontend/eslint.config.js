@@ -6,6 +6,20 @@ import htmlPlugin from '@html-eslint/eslint-plugin';
 import htmlParser from '@html-eslint/parser';
 import globals from 'globals';
 
+// e2e translated-label ban, attribute forms (task-191). Written with String.raw
+// so the regexes are not double-escaped inside the esquery selector strings.
+//
+// An attribute selector on a translatable attribute whose value starts with a
+// literal character. Two cases stay legal: the four English aria-labels of the
+// deliberately un-internationalised `treetable/TreeTable.svelte`, and a value
+// interpolated from a template literal (`[title="${catalogText(…)}"]`), whose
+// quasi ENDS at the opening quote. That is why the lookaheads read `(?!\2|$)`
+// and `(?![\s"']|$)`: a bare `(?!\2)` succeeds at end of string and would flag
+// every catalogText() interpolation.
+const TRANSLATABLE_ATTR_SELECTOR = String.raw`/\[(title|placeholder|aria-label|alt)[*^$~|]?=\s*(?:(["'])(?!\2|$)(?!(?:Children|Root nodes|Collapse|Expand)\2)|(?![\s"']|$)(?!(?:Children|Root nodes|Collapse|Expand)\]))/`;
+const TRANSLATABLE_ATTR_NAME = String.raw`/^(aria-label|title|placeholder|alt)$/`;
+const TREETABLE_LABEL = String.raw`/^(Children|Root nodes|Collapse|Expand)$/`;
+
 export default [
 	{
 		ignores: [
@@ -132,8 +146,11 @@ export default [
 						'e2e specs must go through Page Objects (see src/frontend/e2e/pages/); do not match on a translated label.'
 				},
 				{
+					// getByTitle/getByAltText are the API doors to the same `title`
+					// and `alt` attributes the selector entries below ban (task-191);
+					// leaving them open would just move the next leftover there.
 					selector:
-						"CallExpression[callee.property.name=/^getBy(Label|Placeholder)$/] > :matches(Literal, TemplateLiteral):first-child",
+						"CallExpression[callee.property.name=/^getBy(Label|Placeholder|Title|AltText)$/] > :matches(Literal, TemplateLiteral):first-child",
 					message:
 						'e2e specs must go through Page Objects (see src/frontend/e2e/pages/); do not match on a translated label.'
 				},
@@ -150,6 +167,39 @@ export default [
 					// locator(sel, { hasText }) and in filter({ hasText }).
 					selector:
 						"Property[key.name='hasText'] > :matches(Literal, TemplateLiteral)",
+					message:
+						'e2e specs must go through Page Objects (see src/frontend/e2e/pages/); do not match on a translated label.'
+				},
+				{
+					// A translated value inside a CSS attribute selector
+					// (`[title="Ziehen zum Sortieren"]`, `input[placeholder="Gruppentitel…"]`)
+					// — two of task-190's English-run leftovers, invisible to every
+					// entry above because they use no banned API. Matched ANYWHERE,
+					// not only as a locator() argument: specs build selectors in
+					// constants and inside page.evaluate strings.
+					selector: `Literal[value=${TRANSLATABLE_ATTR_SELECTOR}]`,
+					message:
+						'e2e specs must go through Page Objects (see src/frontend/e2e/pages/); do not match on a translated label.'
+				},
+				{
+					// The same, in the literal parts of a template literal.
+					selector: `TemplateElement[value.cooked=${TRANSLATABLE_ATTR_SELECTOR}]`,
+					message:
+						'e2e specs must go through Page Objects (see src/frontend/e2e/pages/); do not match on a translated label.'
+				},
+				{
+					// toHaveAttribute('aria-label', /kritischen Kette/) — the other two
+					// task-190 leftovers. A string or regex literal on a translatable
+					// attribute; the four TreeTable labels stay legal, and so does a
+					// catalogText()/catalogPattern() call (not a Literal).
+					selector: `CallExpression[callee.property.name='toHaveAttribute'][arguments.0.value=${TRANSLATABLE_ATTR_NAME}] > Literal:nth-child(2):not([value=${TREETABLE_LABEL}])`,
+					message:
+						'e2e specs must go through Page Objects (see src/frontend/e2e/pages/); do not match on a translated label.'
+				},
+				{
+					// The same with a plain template literal; one that interpolates
+					// (a catalog lookup, test data) stays legal.
+					selector: `CallExpression[callee.property.name='toHaveAttribute'][arguments.0.value=${TRANSLATABLE_ATTR_NAME}] > TemplateLiteral:nth-child(2)[expressions.length=0]`,
 					message:
 						'e2e specs must go through Page Objects (see src/frontend/e2e/pages/); do not match on a translated label.'
 				}

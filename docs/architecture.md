@@ -156,7 +156,8 @@ The backend uses the `io.quarkus` Gradle plugin (dev mode: `quarkusDev`; image
 build: `imageBuild`). The frontend uses the Gradle Node plugin
 (`com.github.node-gradle.node`) to install Node/npm and run the `gen:api`,
 `build`, `check`, and `lint:report` npm scripts. detekt (Kotlin) and ESLint
-(TS/Svelte/HTML) run as Gradle tasks with informational reports.
+(TS/Svelte/HTML) run as Gradle tasks with informational reports, except the
+`e2e/` subset of ESLint, which `lintE2e` enforces (task-191).
 
 This replaced an earlier hybrid where a top-level Maven reactor delegated the
 KMP module to Gradle via `exec-maven-plugin` ("Maven outside, Gradle inside").

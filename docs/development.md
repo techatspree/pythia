@@ -128,8 +128,12 @@ As per-layer alternatives, `./gradlew detekt` (Kotlin only) and
 `./gradlew :frontend:check` (frontend svelte-check + ESLint) cover one layer
 each; all of these also run as part of `./gradlew build`. The reports are
 currently **informational** — the build stays green regardless of how many
-findings each tool produces. A follow-up task can flip the gates to enforcing
-once the existing backlog has been triaged.
+findings each tool produces — except the `e2e/` subset of ESLint, which the
+`lintE2e` task enforces (task-191): any ESLint finding under
+`src/frontend/e2e/` fails `:frontend:check`, because its baseline is zero and
+the translated-label ban would otherwise decay unnoticed. A follow-up task can
+flip the remaining gates to enforcing once the existing backlog has been
+triaged.
 
 ### Tools and report locations
 

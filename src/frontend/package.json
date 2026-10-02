@@ -17,6 +17,7 @@
     "gen:screenshots": "node scripts/capture-screenshots.mjs",
     "test:e2e": "playwright test",
     "lint": "eslint .",
+    "lint:e2e": "eslint e2e playwright.config.ts",
     "lint:report": "node -e \"require('fs').mkdirSync('reports',{recursive:true})\" && (eslint . -f json -o reports/eslint.json || true) && (eslint . -f html -o reports/eslint.html || true)"
   },
   "devDependencies": {

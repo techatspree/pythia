@@ -22,8 +22,9 @@ jobs:
   # The main gate. One Gradle invocation covers :domain (JVM tests plus the
   # Kotlin/JS + TypeScript packaging), the backend @QuarkusTest suite against a
   # Dev Services PostgreSQL, and :frontend:check — svelte-check, ESLint, the
-  # design-token gate, and the OpenAPI drift gate, which activates because the
-  # runner sets CI=true.
+  # design-token gate, the e2e lint gate (lintE2e: any ESLint finding under
+  # src/frontend/e2e/ fails it, task-191), and the OpenAPI drift gate, which
+  # activates because the runner sets CI=true.
   #
   # Docker must be available: the %test profile has no H2, it starts a
   # throwaway PostgreSQL 16 via Quarkus Dev Services / Testcontainers. That is

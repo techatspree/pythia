@@ -77,7 +77,8 @@ val npmCheck = tasks.register<NpmTask>("npmCheck") {
 }
 
 // Static analysis: ESLint over ts/svelte/html. `lint:report` always exits 0,
-// so the build stays green regardless of findings (informational).
+// so the build stays green regardless of findings (informational). The e2e
+// subset is the exception: `lintE2e` below runs it again and FAILS the build.
 val npmLintReport = tasks.register<NpmTask>("npmLintReport") {
     dependsOn(tasks.npmInstall)
     args.set(listOf("run", "lint:report"))
@@ -154,8 +155,21 @@ val checkDesignTokens = tasks.register<NodeTask>("checkDesignTokens") {
     outputs.upToDateWhen { false }
 }
 
+// e2e lint gate (task-191). Deliberately UNLIKE npmLintReport, which is
+// informational and always exits 0: this one FAILS the build on any ESLint
+// finding under `e2e/`, which is what makes the translated-label ban (task-189,
+// task-191) actually enforced rather than a report entry nobody reads. It is
+// enforceable only because the e2e baseline is zero; the rest of the frontend
+// keeps the informational policy because its legacy baseline is not. Every rule
+// configured for `e2e/**` is gated, not only the ban — one config, one source
+// of truth for the e2e rules.
+val lintE2e = tasks.register<NpmTask>("lintE2e") {
+    dependsOn(tasks.npmInstall)
+    args.set(listOf("run", "lint:e2e"))
+}
+
 tasks.named("check") {
-    dependsOn(npmCheck, npmLintReport, checkDesignTokens)
+    dependsOn(npmCheck, npmLintReport, checkDesignTokens, lintE2e)
     if (openApiGate) dependsOn(verifyOpenApiSchemaCommitted)
 }
 
