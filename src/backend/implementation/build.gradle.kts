@@ -122,8 +122,9 @@ tasks.named("quarkusAppPartsBuild") {
 // Snapshot the document into `build/` immediately after augmentation. Both the
 // PROD augmentation (`quarkusBuild`) and the TEST augmentation (@QuarkusTest)
 // write to the same `target/openapi/openapi.json`, and they do not agree — the
-// prod profile has OIDC active (`%prod.app.auth.provider=entra`) and therefore
-// emits `securitySchemes`, while `%test` (dev auth, no OIDC) does not. Whichever
+// prod profile has OIDC active (`%prod` leaves `quarkus.oidc.enabled` at its
+// default `true`, and the Entra module is in every non-dev build, task-194) and
+// therefore emits `securitySchemes`, while `%test` (dev auth, no OIDC) does not. Whichever
 // ran last would win, making the consumed contract depend on task ordering.
 // Snapshotting pins the PROD document — the one that describes the deployed API.
 val openApiSchemaArtifact = tasks.register<Copy>("openApiSchemaArtifact") {

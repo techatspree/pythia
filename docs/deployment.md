@@ -87,7 +87,7 @@ dependency resolution long before it reaches a deploy.
    registry prefix.
 
    ```bash
-   APP_AUTH_PROVIDER=entra ./gradlew :backend:implementation:imageBuild \
+   ./gradlew :backend:implementation:imageBuild \
      -Dquarkus.container-image.build=true \
      -Dquarkus.container-image.registry="$REGISTRY" \
      -Dquarkus.container-image.push=true
@@ -96,19 +96,12 @@ dependency resolution long before it reaches a deploy.
    docker push "$REGISTRY/pythia/pythia-frontend:$IMAGE_TAG"
    ```
 
-   **`APP_AUTH_PROVIDER` is needed here *as well as* in the ConfigMap, and the
-   two are different things.** The auth modules' CDI beans (`EntraAuthModule`,
-   `EntraAuthFilter`, `EntraSecurityIdentityAugmentor`, and their `dev`
-   counterparts) are `@IfBuildProperty(name = "app.auth.provider", …)`-gated, so
-   *which module exists in the image* is decided at Quarkus augmentation. Only
-   the value `AuthConfig`/`AuthProviderGuard` read — *which module the running
-   container claims to use* — comes from the ConfigMap. `%prod` deliberately
-   bakes no provider (task-161), so an image augmented without this variable
-   contains **neither** module's beans: `AuthProviderGuard` still logs
-   `Auth provider: entra` from the ConfigMap and the container starts, but no
-   filter ever writes a `CurrentUser`. That is exactly the "a container that
-   starts is not proof a value took effect" failure. `scripts/minikube-deploy.sh`
-   exports it before its image build for the same reason.
+   **The image build takes no auth provider** (task-194). A production build
+   always contains the Entra module and never the dev one, so the image stays
+   stage-independent. The ConfigMap's `APP_AUTH_PROVIDER` must name a module in
+   the build: otherwise `AuthProviderGuard` refuses to start, logging the
+   provider and the modules the build does contain, rather than starting a
+   backend that authenticates nobody.
 
    Do **not** change the reproducibility settings while doing so: both
    `quarkus.jib.use-current-timestamp*` stay `false`, the Jib base image stays
@@ -163,7 +156,7 @@ application reads these names directly.
 
 | Key | Source | Holds |
 |---|---|---|
-| `APP_AUTH_PROVIDER` | ConfigMap **and the image build** | `dev` \| `entra` \| `keycloak`. Was baked as `%prod.app.auth.provider`. The ConfigMap value is what the running container reads; the same value must also be set when the image is augmented, because the module's beans are `@IfBuildProperty`-gated — see stage 1 above. |
+| `APP_AUTH_PROVIDER` | ConfigMap | `entra` for a deployed stage. Was baked as `%prod.app.auth.provider`. It must name an auth module in the build — a production build contains only Entra — or `AuthProviderGuard` refuses to start (task-194). |
 | `QUARKUS_DATASOURCE_JDBC_URL` | ConfigMap | JDBC URL of the stage's database. |
 | `QUARKUS_DATASOURCE_USERNAME` | Secret `postgres-credentials` | Database user. |
 | `QUARKUS_DATASOURCE_PASSWORD` | Secret `postgres-credentials` | Database password. Placeholder `${POSTGRES_PASSWORD}` in the staging and production overlays. A default one used to be committed in `application.properties`, and then in the base Secret; the base still carries the local-minikube value. |

@@ -247,27 +247,43 @@ example. An IDE finding is worth a look even when CI is quiet.
 
 ### Authentication per profile
 
-Each profile runs one auth module, selected at **build time** by the
-`app.auth.provider` property (Quarkus `@IfBuildProperty`) — so the value must
-be set when the image is built, not just at runtime:
+Each build contains exactly one auth module, chosen at **build time**
+(Quarkus augmentation) from the `app.auth.provider` value present then
+(task-194). The dev beans are `@IfBuildProperty(... "dev")`, so they need the
+explicit value. The Entra beans are `@UnlessBuildProperty(... "dev",
+enableIfMissing = true)`, so they are present in every build that is not
+explicitly a dev build:
 
-| Profile          | Auth module        | `app.auth.provider` |
-|------------------|--------------------|---------------------|
-| `dev` (local)    | dev (static users) | `dev`               |
-| `test`           | dev (static users) | `dev`               |
-| `dev-minikube`   | Entra (OIDC)       | `entra`             |
-| `prod`           | Entra (OIDC)       | `entra`             |
+| `app.auth.provider` at augmentation | Where | dev beans | Entra beans |
+|---|---|---|---|
+| `dev` | `%dev`, `%test` | yes | no |
+| `entra` | `%dev-minikube`, a dev run with `APP_AUTH_PROVIDER=entra` | no | yes |
+| missing | `%prod`, i.e. every image build | **no** | **yes** |
 
-`prod` is the subtle one: `%prod` deliberately bakes **no** provider (task-161),
-because `APP_AUTH_PROVIDER` is a stage coordinate that arrives from the
-`backend-config` ConfigMap. But bean selection is still `@IfBuildProperty`, so a
-production image must *also* be augmented with `APP_AUTH_PROVIDER=entra` or it
-contains neither module's beans — and it will start anyway. See
-[deployment.md](./deployment.md), pipeline stage 1.
+`%prod` deliberately bakes **no** provider (task-161): `APP_AUTH_PROVIDER` is a
+stage coordinate that arrives at runtime from the `backend-config` ConfigMap.
+Because a missing value selects Entra, a production build needs no
+`APP_AUTH_PROVIDER` and can never contain the forgeable dev module.
+`AuthProviderGuard` closes the remaining gap at startup: it refuses to boot when
+the runtime provider names no module in the build, and when `dev` is active
+under a NORMAL launch. The profile → provider mapping is regression-guarded by
+`AuthProviderProfileTest`, and CI asserts that a default build contains
+`EntraAuthModule_Bean` and no `DevAuthModule_Bean`.
 
-`scripts/minikube-deploy.sh` selects Entra by exporting `APP_AUTH_PROVIDER=entra`
-before the Gradle image build (`./gradlew :backend:implementation:imageBuild`).
-The mapping is regression-guarded by `AuthProviderProfileTest`.
+**A Gradle trap when building with different providers.** `APP_AUTH_PROVIDER`
+is not an input of `quarkusBuild`, and `--no-build-cache` does not bypass the
+up-to-date check. So changing the variable between two local builds reuses
+the previous augmentation silently. Force a fresh one by rerunning
+`quarkusAppPartsBuild`, the task where the augmentation actually runs.
+`quarkusBuild --rerun` is NOT enough: it only re-assembles the previous
+augmentation's output.
+
+```bash
+APP_AUTH_PROVIDER=dev ./gradlew :backend:implementation:quarkusAppPartsBuild --rerun :backend:implementation:quarkusBuild
+```
+
+Then rebuild the same way without the variable before any image build, so
+`build/quarkus-app` is not left containing the dev module.
 
 The **frontend** no longer takes an auth provider at build time: the
 `VITE_AUTH_PROVIDER` / `VITE_ENTRA_*` variables are gone (task-162). The SPA

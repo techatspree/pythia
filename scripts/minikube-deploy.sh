@@ -1,16 +1,15 @@
 #!/bin/bash
 
-# Refuse to be sourced. This script exports APP_AUTH_PROVIDER=entra (plus the
-# ENTRA_*/VITE_* build vars) so its child gradle/docker builds pick the Entra
-# auth module. Those exports are meant for THIS process and its children only —
-# when the script is executed (./scripts/minikube-deploy.sh) they stay in the
-# subshell and never touch your interactive shell. If you `source` it instead,
-# APP_AUTH_PROVIDER=entra leaks into your shell, and a later `./gradlew build`
-# in the same shell then augments the OIDC-less test profile with the Entra
-# provider — EntraAuthFilter can't resolve its JsonWebToken and the build fails
-# with a cryptic ArC UnsatisfiedResolutionException. Detect sourcing under both
-# bash and zsh and bail BEFORE `set -e`/`export`, so a sourced call leaks
-# nothing at all (not the auth var, not the shell options).
+# Refuse to be sourced. This script exports the OIDC_* manifest coordinates
+# derived from your ENTRA_* ids and turns on `set -e`/`pipefail`. Those are
+# meant for THIS process and its children only — when the script is executed
+# (./scripts/minikube-deploy.sh) they stay in the subshell and never touch your
+# interactive shell. If you `source` it instead, the exports and the shell
+# options leak into your shell, where `set -e` closes it on the next failing
+# command. The auth provider is no longer set here at all: a default
+# production build always contains the Entra module (task-194). Detect
+# sourcing under both bash and zsh and bail BEFORE `set -e`/`export`, so a
+# sourced call leaks nothing at all.
 _sourced=0
 if [ -n "${ZSH_EVAL_CONTEXT:-}" ]; then
     case "$ZSH_EVAL_CONTEXT" in *:file*) _sourced=1 ;; esac
@@ -20,7 +19,7 @@ fi
 if [ "$_sourced" = 1 ]; then
     echo "Error: do not 'source' this script — run it directly:" >&2
     echo "  ./scripts/minikube-deploy.sh" >&2
-    echo "Sourcing leaks APP_AUTH_PROVIDER=entra into your shell and then breaks './gradlew build'." >&2
+    echo "Sourcing leaks the OIDC_* exports and 'set -e' into your interactive shell." >&2
     # SC2317: `return` succeeds when sourced (short-circuiting the `||`); the
     # `exit` only runs in the executed case. Dual-mode idiom, not dead code.
     # shellcheck disable=SC2317
@@ -34,9 +33,6 @@ set -o pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 K8S_OVERLAY="$PROJECT_ROOT/k8s/overlays/minikube"
-
-# Modular auth selector — minikube uses Entra in production-like mode.
-export APP_AUTH_PROVIDER=entra
 
 # Fail fast on missing tenant config so we never silently ship the
 # unresolved ${VAR} placeholders into the running backend Pod.

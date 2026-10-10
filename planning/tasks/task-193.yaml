@@ -1,0 +1,112 @@
+id: task-193
+phase: phase-18
+title: "Release convention: v<semver> tags on main, CI-gated"
+depends_on: [task-162]
+description: |
+  Pythia has no notion of a release. There are no git tags, the Gradle version
+  is a permanent `1.0.0-SNAPSHOT`, and `docs/deployment.md` describes a
+  downstream pipeline that builds and deploys on every push to `main`.
+
+  The internal deployment (`<internal-group>/<deploy-project>`, see
+  `docs/deployment.md`) is moving to "build an internal image only when Pythia
+  publishes a new version". That needs a definition of "a new version" that is
+  owned HERE, publicly, because it is a property of the project and not of any
+  one installation. This task supplies it; it builds and pushes nothing.
+
+  ## The convention (decided)
+
+  - A release is an **annotated git tag `v<MAJOR>.<MINOR>.<PATCH>`** (e.g.
+    `v1.2.0`; no pre-release or build suffix) pointing at a commit that is
+    **already on `main`**. A GitHub Release may be attached for notes, but the
+    tag is the release; downstream consumers key on the tag only.
+  - **Tags are immutable.** A wrongly tagged commit gets the next patch
+    version; a tag is never moved or deleted. Downstream mirrors sync tags
+    without force, so a moved tag is rejected there loudly, and an image tag
+    named after it would otherwise point at two different builds.
+  - The **Gradle version stays `1.0.0-SNAPSHOT`**. Deriving it from the tag
+    is out of scope: images are tagged by the git tag downstream, and nothing
+    is published to a package registry (see the root CLAUDE.md). Do not add a
+    time- or tag-derived jar-manifest attribute either — the reproducibility
+    rule in the root CLAUDE.md forbids environment-derived values.
+  - **The tag must pass the same CI gate as `main`.** `ci.yaml` gains a
+    `push: tags: ['v*']` trigger, and a small `release-tag` job that fails when
+    the tag name is not strict `v<int>.<int>.<int>` or when the tagged commit
+    is not an ancestor of `origin/main`. The `images` job also runs for such a
+    tag (it still pushes nothing).
+
+  ## What does NOT go here
+
+  Any hostname, registry, group or project name of the internal deployment.
+  Refer to it only as `<internal-group>/<deploy-project>`, as
+  `docs/deployment.md` already does. The internal project's name must not
+  appear anywhere in this repository.
+
+steps:
+  - |
+    `.github/workflows/ci.yaml`: extend `on.push` with `tags: ['v*']` next to
+    `branches: [main]`. Check every job's `if:` — the `images` job is gated on
+    `github.ref == 'refs/heads/main'`; extend it to
+    `|| startsWith(github.ref, 'refs/tags/v')`. Keep `pull_request` (never
+    `pull_request_target`) and `permissions: contents: read` unchanged.
+  - |
+    Add a `release-tag` job to `ci.yaml`, `if: startsWith(github.ref,
+    'refs/tags/v')`, `actions/checkout` pinned by SHA like the existing steps,
+    with `fetch-depth: 0`. It runs two checks and fails with a message naming
+    the problem:
+      [[ "$GITHUB_REF_NAME" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]
+      git merge-base --is-ancestor "$GITHUB_SHA" origin/main
+    Comment WHY: downstream builds key on this tag, and a tag that is not on
+    `main` would ship code that never passed review there.
+  - |
+    `docs/deployment.md`: add a `## Releasing` section — the convention above,
+    the exact commands (`git tag -a v1.2.0 -m "Pythia 1.2.0" <sha-on-main>`,
+    `git push origin v1.2.0`), the immutability rule, and that a tag-protection
+    ruleset for `v*` should be set on the GitHub repository (Settings → Rules →
+    Rulesets: restrict deletions and updates, i.e. no moves).
+  - |
+    `docs/deployment.md`: update the overview diagram and `## Pipeline stages`
+    to the new downstream flow, still without coordinates: images are built
+    only for a release tag, tagged `IMAGE_TAG=<release tag>` instead of the
+    short SHA; deploying is a separate, manually started pipeline that deploys
+    the latest release (or a named one, for rollback) to staging, then — after
+    manual approval — production. Keep the `APP_AUTH_PROVIDER` build-time
+    paragraph in stage 1 verbatim: it applies unchanged. Update the
+    `IMAGE_TAG` table row ("The short commit SHA" → "The release tag, e.g.
+    v1.2.0") and the rollback section (redeploy the previous release tag).
+  - |
+    Root `CLAUDE.md`, paragraph "Deployment (task-028) is NOT in this
+    repository": add one sentence that downstream deploys only `v<semver>`
+    release tags and that `docs/deployment.md` → "Releasing" defines them.
+  - |
+    Re-read every changed line for an internal hostname, registry, group,
+    project or organisation name. Only `<internal-group>/<deploy-project>`
+    may stand for the downstream pipeline.
+  - |
+    ./gradlew build
+
+validation:
+  - |
+    grep -q "tags: \['v\*'\]" .github/workflows/ci.yaml
+  - |
+    grep -q "release-tag:" .github/workflows/ci.yaml
+  - |
+    grep -q "merge-base --is-ancestor" .github/workflows/ci.yaml
+  - |
+    grep -q "startsWith(github.ref, 'refs/tags/v')" .github/workflows/ci.yaml
+  - |
+    ! grep -q "pull_request_target" .github/workflows/ci.yaml
+  - |
+    ruby -ryaml -e 'YAML.load_file(".github/workflows/ci.yaml")'
+  - |
+    grep -q "^## Releasing" docs/deployment.md
+  - |
+    grep -q "Releasing" CLAUDE.md
+  - |
+    grep -q "<internal-group>/<deploy-project>" docs/deployment.md
+  - |
+    ./gradlew build
+
+outputs:
+  - modified: .github/workflows/ci.yaml
+  - modified: docs/deployment.md
+  - modified: CLAUDE.md

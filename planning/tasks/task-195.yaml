@@ -1,0 +1,269 @@
+id: task-195
+phase: phase-7
+title: "Daemonless frontend image: jib-core instead of docker build"
+depends_on: [task-194]
+description: |
+  The backend image is built by Jib (through Quarkus): no Docker daemon, layers
+  assembled in-process, a digest-pinned base, fixed timestamps, and a direct
+  push to a registry. The frontend image is the odd one out, and it is what
+  makes every image build need Docker.
+
+  ## Current state
+
+  `:frontend:dockerBuildImage` (`src/frontend/build.gradle.kts`) is an `Exec`
+  task running `docker build -t pythia/pythia-frontend:<version> .` on
+  `src/frontend/Dockerfile`:
+
+  - **It needs a Docker daemon and CLI.** In CI that means Docker-in-Docker,
+    i.e. a privileged runner. Many corporate GitLab runners forbid that, and
+    it is the only reason a downstream pipeline needs one.
+  - **It builds the SPA twice.** `dependsOn(npmBuild)` builds it with
+    Gradle's managed Node, then the Dockerfile's `node:22.14-alpine` stage
+    runs `npm ci` and `npm run build` again and discards the Gradle output.
+    The second build needs registry access INSIDE `docker build`, where the
+    host's npm/proxy configuration does not reach.
+  - **The base images float.** `node:22.14-alpine` and `nginx:1.27-alpine` are
+    tags, and `# syntax=docker/dockerfile:1` pulls a floating BuildKit
+    frontend. The backend's base is digest-pinned, and CI asserts it (root
+    CLAUDE.md, task-145). The frontend is not.
+  - Pushing needs `docker tag` + `docker push` afterwards.
+
+  ## Target state
+
+  `:frontend:imageBuild` (named after the backend's
+  `:backend:implementation:imageBuild`) assembles the image with
+  **`com.google.cloud.tools:jib-core:0.28.2`** (Maven Central, so no new
+  network source), used as a library from the build script:
+
+  - **Base:** `nginx:1.27-alpine@sha256:65645c7bb6a0661892a8b03b89d0743208a18dd2f3f17a54ef4b76fb8e2f2a10`
+    (the multi-arch index digest for 1.27.5-alpine), platform `linux/amd64`
+    only, matching `quarkus.jib.platforms`. Keeping the nginx version
+    unchanged is deliberate; upgrading it is a separate decision.
+  - **Layers, in this order:**
+    1. `src/frontend/nginx.conf` → `/etc/nginx/templates/default.conf.template`,
+       exactly where the Dockerfile put it. The base image's entrypoint
+       renders templates and sets `NGINX_LOCAL_RESOLVERS`.
+    2. Every regular file under `src/frontend/build/` (the output of the
+       existing `npmBuild`) → `/usr/share/nginx/html/<relative path>`,
+       **except a top-level `config.json`**. `npm run dev`'s `predev` writes
+       `static/config.json` = `{"authProvider":"dev"}`, and Vite copies
+       `static/` into `build/`, so a developer machine that ever ran the dev
+       server would bake a dev-auth config into the image. That config would
+       win wherever no ConfigMap mounts over it. The `.dockerignore` rule
+       guarded exactly this. The exclusion moves into the task, with that
+       comment. Iterate files in sorted order so layer content is
+       deterministic.
+  - **Container config:** `NGINX_ENTRYPOINT_LOCAL_RESOLVERS=1` and exposed
+    port `80/tcp`, both as in the Dockerfile. **Entrypoint and CMD are NOT
+    set**, so Jib inherits nginx's `/docker-entrypoint.sh` and
+    `nginx -g 'daemon off;'`. Setting them would bypass the template
+    rendering and the resolver script. Creation time and file modification
+    times stay at Jib's fixed defaults; never `Instant.now()`.
+  - **Targets**, chosen by Gradle properties (no dots in the names, so each
+    can also come from an `ORG_GRADLE_PROJECT_<name>` environment variable,
+    which keeps a password off the command line):
+
+    | property | default | meaning |
+    |---|---|---|
+    | `frontendImagePush` | `false` | `false`: load into the local Docker daemon (`DockerDaemonImage`; needs a Docker CLI, which is what minikube and the GitHub `images` job use). `true`: push straight to a registry (`RegistryImage`), **no Docker at all**. |
+    | `frontendImageRegistry` | none | registry host plus optional path prefix. **Required** when pushing; the task fails before building if it is missing. |
+    | `frontendImageTag` | `project.version` | the tag. |
+    | `frontendImageUsername` / `frontendImagePassword` | none | push credentials. When unset, fall back to `~/.docker/config.json` and the well-known credential helpers (`CredentialRetrieverFactory`). |
+
+    The image reference is `[<registry>/]pythia/pythia-frontend:<tag>`, so
+    the default stays `pythia/pythia-frontend:1.0.0-SNAPSHOT`. The k8s base,
+    the overlays' `images:` rewrite and `minikube-deploy.sh` all depend on
+    that name.
+  - **Never up to date, never cached.** The image is a side effect, which is
+    exactly the trap the root CLAUDE.md and `ci.yaml` describe for the
+    backend's augmentation. The task declares `outputs.upToDateWhen { false }`
+    and is not cacheable, so `--no-build-cache` is unnecessary for it (and
+    harmless).
+  - **The installed bundle comes from the lockfile.** The Dockerfile's
+    `npm ci` guaranteed the image was built from exactly
+    `package-lock.json`. Gradle's `npmInstall` runs `npm install`, which may
+    resolve differently and rewrite the lock. Set
+    `node { npmInstallCommand.set(…) }` to `ci` whenever the `CI` environment
+    variable is present (GitHub Actions and GitLab CI both set it). That is
+    the same signal `openApiGate` already uses. Local development keeps
+    `install`.
+  - **Removed:** `src/frontend/Dockerfile`, `src/frontend/.dockerignore`,
+    `:frontend:dockerBuildImage`. There is no alias: two definitions of one
+    image would drift.
+
+  ## What this enables downstream (not done here)
+
+  A pipeline can build the frontend with
+  `./gradlew :frontend:imageBuild -PfrontendImagePush=true
+  -PfrontendImageRegistry=… -PfrontendImageTag=…`. The backend already pushes
+  without a daemon via `-Dquarkus.container-image.push=true`. Neither needs
+  Docker-in-Docker any more, and the npm-inside-`docker build` problem
+  disappears with the second build.
+
+  ## Logging
+
+  This is build logic, not the application, so the CLAUDE.md module logging
+  rules do not apply. The task reports through Gradle's `logger.lifecycle`:
+  the target reference before building, and the resulting digest
+  (`JibContainer.digest`) after.
+
+steps:
+  - |
+    `src/frontend/build.gradle.kts`: add a `buildscript` block at the top with
+    `repositories { mavenCentral() }` and
+    `dependencies { classpath("com.google.cloud.tools:jib-core:0.28.2") }`.
+    If the Kotlin DSL then reports a classpath conflict with the node plugin,
+    stop and report it rather than forcing versions.
+    Packages (checked against the 0.28.2 jar): `Jib`, `Containerizer`,
+    `DockerDaemonImage`, `RegistryImage`, `Credential` and `JibContainer`
+    (`.digest`) are in `com.google.cloud.tools.jib.api`.
+    `FileEntriesLayer`, `AbsoluteUnixPath`, `Platform` and `Port` are in
+    `com.google.cloud.tools.jib.api.buildplan`, shipped by the transitive
+    `jib-build-plan` artifact. `CredentialRetrieverFactory` is in
+    `com.google.cloud.tools.jib.frontend`.
+  - |
+    Replace the `dockerBuildImage` `Exec` task with
+    `tasks.register("imageBuild")` (group `build`), `dependsOn(npmBuild)`,
+    `outputs.upToDateWhen { false }`, reading the five properties above via
+    `providers.gradleProperty(…)`. In `doLast`:
+      - fail with a clear message if `build/index.html` is missing, or if
+        pushing without `frontendImageRegistry`;
+      - build the two `FileEntriesLayer`s (`layer.addEntry(path,
+        AbsoluteUnixPath.get(…))`), walking `build/` with `Files.walk(...).
+        filter(Files::isRegularFile).sorted()` and skipping exactly
+        `build/config.json`, with the predev comment carried over from
+        `.dockerignore`;
+      - `Jib.from("<base>@sha256:…")` (the base reference as a named
+        `const`/`val` with a comment saying it is pinned like the backend's
+        and why), `.setPlatforms(setOf(Platform("amd64", "linux")))`,
+        `.setFileEntriesLayers(…)`,
+        `.addEnvironmentVariable("NGINX_ENTRYPOINT_LOCAL_RESOLVERS", "1")`,
+        `.addExposedPort(Port.tcp(80))`; no entrypoint, no program arguments,
+        no creation time;
+      - `containerize` to `DockerDaemonImage.named(ref)` or
+        `RegistryImage.named(ref)` with credentials (explicit `Credential.from`
+        if both properties are set, else
+        `CredentialRetrieverFactory.forImage(ref, …).dockerConfig()` and
+        `.wellKnownCredentialHelpers()`), with `setToolName("pythia")`;
+      - log the reference and the resulting digest via `logger.lifecycle`.
+    Keep the task-162 comment on why the image takes no build-time
+    configuration.
+  - |
+    `src/frontend/build.gradle.kts`, `node { … }`:
+    `npmInstallCommand.set(if (providers.environmentVariable("CI").isPresent)
+    "ci" else "install")`, with a comment: the image used to be built by the
+    Dockerfile's `npm ci`, and CI must still install exactly the lockfile.
+    Keep `tasks.npmInstall`'s `--legacy-peer-deps`; `npm ci` accepts it too.
+  - |
+    Delete `src/frontend/Dockerfile` and `src/frontend/.dockerignore`.
+  - |
+    `.github/workflows/ci.yaml`, `images` job: `./gradlew
+    :frontend:dockerBuildImage --no-build-cache` → `./gradlew
+    :frontend:imageBuild`, still loading into the runner's daemon (no push;
+    the job pushes nothing). Keep the `docker image inspect` assertion. In the
+    "Verify the image build stays time- and environment-independent" step,
+    also assert the frontend base is digest-pinned:
+      grep -q 'nginx:[^"]*@sha256:' src/frontend/build.gradle.kts
+    and that no `Instant.now`/`setCreationTime` appears in that file.
+  - |
+    `scripts/minikube-deploy.sh`: `:frontend:dockerBuildImage` →
+    `:frontend:imageBuild`, and update its comment ("frontend image via the
+    Gradle Docker task" → "via jib-core"). The default target is the local
+    daemon, so the `docker save | minikube ssh -- docker load` step and the
+    freshness check stay as they are.
+  - |
+    Docs:
+    - `docs/deployment.md` stage 1: the frontend line becomes a direct push,
+      `./gradlew :frontend:imageBuild -PfrontendImagePush=true
+      -PfrontendImageRegistry="$REGISTRY" -PfrontendImageTag="$IMAGE_TAG"`,
+      replacing the `docker tag` / `docker push` pair. Add one sentence: with
+      the backend's `-Dquarkus.container-image.push=true`, no image build
+      needs a Docker daemon. Mention `ORG_GRADLE_PROJECT_frontendImagePassword`
+      for credentials.
+    - `docs/entra-setup.md` (minikube section): `:frontend:dockerBuildImage`
+      → `:frontend:imageBuild`, and "frontend via the Gradle Docker task" →
+      "frontend via jib-core".
+    - `docs/architecture.md`: "(Jib for the Backend)" → both images are built
+      with Jib, the frontend through `jib-core` on top of a digest-pinned
+      nginx.
+    - Root `CLAUDE.md`, "Licence and namespace": the sentence keeping the
+      base image digest-pinned now covers both images.
+    - `src/frontend/CLAUDE.md`: a short "Container image" note covering
+      `:frontend:imageBuild`, the five properties, the `config.json`
+      exclusion, and "never set entrypoint/cmd".
+    Grep the repo for `dockerBuildImage` and `Dockerfile` afterwards. Only
+    `planning/` (historical tasks) may still mention them.
+  - |
+    Verify the image locally (Docker running):
+      ./gradlew :frontend:imageBuild
+      docker image inspect pythia/pythia-frontend:1.0.0-SNAPSHOT \
+        --format '{{json .Config.Entrypoint}} {{json .Config.Cmd}} {{json .Config.Env}}'
+    must show `["/docker-entrypoint.sh"]`, the nginx `daemon off` CMD and
+    `NGINX_ENTRYPOINT_LOCAL_RESOLVERS=1`. Then run it and probe it:
+      docker run -d --rm --name pythia-fe-check -p 18080:80 pythia/pythia-frontend:1.0.0-SNAPSHOT
+      curl -fsS http://localhost:18080/ | grep -qi '<!doctype html>'
+      curl -s -o /dev/null -w '%{http_code}' http://localhost:18080/config.json   # 404: nothing baked
+      curl -sI http://localhost:18080/some/spa/route | grep -q '200'
+      docker logs pythia-fe-check 2>&1 | grep -q 'local-resolvers'
+      docker stop pythia-fe-check
+    Then check that the dev config cannot leak: write
+    `src/frontend/static/config.json` (as `npm run dev` would), rebuild, and
+    confirm `/config.json` is still 404.
+  - |
+    Verify the daemonless path builds without Docker. Point it at a local
+    throwaway registry and confirm the push:
+      docker run -d --rm --name reg -p 5005:5000 registry:2
+      DOCKER_HOST=tcp://127.0.0.1:1 ./gradlew :frontend:imageBuild \
+        -PfrontendImagePush=true -PfrontendImageRegistry=localhost:5005 -PfrontendImageTag=check
+      curl -fsS http://localhost:5005/v2/pythia/pythia-frontend/tags/list | grep -q check
+      docker stop reg
+    (`DOCKER_HOST` pointing nowhere proves no daemon is used. Jib allows
+    plain HTTP for `localhost`.)
+  - |
+    ./gradlew :frontend:check
+  - |
+    ./gradlew build
+
+validation:
+  - |
+    test ! -e src/frontend/Dockerfile && test ! -e src/frontend/.dockerignore
+  - |
+    F=src/frontend/build.gradle.kts
+    grep -q 'com.google.cloud.tools:jib-core:0.28.2' "$F"
+    grep -q 'register("imageBuild")' "$F"
+    ! grep -q 'dockerBuildImage' "$F"
+    grep -q 'nginx:1.27-alpine@sha256:65645c7bb6a0661892a8b03b89d0743208a18dd2f3f17a54ef4b76fb8e2f2a10' "$F"
+    grep -q 'upToDateWhen { false }' "$F"
+    grep -q 'config.json' "$F"
+    grep -q 'npmInstallCommand' "$F"
+    ! grep -q 'setEntrypoint\|setProgramArguments\|Instant.now' "$F"
+  - |
+    ! grep -rn "dockerBuildImage" --exclude-dir=node_modules --exclude-dir=build --exclude-dir=planning --exclude-dir=.gradle .
+  - |
+    grep -q ':frontend:imageBuild' .github/workflows/ci.yaml scripts/minikube-deploy.sh docs/deployment.md
+    grep -q "nginx:.*@sha256:.*src/frontend/build.gradle.kts" .github/workflows/ci.yaml
+  - |
+    ./gradlew :frontend:imageBuild
+    docker image inspect pythia/pythia-frontend:1.0.0-SNAPSHOT --format '{{json .Config.Entrypoint}}' | grep -q docker-entrypoint.sh
+    docker image inspect pythia/pythia-frontend:1.0.0-SNAPSHOT --format '{{json .Config.Env}}' | grep -q NGINX_ENTRYPOINT_LOCAL_RESOLVERS=1
+  - |
+    docker run -d --rm --name pythia-fe-check -p 18080:80 pythia/pythia-frontend:1.0.0-SNAPSHOT && sleep 2
+    curl -fsS http://localhost:18080/ | grep -qi '<!doctype html>'
+    test "$(curl -s -o /dev/null -w '%{http_code}' http://localhost:18080/config.json)" = 404
+    docker stop pythia-fe-check
+  - |
+    ./gradlew :frontend:check
+  - |
+    ./gradlew build
+
+outputs:
+  - modified: src/frontend/build.gradle.kts
+  - deleted: src/frontend/Dockerfile
+  - deleted: src/frontend/.dockerignore
+  - modified: .github/workflows/ci.yaml
+  - modified: scripts/minikube-deploy.sh
+  - modified: docs/deployment.md
+  - modified: docs/entra-setup.md
+  - modified: docs/architecture.md
+  - modified: CLAUDE.md
+  - modified: src/frontend/CLAUDE.md

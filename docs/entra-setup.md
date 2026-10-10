@@ -121,7 +121,11 @@ The `entra` module is implemented in
 `src/backend/implementation/src/main/kotlin/io/pythia/auth/entra/`:
 
 - `EntraAuthModule` — declares `name() = "entra"`,
-  `@IfBuildProperty`-gated to `app.auth.provider=entra`.
+  `@UnlessBuildProperty(name = "app.auth.provider", stringValue = "dev",
+  enableIfMissing = true)`-gated: present in every build that is not
+  explicitly a dev build, so a production image contains it with no
+  `APP_AUTH_PROVIDER` at build time (task-194). The filter and the
+  augmentor carry the same gate.
 - `EntraAuthFilter` — post-matching `ContainerRequestFilter` at
   `Priorities.AUTHENTICATION + 100`. Quarkus's OIDC layer has already
   validated the access token by the time this filter runs; the filter
@@ -277,7 +281,8 @@ QUARKUS_PROFILE=dev ./gradlew :backend:implementation:quarkusDev
 Do **not** `export` these into the shell you then run `./gradlew build` in:
 `APP_AUTH_PROVIDER=entra` augments the OIDC-less test profile with the Entra
 provider and the build fails with a cryptic ArC `UnsatisfiedResolutionException`.
-(This is the same trap `minikube-deploy.sh` refuses to be `source`d over.)
+(This is the same trap `scripts/dev.sh` refuses to be `source`d over: it
+exports `APP_AUTH_PROVIDER=dev`.)
 
 **Frontend.** Overwrite the `predev`-generated `src/frontend/static/config.json`
 — it is git-ignored, and `static/config.example.json` documents the shape.

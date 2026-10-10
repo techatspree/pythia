@@ -1141,6 +1141,24 @@
       "started_at": "2026-10-02T13:57:33+00:00",
       "completed_at": "2026-10-02T14:04:08+00:00",
       "notes": "Frontend dependency CVEs (svelte, @sveltejs/kit, vite) are invisible to the project's checks: upgrade them and fix the CI audit's --omit=dev blind spot"
+    },
+    "task-193": {
+      "status": "pending",
+      "started_at": null,
+      "completed_at": null,
+      "notes": "Define the release convention: v<semver> tags on main, gated by CI, documented for the downstream deployment"
+    },
+    "task-194": {
+      "status": "done",
+      "started_at": "2026-10-10T11:13:17+00:00",
+      "completed_at": "2026-10-10T11:19:59+00:00",
+      "notes": "Auth module chosen at runtime, not build time; fail closed when the configured provider has no module"
+    },
+    "task-195": {
+      "status": "pending",
+      "started_at": null,
+      "completed_at": null,
+      "notes": "Build the frontend image daemonless with jib-core instead of docker build"
     }
   }
 }

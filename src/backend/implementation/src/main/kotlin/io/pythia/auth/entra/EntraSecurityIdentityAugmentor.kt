@@ -1,6 +1,6 @@
 package io.pythia.auth.entra
 
-import io.quarkus.arc.properties.IfBuildProperty
+import io.quarkus.arc.properties.UnlessBuildProperty
 import io.quarkus.security.identity.AuthenticationRequestContext
 import io.quarkus.security.identity.SecurityIdentity
 import io.quarkus.security.identity.SecurityIdentityAugmentor
@@ -9,7 +9,7 @@ import io.smallrye.mutiny.Uni
 import jakarta.enterprise.context.ApplicationScoped
 
 @ApplicationScoped
-@IfBuildProperty(name = "app.auth.provider", stringValue = "entra")
+@UnlessBuildProperty(name = "app.auth.provider", stringValue = "dev", enableIfMissing = true)
 class EntraSecurityIdentityAugmentor : SecurityIdentityAugmentor {
 
     override fun augment(

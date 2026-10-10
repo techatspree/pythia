@@ -131,10 +131,12 @@ job in `.github/workflows/ci.yaml`, which runs the whole directory against a
 
 ## What NOT to do
 
-- **Do NOT deploy the dev module to production.** The per-profile
-  defaults guard against this (`%prod.app.auth.provider=entra`), but
-  the rule stands: `APP_AUTH_PROVIDER=dev` outside of local
-  development is a misconfiguration.
+- **Do NOT deploy the dev module to production.** Two guards stand
+  against it: the dev module is not compiled into a production build
+  (its beans require the explicit build value `dev`, task-194), and
+  `AuthProviderGuard` refuses `dev` under a NORMAL launch. The rule
+  still stands: `APP_AUTH_PROVIDER=dev` outside of local development
+  is a misconfiguration.
 - **Do NOT** issue a header shaped like `Bearer <jwt>` from the dev
   provider. The format is reserved for the Entra/Keycloak modules
   and the dev filter rejects it explicitly so mistakes surface as

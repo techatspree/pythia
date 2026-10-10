@@ -2,7 +2,7 @@ package io.pythia.auth.entra
 
 import io.pythia.auth.CurrentUser
 import io.pythia.auth.CurrentUserProvider
-import io.quarkus.arc.properties.IfBuildProperty
+import io.quarkus.arc.properties.UnlessBuildProperty
 import io.quarkus.security.identity.SecurityIdentity
 import jakarta.annotation.Priority
 import jakarta.ws.rs.Priorities
@@ -13,7 +13,7 @@ import org.eclipse.microprofile.jwt.JsonWebToken
 
 @Provider
 @Priority(Priorities.AUTHENTICATION + 100)
-@IfBuildProperty(name = "app.auth.provider", stringValue = "entra")
+@UnlessBuildProperty(name = "app.auth.provider", stringValue = "dev", enableIfMissing = true)
 class EntraAuthFilter(
     private val currentUserProvider: CurrentUserProvider,
     private val identity: SecurityIdentity,

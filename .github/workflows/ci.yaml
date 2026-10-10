@@ -56,6 +56,22 @@ jobs:
       - name: Build (domain + backend + frontend, all tests)
         run: ./gradlew build --stacktrace
 
+      # Regression guard for task-194: a DEFAULT production build (this job sets
+      # no APP_AUTH_PROVIDER) must contain the Entra auth module and never the
+      # forgeable dev one. ArC generates a `<Class>_Bean` only for beans that
+      # survive build-time gating, so the generated-bytecode jar is the proof.
+      # Before task-194 a default build contained NEITHER module and still
+      # started, authenticating nobody.
+      - name: Verify the default build carries Entra and not the dev auth module
+        run: |
+          J=src/backend/implementation/build/quarkus-app/quarkus/generated-bytecode.jar
+          unzip -l "$J" | grep -q 'io/pythia/auth/entra/EntraAuthModule_Bean.class' \
+            || { echo "default build lacks EntraAuthModule_Bean" >&2; exit 1; }
+          if unzip -l "$J" | grep -q 'io/pythia/auth/dev/DevAuthModule_Bean.class'; then
+            echo "default build contains the forgeable DevAuthModule_Bean" >&2; exit 1
+          fi
+          echo "Default build: Entra present, dev absent."
+
       # Not redundant with `build`. The consolidated report is produced by
       # :frontend:sarifHtmlReport, which is wired into the root staticAnalysis
       # task only — `check` gets npmCheck, npmLintReport and checkDesignTokens

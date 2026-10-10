@@ -1,0 +1,273 @@
+id: task-194
+phase: phase-7
+title: "Prod build always contains Entra; fail closed on no module"
+depends_on: [task-161]
+description: |
+  task-161 set out to make a stage differ by configuration, never by image.
+  For the backend's auth module it only got halfway, and the half it missed
+  fails silently.
+
+  ## Current state
+
+  Every auth bean is gated at BUILD time:
+  `@IfBuildProperty(name = "app.auth.provider", stringValue = "dev"|"entra")`
+  on `DevAuthModule`, `DevAuthFilter`, `DevHttpAuthMechanism`,
+  `DevSecurityIdentityAugmentor` (`io.pythia.auth.dev`) and `EntraAuthModule`,
+  `EntraAuthFilter`, `EntraSecurityIdentityAugmentor` (`io.pythia.auth.entra`).
+  Before task-161, `%prod.app.auth.provider=entra` made every production build
+  include the Entra beans. task-161 removed that value, because the provider
+  is a stage coordinate and now arrives as `APP_AUTH_PROVIDER` from the
+  `backend-config` ConfigMap. That moved the RUNTIME value, but a build-time
+  gate cannot read a ConfigMap. So:
+
+  - A plain production build (`./gradlew build`, `quarkusBuild`, `imageBuild`
+    without extra environment) contains **neither** module. That includes the
+    GitHub `images` job and any downstream pipeline that builds the normal way.
+  - Such an image **starts anyway**. `AuthProviderGuard` logs
+    `Auth provider: entra` from the ConfigMap, no filter ever populates
+    `CurrentUser`, and every authenticated call fails.
+  - The docs patch around it. `docs/deployment.md` stage 1,
+    `docs/development.md` ("Authentication per profile") and
+    `scripts/minikube-deploy.sh` all say to set `APP_AUTH_PROVIDER=entra`
+    at build time as well. That makes the image configuration again, which
+    contradicts task-161.
+
+  ## Target state
+
+  1. **A build contains exactly one module, and production builds contain
+     Entra by default.** The Entra beans switch from
+     `@IfBuildProperty(name = "app.auth.provider", stringValue = "entra")` to
+     `@UnlessBuildProperty(name = "app.auth.provider", stringValue = "dev",
+     enableIfMissing = true)`: present unless the build is explicitly a dev
+     build. The dev beans keep their `@IfBuildProperty(... "dev")`, whose
+     `enableIfMissing` defaults to false.
+
+     | build property at augmentation | dev beans | Entra beans |
+     |---|---|---|
+     | `dev` (`%dev`, `%test`) | yes | no |
+     | `entra` (`%dev-minikube`, a dev run with `APP_AUTH_PROVIDER=entra`) | no | yes |
+     | missing (`%prod`, i.e. every image build) | **no** | **yes** |
+
+     **The security property of task-080/task-092 is unchanged:** the forgeable
+     dev module is never compiled into a production build, because its gate
+     still requires the explicit value `dev`. Only the Entra gate moves.
+
+     Rejected alternative: selecting between all modules at runtime
+     (`@LookupIfProperty`). It would put the dev beans into production images,
+     where only `AuthProviderGuard` would keep them inactive. It would also
+     not work for the filters and the `SecurityIdentityAugmentor`, which are
+     discovered as beans, not looked up through `Instance<…>`, so each would
+     need its own runtime check. One module per build is simpler and safer.
+
+  2. **Fail closed when the configured provider has no module.**
+     `AuthProviderGuard.onStart` additionally refuses to boot when no
+     `AuthModule` bean has `name() == authConfig.activeProvider`. Today a
+     ConfigMap saying `keycloak` (named in the property comments, but no module
+     exists) or `dev` against a production build starts a backend that
+     authenticates nobody. After this task, the pod crash-loops with a message
+     naming the provider and the modules that ARE in the build. That turns
+     the silent failure above into a loud one, whatever the build did.
+
+  3. **The workaround disappears.** Production builds need no
+     `APP_AUTH_PROVIDER`. Setting `entra` remains harmless. Setting `dev` on a
+     production build remains a misconfiguration, which the guard catches at
+     startup (dev under a NORMAL launch).
+
+  ## A Gradle trap the verification must avoid
+
+  `APP_AUTH_PROVIDER` is NOT an input of `quarkusBuild`, and
+  `--no-build-cache` only bypasses the build cache, not the up-to-date
+  check. Verified 2026-10-10: a default build followed by
+  `APP_AUTH_PROVIDER=dev ./gradlew :backend:implementation:quarkusBuild
+  --no-build-cache` reports `UP-TO-DATE` and leaves the default jar. The
+  augmentation itself runs in `quarkusAppPartsBuild`; `quarkusBuild` only
+  assembles its output, so `quarkusBuild --rerun` re-runs the copy and NOT
+  the augmentation (also verified). Every gated build in this task's steps
+  and validation therefore reruns the augmentation task:
+  `quarkusAppPartsBuild --rerun quarkusBuild`. The DEFAULT build always runs last,
+  so `build/quarkus-app` is never left in dev form, where a later
+  `./gradlew build` would treat it as up to date and a local `imageBuild`
+  would package the forgeable module.
+
+  This is not caused by this task, but it is where someone first trips over
+  it, so the docs record it (see the docs step).
+
+  ## Out of scope
+
+  `AuthProviderProfileTest` needs NO change. It asserts that `%prod`
+  resolves no provider (task-161), which stays true; only the bean gating
+  moves. Do not "fix" it.
+
+  `quarkus.oidc.*` build-time keys, the frontend (`config.json` already
+  carries `authProvider` at runtime, task-162), and a Keycloak module.
+
+  ## Logging
+
+  The new guard branch logs at ERROR before throwing, in the same shape as the
+  existing dev-under-NORMAL branch, via `io.quarkus.logging.Log`. The existing
+  INFO line gains the module names present in the build:
+  `Auth provider: entra (modules in build: [entra], oidc configured: true)`.
+
+steps:
+  - |
+    In `src/backend/implementation/src/main/kotlin/io/pythia/auth/entra/`,
+    replace `@IfBuildProperty(name = "app.auth.provider", stringValue = "entra")`
+    with `@UnlessBuildProperty(name = "app.auth.provider", stringValue = "dev",
+    enableIfMissing = true)` (import `io.quarkus.arc.properties.UnlessBuildProperty`)
+    on `EntraAuthModule`, `EntraAuthFilter` and
+    `EntraSecurityIdentityAugmentor`. Add one comment on `EntraAuthModule`
+    explaining the asymmetry: Entra is the default for any non-dev build, and
+    dev stays opt-in, so a production build cannot contain the forgeable
+    module. Leave the four `io.pythia.auth.dev` classes untouched.
+  - |
+    `AuthProviderGuard`: inject all modules (`@All modules: List<AuthModule>`
+    from `io.quarkus.arc.All`, or `Instance<AuthModule>`). Add a pure
+    companion function next to `devProviderAllowed`:
+      fun moduleAvailable(provider: String, moduleNames: Collection<String>): Boolean =
+          provider in moduleNames
+    In `onStart`, after the dev check, when it returns false:
+    `Log.error("Refusing to start: app.auth.provider='$p' but this build contains
+    only the auth modules $names. …")` and `error(...)`. Extend the INFO line
+    with the module names as described above. Update the class comment: the
+    guard now fails closed on two conditions.
+  - |
+    `AuthProviderGuardTest`: add unit tests for `moduleAvailable`: `entra` in
+    `[entra]` → true; `entra` in `[]` → false (a build with no module); `dev`
+    in `[entra]` → false; `keycloak` in `[entra]` → false.
+  - |
+    `src/backend/implementation/build.gradle.kts`: correct the stale comment
+    above `openApiSchemaArtifact`. It still says
+    `%prod.app.auth.provider=entra`. The prod document has `securitySchemes`
+    because `%prod` enables OIDC. Keep the `tasks.test` system property
+    `app.auth.provider=dev` and its comment: tests must stay on the dev path.
+  - |
+    `scripts/minikube-deploy.sh`: remove `export APP_AUTH_PROVIDER=entra`
+    (`%dev-minikube` sets the provider, and the Entra beans are included
+    regardless). Keep the refuse-to-be-sourced guard, which still protects the
+    `ENTRA_*` exports. Reword its comment and error message so they no longer
+    claim the script exports `APP_AUTH_PROVIDER`.
+  - |
+    Docs, removing every "set it at build time too" instruction:
+    - `docs/deployment.md` stage 1: drop `APP_AUTH_PROVIDER=entra` from the
+      build command and replace the "needed here *as well as* in the
+      ConfigMap" paragraph with two sentences: production builds always
+      contain Entra and never dev, and the ConfigMap's value must name a
+      module in the build or the backend refuses to start. Fix the
+      `APP_AUTH_PROVIDER` table row ("ConfigMap **and the image build**" →
+      "ConfigMap").
+    - `docs/development.md` "Authentication per profile": state the gating
+      above (add the property/beans table), and delete the "`prod` is the
+      subtle one … must *also* be augmented" paragraph and the
+      minikube-deploy export sentence.
+    - `docs/entra-setup.md` "Backend wiring": `EntraAuthModule` is
+      `@UnlessBuildProperty`-gated (present unless the build is `dev`). The
+      local-dev-with-Entra section keeps `export APP_AUTH_PROVIDER=entra`,
+      which is still needed there because `%dev` sets `dev`. Keep its
+      "do not export these into the shell you then run `./gradlew build` in"
+      warning, but rewrite its final parenthetical, "(This is the same trap
+      `minikube-deploy.sh` refuses to be `source`d over.)". After this task
+      that script no longer exports `APP_AUTH_PROVIDER`, so point to
+      `scripts/dev.sh` instead, which still exports `APP_AUTH_PROVIDER=dev`
+      and refuses to be sourced for the same reason.
+    - `docs/authentication.md` "What NOT to do": replace the stale
+      `%prod.app.auth.provider=entra` reference with "the dev module is not
+      compiled into a production build, and `AuthProviderGuard` refuses
+      `dev` under a NORMAL launch".
+    - `src/backend/CLAUDE.md` auth paragraph: one sentence on the gating and
+      the second guard condition.
+    - `docs/development.md` "Authentication per profile": also record the
+      Gradle trap from the description. `APP_AUTH_PROVIDER` is not a
+      `quarkusBuild` input, so changing it between local builds reuses the
+      previous augmentation unless `quarkusAppPartsBuild` (where the
+      augmentation runs) is forced with `--rerun`.
+  - |
+    `.github/workflows/ci.yaml`, `build` job, after `./gradlew build`: add a
+    step that proves a DEFAULT production build has the right module. This is
+    the regression guard against reintroducing a build-time requirement:
+      J=src/backend/implementation/build/quarkus-app/quarkus/generated-bytecode.jar
+      unzip -l "$J" | grep -q 'io/pythia/auth/entra/EntraAuthModule_Bean.class'
+      ! unzip -l "$J" | grep -q 'io/pythia/auth/dev/DevAuthModule_Bean.class'
+    The job sets no `APP_AUTH_PROVIDER`, so this is the default. Comment that
+    ArC generates a `<Class>_Bean` only for beans that survive build-time
+    gating.
+  - |
+    Verify both gates locally. Rerun the augmentation on every build (see "A
+    Gradle trap" in the description), and run the DEV build FIRST, so the default
+    production build is what remains in `build/quarkus-app`:
+      J=src/backend/implementation/build/quarkus-app/quarkus/generated-bytecode.jar
+      APP_AUTH_PROVIDER=dev ./gradlew :backend:implementation:quarkusAppPartsBuild --rerun :backend:implementation:quarkusBuild
+      unzip -l "$J" | grep -q 'io/pythia/auth/dev/DevAuthModule_Bean.class'
+      ! unzip -l "$J" | grep -q 'io/pythia/auth/entra/EntraAuthModule_Bean.class'
+      env -u APP_AUTH_PROVIDER ./gradlew :backend:implementation:quarkusAppPartsBuild --rerun :backend:implementation:quarkusBuild
+      unzip -l "$J" | grep -q 'io/pythia/auth/entra/EntraAuthModule_Bean.class'
+      ! unzip -l "$J" | grep -q 'io/pythia/auth/dev/DevAuthModule_Bean.class'
+    The first pair shows the dev gate is still opt-in, and the second that a
+    default build carries Entra and never dev.
+  - |
+    Check whether Quarkus warns about a build-time/runtime mismatch, now that
+    `app.auth.provider` is missing at build time but `entra` at runtime.
+    Start the default production jar with only the auth provider set:
+      APP_AUTH_PROVIDER=entra timeout 20 java -jar \
+        src/backend/implementation/build/quarkus-app/quarkus-run.jar 2>&1 \
+        | grep -iE "build time|build-time|app.auth.provider" || true
+    Startup is expected to fail later on the missing datasource/OIDC
+    coordinates; only the config-phase output matters. If Quarkus logs a
+    mismatch warning for `app.auth.provider`, say in `docs/deployment.md` that
+    it is expected and why. If it logs nothing, record that in the report.
+  - |
+    ./gradlew :backend:implementation:test
+  - |
+    ./gradlew build
+
+validation:
+  - |
+    D=src/backend/implementation/src/main/kotlin/io/pythia/auth
+    for f in EntraAuthModule EntraAuthFilter EntraSecurityIdentityAugmentor; do
+      grep -q '@UnlessBuildProperty(name = "app.auth.provider", stringValue = "dev", enableIfMissing = true)' "$D/entra/$f.kt" || exit 1
+      ! grep -q "@IfBuildProperty" "$D/entra/$f.kt" || exit 1
+    done
+  - |
+    D=src/backend/implementation/src/main/kotlin/io/pythia/auth/dev
+    for f in DevAuthModule DevAuthFilter DevHttpAuthMechanism DevSecurityIdentityAugmentor; do
+      grep -q '@IfBuildProperty(name = "app.auth.provider", stringValue = "dev")' "$D/$f.kt" || exit 1
+    done
+  - |
+    G=src/backend/implementation/src/main/kotlin/io/pythia/auth/AuthProviderGuard.kt
+    grep -q "fun moduleAvailable" "$G"
+    grep -q "Log.error" "$G"
+    grep -q "moduleAvailable" src/backend/implementation/src/test/kotlin/io/pythia/auth/AuthProviderGuardTest.kt
+  - |
+    ! grep -q "export APP_AUTH_PROVIDER" scripts/minikube-deploy.sh
+  - |
+    ! grep -q "APP_AUTH_PROVIDER=entra ./gradlew" docs/deployment.md
+    ! grep -q "as well as\* in the ConfigMap" docs/deployment.md
+    ! grep -q "must \*also\* be augmented" docs/development.md
+    ! grep -q "%prod.app.auth.provider=entra" docs/authentication.md src/backend/implementation/build.gradle.kts
+    ! grep -q "same trap \`minikube-deploy.sh\`" docs/entra-setup.md
+    grep -q -- "--rerun" docs/development.md
+  - |
+    grep -q "EntraAuthModule_Bean.class" .github/workflows/ci.yaml
+  - |
+    env -u APP_AUTH_PROVIDER ./gradlew :backend:implementation:quarkusAppPartsBuild --rerun :backend:implementation:quarkusBuild
+    J=src/backend/implementation/build/quarkus-app/quarkus/generated-bytecode.jar
+    unzip -l "$J" | grep -q 'io/pythia/auth/entra/EntraAuthModule_Bean.class'
+    ! unzip -l "$J" | grep -q 'io/pythia/auth/dev/DevAuthModule_Bean.class'
+  - |
+    ./gradlew :backend:implementation:test
+  - |
+    ./gradlew build
+
+outputs:
+  - modified: src/backend/implementation/src/main/kotlin/io/pythia/auth/entra/EntraAuthModule.kt
+  - modified: src/backend/implementation/src/main/kotlin/io/pythia/auth/entra/EntraAuthFilter.kt
+  - modified: src/backend/implementation/src/main/kotlin/io/pythia/auth/entra/EntraSecurityIdentityAugmentor.kt
+  - modified: src/backend/implementation/src/main/kotlin/io/pythia/auth/AuthProviderGuard.kt
+  - modified: src/backend/implementation/src/test/kotlin/io/pythia/auth/AuthProviderGuardTest.kt
+  - modified: src/backend/implementation/build.gradle.kts
+  - modified: scripts/minikube-deploy.sh
+  - modified: .github/workflows/ci.yaml
+  - modified: docs/deployment.md
+  - modified: docs/development.md
+  - modified: docs/entra-setup.md
+  - modified: docs/authentication.md
+  - modified: src/backend/CLAUDE.md
