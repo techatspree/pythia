@@ -237,7 +237,9 @@ jobs:
           exit-code: '1'
 
   # Reports; it does not gate. A CVE published overnight in a transitive
-  # dependency would otherwise turn every unrelated PR red.
+  # dependency would otherwise turn every unrelated PR red. That matters MORE
+  # since task-192: both scans now cover dev dependencies, which is a much
+  # larger tree, so keep this job non-gating.
   security:
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -249,13 +251,30 @@ jobs:
         with:
           node-version: 22.14.0
 
-      # `--production` is deprecated in npm 10 (the build pins 10.9.2).
+      # Dev dependencies are IN scope (task-192). In a SvelteKit adapter-static
+      # SPA the Svelte runtime, Kit's client runtime and `devalue` are
+      # devDependencies by convention, yet they are compiled into the bundle
+      # users download. `--omit=dev` therefore hid real, shipped findings.
+      #
+      # `--audit-level` sets only the EXIT CODE: every finding, moderates and
+      # lows included, is still printed to this log. It is `high`, not
+      # `moderate`, because an accepted moderate advisory (esbuild via
+      # svelte-i18n) would fail every run and make a new finding look like the
+      # known one. The accepted findings, and why each does not apply, are
+      # listed under "Dependency vulnerabilities" in docs/development.md.
       - name: Audit the frontend dependencies
         working-directory: src/frontend
-        run: npm audit --omit=dev --audit-level=high
+        run: npm audit --audit-level=high
 
       - name: Trivy filesystem scan
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        # Trivy skips dev dependencies in package-lock.json by default; this is
+        # the env form of its `--include-dev-deps` flag, for the same reason as
+        # the audit above (task-192). Verify it took effect: the scan log should
+        # list dev-only packages (vite, svelte, eslint…). If it does not, pass
+        # `--include-dev-deps` through the action's `trivy-config` instead.
+        env:
+          TRIVY_INCLUDE_DEV_DEPS: 'true'
         with:
           scan-type: fs
           scan-ref: .

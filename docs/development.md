@@ -57,7 +57,7 @@ request and every push to `main`, needs no secrets, and deploys nothing.
 | `build` | PR + `main` | Validates the committed Gradle wrapper jar against Gradle's published checksums, then `./gradlew build` — domain (JVM + Kotlin/JS), backend `@QuarkusTest`, `:frontend:check`. Then `./gradlew staticAnalysis` and an upload of the consolidated report plus the JUnit XML. |
 | `e2e` | PR + `main` | Starts the dev stack with `./scripts/dev.sh` and runs the Playwright suite against it. |
 | `images` | `main` only | Builds both container images (with `--no-build-cache`, or a cached augmentation skips the Jib side effect and no image is produced), asserts both exist, checks the Jib timestamp flags and digest-pinned base image, and scans the backend with Trivy. **Pushes nothing.** |
-| `security` | PR + `main` | `npm audit --omit=dev` and a Trivy filesystem scan. Reports only — it does not gate. |
+| `security` | PR + `main` | `npm audit --audit-level=high` and a Trivy filesystem scan, both **including dev dependencies**. The audit prints every finding and exits non-zero only at high or above. Reports only — it does not gate. See [Dependency vulnerabilities](#dependency-vulnerabilities). |
 
 To reproduce the gate locally, run what the pipeline runs:
 
@@ -194,6 +194,54 @@ export staticCodeAnalysis=1
 
 This convention was introduced in `task-056` and applies to the
 validation blocks of any task whose work spans the lint pipeline.
+
+## Dependency vulnerabilities
+
+`./gradlew staticAnalysis` analyses **our** code (detekt, ESLint,
+svelte-check). It does not check dependencies against a vulnerability
+database, and neither does `./gradlew build`. The only dependency scan is the
+CI `security` job: `npm audit` over `src/frontend` plus a Trivy filesystem
+scan. The job reports and never gates, so a CVE published overnight cannot
+turn unrelated PRs red. Read its log when a dependency changes.
+
+**Dev dependencies are in scope** (task-192). The scan used to run
+`npm audit --omit=dev`, on the assumption that a dev dependency never ships.
+For this app that is false. SvelteKit's convention puts `svelte`,
+`@sveltejs/kit` and `vite` in `devDependencies`, yet under `adapter-static`
+the Svelte runtime, Kit's client runtime and `devalue` are compiled into the
+bundle users download. `--omit=dev` hid exactly those findings. The audit
+uses `--audit-level=high`: that sets only the exit code, and every finding,
+moderates and lows included, is still printed. `moderate` would make every run
+fail on the accepted esbuild advisory below.
+
+**What does not apply to this app, and why:**
+
+- **No SSR.** `src/frontend/src/routes/+layout.ts` sets `ssr = false`, so
+  Svelte's SSR advisories (e.g. XSS via spread attributes or promise
+  serialisation during SSR) are unreachable.
+- **No SvelteKit server.** With `@sveltejs/adapter-static`, production is
+  nginx serving static files (`src/frontend/Dockerfile`). Server-side Kit
+  advisories (content-negotiation ReDoS, remote-function forms,
+  `query.batch`, cookie handling) have nothing to attack.
+- **vite and esbuild are dev and build only.** Their dev-server advisories
+  concern a developer running `vite dev`, not production.
+
+What *can* apply is the client-side runtime: Svelte's DOM-clobbering XSS and
+`<svelte:element>` ReDoS, and `devalue`. Those are upgraded rather than argued
+away.
+
+**Accepted findings.** These remain in the audit on purpose. Anything else in
+the log is new:
+
+| Advisory | Package (path) | Severity | Why it is accepted |
+|---|---|---|---|
+| GHSA-pxg6-pf52-xh8x | `cookie <0.7.0` (via `@sveltejs/kit`) | low | Every Kit 2.x declares `cookie: ^0.6.0`; only Kit 3 removes it. Cookie handling runs in a SvelteKit server, which this app does not have. Do not force `cookie@0.7` through npm `overrides`: Kit 2 pins `^0.6.0` deliberately. |
+| GHSA-67mh-4wv8-2f99 | `esbuild <=0.24.2` (via `svelte-i18n`) | moderate | A dev-server flaw, and `svelte-i18n` uses esbuild only for its build-time CLI. npm's only "fix" is a major *downgrade* of `svelte-i18n`. Accepted until `svelte-i18n` updates its esbuild. |
+
+**An IDE can show findings CI does not.** IntelliJ's dependency inspection
+uses Mend.io data, while `npm audit` uses the GitHub Advisory Database, so
+the two lists differ. Kit's Mend-only "Insufficient Information" CVEs are an
+example. An IDE finding is worth a look even when CI is quiet.
 
 ## Development Profiles
 

@@ -1,0 +1,313 @@
+id: task-192
+phase: phase-14
+title: "Upgrade svelte/kit/vite, fix the audit's dev-dep blind spot"
+depends_on: [task-191]
+description: |
+  IntelliJ's dependency inspection (Mend.io data) flags three frontend
+  packages as vulnerable. None of the project's checks reports them. This task
+  removes the vulnerabilities that are reachable, and closes the gap that hid
+  them.
+
+  ## What IDEA reports (2026-10-02)
+
+    * `@sveltejs/kit` 2.59.0: CVE-2026-66062 (5.3, Accept-header ReDoS, which
+      is GHSA-29g2-3rmr-qm68), plus CVE-2026-82256/82257/82258 (Mend
+      "Insufficient Information").
+    * `svelte` 5.55.5: CVE-2026-42599 (7.7, XSS via spread attributes in SSR),
+      CVE-2026-42567 (4.4, ReDoS in `<svelte:element>` tag validation),
+      CVE-2026-42573 (3.5, XSS via DOM clobbering of internal state).
+    * `vite` 8.0.10: CVE-2026-53632 (8.3, NTLMv2 hash disclosure via UNC
+      paths, Windows) and CVE-2026-53571 (7.5, `server.fs.deny` bypass,
+      Windows).
+
+  The GitHub Advisory Database, which `npm audit` uses, carries all of the
+  svelte and vite ones, so `npm audit` can confirm the fixes:
+    * svelte: GHSA-pr6f-5x2q-rwfp, GHSA-rcqx-6q8c-2c42, GHSA-9rmh-mm8f-r9h6,
+      and also GHSA-f3cj-j4f6-wq85 (SSR promise-serialisation XSS). All are
+      fixed after 5.55.6.
+    * vite: GHSA-v6wh-96g9-6wx3 and GHSA-fx2h-pf6j-xcff, fixed after 8.0.15.
+    * kit: GHSA-hgv7-v322-mmgr (≤2.60.0), GHSA-866w-xmhq-wj7x and
+      GHSA-wqjv-9729-c5q2 (≤2.69.0), GHSA-29g2-3rmr-qm68 (≤2.70.1).
+  The Mend-only "Insufficient Information" Kit entries have no GHSA.
+
+  A full `npm audit` (dev dependencies included) on 2026-10-02 also reports
+  high findings the IDE did not show, all with non-breaking fixes:
+  `brace-expansion` (via ESLint and typescript-eslint), `devalue` (via Kit),
+  `postcss` and `nanoid` (via eslint-plugin-svelte and the postcss tooling),
+  and `js-yaml` (via `@eslint/eslintrc` and openapi-typescript's
+  `@redocly/openapi-core`).
+
+  ## Why nothing caught them
+
+  1. `./gradlew staticAnalysis` and `./gradlew build` analyse OUR code
+     (detekt, ESLint, svelte-check). Nothing in the Gradle build checks
+     dependencies against a vulnerability database. That stays true; local
+     dependency scanning is a non-goal.
+  2. The only dependency scan is the CI `security` job in
+     `.github/workflows/ci.yaml`: `npm audit --omit=dev --audit-level=high`
+     and a Trivy filesystem scan at `HIGH,CRITICAL`. svelte, Kit and vite are
+     all `devDependencies`, so `--omit=dev` skips them. Trivy also skips dev
+     dependencies in a `package-lock.json` by default.
+  3. The job is `continue-on-error: true`, so even a hit shows only in a log.
+     That stays as it is (see "Decisions").
+
+  The structural flaw is in point 2. `--omit=dev` assumes a dev dependency
+  never ships. For a SvelteKit `adapter-static` SPA that is false: the
+  **Svelte runtime is compiled into the bundle users download**, and so are
+  Kit's client runtime and `devalue`. All three are `devDependencies` by
+  SvelteKit convention. Dev-only scoping is the wrong boundary for this app.
+
+  ## Which findings actually apply
+
+  Record this analysis in the docs, so the next person does not have to
+  repeat it:
+
+    * **No SSR**: `src/routes/+layout.ts` sets `ssr = false`. The two SSR
+      XSS advisories (GHSA-pr6f, GHSA-f3cj) cannot be reached.
+    * **No SvelteKit server**: with `@sveltejs/adapter-static`, production is
+      nginx serving static files (`src/frontend/Dockerfile`). Server-side Kit
+      flaws (Accept-header ReDoS, remote-function forms, `query.batch`, and
+      `cookie` below) have nothing to attack.
+    * **vite and esbuild are dev and build only**: the vite advisories are
+      Windows dev-server flaws. esbuild's GHSA-67mh is a dev-server flaw too.
+      They matter to a developer running a dev server, not to production.
+    * **What can apply**: the client-side Svelte runtime advisories
+      (GHSA-rcqx DOM-clobbering XSS, GHSA-9rmh `<svelte:element>` ReDoS) and
+      `devalue`. This is the reason to upgrade rather than merely document.
+
+  ## Accepted findings, which remain after this task
+
+    * **`cookie <0.7.0`, GHSA-pxg6-pf52-xh8x (low).** Every Kit 2.x declares
+      `cookie: ^0.6.0`, so only Kit 3 removes it. Cookie handling runs in a
+      SvelteKit SERVER, which this app does not have. Do NOT force
+      `cookie@0.7` through npm `overrides`: Kit 2 pins `^0.6.0` deliberately,
+      and an override would ship an untested combination.
+    * **`esbuild <=0.24.2`, GHSA-67mh-4wv8-2f99 (moderate), via
+      `svelte-i18n`.** It is a dev-server flaw, and `svelte-i18n` uses
+      esbuild only for its build-time CLI. npm's only "fix" is a major
+      DOWNGRADE of `svelte-i18n` to 3.7.1, which is not a fix. Accepted until
+      `svelte-i18n` updates its esbuild.
+
+  Both must be listed in `docs/development.md`, with their GHSA IDs, so a
+  reader can tell an accepted finding from a new one in the CI log.
+
+  ## Decisions
+
+  - **Stay on SvelteKit 2.x.** Upgrade to the newest versions inside the
+    current majors: `svelte` → `^5.57.1`, `@sveltejs/kit` → `^2.70.3`,
+    `vite` → `^8.3.2` (verified as the newest on 2026-10-02). All are past
+    every fix listed above. Kit 3.0.0 exists, but it is a major migration,
+    together with `@sveltejs/adapter-static` 4 and `@sveltejs/adapter-auto` 8,
+    and belongs in a separate task.
+  - **Bump the ranges in `package.json`**, not only the lockfile, so a later
+    `npm install` can never resolve back below the fixed versions.
+  - **Run `npm audit fix` (never `--force`)** for the transitive high
+    findings listed above. No other direct dependency is upgraded on purpose;
+    the remaining `npm outdated` entries are out of scope.
+  - **Remove `@originjs/vite-plugin-commonjs`.** It is an unused
+    `devDependency`: nothing outside `package.json` references it, not
+    `vite.config.ts` and not any script. It has been dead since commit
+    b5562c0, and it is one of the two paths that pull in the vulnerable
+    esbuild. Removing it does not clear the esbuild finding, which still
+    arrives via `svelte-i18n`, but it removes a dependency that does nothing.
+  - **The CI audit covers dev dependencies and fails at high.** Change it to
+    `npm audit --audit-level=high` with no `--omit=dev`. `--audit-level`
+    sets only the exit code: `npm audit` still PRINTS every finding,
+    moderates and lows included, so the log shows the whole picture. Do NOT
+    use `--audit-level=moderate`. The accepted esbuild advisory is moderate,
+    so the step would exit 1 on every run, and a new finding would look
+    exactly like the known one.
+  - **Trivy includes dev dependencies too**, via `TRIVY_INCLUDE_DEV_DEPS:
+    'true'` on the Trivy filesystem step. That is Trivy's environment form of
+    its `--include-dev-deps` flag. It could not be tested locally (Trivy is
+    not installed here), so the step's comment must say how to verify it:
+    after the first run, the Trivy log should list dev-only packages. If it
+    does not, pass the flag through the action's `trivy-config` or `args`
+    instead.
+  - **The job STAYS `continue-on-error: true`**, for the reason its existing
+    comment gives: a CVE published overnight must not turn every unrelated PR
+    red. Including dev dependencies makes that reason stronger, not weaker.
+  - Keep the Trivy `skip-files` for the two Kotlin/JS `yarn.lock` files. The
+    comment there explains why, and nothing here changes that reasoning.
+
+  ## Non-goals
+
+  - No local or Gradle-integrated dependency scan, and no new tool (OWASP
+    dependency-check, Snyk, Renovate, Dependabot, an audit allow-list tool).
+  - No SvelteKit 3 / adapter 4 migration, and no `svelte-i18n` replacement.
+  - No change to application code, i18n catalogs or any component. If an
+    in-range upgrade breaks a test, fix the cause within the upgrade. If it
+    needs application changes, stop and report.
+
+steps:
+  - |
+    Read `.github/workflows/ci.yaml` (the `security` job and its comments),
+    `src/frontend/package.json`, `src/frontend/.npmrc` (`engine-strict`),
+    `src/frontend/Dockerfile` (`npm ci --legacy-peer-deps`, `node:22.14`),
+    the `npmInstall` config in `src/frontend/build.gradle.kts`
+    (`--legacy-peer-deps`), `src/frontend/svelte.config.js`,
+    `src/frontend/src/routes/+layout.ts` (`ssr = false`), and the CI table in
+    `docs/development.md` (the `security` row).
+    Confirm the plugin is unused before removing it:
+      cd src/frontend
+      ! grep -rln "originjs\|vite-plugin-commonjs" --exclude-dir=node_modules --exclude=package-lock.json --exclude=package.json .
+    Record the before state:
+      npm ls svelte @sveltejs/kit vite --depth=0
+      npm audit --json | jq -r '.vulnerabilities[] | "\(.name) \(.severity)"'
+  - |
+    Upgrade and clean up, from `src/frontend`, always with
+    `--legacy-peer-deps` so the lockfile matches how Gradle (`npmInstall`)
+    and the Dockerfile (`npm ci`) install:
+      npm install --legacy-peer-deps svelte@^5.57.1 @sveltejs/kit@^2.70.3 vite@^8.3.2
+      npm uninstall --legacy-peer-deps @originjs/vite-plugin-commonjs
+      npm audit fix --legacy-peer-deps
+    Do NOT run `npm audit fix --force`: it would jump Kit to 3.0 and
+    downgrade `svelte-i18n`. vite 8.3 needs node `^20.19 || >=22.12`, and the
+    pinned 22.14.0 satisfies that; `engine-strict=true` makes a mismatch fail
+    loudly. Then check:
+      * `package.json` carries the three bumped ranges, and no longer lists
+        `@originjs/vite-plugin-commonjs`;
+      * if `npm audit fix` changed any OTHER direct dependency's range in
+        `package.json`, revert that part, because only lockfile changes to
+        transitive packages are in scope;
+      * `npm ls --depth=0` exits 0;
+      * the remaining `npm audit` findings are exactly the two accepted ones
+        (`cookie` low, `esbuild` moderate, plus `svelte-i18n` and
+        `@sveltejs/kit` listed only as "via" those). Anything else means
+        stop and report.
+  - |
+    Rebuild and run the full frontend gate, then both Playwright runs against
+    a running `./scripts/dev.sh` stack, sequentially and English first (see
+    `src/frontend/CLAUDE.md`):
+      ./gradlew :frontend:check
+      cd src/frontend
+      E2E_LANG=en npx playwright test
+      E2E_LANG=de npx playwright test
+    A Svelte or Vite minor can change compiler output and dev-server
+    behaviour, so the e2e suite is the real check here, not svelte-check.
+  - |
+    Fix the CI blind spot in the `security` job of `.github/workflows/ci.yaml`:
+      * The audit step runs `npm audit --audit-level=high`, with no
+        `--omit=dev`.
+      * Add `env: TRIVY_INCLUDE_DEV_DEPS: 'true'` to the "Trivy filesystem
+        scan" step. Keep `skip-files`, `severity` and `ignore-unfixed`
+        unchanged.
+      * Keep `continue-on-error: true` on the job.
+      * Rewrite the comment above the audit step. The old one explains only
+        why `--production` is not used. The new one must cover: why dev
+        dependencies are in scope (Svelte runtime, Kit client and `devalue`
+        are `devDependencies` yet ship in the `adapter-static` bundle, so
+        `--omit=dev` hid real findings, task-192); that `--audit-level` sets
+        only the exit code, so every finding is still printed; and why it
+        is `high` rather than `moderate` (the accepted moderate esbuild
+        advisory would fail every run). Point to the accepted-findings list
+        in `docs/development.md`.
+      * Comment the Trivy env line: it is the env form of `--include-dev-deps`,
+        and how to verify it took effect (see "Decisions").
+      * Extend the job's "Reports; it does not gate" comment: covering dev
+        dependencies makes the non-gating choice MORE important.
+  - |
+    Update `docs/development.md`:
+      * The CI table's `security` row: the audit covers dev dependencies,
+        fails at high and prints everything; Trivy includes dev
+        dependencies. It is still "Reports only".
+      * Add a "Dependency vulnerabilities" subsection next to the
+        static-analysis section. Cover: that `staticAnalysis` does no
+        dependency scanning and the CI `security` job is the only scan; why
+        dev dependencies are in scope; which finding classes do not apply to
+        this app and why (no SSR via `ssr = false`, no SvelteKit server under
+        `adapter-static`, vite and esbuild are dev and build only); the
+        **accepted findings** with their GHSA IDs (`cookie` GHSA-pxg6-pf52-xh8x,
+        only Kit 3 removes it; `esbuild` GHSA-67mh-4wv8-2f99 via
+        `svelte-i18n`, whose only npm "fix" is a major downgrade); and that
+        an IDE's dependency inspection can use a different database (Mend),
+        so it may show entries `npm audit` does not, such as Kit's
+        "Insufficient Information" CVEs.
+  - |
+    Build:
+      ./gradlew :frontend:check
+      ./gradlew build
+
+validation:
+  - |
+    The three packages are at or above the targets in the lockfile, inside
+    their current majors, with bumped declared ranges; the unused plugin is
+    gone:
+      cd src/frontend
+      node -e '
+        const want = { svelte: "5.57.1", "@sveltejs/kit": "2.70.3", vite: "8.3.2" };
+        const lock = require("./package-lock.json").packages;
+        const cmp = (a, b) => { const x = a.split(".").map(Number), y = b.split(".").map(Number);
+          for (let i = 0; i < 3; i++) if (x[i] !== y[i]) return x[i] - y[i]; return 0; };
+        let bad = 0;
+        for (const [p, v] of Object.entries(want)) {
+          const got = lock["node_modules/" + p].version;
+          if (cmp(got, v) < 0) { console.error(`${p} ${got} < ${v}`); bad = 1; }
+          if (got.split(".")[0] !== v.split(".")[0]) { console.error(`${p} ${got} left major ${v.split(".")[0]}`); bad = 1; }
+        }
+        process.exit(bad);'
+      grep -qE '"svelte": "\^5\.(5[7-9]|[6-9][0-9])' package.json
+      grep -qE '"@sveltejs/kit": "\^2\.(7[0-9]|[89][0-9])' package.json
+      grep -qE '"vite": "\^8\.([3-9]|[1-9][0-9])\.' package.json
+      ! grep -q "vite-plugin-commonjs" package.json
+      ! jq -e '.packages["node_modules/@originjs/vite-plugin-commonjs"]' package-lock.json > /dev/null
+      npm ls --depth=0 > /dev/null
+  - |
+    The audit, dev dependencies included, shows ONLY the two accepted
+    findings. svelte, vite and every Kit GHSA are gone, and nothing high or
+    critical remains:
+      cd src/frontend
+      audit=$(mktemp)
+      npm audit --json > "$audit" || true
+      jq -e '.vulnerabilities | has("svelte") or has("vite") | not' "$audit"
+      jq -e '[.vulnerabilities["@sveltejs/kit"].via // [] | .[] | objects] | length == 0' "$audit"
+      jq -e '[.vulnerabilities[] | select(.severity == "high" or .severity == "critical")] | length == 0' "$audit"
+      jq -e '[.vulnerabilities[] | .via[] | objects | .url | split("/") | last] | unique
+             | . - ["GHSA-pxg6-pf52-xh8x", "GHSA-67mh-4wv8-2f99"] | length == 0' "$audit"
+      rm -f "$audit"
+      npm audit --audit-level=high > /dev/null
+  - |
+    The CI audit covers dev dependencies, fails at high, Trivy includes dev
+    dependencies, and the job still does not gate:
+      ! grep -q -- '--omit=dev' .github/workflows/ci.yaml
+      grep -q 'npm audit --audit-level=high' .github/workflows/ci.yaml
+      ! grep -q 'audit-level=moderate' .github/workflows/ci.yaml
+      grep -q "TRIVY_INCLUDE_DEV_DEPS: 'true'" .github/workflows/ci.yaml
+      grep -q "skip-files: 'kotlin-js-store/yarn.lock,src/domain/kotlin-js-store/yarn.lock'" .github/workflows/ci.yaml
+      awk '/^  security:/,/steps:/' .github/workflows/ci.yaml | grep -q 'continue-on-error: true'
+      ruby -ryaml -e 'YAML.load_file(".github/workflows/ci.yaml")'
+  - |
+    The docs record the scope, the applicability analysis and both accepted
+    findings:
+      ! grep -q -- '--omit=dev' docs/development.md
+      grep -qi 'dependency vulnerabilities' docs/development.md
+      grep -q 'adapter-static' docs/development.md
+      grep -q 'ssr = false' docs/development.md
+      grep -q 'GHSA-pxg6-pf52-xh8x' docs/development.md
+      grep -q 'GHSA-67mh-4wv8-2f99' docs/development.md
+  - |
+    No application code changed. Only the manifest, lockfile, CI and docs
+    did:
+      git diff --quiet -- src/frontend/src src/frontend/e2e
+  - |
+    Build is green, and the e2e suite passes in both languages against a
+    running `./scripts/dev.sh` stack (sequentially, English first):
+      ./gradlew :frontend:check
+      ./gradlew build
+      cd src/frontend
+      E2E_LANG=en npx playwright test
+      E2E_LANG=de npx playwright test
+  - |
+    Manual: the IntelliJ dependency inspection on `src/frontend/package.json`
+    no longer flags `svelte`, `@sveltejs/kit` or `vite` for the CVEs listed in
+    the description. Mend-only "Insufficient Information" entries that
+    persist on Kit 2.70.3 are reported, not chased. Record the outcome in the
+    implementation report. After the first CI run on the branch, confirm the
+    Trivy log lists dev-only packages, which proves `TRIVY_INCLUDE_DEV_DEPS`
+    took effect.
+
+outputs:
+  - modified: src/frontend/package.json        # svelte, kit, vite ranges; plugin removed
+  - modified: src/frontend/package-lock.json   # upgrades, plugin removal, npm audit fix
+  - modified: .github/workflows/ci.yaml        # security job: dev deps, high, comments
+  - modified: docs/development.md              # security row + "Dependency vulnerabilities"
