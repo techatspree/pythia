@@ -40,8 +40,13 @@ K8S_OVERLAY="$PROJECT_ROOT/k8s/overlays/minikube"
 # shellcheck source=scripts/minikube-env.sh disable=SC1091
 . "$SCRIPT_DIR/minikube-env.sh"
 
-# Fail fast on missing tenant config so we never silently ship the
-# unresolved ${VAR} placeholders into the running backend Pod.
+# Fail fast on missing Entra ids. The minikube stack runs the real Entra login,
+# and these ids become the OIDC_* values that envsubst writes into the
+# backend-config and frontend-config ConfigMaps. Nothing else would catch an
+# empty one: the derived OIDC_* variables are always set, so envsubst quietly
+# renders an issuer URL like https://login.microsoftonline.com//v2.0 and empty
+# client ids, and the failure only surfaces after build, push and rollout, as a
+# backend OIDC error or a broken browser login that names no variable.
 for v in ENTRA_TENANT_ID ENTRA_API_CLIENT_ID ENTRA_SPA_CLIENT_ID; do
     if [ -z "${!v}" ]; then
         echo "Error: $v must be set in the environment before deploying." >&2
