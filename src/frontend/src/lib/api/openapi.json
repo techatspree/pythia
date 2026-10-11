@@ -3414,7 +3414,7 @@
   },
   "info" : {
     "title" : "Pythia API",
-    "version" : "1.0.0"
+    "version" : "1.0.1-SNAPSHOT"
   },
   "servers" : [ {
     "url" : "http://localhost:8080",
