@@ -42,15 +42,26 @@ description: |
     `kotlinNodeJsSetup` exists in the ROOT project and in `:domain`,
     `:domain:core`, `:domain:method-threepoint` and
     `:domain:method-bucketsampled`, so the setting is applied wherever
-    `NodeJsPlugin` is applied:
-        allprojects {
+    `NodeJsPlugin` is applied, INSIDE the root `build.gradle.kts`'s EXISTING
+    `allprojects { }` block (it already sets `group`, `version` and the
+    licence manifest; do not add a second block):
             plugins.withType<org.jetbrains.kotlin.gradle.targets.js.nodejs.NodeJsPlugin> {
                 the<org.jetbrains.kotlin.gradle.targets.js.nodejs.NodeJsEnvSpec>()
                     .version.set(providers.gradleProperty("nodeVersion"))
             }
-        }
-    in the root `build.gradle.kts`. Configuring each sub-project separately
-    would recreate the drift this task removes.
+    Configuring each sub-project separately would recreate the drift this
+    task removes.
+
+    **Verified on 2026-10-11, before implementation**, with a Gradle init
+    script applying exactly this setting: `NodeJsPlugin` is on precisely
+    those five projects, and each carries the extension named
+    `kotlinNodeJsSpec` (type `NodeJsEnvSpec`) with default `24.10.0`. With the
+    pin, `kotlinNpmInstall` ran on Node 22.14.0 and printed 0 `DEP0169`
+    lines, while still printing "Ignored scripts". Without it, it printed 1.
+    Note that the verification already downloaded
+    `~/.gradle/nodejs/node-v22.14.0-*`, so the presence of that directory
+    proves NOTHING about this task. The validation reads each project's
+    effective setting instead.
   - **CI cannot drift either.** `.github/workflows/ci.yaml` pins
     `node-version: 22.14.0` in two `actions/setup-node` steps. GitHub Actions
     cannot read `gradle.properties` directly, so a validation asserts that both
@@ -95,8 +106,9 @@ steps:
     `version.set(providers.gradleProperty("nodeVersion"))`, keeping the
     `npmVersion` line.
   - |
-    Root `build.gradle.kts`: add the `allprojects { plugins.withType<NodeJsPlugin> { … } }`
-    block from the description, with a comment: Kotlin/JS would otherwise
+    Root `build.gradle.kts`: add the `plugins.withType<NodeJsPlugin> { … }`
+    snippet from the description INSIDE the existing `allprojects { }` block,
+    with a comment: Kotlin/JS would otherwise
     download its own Node default (24.10.0 for KGP 2.3.21), Yarn 1 prints
     DEP0169 on Node 24+, and the version comes from `gradle.properties` so
     the two toolchains cannot drift. Use fully-qualified names or imports at
@@ -106,14 +118,17 @@ steps:
     add a comment above each: "must equal nodeVersion in gradle.properties
     (task-197)".
   - |
-    Verify the effect:
-      ./gradlew kotlinNodeJsSetup --rerun --console=plain
-      ls ~/.gradle/nodejs | grep -q 'node-v22.14.0'
+    Verify the effect. Every Kotlin/JS project must resolve 22.14.0 (the
+    per-project check is validation 3; run it now), and the warning must be
+    gone while the intended one stays:
       ./gradlew kotlinNpmInstall --rerun --console=plain 2>&1 | grep -c DEP0169   # must print 0
       ./gradlew kotlinNpmInstall --rerun --console=plain 2>&1 | grep -q 'Ignored scripts'  # stays
-    Also confirm that every Kotlin/JS project resolves 22.14.0, not only the
-    root. Run `./gradlew :domain:core:kotlinNodeJsSetup --rerun --info` and
-    check the logged installation directory names `node-v22.14.0`.
+  - |
+    `docs/architecture.md`, where it says the frontend's Gradle Node plugin
+    installs Node/npm (around "The frontend uses the Gradle Node plugin"):
+    add that this is the build's ONLY Node version, `nodeVersion` in the root
+    `gradle.properties`, shared with the Kotlin/JS toolchain (task-197), and
+    why (Yarn 1 prints DEP0169 on Node 24+).
   - |
     Run the Playwright suite against `./scripts/dev.sh` (English, then German,
     as `src/frontend/CLAUDE.md` describes). The domain's Kotlin/JS output runs
@@ -135,9 +150,26 @@ validation:
     test "$(grep -cE 'node-version:' .github/workflows/ci.yaml)" -eq 2
     ruby -ryaml -e 'YAML.load_file(".github/workflows/ci.yaml")'
   - |
-    ./gradlew kotlinNodeJsSetup :domain:core:kotlinNodeJsSetup --rerun --console=plain > /dev/null
-    ls ~/.gradle/nodejs | grep -q 'node-v22.14.0'
+    # Every project carrying the Kotlin/JS Node.js plugin resolves exactly
+    # nodeVersion. Read AFTER evaluation: an init script's own hooks run
+    # before the build script, so reading at plugin-apply time would show the
+    # old default.
+    I=$(mktemp)
+    cat > "$I" <<'EOF'
+    gradle.projectsEvaluated {
+        gradle.rootProject.allprojects { p ->
+            def e = p.extensions.findByName('kotlinNodeJsSpec')
+            if (e != null) println "NODEVER ${p.path} ${e.version.get()}"
+        }
+    }
+    EOF
+    out=$(./gradlew --init-script "$I" help -q 2>&1 | grep '^NODEVER'); rm -f "$I"
+    echo "$out"
+    test "$(echo "$out" | grep -c '^NODEVER')" -eq 5
+    ! echo "$out" | grep -v ' 22\.14\.0$'
     test "$(./gradlew kotlinNpmInstall --rerun --console=plain 2>&1 | grep -c DEP0169)" -eq 0
+  - |
+    grep -q 'nodeVersion' docs/architecture.md
   - |
     ./gradlew build
   - |
@@ -150,3 +182,4 @@ outputs:
   - modified: build.gradle.kts
   - modified: src/frontend/build.gradle.kts
   - modified: .github/workflows/ci.yaml
+  - modified: docs/architecture.md

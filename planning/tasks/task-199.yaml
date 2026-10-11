@@ -1,0 +1,383 @@
+id: task-199
+phase: phase-18
+title: "Publish releases: GHCR images + digest-pinned deploy bundle"
+depends_on: [task-193, task-196]
+description: |
+  After task-193 a release is a CI-gated tag `v<MAJOR>.<MINOR>.<PATCH>` on
+  `main`, but a release still PUBLISHES nothing: the `images` job builds both
+  images and pushes them nowhere. A downstream installation therefore has to
+  build Pythia itself, which needs a copy of the source inside its network,
+  a job keeping that copy current, and the whole Gradle/npm/Node toolchain on
+  its runner. It ALSO needs the Kubernetes manifests and `scripts/deploy.sh`
+  from exactly the same version as the images, which today it can only get
+  from a git checkout of this repository.
+
+  After this task every release publishes everything a deployment needs, and
+  a consumer builds nothing and clones nothing:
+
+  1. **Both images, multi-arch, on GHCR**:
+     `ghcr.io/<owner>/pythia/pythia-backend:<tag>` and
+     `ghcr.io/<owner>/pythia/pythia-frontend:<tag>`, where `<owner>` is the
+     GitHub owner of this repository, lower-cased. The `pythia/pythia-*`
+     part deliberately equals the image names the overlays already use
+     (`${REGISTRY}/pythia/pythia-backend`), so `REGISTRY=ghcr.io/<owner>`
+     pulls straight from GHCR and a consumer that copies the images into its
+     own registry keeps the same paths. Both packages are PUBLIC.
+  2. **A deploy bundle attached to the GitHub Release of the tag**:
+     `pythia-deploy-<tag>.tar.gz` plus `pythia-deploy-<tag>.tar.gz.sha256`.
+
+  ## The bundle is a public contract
+
+  Downstream consumers depend on the bundle, NOT on this repository's
+  layout, so its shape is documented in `docs/deployment.md` and changed
+  only deliberately:
+
+  ```
+  pythia-deploy-v1.2.0/
+    release.env                 the release's identity, see below
+    LICENSE  NOTICE             Apache-2.0 requires NOTICE to travel along
+    scripts/deploy.sh
+    scripts/smoke.sh
+    k8s/base/**
+    k8s/overlays/staging/**
+    k8s/overlays/production/**  (NOT the minikube overlay)
+  ```
+
+  `release.env`, `KEY=value` lines only, no quoting, no comments:
+
+  ```
+  PYTHIA_VERSION=v1.2.0
+  SOURCE_COMMIT=<40-hex commit the tag points at>
+  BACKEND_IMAGE=ghcr.io/<owner>/pythia/pythia-backend
+  BACKEND_DIGEST=sha256:<64 hex>
+  FRONTEND_IMAGE=ghcr.io/<owner>/pythia/pythia-frontend
+  FRONTEND_DIGEST=sha256:<64 hex>
+  ```
+
+  The digests are those of the multi-arch INDEXES this release run pushed.
+  The digest, not the tag, is the contract: GHCR tags can be overwritten, a
+  digest cannot, and our image build is not byte-reproducible (root
+  CLAUDE.md), so a re-run would produce different digests under the same
+  tag.
+
+  **The bundle is built with `git archive` from the tag**, with `release.env`
+  added via `--add-virtual-file`. That makes it (a) exactly the tagged
+  content, never a dirty working tree, and (b) byte-reproducible: verified
+  2026-10-11 with git 2.54, two runs give the same SHA-256 (git's internal
+  gzip writes no timestamp, entries carry the commit time). No GNU tar, no
+  new tool.
+
+  ## The overlays pin images by digest
+
+  `k8s/overlays/{staging,production}/kustomization.yaml` replace
+  `newTag: ${IMAGE_TAG}` with `digest: ${BACKEND_DIGEST}` /
+  `digest: ${FRONTEND_DIGEST}`. Verified 2026-10-11 with kubectl 1.37:
+  kustomize passes the placeholder through and renders
+  `${REGISTRY}/pythia/pythia-backend@${BACKEND_DIGEST}`, which `deploy.sh`'s
+  existing envsubst step resolves. `IMAGE_TAG` disappears from both
+  overlays. The minikube overlay is untouched (it uses its own registry and
+  tag, task-196).
+
+  ## deploy.sh reads release.env
+
+  When `$PROJECT_ROOT/release.env` exists (i.e. `deploy.sh` runs from an
+  unpacked bundle), `deploy.sh` takes `BACKEND_DIGEST`, `FRONTEND_DIGEST`
+  and `PYTHIA_VERSION` from it, BEFORE rendering anything:
+  - It parses the file, never `source`s it: only lines matching
+    `^[A-Z_]+=[^[:space:]]*$`, only the keys listed above, anything else is
+    an error. The bundle is downloaded data.
+  - If the caller ALSO set `BACKEND_DIGEST` or `FRONTEND_DIGEST` to a
+    DIFFERENT value, it refuses. The bundle's pin wins by refusal, not by
+    silently overriding either side.
+  - It exports them, because envsubst reads the environment.
+  Without `release.env` (a git checkout, e.g. testing against a local
+  minikube) the caller supplies both digests, and the existing
+  placeholder check already names them when they are missing. In BOTH cases
+  every `*_DIGEST` value must match `^sha256:[0-9a-f]{64}$`, or `deploy.sh`
+  refuses: an envsubst of a malformed digest would only fail at pull time.
+  The final message names `PYTHIA_VERSION` (or "unversioned") and both
+  digests instead of `IMAGE_TAG`.
+
+  ## The publish job
+
+  A `publish` job in `.github/workflows/ci.yaml`, only for `v*` tags, after
+  every gating job has passed. Its permissions are raised at JOB level only
+  (`contents: write` for the release, `packages: write` for GHCR); the
+  workflow-level `permissions: contents: read` stays, and it uses the
+  built-in `GITHUB_TOKEN` and no secret. The owner is never written as a
+  literal: `ci.yaml` must not contain it (task-027's leak check greps for
+  it), so the job derives it from `${{ github.repository_owner }}`.
+
+  Order, and why: push the backend → `_Bean` check (task-194) on the
+  augmentation that was just pushed → push the frontend → read both index
+  digests from the registry and assert amd64 + arm64 → build the bundle →
+  create the release as a DRAFT with both assets → publish the draft. A
+  consumer can only see a release whose images exist and passed the check;
+  a failed run leaves at most unreferenced images on GHCR and a draft.
+
+  Re-runs: if a PUBLISHED release for the tag already exists, the job fails
+  ("releases are immutable; tag the next patch version", task-193). A DRAFT
+  left by a failed run is deleted and recreated (`gh release delete` without
+  `--cleanup-tag` keeps the tag).
+
+  ## One-time GitHub settings (documented, not automated)
+
+  - After the first publish, set both GHCR packages to PUBLIC (package page →
+    Package settings → Change visibility) and check they are linked to this
+    repository. If the first push is refused with 403, the organisation's
+    package settings must grant this repository write access (Package
+    settings → Manage Actions access).
+  - Enable immutable releases for the repository if the plan offers it
+    (Settings → General → Releases), so a published release's assets cannot
+    be replaced afterwards. The `.sha256` asset detects corruption, not a
+    replaced pair; immutability is what covers that.
+
+  ## Out of scope
+
+  Signing or attestations (cosign, GitHub artifact attestations), SBOMs,
+  publishing the minikube overlay, deriving the Gradle version from the tag
+  (task-193 keeps `1.0.0-SNAPSHOT`), and any downstream pipeline.
+
+  ## What does NOT go here
+
+  Any internal hostname, registry, group or project name. Refer to the
+  internal deployment only as `<internal-group>/<deploy-project>`.
+
+steps:
+  - |
+    Read `.github/workflows/ci.yaml` as task-193 left it (the `release-tag`
+    job, the `v*` trigger) and the push commands task-196 established in
+    `scripts/minikube-deploy.sh` and the `images` job. The publish job copies
+    those forms; it does not invent new ones.
+  - |
+    `k8s/overlays/staging/kustomization.yaml` and
+    `k8s/overlays/production/kustomization.yaml`: in both `images:` entries
+    replace `newTag: ${IMAGE_TAG}` with `digest: ${BACKEND_DIGEST}` resp.
+    `digest: ${FRONTEND_DIGEST}`. Rewrite the comment above them: the image is
+    pinned by the digest of a released multi-arch index, which a release's
+    `release.env` provides; drop the "short commit SHA" sentence. Keep
+    production's point that a floating tag must never be deployed.
+  - |
+    `scripts/deploy.sh`: implement "deploy.sh reads release.env" exactly as
+    described, placed BEFORE `kubectl kustomize` (and before the tool check,
+    so a mismatch fails with no cluster contact). Validate every `*_DIGEST`
+    the rendered overlay requires after the existing placeholder check.
+    Update the header comment and the usage text (they name `IMAGE_TAG`
+    today) and the final message. Keep the refuse-to-be-sourced guard and
+    `set -euo pipefail`.
+  - |
+    Create `scripts/release-bundle.sh`, executable, same refuse-to-be-sourced
+    guard and `set -euo pipefail` as `deploy.sh`:
+      scripts/release-bundle.sh <version> <image-base> <backend-digest> \
+                                <frontend-digest> <out-dir> [<git-ref>]
+    `<image-base>` is e.g. `ghcr.io/<owner>/pythia`; `<git-ref>` defaults to
+    `<version>`. It validates `<version>` against
+    `^v[0-9]+\.[0-9]+\.[0-9]+$` and both digests against
+    `^sha256:[0-9a-f]{64}$`, writes `release.env` content (SOURCE_COMMIT =
+    `git rev-parse "<git-ref>^{commit}"`), and runs
+      git archive --format=tar.gz --prefix="pythia-deploy-$V/" \
+        --add-virtual-file="pythia-deploy-$V/release.env:$ENV" \
+        "<git-ref>^{commit}" -- LICENSE NOTICE scripts/deploy.sh \
+        scripts/smoke.sh k8s/base k8s/overlays/staging k8s/overlays/production
+    into `<out-dir>/pythia-deploy-$V.tar.gz`, then writes
+    `pythia-deploy-$V.tar.gz.sha256` in `sha256sum` format
+    (`<hex>  pythia-deploy-$V.tar.gz`, so `sha256sum -c` works from
+    `<out-dir>`). Use `shasum -a 256` when `sha256sum` is missing (macOS).
+    Comment WHY `git archive`: tagged content only, and byte-reproducible.
+  - |
+    `ci.yaml`: add the `publish` job.
+      if: startsWith(github.ref, 'refs/tags/v')
+      needs: [build, e2e, images, release-tag]   # every gating job
+      permissions: { contents: write, packages: write }
+      concurrency: { group: publish-${{ github.ref }}, cancel-in-progress: false }
+    Same checkout / setup-java / setup-gradle steps and pinning as the
+    `images` job. Shell steps, with `GH_TOKEN: ${{ github.token }}`:
+      V="$GITHUB_REF_NAME"
+      OWNER="${GITHUB_REPOSITORY_OWNER,,}"
+      BASE="ghcr.io/$OWNER/pythia"
+    a. Release state: `gh release view "$V" --json isDraft -q .isDraft`;
+       `false` → fail with the immutability message; `true` → delete the
+       draft; not found → continue.
+    b. Backend, credentials as environment variables only
+       (`QUARKUS_CONTAINER_IMAGE_USERNAME=${{ github.actor }}`,
+       `QUARKUS_CONTAINER_IMAGE_PASSWORD=${{ github.token }}`):
+         ./gradlew :backend:implementation:quarkusAppPartsBuild --rerun \
+           :backend:implementation:imageBuild \
+           -Dquarkus.container-image.push=true \
+           -Dquarkus.container-image.image="$BASE/pythia-backend:$V" \
+           --no-build-cache
+       `quarkus.container-image.image` replaces registry/group/name/tag in
+       one value. Confirm in the log that the pushed reference is exactly
+       `$BASE/pythia-backend:$V` and that task-196's push-implies-multi-arch
+       still triggers (it keys on `quarkus.container-image.push`). If Quarkus
+       ignores `image`, use `registry=ghcr.io`, `group=$OWNER/pythia`,
+       `tag=$V` instead, and say so in a comment.
+    c. The task-194 `_Bean` check on
+       `src/backend/implementation/build/quarkus-app/quarkus/generated-bytecode.jar`
+       of THIS augmentation: `EntraAuthModule_Bean.class` present,
+       `DevAuthModule_Bean.class` absent. Reuse the `build` job's check
+       rather than duplicating its wording.
+    d. Frontend (`ORG_GRADLE_PROJECT_frontendImageUsername` / `…Password`
+       from the same token):
+         ./gradlew :frontend:imageBuild -PfrontendImagePush=true \
+           -PfrontendImageRegistry="ghcr.io/$OWNER" -PfrontendImageTag="$V"
+       which yields `$BASE/pythia-frontend:$V`.
+    e. Digests: for each image, `skopeo inspect --raw --creds
+       "${{ github.actor }}:$GH_TOKEN" "docker://$BASE/pythia-<x>:$V"` into a
+       file; assert with jq that `.manifests[].platform.architecture`
+       contains `amd64` and `arm64`; digest = `sha256:` + SHA-256 of those
+       raw bytes (the definition of a manifest digest). Install skopeo with
+       apt only if `command -v skopeo` fails.
+    f. `scripts/release-bundle.sh "$V" "$BASE" "$BD" "$FD" dist`, then
+       `(cd dist && sha256sum -c pythia-deploy-$V.tar.gz.sha256)`.
+    g. `gh release create "$V" --verify-tag --draft --title "Pythia ${V#v}"
+       --notes-file notes.md dist/*` where notes.md lists both image
+       references WITH digests and the bundle checksum; then
+       `gh release edit "$V" --draft=false`.
+    Comment the order (see description) above the job.
+  - |
+    `docs/deployment.md` — rewrite for the published-release model. This
+    task, not task-193, owns the downstream flow:
+    - Overview and "GitLab setup": there is no mirror and no external CI
+      configuration any more. A downstream pipeline
+      (`<internal-group>/<deploy-project>`) polls for the newest `v*` tag,
+      downloads that release's bundle, optionally copies the images into its
+      own registry, and runs `deploy.sh` from the unpacked bundle on the
+      server. Drop the "Pull mirror" and "External CI configuration" steps.
+    - Replace "## Pipeline stages" stage 1 ("Build and push images") with
+      "## What a release publishes": both GHCR references, the bundle layout
+      and the `release.env` keys above (as the contract), the checksum, and
+      how a consumer verifies and copies:
+        sha256sum -c pythia-deploy-v1.2.0.tar.gz.sha256
+        skopeo copy --all --preserve-digests \
+          docker://ghcr.io/<owner>/pythia/pythia-backend@$BACKEND_DIGEST \
+          docker://$REGISTRY/pythia/pythia-backend:v1.2.0
+      (`--all` keeps every platform, `--preserve-digests` keeps the digest
+      the overlay pins). Keep the paragraphs from tasks 194/195/196 about how
+      the images are built (no auth provider, no Docker daemon, multi-arch,
+      reproducibility inputs) under that heading: they describe what is
+      published.
+    - Variables table: remove `IMAGE_TAG`; add `BACKEND_DIGEST` /
+      `FRONTEND_DIGEST` ("from the bundle's release.env; set by hand only
+      when deploying from a git checkout"); `REGISTRY` may be
+      `ghcr.io/<owner>` or a registry holding copies. Fix the
+      `REGISTRY_USER` / `REGISTRY_PASSWORD` row (no `docker login`; pull
+      credentials for the cluster, not needed for public GHCR).
+    - "Runner requirements": no Docker, no build toolchain; HTTPS to
+      `github.com` (tags and release assets, which redirect to a
+      `*.githubusercontent.com` host), `ghcr.io` (blobs redirect to
+      `pkg-containers.githubusercontent.com`), and the consumer's own
+      registry if it copies.
+    - "Image tags: always immutable" → digests; "Deploying by hand" →
+      download, verify, unpack, run `./scripts/deploy.sh <stage>` inside the
+      bundle directory; "Rollback" → deploy the previous release's bundle.
+      Flyway migrations are forward-only: rolling back across a release that
+      added a migration is not safe — say so there.
+    - "## Releasing" (task-193): add the one-time GHCR visibility and
+      immutable-releases settings, and what `publish` does on a re-run.
+    - `git grep -n IMAGE_TAG` afterwards: only `MINIKUBE_IMAGE_TAG` hits may
+      remain, anywhere in the repository except `planning/`.
+  - |
+    Root `CLAUDE.md`, paragraph "Deployment (task-028) is NOT in this
+    repository": replace "pull-mirrors the GitHub repo" and the
+    `${IMAGE_TAG}` mention. Releases publish GHCR images and a deploy bundle
+    (task-199); the overlays carry `${BACKEND_DIGEST}`/`${FRONTEND_DIGEST}`;
+    the bundle layout and `release.env` keys are a public contract
+    documented in `docs/deployment.md`. Keep "never commit a real one".
+  - |
+    Re-read every changed line for an internal hostname, registry, group,
+    project or organisation name; and `ci.yaml` for the literal repository
+    owner (must be absent, see the description).
+  - |
+    ./gradlew build
+
+validation:
+  - |
+    ruby -ryaml -e '
+      w = YAML.load_file(".github/workflows/ci.yaml")
+      abort "top-level permissions changed" unless w["permissions"] == {"contents" => "read"}
+      p = w["jobs"]["publish"] or abort "no publish job"
+      abort "publish permissions" unless p["permissions"] == {"contents" => "write", "packages" => "write"}
+      w["jobs"].each { |n, j| abort "#{n} has elevated permissions" if n != "publish" && j["permissions"] }
+      abort "publish must need the gate" unless (%w[build e2e images release-tag] - Array(p["needs"])).empty?
+      abort "publish if" unless p["if"].to_s.include?("refs/tags/v")'
+  - |
+    ! grep -qi "techatspree" .github/workflows/ci.yaml
+  - |
+    grep -q "repository_owner" .github/workflows/ci.yaml && grep -q "draft=false" .github/workflows/ci.yaml && grep -q "quarkusAppPartsBuild --rerun" .github/workflows/ci.yaml
+  - |
+    ! grep -rq 'IMAGE_TAG' k8s/overlays/staging k8s/overlays/production scripts/deploy.sh
+  - |
+    D="sha256:$(printf 'a%.0s' $(seq 64))"; F="sha256:$(printf 'b%.0s' $(seq 64))"
+    for s in staging production; do
+      kubectl kustomize k8s/overlays/$s | REGISTRY=r.example BACKEND_DIGEST=$D FRONTEND_DIGEST=$F \
+        envsubst '${REGISTRY} ${BACKEND_DIGEST} ${FRONTEND_DIGEST}' > /tmp/r.yaml
+      grep -q "image: r.example/pythia/pythia-backend@$D" /tmp/r.yaml
+      grep -q "image: r.example/pythia/pythia-frontend@$F" /tmp/r.yaml
+    done
+  - |
+    # The bundle: deterministic, the documented layout, valid release.env.
+    # `git stash create` gives a commit of the working tree, so this runs
+    # before the change is committed (falls back to HEAD when clean).
+    REF=$(git stash create); REF=${REF:-HEAD}
+    D="sha256:$(printf 'a%.0s' $(seq 64))"; F="sha256:$(printf 'b%.0s' $(seq 64))"
+    O=$(mktemp -d)
+    scripts/release-bundle.sh v0.0.0 ghcr.io/acme/pythia "$D" "$F" "$O/1" "$REF"
+    scripts/release-bundle.sh v0.0.0 ghcr.io/acme/pythia "$D" "$F" "$O/2" "$REF"
+    cmp "$O/1/pythia-deploy-v0.0.0.tar.gz" "$O/2/pythia-deploy-v0.0.0.tar.gz"
+    (cd "$O/1" && shasum -a 256 -c pythia-deploy-v0.0.0.tar.gz.sha256)
+    L=$(tar -tzf "$O/1/pythia-deploy-v0.0.0.tar.gz")
+    for f in release.env LICENSE NOTICE scripts/deploy.sh scripts/smoke.sh \
+             k8s/base/kustomization.yaml k8s/overlays/staging/kustomization.yaml \
+             k8s/overlays/production/kustomization.yaml; do
+      echo "$L" | grep -qx "pythia-deploy-v0.0.0/$f" || { echo "missing $f"; exit 1; }
+    done
+    ! echo "$L" | grep -q "overlays/minikube"
+    tar -xzOf "$O/1/pythia-deploy-v0.0.0.tar.gz" pythia-deploy-v0.0.0/release.env > "$O/env"
+    grep -qx "PYTHIA_VERSION=v0.0.0" "$O/env" && grep -qx "BACKEND_DIGEST=$D" "$O/env" \
+      && grep -qx "FRONTEND_IMAGE=ghcr.io/acme/pythia/pythia-frontend" "$O/env" \
+      && grep -qE "^SOURCE_COMMIT=[0-9a-f]{40}$" "$O/env"
+    rm -rf "$O"
+  - |
+    # Bad input is refused.
+    O=$(mktemp -d)
+    ! scripts/release-bundle.sh v1.2 ghcr.io/acme/pythia "sha256:$(printf 'a%.0s' $(seq 64))" "sha256:$(printf 'b%.0s' $(seq 64))" "$O" HEAD
+    ! scripts/release-bundle.sh v1.2.0 ghcr.io/acme/pythia sha256:abc "sha256:$(printf 'b%.0s' $(seq 64))" "$O" HEAD
+    rm -rf "$O"
+  - |
+    # deploy.sh from a bundle refuses a conflicting digest BEFORE touching a
+    # cluster, and refuses a malformed one.
+    REF=$(git stash create); REF=${REF:-HEAD}
+    D="sha256:$(printf 'a%.0s' $(seq 64))"; F="sha256:$(printf 'b%.0s' $(seq 64))"
+    O=$(mktemp -d)
+    scripts/release-bundle.sh v0.0.0 ghcr.io/acme/pythia "$D" "$F" "$O" "$REF"
+    tar -xzf "$O/pythia-deploy-v0.0.0.tar.gz" -C "$O"
+    ! BACKEND_DIGEST="sha256:$(printf 'c%.0s' $(seq 64))" "$O/pythia-deploy-v0.0.0/scripts/deploy.sh" staging 2> "$O/err"
+    grep -q "release.env" "$O/err"
+    echo "BACKEND_DIGEST=sha256:nothex" > "$O/bad.env"
+    cp "$O/bad.env" "$O/pythia-deploy-v0.0.0/release.env"
+    ! "$O/pythia-deploy-v0.0.0/scripts/deploy.sh" staging
+    rm -rf "$O"
+  - |
+    shellcheck scripts/deploy.sh scripts/release-bundle.sh
+  - |
+    grep -q "^## What a release publishes" docs/deployment.md && grep -q "release.env" docs/deployment.md && grep -q -- "--preserve-digests" docs/deployment.md
+  - |
+    ! grep -qi "pull mirror" docs/deployment.md
+  - |
+    grep -q "<internal-group>/<deploy-project>" docs/deployment.md
+  - |
+    test -z "$(git grep -n 'IMAGE_TAG' -- ':!planning' | grep -v MINIKUBE_IMAGE_TAG)"
+  - |
+    grep -q "BACKEND_DIGEST" CLAUDE.md && grep -q "task-199" CLAUDE.md
+  - |
+    ./gradlew build
+
+outputs:
+  - modified: .github/workflows/ci.yaml
+  - created: scripts/release-bundle.sh
+  - modified: scripts/deploy.sh
+  - modified: k8s/overlays/staging/kustomization.yaml
+  - modified: k8s/overlays/production/kustomization.yaml
+  - modified: docs/deployment.md
+  - modified: CLAUDE.md

@@ -15,14 +15,15 @@ repositories {
 
 // Pushing implies multi-arch (task-196). A registry can hold a multi-platform
 // index; a load into the Docker daemon takes a single image, so the daemon
-// default in gradle.properties stays linux/amd64 and only a push widens it.
+// default in application.properties stays linux/amd64 and only a push widens it.
 // Two ways to push, both covered: `imageBuild -Dquarkus.container-image.push=true`
 // (the documented form) and the plugin's own `imagePush` task, which forces the
 // push internally where no system property is visible.
-// Precedence, verified from the 3.35.1 plugin's EffectiveConfig: forced task
-// properties (600) > task properties (500) > system properties (400) >
-// environment (300) > quarkus { set() } (290) > gradle.properties (280). So this
-// set() overrides the gradle.properties default, and an explicit
+// Precedence, verified from the plugin's EffectiveConfig (task-196, re-verified
+// unchanged for Quarkus 3.40.1 in task-198): forced task properties (600) > task properties (500) >
+// system properties (400) > environment (300) > quarkus { set() } (290) >
+// gradle.properties (280) > application.properties (250). So this set()
+// overrides the application.properties default, and an explicit
 // -Dquarkus.jib.platforms=… still wins over both.
 val pushesImage = providers.systemProperty("quarkus.container-image.push").orNull == "true" ||
     gradle.startParameter.taskNames.any { it.endsWith("imagePush") }

@@ -158,7 +158,10 @@ artifact in the loop.
 The backend uses the `io.quarkus` Gradle plugin (dev mode: `quarkusDev`; image
 build: `imageBuild`). The frontend uses the Gradle Node plugin
 (`com.github.node-gradle.node`) to install Node/npm and run the `gen:api`,
-`build`, `check`, and `lint:report` npm scripts. detekt (Kotlin) and ESLint
+`build`, `check`, and `lint:report` npm scripts. That is the build's only
+Node.js version: `nodeVersion` in the root `gradle.properties`, shared with the
+Kotlin/JS toolchain of `:domain` (task-197), which would otherwise download its
+own newer Node — whose Yarn 1 then prints a `DEP0169` warning on every build. detekt (Kotlin) and ESLint
 (TS/Svelte/HTML) run as Gradle tasks with informational reports, except the
 `e2e/` subset of ESLint, which `lintE2e` enforces (task-191).
 

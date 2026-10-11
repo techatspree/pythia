@@ -12,6 +12,9 @@ import kotlin.js.JsExport
  * from here and the frontend parameter panel offers them as "use defaults", so
  * all three tiers read ONE set of numbers instead of re-hardcoding them.
  */
+// Exporting an `object` (not a class) is experimental since Kotlin 2.4 (task-198);
+// opted in here deliberately: the frontend reads these defaults through it.
+@OptIn(kotlin.js.ExperimentalJsExport::class)
 @JsExport
 object EstimationDefaults {
     /** Risk std-deviation multiplier. */

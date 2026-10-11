@@ -134,7 +134,7 @@ The dev module is **strict**: there is no default-user fallback, so a request wi
 
 ## Reproducible Jib backend image
 
-`src/backend/implementation/gradle.properties` configures Jib for byte-deterministic images. **Both** `quarkus.jib.use-current-timestamp` and `quarkus.jib.use-current-timestamp-file-modification` must be `false`. Setting only one yields non-reproducible builds.
+`src/backend/implementation/src/main/resources/application.properties` configures Jib for byte-deterministic images (container-image name, digest-pinned base, platforms, timestamp flags). They lived in the module's `gradle.properties` until task-198: **Quarkus 3.40's Gradle plugin no longer reads `quarkus.*` keys from a sub-project's `gradle.properties`** and silently fell back to defaults (image `<user>/implementation`, a floating base, current timestamps). Never move them back. **Both** `quarkus.jib.use-current-timestamp` and `quarkus.jib.use-current-timestamp-file-modification` must be `false`. Setting only one yields non-reproducible builds.
 
 ## System settings (per installation)
 

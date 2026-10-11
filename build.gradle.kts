@@ -6,13 +6,13 @@
 plugins {
     // Kotlin is one shared plugin artifact across :domain (multiplatform) and
     // :backend:implementation (jvm), so the version is unified here. It must
-    // match the kotlin-stdlib the Quarkus 3.35.1 BOM enforces (2.3.21):
+    // match the kotlin-stdlib the Quarkus 3.40.1 BOM enforces (2.4.10):
     // a 2.1.x compiler cannot read 2.3.x stdlib metadata (ICE).
-    kotlin("multiplatform") version "2.3.21" apply false
-    kotlin("jvm") version "2.3.21" apply false
-    kotlin("plugin.allopen") version "2.3.21" apply false
-    kotlin("plugin.noarg") version "2.3.21" apply false
-    id("io.quarkus") version "3.35.1" apply false
+    kotlin("multiplatform") version "2.4.10" apply false
+    kotlin("jvm") version "2.4.10" apply false
+    kotlin("plugin.allopen") version "2.4.10" apply false
+    kotlin("plugin.noarg") version "2.4.10" apply false
+    id("io.quarkus") version "3.40.1" apply false
     id("io.gitlab.arturbosch.detekt") version "1.23.8" apply false
     id("com.github.node-gradle.node") version "7.1.0" apply false
 }
@@ -21,9 +21,20 @@ allprojects {
     group = "io.pythia"
     version = "1.0.0-SNAPSHOT"
 
+    // Kotlin/JS (:domain and its sub-projects, plus the root) would otherwise
+    // download the Kotlin Gradle plugin's own Node default (24.10.0 when this was
+    // written, task-197) next to the frontend's. Its Yarn 1 calls url.parse(), which Node
+    // 24+ reports as DEP0169 on every build. One version for the whole build,
+    // read from gradle.properties, so the two toolchains cannot drift (task-197).
+    plugins.withType<org.jetbrains.kotlin.gradle.targets.js.nodejs.NodeJsPlugin> {
+        the<org.jetbrains.kotlin.gradle.targets.js.nodejs.NodeJsEnvSpec>()
+            .version.set(providers.gradleProperty("nodeVersion"))
+    }
+
     // Stamp the licence onto every produced jar manifest. These are constants —
     // nothing time- or environment-derived — so the reproducible Jib image
-    // (src/backend/implementation/gradle.properties) stays byte-deterministic.
+    // (src/backend/implementation/src/main/resources/application.properties)
+    // stays byte-deterministic.
     tasks.withType<Jar>().configureEach {
         manifest {
             attributes(

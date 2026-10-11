@@ -37,6 +37,40 @@ description: |
     in `gradle-application-plugin-3.40.1.jar`) and update the version and,
     if needed, the order.
 
+  ## Verified before implementation (2026-10-11)
+
+  - KGP 2.4.10 still has `NodeJsEnvSpec`, `NodeJsPlugin` and
+    `EnvSpec.version`, so task-197's Node.js pin keeps working unchanged.
+  - `kotlinUpgradeYarnLock` exists (next to the store/restore lock tasks).
+  - The Quarkus 3.40.1 Gradle plugin is published on the Gradle Plugin Portal.
+    `gradle-application-plugin` is not on Maven Central; it never was.
+  - **detekt 1.23.8 ran successfully with the 2.4.10 / 3.40.1 pins.** Only
+    the version pins were raised temporarily; `:domain:core:detekt` and
+    `:backend:implementation:detekt` both executed (not cached) and passed,
+    and the files were restored byte-identically. This covers RUNNING detekt
+    on the new toolchain, not the full build, so risk 1's stop-and-report
+    rule still applies.
+
+  ## This task reverses a documented decision
+
+  `docs/development.md`, "Known upstream deprecations (Gradle 10)", records
+  (verified 2026-07) why the project STAYED on Quarkus 3.35.1 / Kotlin 2.3.21:
+  detekt 1.23.8 "caps the supported Kotlin version", a newer Kotlin "would
+  break detekt 1.23.8", and bumping Quarkus "gives no benefit, so we stay on
+  the validated 3.35.1". The trial above contradicts the detekt claim for
+  2.4.10, and this task performs the bump. So the table is not just updated
+  where numbers changed; its REASONING is rewritten:
+  - the Quarkus row: the version is now 3.40.1, whether 3.40.1 still emits
+    `Project.getProperties`, and why the project moved (the Kotlin/stdlib
+    coupling, task-197/198), replacing "we stay on the validated 3.35.1";
+  - the Kotlin Multiplatform row: whether KGP 2.4.10 still emits
+    `getTaskDependencyFromProjectDependency`;
+  - the detekt row: correct the "caps the supported Kotlin version" and
+    "would break detekt" statements with this task's evidence. Keep the
+    `ReportingExtension.file(String)` deprecation if it is still emitted.
+  Re-check each deprecation with `./gradlew build -x test --warning-mode all`
+  and quote what is actually emitted.
+
   ## Known risks, each with a check in the steps
 
   1. **detekt.** `io.gitlab.arturbosch.detekt` 1.23.8 is the newest stable
@@ -147,9 +181,17 @@ steps:
     sourced from the workspace's `EntraIdVariables.sh`, never printed): both
     pods Running, the freshness check matching.
   - |
-    Update docs: the Kotlin/Quarkus versions wherever docs name them (grep
-    for `3.35.1` and `2.3.21` outside `planning/`), and the "Known upstream
-    deprecations (Gradle 10)" table if the emitted deprecations changed.
+    Update docs:
+      * `docs/development.md`, "Known upstream deprecations (Gradle 10)":
+        rewrite the reasoning as described in "This task reverses a
+        documented decision", based on
+        `./gradlew build -x test --warning-mode all`.
+      * `src/frontend/CLAUDE.md`: the note "(Kotlin 2.3.x emits
+        `domain.d.mts` directly; `prepareTypescriptArtifacts` copies it
+        through.)" is version-specific. Update it to what 2.4.10 actually
+        does, as observed in step 3's `domain.d.mts` diff.
+      * Every other place that names the old versions (grep for `3.35.1`,
+        `2.3.21` and `2.3.x` outside `planning/`).
   - |
     ./gradlew build
 
@@ -161,7 +203,9 @@ validation:
     grep -q 'kotlin("plugin.noarg") version "2.4.10"' build.gradle.kts
     grep -q 'id("io.quarkus") version "3.40.1"' build.gradle.kts
     grep -qx 'quarkusPlatformVersion=3.40.1' src/backend/implementation/gradle.properties
-    ! grep -rnE "3\.35\.1|2\.3\.21" --exclude-dir=node_modules --exclude-dir=build --exclude-dir=planning --exclude-dir=.git --exclude-dir=.gradle --exclude-dir=kotlin-js-store --exclude=package-lock.json .
+    ! grep -rnE "3\.35\.1|2\.3\.21|Kotlin 2\.3\.x" --exclude-dir=node_modules --exclude-dir=build --exclude-dir=planning --exclude-dir=.git --exclude-dir=.gradle --exclude-dir=kotlin-js-store --exclude=package-lock.json .
+    ! grep -q "we stay on the validated 3.35.1" docs/development.md
+    ! grep -q "would break detekt 1.23.8" docs/development.md
   - |
     # The rule the pins exist for: Kotlin equals the BOM's stdlib.
     python3 - <<'PY'
@@ -195,7 +239,8 @@ outputs:
   - modified: build.gradle.kts
   - modified: src/backend/implementation/gradle.properties
   - modified: src/backend/implementation/build.gradle.kts   # EffectiveConfig comment re-verified
-  - modified: docs/development.md                          # versions / deprecation table, if changed
+  - modified: docs/development.md                          # deprecation table: reasoning rewritten
+  - modified: src/frontend/CLAUDE.md                       # the "Kotlin 2.3.x emits domain.d.mts" note
   # Conditionally modified (keep only if the build regenerates them):
   # kotlin-js-store/yarn.lock, src/domain/kotlin-js-store/yarn.lock,
   # src/frontend/src/lib/api/openapi.json, src/frontend/src/lib/api/schema.d.ts,

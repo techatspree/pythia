@@ -12,7 +12,7 @@ repositories {
 
 kotlin {
     jvm {
-        // Kotlin 2.3.x removed the legacy `kotlinOptions` DSL in favor of
+        // Kotlin 2.3 and later removed the legacy `kotlinOptions` DSL in favor of
         // the typed `compilerOptions`.
         compilerOptions {
             jvmTarget.set(JvmTarget.JVM_21)
@@ -72,7 +72,7 @@ allOpen {
 }
 
 // Create .d.mts companions for .mjs files so TypeScript bundler mode resolves types correctly.
-// Kotlin 2.3.x emits `.d.mts` directly (e.g. domain.d.mts); copy those through.
+// Kotlin 2.3 and later emit `.d.mts` directly (e.g. domain.d.mts); copy those through.
 // For any .mjs lacking a .d.mts (older-style .d.ts, or dependency stubs), derive one.
 val prepareTypescriptArtifacts = tasks.register<Copy>("prepareTypescriptArtifacts") {
     description = "prepare TS artifacts for KMP"

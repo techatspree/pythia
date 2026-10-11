@@ -115,6 +115,7 @@ jobs:
       # match the version the Gradle node plugin pins for npmInstall.
       - uses: actions/setup-node@v7
         with:
+          # Must equal nodeVersion in gradle.properties (task-197).
           node-version: 22.14.0
 
       # Materialises what the Vite dev server needs and the repository does not
@@ -267,13 +268,23 @@ jobs:
       # runs, and they are what the root CLAUDE.md rule protects.
       - name: Verify the image build stays time- and environment-independent
         run: |
-          P=src/backend/implementation/gradle.properties
+          # application.properties since task-198: Quarkus 3.40 no longer reads
+          # quarkus.* keys from the module's gradle.properties.
+          P=src/backend/implementation/src/main/resources/application.properties
           grep -qx 'quarkus.jib.use-current-timestamp=false' "$P" \
             || { echo "quarkus.jib.use-current-timestamp must stay false" >&2; exit 1; }
           grep -qx 'quarkus.jib.use-current-timestamp-file-modification=false' "$P" \
             || { echo "quarkus.jib.use-current-timestamp-file-modification must stay false" >&2; exit 1; }
           grep -q 'quarkus.jib.base-jvm-image=.*@sha256:' "$P" \
             || { echo "the Jib base image must be pinned by digest, not a floating tag" >&2; exit 1; }
+          # The greps above only prove the settings are WRITTEN. Prove they are
+          # APPLIED: with the timestamp flags in effect Jib stamps the fixed epoch.
+          # This is what caught Quarkus 3.40 silently ignoring the old location.
+          created=$(docker image inspect pythia/pythia-backend:1.0.0-SNAPSHOT --format '{{.Created}}')
+          case "$created" in
+            1970-01-01T00:00:00*) ;;
+            *) echo "backend image created at $created: the Jib timestamp flags are not applied" >&2; exit 1 ;;
+          esac
           F=src/frontend/build.gradle.kts
           grep -q 'nginx:[^"]*@sha256:' src/frontend/build.gradle.kts \
             || { echo "the frontend nginx base image must be pinned by digest" >&2; exit 1; }
@@ -306,6 +317,7 @@ jobs:
 
       - uses: actions/setup-node@v7
         with:
+          # Must equal nodeVersion in gradle.properties (task-197).
           node-version: 22.14.0
 
       # Dev dependencies are IN scope (task-192). In a SvelteKit adapter-static

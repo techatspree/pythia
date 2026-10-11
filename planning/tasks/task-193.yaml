@@ -1,38 +1,129 @@
 id: task-193
 phase: phase-18
-title: "Release convention: v<semver> tags on main, CI-gated"
-depends_on: [task-162, task-196]
+title: "Releases: v<semver> tags, versioned builds, release script"
+depends_on: [task-198]
 description: |
   Pythia has no notion of a release. There are no git tags, the Gradle version
   is a permanent `1.0.0-SNAPSHOT`, and `docs/deployment.md` describes a
   downstream pipeline that builds and deploys on every push to `main`.
 
   The internal deployment (`<internal-group>/<deploy-project>`, see
-  `docs/deployment.md`) is moving to "build an internal image only when Pythia
-  publishes a new version". That needs a definition of "a new version" that is
-  owned HERE, publicly, because it is a property of the project and not of any
-  one installation. This task supplies it; it builds and pushes nothing.
+  `docs/deployment.md`) is moving to "deploy only what Pythia publishes as a
+  release". That needs a definition of "a release" that is owned HERE,
+  publicly, because it is a property of the project and not of any one
+  installation. This task supplies the definition and the tooling to cut one.
+  It pushes nothing itself; task-199 makes a release publish images and a
+  deploy bundle.
 
   ## The convention (decided)
 
   - A release is an **annotated git tag `v<MAJOR>.<MINOR>.<PATCH>`** (e.g.
     `v1.2.0`; no pre-release or build suffix) pointing at a commit that is
-    **already on `main`**. A GitHub Release may be attached for notes, but the
-    tag is the release; downstream consumers key on the tag only.
+    **on `main`**. A GitHub Release may be attached for notes, but the tag is
+    the release; downstream consumers key on the tag only.
+  - **The application version IS the release version (decided: "option B",
+    the Maven release model).** The version lives in the source as ONE line,
+    `version=…` in the root `gradle.properties`:
+      * between releases it is `<next>-SNAPSHOT`;
+      * a release is a commit that sets it to `X.Y.Z`, with the tag
+        `vX.Y.Z` on EXACTLY that commit;
+      * the next commit moves `main` to the following SNAPSHOT (default: the
+        next patch version, `X.Y.(Z+1)-SNAPSHOT`).
+    So a released build identifies itself everywhere the version already
+    flows: the backend and frontend image tags, the jar manifest
+    (`Implementation-Version`), and the OpenAPI document's `info.version`.
+    This does not violate the reproducibility rule in the root CLAUDE.md:
+    the version is committed source, not derived from the time, the
+    environment, or git metadata at build time. Never derive it from
+    `git describe`.
+  - **The OpenAPI client changes with every release, deliberately.** The
+    committed `src/frontend/src/lib/api/openapi.json` carries `info.version`
+    = the application version, so the release commit regenerates it with
+    `X.Y.Z`, and the drift gate guarantees the committed client matches that
+    exact backend. Keep `quarkus.smallrye-openapi.info-version` tied to the
+    application version; do NOT decouple it.
+  - **The first release is `v1.0.0`.** The current `1.0.0-SNAPSHOT` becomes
+    `1.0.0`, and `main` continues as `1.0.1-SNAPSHOT`. This task prepares it
+    and documents the command. It does NOT cut it: creating the tag and
+    pushing to `main` are the maintainer's action (see the last step).
   - **Tags are immutable.** A wrongly tagged commit gets the next patch
-    version; a tag is never moved or deleted. Downstream mirrors sync tags
-    without force, so a moved tag is rejected there loudly, and an image tag
-    named after it would otherwise point at two different builds.
-  - The **Gradle version stays `1.0.0-SNAPSHOT`**. Deriving it from the tag
-    is out of scope: images are tagged by the git tag downstream, and nothing
-    is published to a package registry (see the root CLAUDE.md). Do not add a
-    time- or tag-derived jar-manifest attribute either — the reproducibility
-    rule in the root CLAUDE.md forbids environment-derived values.
-  - **The tag must pass the same CI gate as `main`.** `ci.yaml` gains a
-    `push: tags: ['v*']` trigger, and a small `release-tag` job that fails when
-    the tag name is not strict `v<int>.<int>.<int>` or when the tagged commit
-    is not an ancestor of `origin/main`. The `images` job also runs for such a
-    tag (it still pushes nothing).
+    version; a tag is never moved or deleted. A moved tag would mean an
+    image named after it points at two different builds.
+  - **The tag must pass the same CI gate as `main`, plus release checks.**
+    `ci.yaml` gains a `push: tags: ['v*']` trigger, and a `release-tag` job
+    that fails unless ALL of these hold:
+      * the tag name is strict `v<int>.<int>.<int>`;
+      * the tagged commit is an ancestor of `origin/main`;
+      * the tagged commit's `gradle.properties` says `version=<tag without v>`,
+        so a tag can never sit on a SNAPSHOT or mismatched commit.
+    The `images` job also runs for such a tag. It still pushes nothing.
+
+  ## Downstream mirrors must sync `v*` tags
+
+  A mirror of this repository only sees a release if it receives the tag. So
+  a mirror must sync `refs/tags/v*`, **without force and without pruning**:
+  without force so a moved tag is rejected loudly, and without pruning so
+  tags the mirror writes itself survive. A mirror that syncs only `main`
+  never sees a release. State this requirement in `docs/deployment.md`,
+  generically (no internal names).
+
+  ## Releasing: `scripts/release.sh`
+
+  Because tags are immutable, a mistaken push burns a version number
+  forever. The script catches mistakes BEFORE the push; CI's `release-tag`
+  job stays the authority afterwards.
+
+      ./scripts/release.sh <X.Y.Z> [--next <A.B.C-SNAPSHOT>] [--skip-tests] [--dry-run] [--yes]
+
+  It refuses to run, with a message naming the problem, unless:
+  - `<X.Y.Z>` is strict `MAJOR.MINOR.PATCH`, and `--next` (if given) is
+    strict `MAJOR.MINOR.PATCH-SNAPSHOT` and greater than `X.Y.Z`;
+  - the working tree is clean and the current branch is `main`, equal to
+    `origin/main` after `git fetch origin --tags`;
+  - the current version in `gradle.properties` is a `-SNAPSHOT`, and
+    `X.Y.Z` is not lower than its base (from `1.0.0-SNAPSHOT` you can
+    release `1.0.0` or higher, never `0.9.0`);
+  - `vX.Y.Z` exists neither locally nor on `origin`, and `X.Y.Z` is greater
+    than the newest existing `v*` tag (releases are monotonic).
+
+  Then it:
+  1. sets `version=X.Y.Z`, runs `./gradlew build` (tests included unless
+     `--skip-tests`; this also regenerates `openapi.json` / `schema.d.ts`),
+     and commits `gradle.properties` plus the regenerated client as
+     "Release X.Y.Z";
+  2. creates `git tag -a vX.Y.Z -m "Pythia X.Y.Z"` on that commit;
+  3. sets the next SNAPSHOT (`--next` or `X.Y.(Z+1)-SNAPSHOT`), regenerates
+     the OpenAPI client (`./gradlew build -x test`), and commits "Start
+     <next>";
+  4. shows a summary (both commits, the tag, `git log` since the previous
+     release) and asks for confirmation (`--yes` skips the prompt);
+  5. pushes atomically: `git push --atomic origin main refs/tags/vX.Y.Z`, so
+     `main` and the tag land together or not at all. It never force-pushes.
+
+  `--dry-run` runs every check and prints the plan, but changes nothing. If
+  anything fails before the push, the script tells the maintainer how to
+  discard the local commits and tag (`git reset --hard origin/main`,
+  `git tag -d vX.Y.Z`); nothing has been published at that point. History
+  has no merge commits, because `main` takes direct pushes. If `main` ever
+  requires pull requests, the script must open one instead; note that in the
+  script's header comment.
+
+  ## The hard-coded `1.0.0-SNAPSHOT`: decouple, don't chase
+
+  Under this model the version changes with every release, so nothing may
+  hard-code it except the one `version=` line. Today the literal appears in
+  these places, each with a decided treatment:
+
+  | Where | Treatment |
+  |---|---|
+  | `build.gradle.kts` (`version = "1.0.0-SNAPSHOT"` in `allprojects`) | replaced by reading the root `gradle.properties` `version`, the single source |
+  | `.github/workflows/ci.yaml`, `images` job (5×: two inspects, the registry manifest URL, the timestamp check, the Trivy `image-ref`) | the job reads `V` from `gradle.properties` once (`grep '^version=' gradle.properties \| cut -d= -f2`) and uses `$V`; the Trivy step gets it via a step output or `env` |
+  | `k8s/base/{backend,frontend}/deployment.yaml` | the base drops the tag (`image: pythia/pythia-backend`); EVERY overlay sets `newTag` (staging/production already do with `${IMAGE_TAG}`; minikube gains `newTag: ${MINIKUBE_IMAGE_TAG}`) |
+  | `scripts/minikube-env.sh` (`MINIKUBE_IMAGE_TAG:=1.0.0-SNAPSHOT`) and its header note tying it to the Gradle version | a fixed LOCAL tag, `local`, deliberately decoupled from the version. The deploy already passes it explicitly to both image builds; add `${MINIKUBE_IMAGE_TAG}` to the deploy's `envsubst` allow-list, as was done for `${MINIKUBE_IMAGE_REGISTRY}`. Update the header note: the tag no longer mirrors the Gradle version |
+  | `k8s/overlays/minikube/kustomization.yaml` comment ("fixed 1.0.0-SNAPSHOT") | reworded to the fixed `MINIKUBE_IMAGE_TAG` |
+  | `k8s/overlays/production/kustomization.yaml` and `docs/deployment.md` ("never the floating 1.0.0-SNAPSHOT") | reworded: "never a SNAPSHOT tag" |
+  | `src/frontend/src/lib/api/openapi.json` | changes in each release commit, by design (see above) |
+  | `src/backend/implementation/README.md` | untouched: an outdated Quarkus scaffold line about a Maven `target/` path, unrelated |
 
   ## What does NOT go here
 
@@ -43,100 +134,168 @@ description: |
 
 steps:
   - |
+    Read the root `build.gradle.kts` and `gradle.properties`,
+    `.github/workflows/ci.yaml` (triggers, the `images` job, every job's
+    `if:`), `k8s/base/{backend,frontend}/deployment.yaml`, the three
+    overlays, `scripts/minikube-env.sh`, `scripts/minikube-deploy.sh` (its
+    `envsubst` allow-list), and `docs/deployment.md`.
+  - |
+    Single version source: add `version=1.0.0-SNAPSHOT` to the root
+    `gradle.properties`, with a comment: the ONE place the application version
+    lives, changed only by `scripts/release.sh`, and `-SNAPSHOT` between
+    releases. In `build.gradle.kts`'s `allprojects`, replace the literal with
+    the property (e.g. `version = providers.gradleProperty("version").get()`).
+    Verify every project resolves it:
+      ./gradlew -q properties | grep '^version:'
+      ./gradlew -q :backend:implementation:properties | grep '^version:'
+      ./gradlew -q :frontend:properties | grep '^version:'
+  - |
+    Decouple the hard-coded literal exactly as the table in the description
+    says: the CI `images` job reads `V` from `gradle.properties`; the base
+    manifests drop the tag; the minikube overlay sets
+    `newTag: ${MINIKUBE_IMAGE_TAG}`; `MINIKUBE_IMAGE_TAG` defaults to
+    `local`; `minikube-deploy.sh` adds `${MINIKUBE_IMAGE_TAG}` to its
+    `envsubst` allow-list (passed explicitly; the settings file does not
+    export); reword the comments listed in the table.
+  - |
     `.github/workflows/ci.yaml`: extend `on.push` with `tags: ['v*']` next to
-    `branches: [main]`. Check every job's `if:` — the `images` job is gated on
-    `github.ref == 'refs/heads/main'`; extend it to
+    `branches: [main]`. Extend the `images` job's `if:` with
     `|| startsWith(github.ref, 'refs/tags/v')`. Keep `pull_request` (never
     `pull_request_target`) and `permissions: contents: read` unchanged.
-  - |
-    Add a `release-tag` job to `ci.yaml`, `if: startsWith(github.ref,
-    'refs/tags/v')`, `actions/checkout` pinned by SHA like the existing steps,
-    with `fetch-depth: 0`. It runs two checks and fails with a message naming
-    the problem:
+    Add the `release-tag` job, `if: startsWith(github.ref, 'refs/tags/v')`,
+    `actions/checkout@v7` with `fetch-depth: 0`, failing with a message
+    naming the problem unless:
       [[ "$GITHUB_REF_NAME" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]
       git merge-base --is-ancestor "$GITHUB_SHA" origin/main
-    Comment WHY: downstream builds key on this tag, and a tag that is not on
-    `main` would ship code that never passed review there.
+      test "$(grep '^version=' gradle.properties | cut -d= -f2)" = "${GITHUB_REF_NAME#v}"
+    Comment WHY: releases are published from this tag (task-199) and
+    downstream deploys key on it, so a tag that is not on `main`, or whose
+    commit carries a different version, would ship something that never
+    passed review as that release.
   - |
-    `docs/deployment.md`: add a `## Releasing` section — the convention above,
-    the exact commands (`git tag -a v1.2.0 -m "Pythia 1.2.0" <sha-on-main>`,
-    `git push origin v1.2.0`), the immutability rule, and that a tag-protection
-    ruleset for `v*` should be set on the GitHub repository (Settings → Rules →
-    Rulesets: restrict deletions and updates, i.e. no moves).
+    Create `scripts/release.sh` (executable) as specified in "Releasing:
+    scripts/release.sh": the refusal checks, the two commits, the annotated
+    tag, the summary and confirmation, the atomic push, `--next`,
+    `--skip-tests`, `--dry-run`, `--yes`, and a `--help` that prints the
+    usage. Follow the style of the existing scripts (a header comment
+    explaining the model, `set -euo pipefail`, refuse to be sourced like
+    `minikube-deploy.sh`). Compare versions numerically per component, not
+    as strings (`1.10.0` > `1.9.0`), e.g. with `sort -V`. `bash -n` and
+    `shellcheck` it.
   - |
-    `docs/deployment.md`: update the overview diagram and `## Pipeline stages`
-    to the new downstream flow, still without coordinates: images are built
-    only for a release tag, tagged `IMAGE_TAG=<release tag>` instead of the
-    short SHA; deploying is a separate, manually started pipeline that deploys
-    the latest release (or a named one, for rollback) to staging, then — after
-    manual approval — production. Keep stage 1's two paragraphs "No image
-    build needs a Docker daemon" (task-195) and "The image build takes no auth
-    provider" (task-194) and "Pushed images are multi-arch" (task-196)
-    verbatim. Fix the backend command there, which never tagged with
-    `$IMAGE_TAG` (it pushed `1.0.0-SNAPSHOT`) and lacks the forced rerun
-    every push uses since task-196. Make it match the frontend command and
-    `scripts/minikube-deploy.sh`:
-      ./gradlew :backend:implementation:quarkusAppPartsBuild --rerun \
-        :backend:implementation:imageBuild \
-        -Dquarkus.container-image.push=true \
-        -Dquarkus.container-image.registry="$REGISTRY" \
-        -Dquarkus.container-image.tag="$IMAGE_TAG" \
-        --no-build-cache
-    With IMAGE_TAG now a release tag, a command that ignores it would publish
-    every release under the same floating tag. Update the
-    `IMAGE_TAG` table row ("The short commit SHA" → "The release tag, e.g.
-    v1.2.0") and the rollback section (redeploy the previous release tag).
-    While in this file, fix the stale "**4. Runner requirements.** Docker,
-    plus …" paragraph left over from before task-195: the runner needs NO
-    Docker daemon. It needs Maven Central, the npm registry, and the two
-    digest-pinned base images — `registry.access.redhat.com` for the backend
-    and Docker Hub for the frontend's nginx — both fetched by the JVM (Jib),
-    so a proxy must be configured for the JVM, not for a Docker daemon. Also
-    reword the `REGISTRY_USER` / `REGISTRY_PASSWORD` row, which still says
-    "for `docker login` on the runner": they are the cluster's pull
-    credentials, and the image push needs credentials with write access.
+    Test the script WITHOUT touching the real repository or GitHub, in a
+    throwaway clone whose `origin` is a local bare repository (scratchpad):
+      B=<scratch>/origin.git; C=<scratch>/clone
+      git clone --bare . "$B" && git clone "$B" "$C" && cd "$C"
+    Then, in "$C":
+      * `./scripts/release.sh 1.0.0 --dry-run` exits 0 and changes nothing
+        (`git status` clean, no new tag, `HEAD` unchanged);
+      * the refusals each exit non-zero: `1.0` (not semver), `0.9.0` (below
+        the SNAPSHOT base), a dirty tree, and a branch other than `main`;
+      * `./scripts/release.sh 1.0.0 --skip-tests --yes` succeeds, and in
+        "$B" (the "origin"):
+          - `v1.0.0` is an ANNOTATED tag (`git cat-file -t v1.0.0` = `tag`);
+          - `git show v1.0.0:gradle.properties` has `version=1.0.0`;
+          - `git show v1.0.0:src/frontend/src/lib/api/openapi.json` has
+            `"version" : "1.0.0"`;
+          - `main` has `version=1.0.1-SNAPSHOT`, and its parent is the
+            tagged commit;
+      * a second `./scripts/release.sh 1.0.0 …` is refused (tag exists), and
+        `./scripts/release.sh 0.9.9 …` is refused (not monotonic).
+    Delete the scratch repositories afterwards. Never run the script against
+    the real `origin`.
+  - |
+    `docs/deployment.md`: add a `## Releasing` section covering the
+    convention, the version model (`version=` in `gradle.properties`,
+    SNAPSHOT between releases, the OpenAPI client stamped per release), the
+    `scripts/release.sh` usage and what it checks, the immutability rule and
+    what to do instead of moving a tag, the mirror requirement (sync
+    `refs/tags/v*`, no force, no prune), and that a tag-protection ruleset
+    for `v*` should be set on the GitHub repository (Settings → Rules →
+    Rulesets: restrict deletions and updates). State that the first release
+    is `v1.0.0`, cut with `./scripts/release.sh 1.0.0`.
+    Do NOT rewrite the downstream flow in `docs/deployment.md` (overview,
+    "GitLab setup", "Pipeline stages", variables table, runner requirements,
+    rollback). task-199 replaces all of it; editing it here would be thrown
+    away.
   - |
     Root `CLAUDE.md`, paragraph "Deployment (task-028) is NOT in this
-    repository": add one sentence that downstream deploys only `v<semver>`
-    release tags and that `docs/deployment.md` → "Releasing" defines them.
+    repository": add that downstream deploys only `v<semver>` release tags,
+    that the application version lives in the root `gradle.properties` and
+    is changed only by `scripts/release.sh`, and that `docs/deployment.md` →
+    "Releasing" defines them. In "Build & run", add the
+    `./scripts/release.sh <X.Y.Z>` entry point.
   - |
     Re-read every changed line for an internal hostname, registry, group,
     project or organisation name. Only `<internal-group>/<deploy-project>`
     may stand for the downstream pipeline.
   - |
     ./gradlew build
+  - |
+    Report to the maintainer, and do NOT do it yourself: the first release
+    is cut with `./scripts/release.sh 1.0.0` once this task is committed and
+    the internal mirror syncs `v*` tags. Creating the tag and pushing to
+    `main` is the maintainer's decision, not part of this task.
 
 validation:
   - |
+    grep -qx 'version=1.0.0-SNAPSHOT' gradle.properties
+    ! grep -q 'version = "1.0.0-SNAPSHOT"' build.gradle.kts
+    test "$(./gradlew -q :backend:implementation:properties | grep '^version:' | awk '{print $2}')" = 1.0.0-SNAPSHOT
+    test "$(./gradlew -q :frontend:properties | grep '^version:' | awk '{print $2}')" = 1.0.0-SNAPSHOT
+  - |
+    # The literal survives only where the table allows it.
+    ! grep -rnF "1.0.0-SNAPSHOT" --exclude-dir=node_modules --exclude-dir=build --exclude-dir=planning \
+        --exclude-dir=.git --exclude-dir=.gradle --exclude-dir=node --exclude=package-lock.json \
+        --exclude=gradle.properties --exclude=openapi.json --exclude=README.md .
+  - |
     grep -q "tags: \['v\*'\]" .github/workflows/ci.yaml
-  - |
     grep -q "release-tag:" .github/workflows/ci.yaml
-  - |
     grep -q "merge-base --is-ancestor" .github/workflows/ci.yaml
-  - |
+    grep -q 'GITHUB_REF_NAME#v' .github/workflows/ci.yaml
     grep -q "startsWith(github.ref, 'refs/tags/v')" .github/workflows/ci.yaml
-  - |
+    grep -q "fetch-depth: 0" .github/workflows/ci.yaml
     ! grep -q "pull_request_target" .github/workflows/ci.yaml
-  - |
     ruby -ryaml -e 'YAML.load_file(".github/workflows/ci.yaml")'
   - |
+    # Every overlay renders a tagged image (the base no longer carries one).
+    for o in staging production; do
+      kubectl kustomize k8s/overlays/$o | grep -E 'image: .*pythia-(backend|frontend)' | grep -q ':\${IMAGE_TAG}' || exit 1
+    done
+    kubectl kustomize k8s/overlays/minikube | grep -E 'image: .*pythia-(backend|frontend)' | grep -q ':\${MINIKUBE_IMAGE_TAG}'
+    grep -q 'MINIKUBE_IMAGE_TAG:=local' scripts/minikube-env.sh
+    grep -q 'MINIKUBE_IMAGE_TAG' scripts/minikube-deploy.sh
+  - |
+    S=scripts/release.sh
+    test -x "$S"
+    bash -n "$S" && { ! command -v shellcheck >/dev/null || shellcheck "$S"; }
+    "$S" --help | grep -q -- '--dry-run'
+    grep -q 'push --atomic' "$S"
+    ! grep -qE 'push .*(--force|-f\b)' "$S"
+  - |
     grep -q "^## Releasing" docs/deployment.md
-  - |
+    grep -q "release.sh" docs/deployment.md
+    grep -q "refs/tags/v" docs/deployment.md
+    grep -q "v1.0.0" docs/deployment.md
     grep -q "Releasing" CLAUDE.md
-  - |
+    grep -q "release.sh" CLAUDE.md
     grep -q "<internal-group>/<deploy-project>" docs/deployment.md
   - |
-    grep -q 'container-image.tag="$IMAGE_TAG"' docs/deployment.md
-  - |
-    grep -q "quarkusAppPartsBuild --rerun" docs/deployment.md
-  - |
-    ! grep -q "docker login" docs/deployment.md
-  - |
-    ! grep -qi "Runner requirements.\*\* Docker" docs/deployment.md
+    # No release was cut by this task.
+    test -z "$(git tag -l 'v*')"
   - |
     ./gradlew build
 
 outputs:
-  - modified: .github/workflows/ci.yaml
+  - modified: gradle.properties                 # version= (single source)
+  - modified: build.gradle.kts
+  - modified: .github/workflows/ci.yaml         # tag trigger, release-tag job, images job reads the version
+  - modified: k8s/base/backend/deployment.yaml
+  - modified: k8s/base/frontend/deployment.yaml
+  - modified: k8s/overlays/minikube/kustomization.yaml
+  - modified: k8s/overlays/production/kustomization.yaml
+  - modified: scripts/minikube-env.sh
+  - modified: scripts/minikube-deploy.sh        # envsubst allow-list
+  - created: scripts/release.sh
   - modified: docs/deployment.md
   - modified: CLAUDE.md

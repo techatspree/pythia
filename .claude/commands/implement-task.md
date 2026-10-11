@@ -17,6 +17,15 @@ Implement the planning task whose ID is given in $ARGUMENTS (e.g. `task-041`).
    - If the task covers frontend-only changes, run `./gradlew :frontend:check` (do NOT substitute `npm run check` — that runs only svelte-check and skips ESLint).
    - If the task touches the end2end module, also run `./gradlew :backend:end2end:test`.
    - **Then run `./gradlew build` as a final safety net.** This is the canonical full build (domain + backend + frontend) and catches cases where the task's narrow test command missed a module the change actually affected. A task-specific `:module:test` passing is not enough — `./gradlew build` must be green.
+   - **Toolchain and build-configuration changes need a build from SCRATCH**, not just the incremental `./gradlew build`: any change to a Gradle plugin or platform version (Kotlin, Quarkus, Node, detekt, the node-gradle plugin), to a `gradle.properties`, or to how a toolchain is configured. An incremental build reuses outputs the OLD toolchain produced and can pass while a fresh checkout fails — task-198's Kotlin upgrade changed the bundled Yarn, the committed `kotlin-js-store/yarn.lock` no longer matched, and every incremental build (and a `--rerun` on the wrong task) masked it until a clean build failed on `kotlinStoreYarnLock`. GitHub CI always builds from a fresh checkout, so this is what CI will see. Copy the working tree WITHOUT build outputs (uncommitted changes included — `git clone` would drop them) and build it the way CI does:
+     ```bash
+     F=<scratchpad>/fresh; rm -rf "$F"; mkdir -p "$F"
+     rsync -a --exclude '.gradle/' --exclude 'build/' --exclude 'node_modules/' --exclude '.svelte-kit/' \
+       --exclude 'src/frontend/node/' --exclude 'src/frontend/reports/' --exclude 'test-results/' \
+       --exclude 'src/frontend/static/config.json' --exclude 'src/frontend/src/lib/domain/' ./ "$F/"
+     (cd "$F" && CI=true ./gradlew build --no-build-cache)
+     ```
+     Remember that `--rerun` applies only to the task named directly before it; it does not rerun that task's dependencies.
    - **Playwright e2e — required for tasks that touch the frontend, REST DTOs, or auth behaviour**; optional (but encouraged) for pure `:domain` internal refactors when `./gradlew :domain:jvmTest` is green. When required: `cd src/frontend && npm run test:e2e`, with the dev stack running (`./scripts/dev.sh`, Docker up, `dev` backend on :8090, Vite frontend on :5173). If you genuinely cannot start the stack in this environment, do NOT mark the task done: stop and report the e2e run as the outstanding gate (per the hard rule on unfixable build steps).
    - **Do not mark the task done until every required build/test above passes with zero failures.** If anything fails, diagnose and fix the root cause, then re-run. Never skip or work around the build step.
 

@@ -27,7 +27,8 @@ plugins {
 }
 
 node {
-    version.set("22.14.0")
+    // The build's one Node.js version, shared with Kotlin/JS (gradle.properties).
+    version.set(providers.gradleProperty("nodeVersion"))
     npmVersion.set("10.9.2")
     download.set(true)
     nodeProjectDir.set(layout.projectDirectory)
