@@ -1161,10 +1161,22 @@
       "notes": "Build the frontend image daemonless with jib-core instead of docker build"
     },
     "task-196": {
+      "status": "done",
+      "started_at": "2026-10-11T15:28:15+00:00",
+      "completed_at": "2026-10-11T15:45:45+00:00",
+      "notes": "Multi-arch (amd64+arm64) backend and frontend images, delivered through a registry; minikube pulls from its registry addon"
+    },
+    "task-197": {
       "status": "pending",
       "started_at": null,
       "completed_at": null,
-      "notes": "Multi-arch (amd64+arm64) backend and frontend images, delivered through a registry; minikube pulls from its registry addon"
+      "notes": "Align the Kotlin/JS toolchain's Node.js with the frontend's 22.14.0: removes the per-build DEP0169 warning from Yarn 1 on Node 24"
+    },
+    "task-198": {
+      "status": "pending",
+      "started_at": null,
+      "completed_at": null,
+      "notes": "Upgrade Quarkus 3.35.1 -> 3.40.1 together with Kotlin 2.3.21 -> 2.4.10 (the stdlib the 3.40.1 BOM enforces)"
     }
   }
 }

@@ -83,8 +83,10 @@ Secret, and the `frontend-config` ConfigMap that the Frontend mounts as
 The Backend and Frontend container images
 (`pythia/pythia-backend`, `pythia/pythia-frontend`) are produced by
 the Gradle build, both with Jib — the backend through Quarkus, the frontend
-through `jib-core` on top of a digest-pinned nginx — and deployed locally with
-`./scripts/minikube-deploy.sh`.
+through `jib-core` on top of a digest-pinned nginx. A push produces a
+multi-arch image (`linux/amd64` + `linux/arm64`, task-196). Locally,
+`./scripts/minikube-deploy.sh` pushes both into the cluster's registry addon,
+and the node pulls its native variant.
 
 # Domain module: single source of truth
 

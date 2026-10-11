@@ -1,7 +1,7 @@
 id: task-193
 phase: phase-18
 title: "Release convention: v<semver> tags on main, CI-gated"
-depends_on: [task-162, task-195]
+depends_on: [task-162, task-196]
 description: |
   Pythia has no notion of a release. There are no git tags, the Gradle version
   is a permanent `1.0.0-SNAPSHOT`, and `docs/deployment.md` describes a
@@ -71,8 +71,19 @@ steps:
     the latest release (or a named one, for rollback) to staging, then — after
     manual approval — production. Keep stage 1's two paragraphs "No image
     build needs a Docker daemon" (task-195) and "The image build takes no auth
-    provider" (task-194) verbatim, and its two `./gradlew …imageBuild`
-    commands, which already push with `$IMAGE_TAG`: they apply unchanged. Update the
+    provider" (task-194) and "Pushed images are multi-arch" (task-196)
+    verbatim. Fix the backend command there, which never tagged with
+    `$IMAGE_TAG` (it pushed `1.0.0-SNAPSHOT`) and lacks the forced rerun
+    every push uses since task-196. Make it match the frontend command and
+    `scripts/minikube-deploy.sh`:
+      ./gradlew :backend:implementation:quarkusAppPartsBuild --rerun \
+        :backend:implementation:imageBuild \
+        -Dquarkus.container-image.push=true \
+        -Dquarkus.container-image.registry="$REGISTRY" \
+        -Dquarkus.container-image.tag="$IMAGE_TAG" \
+        --no-build-cache
+    With IMAGE_TAG now a release tag, a command that ignores it would publish
+    every release under the same floating tag. Update the
     `IMAGE_TAG` table row ("The short commit SHA" → "The release tag, e.g.
     v1.2.0") and the rollback section (redeploy the previous release tag).
     While in this file, fix the stale "**4. Runner requirements.** Docker,
@@ -114,6 +125,10 @@ validation:
     grep -q "Releasing" CLAUDE.md
   - |
     grep -q "<internal-group>/<deploy-project>" docs/deployment.md
+  - |
+    grep -q 'container-image.tag="$IMAGE_TAG"' docs/deployment.md
+  - |
+    grep -q "quarkusAppPartsBuild --rerun" docs/deployment.md
   - |
     ! grep -q "docker login" docs/deployment.md
   - |

@@ -309,22 +309,24 @@ guessing a default.
 ## How the configuration reaches the minikube Pods
 
 `scripts/minikube-deploy.sh` prechecks the three `ENTRA_*` ids, derives the
-`OIDC_*` names from them, exports `APP_AUTH_PROVIDER=entra` for the backend
-image build, and then:
+`OIDC_*` names from them (the backend image needs no auth setting at build
+time, task-194), and then:
 
-1. builds both container images with Gradle
-   (`./gradlew :backend:implementation:imageBuild -Dquarkus.container-image.build=true
-   :frontend:imageBuild -x test` — backend via Quarkus/Jib, frontend via
-   jib-core);
-2. loads them into minikube with `docker save <img> | minikube ssh -- docker load`
-   — deliberately **not** `minikube image load`, which caches the exported
-   tarball and, for a fixed tag like `1.0.0-SNAPSHOT`, silently reuses the STALE
-   copy so a rebuilt image never reaches the cluster;
+1. enables minikube's `registry` addon and port-forwards it to the host on
+   `localhost:5005` — not 5000, which macOS's AirPlay Receiver holds;
+2. builds both container images for `linux/amd64` + `linux/arm64` and pushes
+   them through that port-forward (backend via Quarkus/Jib, frontend via
+   jib-core, task-196);
 3. renders `k8s/overlays/minikube` and resolves the `${OIDC_*}` placeholders
-   with `envsubst` before `kubectl apply` — kustomize cannot read the
-   environment, and these are per-user ids that are not committed;
-4. forces a `kubectl rollout restart` so pods pick up the reloaded image and the
-   current ConfigMaps.
+   and the image registry with `envsubst` before `kubectl apply` — kustomize
+   cannot read the environment, and the ids are per-user values that are not
+   committed;
+4. forces a `kubectl rollout restart`. The node pulls from the same registry as
+   `localhost:5000` (the addon's node-side proxy) with `imagePullPolicy: Always`,
+   so it gets the image just pushed, in its native architecture.
+
+The settings it uses (namespace, ports, registry address, tag) come from
+`scripts/minikube-env.sh`.
 
 **Nothing is baked into the image and no `ENTRA_*` variable reaches a Pod.** The
 backend Deployment pulls its whole environment from the `backend-config`

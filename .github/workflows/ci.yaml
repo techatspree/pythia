@@ -184,6 +184,13 @@ jobs:
     needs: [build, e2e]
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    # A throwaway registry for the multi-arch push check below (task-196). Plain
+    # HTTP on localhost, which both image builds accept for localhost only.
+    services:
+      registry:
+        image: registry:2
+        ports:
+          - 5000:5000
     steps:
       - uses: actions/checkout@v7
 
@@ -221,6 +228,28 @@ jobs:
         run: |
           docker image inspect pythia/pythia-backend:1.0.0-SNAPSHOT > /dev/null
           docker image inspect pythia/pythia-frontend:1.0.0-SNAPSHOT > /dev/null
+
+      # The daemon builds above can only ever produce and check linux/amd64. This
+      # pushes both images to the throwaway registry and asserts each index lists
+      # linux/amd64 AND linux/arm64 — proving the arm64 half is buildable and that
+      # pushing implies multi-arch (task-196). quarkusAppPartsBuild is where the
+      # backend image is built and pushed; `--rerun` keeps the push from depending
+      # on what ran before it, as everywhere else this task pushes.
+      - name: Push multi-arch images to a throwaway registry and check both platforms
+        run: |
+          ./gradlew :backend:implementation:quarkusAppPartsBuild --rerun \
+            :backend:implementation:imageBuild \
+            -Dquarkus.container-image.push=true \
+            -Dquarkus.container-image.registry=localhost:5000 \
+            -Dquarkus.container-image.insecure=true --no-build-cache
+          ./gradlew :frontend:imageBuild -PfrontendImagePush=true \
+            -PfrontendImageRegistry=localhost:5000
+          for img in pythia-backend pythia-frontend; do
+            curl -fsS -H 'Accept: application/vnd.oci.image.index.v1+json, application/vnd.docker.distribution.manifest.list.v2+json' \
+              "http://localhost:5000/v2/pythia/$img/manifests/1.0.0-SNAPSHOT" \
+              | jq -e '[.manifests[].platform | "\(.os)/\(.architecture)"] | (index("linux/amd64") != null and index("linux/arm64") != null)' \
+              || { echo "$img is not a linux/amd64 + linux/arm64 index" >&2; exit 1; }
+          done
 
       # Guard the reproducibility INPUTS this repository controls.
       #

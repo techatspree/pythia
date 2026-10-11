@@ -31,12 +31,6 @@ patches:
     target:
       kind: Ingress
       name: estimation
-  - target:
-      kind: Deployment
-    patch: |-
-      - op: replace
-        path: /spec/template/spec/containers/0/imagePullPolicy
-        value: IfNotPresent
 
   # The database password is a real secret and must not come from the base's
   # committed local-development value. scripts/deploy.sh discovers this

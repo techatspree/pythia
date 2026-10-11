@@ -17,7 +17,7 @@ spec:
       containers:
         - name: frontend
           image: pythia/pythia-frontend:1.0.0-SNAPSHOT
-          imagePullPolicy: Never
+          imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 80
           volumeMounts:

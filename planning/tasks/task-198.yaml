@@ -1,0 +1,202 @@
+id: task-198
+phase: phase-14
+title: "Upgrade Quarkus 3.40.1 + Kotlin 2.4.10 together"
+depends_on: [task-197]
+description: |
+  Move the platform forward: Quarkus 3.35.1 → **3.40.1** and Kotlin
+  2.3.21 → **2.4.10**, in one task, because the two versions are coupled.
+
+  ## Why both at once, and why exactly these versions
+
+  The root `build.gradle.kts` pins ONE Kotlin version for the KMP domain and
+  the Quarkus backend (it is one shared plugin artifact), and its comment
+  states the rule: it must equal the `kotlin-stdlib` the Quarkus BOM enforces,
+  because an older compiler cannot read newer stdlib metadata (an internal
+  compiler error, not a warning). Verified on 2026-10-11 from the BOM poms on
+  Maven Central:
+
+  | Quarkus platform | `kotlin-stdlib` it enforces |
+  |---|---|
+  | 3.35.1 (today) | 2.3.21 |
+  | **3.40.1** (newest stable 3.x) | **2.4.10** |
+  | 4.0.0.Beta1 | 2.4.10 (a pre-release, out of scope) |
+
+  The newest stable Kotlin is 2.4.21, but the rule makes it **2.4.10**. If
+  3.40.1 turns out to enforce a different stdlib at implementation time
+  (re-check the BOM), follow the BOM, not this table.
+
+  ## Version pins: exactly these places
+
+  - root `build.gradle.kts`: `kotlin("multiplatform")`, `kotlin("jvm")`,
+    `kotlin("plugin.allopen")`, `kotlin("plugin.noarg")` → 2.4.10;
+    `id("io.quarkus")` → 3.40.1. Update the comment above them.
+  - `src/backend/implementation/gradle.properties`: `quarkusPlatformVersion`.
+  - `src/backend/implementation/build.gradle.kts`: the task-196 comment that
+    quotes the 3.35.1 plugin's `EffectiveConfig` precedence. Re-verify the
+    order against 3.40.1 (`javap` on `io.quarkus.gradle.tasks.EffectiveConfig`
+    in `gradle-application-plugin-3.40.1.jar`) and update the version and,
+    if needed, the order.
+
+  ## Known risks, each with a check in the steps
+
+  1. **detekt.** `io.gitlab.arturbosch.detekt` 1.23.8 is the newest stable
+     detekt. It parses with its OWN embedded Kotlin compiler (2.0.21, via
+     `detekt-parser`), independent of the project's Kotlin, which is why it
+     works on 2.3.21 today. It keeps working on 2.4 as long as the code uses
+     no syntax 2.0.21 cannot parse. The only newer detekt is
+     `dev.detekt` 2.0.0-alpha.6, an alpha with a new plugin id. **Do NOT
+     switch to it in this task.** If detekt fails after the upgrade, stop and
+     report: the choice between an alpha and pausing the upgrade is a
+     decision for the maintainer.
+  2. **Kotlin/JS output.** The frontend consumes `domain.mjs` and
+     `domain.d.mts`. Kotlin minors can change the generated TypeScript
+     (`@JsExport` surface, nullability rendering, `Nullable<T>`). Diff the
+     generated `domain.d.mts` before and after (step 2), and run svelte-check
+     and the Playwright suite. The two Kotlin/JS pitfalls in the root CLAUDE.md
+     still apply (no `super.<computed property>`; `@JsName` on secondary
+     constructors), so if the compiler newly rejects or changes something
+     there, fix it per those rules.
+  3. **Yarn and lockfiles.** KGP 2.4.10 bundles Yarn 1.22.22 (vs 1.22.17), so
+     `kotlin-js-store/yarn.lock` and `src/domain/kotlin-js-store/yarn.lock` may
+     change. If `kotlinUpgradeYarnLock` / `kotlinStoreYarnLock` asks for it,
+     regenerate them. Do not hand-edit. task-197's Node pin (22.14.0) must
+     survive: re-check the `NodeJsEnvSpec` API exists unchanged in KGP
+     2.4.10.
+  4. **The OpenAPI drift gate.** A Quarkus upgrade can change the generated
+     `openapi.json` (smallrye-openapi version). If `./gradlew build` changes
+     `src/frontend/src/lib/api/openapi.json` or `schema.d.ts`, keep the
+     regenerated files. Review the diff: a pure formatting or version-field
+     change is fine; a changed endpoint or schema shape means a behaviour
+     change to investigate, not to commit blindly.
+  5. **Quarkus build-time behaviour this repo relies on**, all verified by
+     existing checks that must stay green:
+       * task-194: `@UnlessBuildProperty(... enableIfMissing = true)` gating;
+         a default build still contains `EntraAuthModule_Bean` and no
+         `DevAuthModule_Bean` (the CI check, reproducible locally);
+       * task-196: `quarkus { set("jib.platforms", …) }` on push,
+         `quarkus.container-image.insecure`, `imageBuild` /
+         `quarkusAppPartsBuild` / `imagePush` task names; a push still yields
+         a linux/amd64 + linux/arm64 index;
+       * the reproducible-image flags (`quarkus.jib.use-current-timestamp*`)
+         and the digest-pinned bases, and the CI step asserting them;
+       * the `%prod.quarkus.oidc.enabled` default, Flyway migration on
+         startup, and the `%dev`/`%test` Dev Services PostgreSQL.
+     Read the Quarkus migration guides for 3.36 → 3.40
+     (github.com/quarkusio/quarkus/wiki, "Migration Guide 3.xx") and act on
+     every entry that touches an extension this project uses.
+  6. **Deprecation noise.** Check whether the upgrade changes the Gradle 10
+     deprecation table in `docs/development.md` ("Known upstream
+     deprecations"). Update it to what the new versions actually emit.
+
+  ## Out of scope
+
+  Quarkus 4 (Beta), detekt 2.x, Gradle itself, and any frontend dependency.
+
+steps:
+  - |
+    Read the root `build.gradle.kts` (plugins block and comment),
+    `src/backend/implementation/gradle.properties`,
+    `src/backend/implementation/build.gradle.kts`, and the "Gradle 10
+    readiness" section of `docs/development.md`. Re-check from Maven Central
+    that `quarkus-bom` 3.40.1 enforces `kotlin-stdlib` 2.4.10. Read the
+    Quarkus migration guides 3.36 through 3.40 and list the entries that
+    affect this project's extensions.
+  - |
+    Record the BEFORE state for later diffs (into the scratchpad, never into
+    the repo):
+      ./gradlew build -x test
+      cp src/frontend/src/lib/domain/domain.d.mts <scratch>/domain.d.mts.before
+      ./gradlew :backend:implementation:quarkusAppPartsBuild --rerun --console=plain 2>&1 | grep -i warn > <scratch>/warn.before
+  - |
+    Bump the pins listed in "Version pins" in the description. Then:
+      ./gradlew :domain:build
+      diff <scratch>/domain.d.mts.before src/frontend/src/lib/domain/domain.d.mts
+    Any change in the exported TypeScript must be explained (and, where it
+    breaks the frontend, adapted in `src/frontend/src/lib/adapter.ts` or the
+    affected component) before continuing.
+  - |
+    Regenerate the Kotlin/JS lockfiles only if the build asks for it
+    (`./gradlew kotlinUpgradeYarnLock`). Confirm task-197's Node pin still
+    resolves 22.14.0 (`ls ~/.gradle/nodejs` after
+    `./gradlew kotlinNodeJsSetup --rerun`) and that DEP0169 is still absent.
+  - |
+    Backend: `./gradlew :backend:implementation:test`. Then re-verify the
+    `EffectiveConfig` precedence for 3.40.1 and update the comment in
+    `src/backend/implementation/build.gradle.kts`. Re-run the task-194
+    module check on a default build:
+      ./gradlew :backend:implementation:quarkusAppPartsBuild --rerun :backend:implementation:quarkusBuild
+      J=src/backend/implementation/build/quarkus-app/quarkus/generated-bytecode.jar
+      unzip -l "$J" | grep -q 'io/pythia/auth/entra/EntraAuthModule_Bean.class'
+      ! unzip -l "$J" | grep -q 'io/pythia/auth/dev/DevAuthModule_Bean.class'
+  - |
+    detekt: `./gradlew staticAnalysis`. If detekt fails to parse or run,
+    STOP and report (see risk 1). Otherwise confirm no NEW findings in the
+    files this task touched.
+  - |
+    `./gradlew build`. If the OpenAPI drift gate or the regeneration changes
+    `src/frontend/src/lib/api/openapi.json` / `schema.d.ts`, review and keep
+    them as described in risk 4.
+  - |
+    Multi-arch push still works (task-196): push both images to a throwaway
+    `registry:2` (the exact commands are in task-196's validation, using
+    `quarkusAppPartsBuild --rerun`) and assert each index lists
+    `linux/amd64` and `linux/arm64`.
+  - |
+    Run the Playwright suite against `./scripts/dev.sh`, English then German.
+    Then deploy to minikube with `./scripts/minikube-deploy.sh` (`ENTRA_*`
+    sourced from the workspace's `EntraIdVariables.sh`, never printed): both
+    pods Running, the freshness check matching.
+  - |
+    Update docs: the Kotlin/Quarkus versions wherever docs name them (grep
+    for `3.35.1` and `2.3.21` outside `planning/`), and the "Known upstream
+    deprecations (Gradle 10)" table if the emitted deprecations changed.
+  - |
+    ./gradlew build
+
+validation:
+  - |
+    grep -q 'kotlin("multiplatform") version "2.4.10"' build.gradle.kts
+    grep -q 'kotlin("jvm") version "2.4.10"' build.gradle.kts
+    grep -q 'kotlin("plugin.allopen") version "2.4.10"' build.gradle.kts
+    grep -q 'kotlin("plugin.noarg") version "2.4.10"' build.gradle.kts
+    grep -q 'id("io.quarkus") version "3.40.1"' build.gradle.kts
+    grep -qx 'quarkusPlatformVersion=3.40.1' src/backend/implementation/gradle.properties
+    ! grep -rnE "3\.35\.1|2\.3\.21" --exclude-dir=node_modules --exclude-dir=build --exclude-dir=planning --exclude-dir=.git --exclude-dir=.gradle --exclude-dir=kotlin-js-store --exclude=package-lock.json .
+  - |
+    # The rule the pins exist for: Kotlin equals the BOM's stdlib.
+    python3 - <<'PY'
+    import re, urllib.request, xml.etree.ElementTree as ET, sys
+    q = re.search(r'quarkusPlatformVersion=(\S+)', open('src/backend/implementation/gradle.properties').read()).group(1)
+    k = re.search(r'kotlin\("jvm"\) version "([^"]+)"', open('build.gradle.kts').read()).group(1)
+    pom = ET.fromstring(urllib.request.urlopen(f"https://repo1.maven.org/maven2/io/quarkus/platform/quarkus-bom/{q}/quarkus-bom-{q}.pom", timeout=60).read())
+    ns = '{http://maven.apache.org/POM/4.0.0}'
+    std = next(d.find(ns+'version').text for d in pom.iter(ns+'dependency')
+               if d.find(ns+'artifactId').text == 'kotlin-stdlib' and d.find(ns+'groupId').text == 'org.jetbrains.kotlin')
+    print(f'quarkus {q} enforces kotlin-stdlib {std}; build uses kotlin {k}')
+    sys.exit(0 if std == k else 1)
+    PY
+  - |
+    ./gradlew :backend:implementation:quarkusAppPartsBuild --rerun :backend:implementation:quarkusBuild --console=plain > /dev/null
+    J=src/backend/implementation/build/quarkus-app/quarkus/generated-bytecode.jar
+    unzip -l "$J" | grep -q 'io/pythia/auth/entra/EntraAuthModule_Bean.class'
+    ! unzip -l "$J" | grep -q 'io/pythia/auth/dev/DevAuthModule_Bean.class'
+  - |
+    ./gradlew staticAnalysis
+  - |
+    ./gradlew kotlinNpmInstall --rerun --console=plain 2>&1 | { ! grep -q DEP0169; }
+  - |
+    ./gradlew build
+  - |
+    cd src/frontend
+    E2E_LANG=en npx playwright test
+    E2E_LANG=de npx playwright test
+
+outputs:
+  - modified: build.gradle.kts
+  - modified: src/backend/implementation/gradle.properties
+  - modified: src/backend/implementation/build.gradle.kts   # EffectiveConfig comment re-verified
+  - modified: docs/development.md                          # versions / deprecation table, if changed
+  # Conditionally modified (keep only if the build regenerates them):
+  # kotlin-js-store/yarn.lock, src/domain/kotlin-js-store/yarn.lock,
+  # src/frontend/src/lib/api/openapi.json, src/frontend/src/lib/api/schema.d.ts,
+  # and src/frontend/src/lib/adapter.ts if the generated domain.d.mts changes.

@@ -354,6 +354,25 @@ static provider. Export `ENTRA_TENANT_ID`, `ENTRA_API_CLIENT_ID`, and
 any is missing. See [entra-setup.md](./entra-setup.md) for how to obtain the
 values and [authentication.md](./authentication.md) for module behaviour.
 
+**How images reach the cluster** (task-196): `minikube-setup.sh` enables
+minikube's registry (`minikube addons enable registry`), and `minikube-deploy.sh` builds both images for
+`linux/amd64` + `linux/arm64` and pushes them into it. The host reaches that
+registry through a port-forward on `localhost:5005`, because macOS's AirPlay
+Receiver holds 5000. Pods pull it as `localhost:5000`, the addon's proxy on the
+node, and the node pulls its native variant: arm64 on Apple Silicon, so nothing
+runs under emulation. This is the verified primary path; the `$(minikube ip):5000`
+fallback was not needed. The registry lives inside the cluster, so
+`minikube-reset.sh` deletes it with every image, and every deploy pushes again,
+which is why the script forces the backend build with `--rerun`.
+
+All cluster settings (CPUs, memory, driver, namespace, registry ports, image
+tag) live in **`scripts/minikube-env.sh`**, which the three scripts source.
+Override one for a single run without editing the file:
+
+```bash
+MINIKUBE_MEMORY=12288 ./scripts/minikube-setup.sh
+```
+
 Quick start (setup, build, and deploy):
 ```bash
 ./scripts/minikube-setup.sh

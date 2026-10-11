@@ -17,7 +17,7 @@ spec:
       containers:
         - name: backend
           image: pythia/pythia-backend:1.0.0-SNAPSHOT
-          imagePullPolicy: Never
+          imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 8080
           envFrom:

@@ -27,17 +27,6 @@ replicas:
     count: 1
 
 patches:
-  # The base pins imagePullPolicy to Never, which is right for a local minikube
-  # where images are side-loaded with `docker save | minikube ssh docker load`.
-  # Staging pulls from the internal registry instead, so leaving it would fail
-  # every first deploy with ErrImageNeverPull.
-  - target:
-      kind: Deployment
-    patch: |-
-      - op: replace
-        path: /spec/template/spec/containers/0/imagePullPolicy
-        value: IfNotPresent
-
   # Staging needs its own hostname — a subdomain of the production one is the
   # obvious choice. Where no second DNS record exists, deploy with the ingress
   # patch removed and reach staging over the SSH tunnel with

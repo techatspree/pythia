@@ -34,6 +34,12 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 K8S_OVERLAY="$PROJECT_ROOT/k8s/overlays/minikube"
 
+# Shared settings for the local cluster (task-196): namespace, registry ports,
+# image tag. Plain variables, not exported — see the file.
+# minikube-env.sh is linted on its own; plain `shellcheck` (no -x) does not follow it.
+# shellcheck source=scripts/minikube-env.sh disable=SC1091
+. "$SCRIPT_DIR/minikube-env.sh"
+
 # Fail fast on missing tenant config so we never silently ship the
 # unresolved ${VAR} placeholders into the running backend Pod.
 for v in ENTRA_TENANT_ID ENTRA_API_CLIENT_ID ENTRA_SPA_CLIENT_ID; do
@@ -69,28 +75,47 @@ export OIDC_SPA_CLIENT_ID="$ENTRA_SPA_CLIENT_ID"
 # below; override it for the Ingress host (e.g. http://estimation.local).
 export OIDC_REDIRECT_URI="${OIDC_REDIRECT_URI:-http://localhost:8080}"
 
-echo "Building backend and frontend container images..."
-cd "$PROJECT_ROOT"
-# Backend image via Quarkus/Jib (container-image build enabled); frontend image
-# via jib-core (task-195), loaded into the local Docker daemon by default. Tests
-# are skipped for the deploy build.
-"$PROJECT_ROOT/gradlew" \
-    :backend:implementation:imageBuild -Dquarkus.container-image.build=true \
-    :frontend:imageBuild \
-    -x test
+# The images reach the cluster through its registry addon (task-196), not by
+# side-loading: a registry can hold a multi-arch index, and the node pulls its
+# native variant (arm64 on Apple Silicon, so nothing runs under emulation).
+# Idempotent; minikube-setup.sh enables it too, this covers older clusters.
+minikube addons enable registry
 
-echo "Loading images into Minikube..."
-# NOTE: do NOT use `minikube image load` here. With the docker driver it caches
-# the exported tarball under ~/.minikube/cache/images/ and, for an image whose
-# tag already exists (ours is the fixed 1.0.0-SNAPSHOT), reuses the STALE cached
-# copy — so a freshly rebuilt image silently never reaches the cluster and pods
-# keep running yesterday's bundle. Piping `docker save` straight into the
-# in-cluster docker daemon bypasses that cache and always installs the new
-# content, retagging 1.0.0-SNAPSHOT to the fresh image id.
-for img in pythia/pythia-backend:1.0.0-SNAPSHOT pythia/pythia-frontend:1.0.0-SNAPSHOT; do
-    echo "  -> $img"
-    docker save "$img" | minikube ssh --native-ssh=false -- docker load
+# The host reaches the in-cluster registry through a port-forward. The port is
+# MINIKUBE_REGISTRY_HOST_PORT (5005 by default, because macOS's AirPlay Receiver
+# holds 5000); pods pull the same registry as MINIKUBE_IMAGE_REGISTRY.
+echo "Port-forwarding the registry addon to localhost:${MINIKUBE_REGISTRY_HOST_PORT}..."
+kubectl -n kube-system port-forward svc/registry "${MINIKUBE_REGISTRY_HOST_PORT}:80" > /dev/null 2>&1 &
+REGISTRY_PF_PID=$!
+trap 'kill "$REGISTRY_PF_PID" 2>/dev/null || true' EXIT
+push_registry="localhost:${MINIKUBE_REGISTRY_HOST_PORT}"
+for _ in $(seq 1 30); do
+    curl -fsS "http://${push_registry}/v2/" > /dev/null 2>&1 && break
+    sleep 1
 done
+if ! curl -fsS "http://${push_registry}/v2/" > /dev/null 2>&1; then
+    echo "Error: the registry addon did not answer on http://${push_registry}/v2/ within 30s." >&2
+    echo "Check 'kubectl -n kube-system get pods -l kubernetes.io/minikube-addons=registry'." >&2
+    exit 1
+fi
+
+echo "Building and pushing backend and frontend images (amd64 + arm64)..."
+cd "$PROJECT_ROOT"
+# Pushing implies multi-arch for both images. The registry lives INSIDE the
+# cluster, so a reset leaves it empty — yet an unchanged backend build would be
+# UP-TO-DATE (or replayed FROM-CACHE) and push nothing. quarkusAppPartsBuild is
+# where the image is actually built and pushed, so it is forced with --rerun.
+# The frontend's imageBuild is never up to date. Tests are skipped here.
+"$PROJECT_ROOT/gradlew" \
+    :backend:implementation:quarkusAppPartsBuild --rerun \
+    :backend:implementation:imageBuild \
+    -Dquarkus.container-image.push=true \
+    -Dquarkus.container-image.registry="$push_registry" \
+    -Dquarkus.container-image.tag="$MINIKUBE_IMAGE_TAG" \
+    -Dquarkus.container-image.insecure=true \
+    :frontend:imageBuild -PfrontendImagePush=true \
+    -PfrontendImageRegistry="$push_registry" -PfrontendImageTag="$MINIKUBE_IMAGE_TAG" \
+    -x test
 
 echo "Applying Kustomize overlay..."
 # Render the overlay, substitute ONLY the OIDC coordinates (kustomize can't do
@@ -103,64 +128,65 @@ if ! command -v envsubst >/dev/null 2>&1; then
 fi
 # shellcheck disable=SC2016  # single quotes are intentional: this literal is
 # envsubst's allow-list of variable NAMES, not a shell expansion.
+# MINIKUBE_IMAGE_REGISTRY is passed explicitly: minikube-env.sh does not export.
 kubectl kustomize "$K8S_OVERLAY" \
-    | envsubst '${OIDC_AUTH_SERVER_URL} ${OIDC_CLIENT_ID} ${OIDC_TOKEN_AUDIENCE} ${OIDC_TENANT_ID} ${OIDC_SPA_CLIENT_ID} ${OIDC_REDIRECT_URI}' \
+    | MINIKUBE_IMAGE_REGISTRY="$MINIKUBE_IMAGE_REGISTRY" envsubst '${OIDC_AUTH_SERVER_URL} ${OIDC_CLIENT_ID} ${OIDC_TOKEN_AUDIENCE} ${OIDC_TENANT_ID} ${OIDC_SPA_CLIENT_ID} ${OIDC_REDIRECT_URI} ${MINIKUBE_IMAGE_REGISTRY}' \
     | kubectl apply -f -
 
-# The image tag is fixed (1.0.0-SNAPSHOT) with imagePullPolicy: Never, so a
-# reloaded image or a changed ConfigMap is NOT picked up by pods whose spec is
-# otherwise unchanged. Force a rollout so the freshly built images and current
-# config actually take effect.
+# The image tag is fixed (MINIKUBE_IMAGE_TAG), so a pushed image or a changed
+# ConfigMap leaves the pod spec unchanged and nothing rolls on its own. The
+# overlay sets imagePullPolicy: Always, so a forced rollout pulls the image just
+# pushed and picks up the current config.
 echo "Restarting deployments to pick up the new images/config..."
-kubectl -n estimation rollout restart deployment/backend deployment/frontend
+kubectl -n "$MINIKUBE_NAMESPACE" rollout restart deployment/backend deployment/frontend
 
 echo "Waiting for PostgreSQL to be ready..."
-kubectl -n estimation wait --for=condition=ready pod -l app=postgres --timeout=120s
+kubectl -n "$MINIKUBE_NAMESPACE" wait --for=condition=ready pod -l app=postgres --timeout=120s
 
 # Wait on the ROLLOUT (not just "a pod is ready"): `rollout status` blocks until
 # the new ReplicaSet is fully available and the old pods are gone, so we never
 # declare success on a still-terminating old pod mid-rollout.
 echo "Waiting for the new backend rollout to complete..."
-kubectl -n estimation rollout status deployment/backend --timeout=180s
+kubectl -n "$MINIKUBE_NAMESPACE" rollout status deployment/backend --timeout=180s
 echo "Waiting for the new frontend rollout to complete..."
-kubectl -n estimation rollout status deployment/frontend --timeout=180s
+kubectl -n "$MINIKUBE_NAMESPACE" rollout status deployment/frontend --timeout=180s
 
-# Freshness safety net: confirm the pod is running the image currently tagged
-# INSIDE minikube (i.e. the rollout picked up the reload). Both digests below are
-# the classic docker config digest, so they are directly comparable.
-#
-# Do NOT compare against the host `docker inspect .Id`: when Docker Desktop uses
-# the containerd image store, `.Id` there is the MANIFEST digest, which never
-# equals minikube's classic config digest — the same image reads as two
-# different hashes and the check false-positives every time.
+# Freshness safety net: confirm each pod runs the image the registry serves for
+# the tag right now (i.e. the rollout pulled what was just pushed). Both sides
+# are the digest of the multi-arch INDEX: the registry returns it for a HEAD with
+# the index Accept header, and the node's runtime records the digest it pulled by
+# in the pod's imageID.
 verify_image() {
-    app="$1"; tag="$2"
+    app="$1"
     # `|| true`: with `set -e -o pipefail`, a grep with no match would otherwise
     # abort the whole deploy on this best-effort verification step.
-    incluster="$(minikube ssh -- "docker inspect --format '{{.Id}}' $tag" 2>/dev/null | grep -oE '[0-9a-f]{64}' | head -1 || true)"
-    running="$(kubectl -n estimation get pod -l "app=$app" \
+    pushed="$(curl -fsSI \
+        -H 'Accept: application/vnd.oci.image.index.v1+json, application/vnd.docker.distribution.manifest.list.v2+json' \
+        "http://${push_registry}/v2/pythia/pythia-${app}/manifests/${MINIKUBE_IMAGE_TAG}" 2>/dev/null \
+        | grep -i '^docker-content-digest:' | grep -oE '[0-9a-f]{64}' | head -1 || true)"
+    running="$(kubectl -n "$MINIKUBE_NAMESPACE" get pod -l "app=$app" \
         -o jsonpath='{.items[0].status.containerStatuses[0].imageID}' 2>/dev/null \
         | grep -oE '[0-9a-f]{64}' | head -1 || true)"
-    if [ -n "$incluster" ] && [ -n "$running" ] && [ "$incluster" != "$running" ]; then
-        echo "WARNING: $app pod is not running the image currently tagged in minikube" >&2
-        echo "  in minikube: $incluster" >&2
+    if [ -n "$pushed" ] && [ -n "$running" ] && [ "$pushed" != "$running" ]; then
+        echo "WARNING: $app pod is not running the image the registry currently serves" >&2
+        echo "  in registry: $pushed" >&2
         echo "  in pod:      $running" >&2
-        echo "  The rollout may not have picked up the reloaded image; re-run this script." >&2
+        echo "  The rollout may not have pulled the pushed image; re-run this script." >&2
     else
-        echo "  $app pod runs the in-cluster image (${incluster:-unknown})"
+        echo "  $app pod runs the pushed image (${pushed:-unknown})"
     fi
 }
-echo "Verifying pods run the freshly built images..."
-verify_image backend  pythia/pythia-backend:1.0.0-SNAPSHOT
-verify_image frontend pythia/pythia-frontend:1.0.0-SNAPSHOT
+echo "Verifying pods run the freshly pushed images..."
+verify_image backend
+verify_image frontend
 
 echo "Deployment complete."
-kubectl -n estimation get pods
+kubectl -n "$MINIKUBE_NAMESPACE" get pods
 echo ""
 echo "Access the backend with:"
-echo "  kubectl -n estimation port-forward svc/backend 8080:8080"
+echo "  kubectl -n $MINIKUBE_NAMESPACE port-forward svc/backend 8080:8080"
 echo "Access the frontend with:"
-echo "  kubectl -n estimation port-forward svc/frontend 8080:80"
+echo "  kubectl -n $MINIKUBE_NAMESPACE port-forward svc/frontend 8080:80"
 echo "Access the backend logs with:"
-echo "  kubectl -n estimation logs -f deploy/backend"
+echo "  kubectl -n $MINIKUBE_NAMESPACE logs -f deploy/backend"
 

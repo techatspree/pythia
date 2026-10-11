@@ -2,7 +2,26 @@ apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 resources:
   - ../../base
+# Pods pull from the cluster's registry addon (task-196). ${MINIKUBE_IMAGE_REGISTRY}
+# is resolved by envsubst in scripts/minikube-deploy.sh from
+# scripts/minikube-env.sh — kustomize cannot read the environment. Its default,
+# localhost:5000, is the registry addon's node-side proxy: inside the node,
+# `localhost` is the node itself, and the node's runtime pulls from there.
+images:
+  - name: pythia/pythia-backend
+    newName: ${MINIKUBE_IMAGE_REGISTRY}/pythia/pythia-backend
+  - name: pythia/pythia-frontend
+    newName: ${MINIKUBE_IMAGE_REGISTRY}/pythia/pythia-frontend
 patches:
+  # The tag is the fixed 1.0.0-SNAPSHOT, so IfNotPresent would keep serving the
+  # image already on the node. Always pull, so a rollout restart picks up the
+  # image the deploy just pushed.
+  - target:
+      kind: Deployment
+    patch: |-
+      - op: replace
+        path: /spec/template/spec/containers/0/imagePullPolicy
+        value: Always
   # Inject the Entra OIDC config for minikube. The ${ENTRA_*} placeholders in
   # this patch are resolved by envsubst in scripts/minikube-deploy.sh at apply
   # time (not by kustomize).

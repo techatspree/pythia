@@ -59,7 +59,7 @@ Local dev, `scripts/dev.sh` and CI all get the file from **one** place: the `pre
 
 ## Container image (`:frontend:imageBuild`, task-195)
 
-The image is assembled by **jib-core**, used as a library in `src/frontend/build.gradle.kts`, the way Quarkus/Jib builds the backend's. There is no Dockerfile: no Docker daemon to build or push, no second `npm run build` inside a container (the image takes `build/` from Gradle's `npmBuild`), and a **digest-pinned** nginx base (`frontendBaseImage`). Upgrading nginx is a deliberate edit of that line. It is `linux/amd64` only, like `quarkus.jib.platforms`.
+The image is assembled by **jib-core**, used as a library in `src/frontend/build.gradle.kts`, the way Quarkus/Jib builds the backend's. There is no Dockerfile: no Docker daemon to build or push, no second `npm run build` inside a container (the image takes `build/` from Gradle's `npmBuild`), and a **digest-pinned** nginx base (`frontendBaseImage`). Upgrading nginx is a deliberate edit of that line. A push builds `linux/amd64` + `linux/arm64` as one index (task-196), and a daemon load builds `linux/amd64` only, because a daemon load takes a single image, not an index. That is a fixed platform, not the host's, so the image never depends on the machine that built it; the backend follows the same rule.
 
 Layers: `nginx.conf` → `/etc/nginx/templates/default.conf.template`, then every file under `build/` except `config.json` (see above) → `/usr/share/nginx/html`, in sorted order. **Never set an entrypoint or CMD**: inheriting nginx's `/docker-entrypoint.sh` is what renders the template (`${NGINX_LOCAL_RESOLVERS}`) and runs the local-resolvers script, because `NGINX_ENTRYPOINT_LOCAL_RESOLVERS=1`. Never take a creation time from the clock either. Jib's fixed epoch keeps the build independent of *when* it runs, and CI asserts both the digest pin and the absence of `Instant.now`/`setCreationTime`.
 
@@ -67,7 +67,7 @@ Targets are Gradle properties without dots, so each can also come from `ORG_GRAD
 
 | property | default | meaning |
 |---|---|---|
-| `frontendImagePush` | `false` | `false`: load into the local Docker daemon (minikube, CI `images`). `true`: push to a registry with no Docker at all. |
+| `frontendImagePush` | `false` | `false`: load into the local Docker daemon, `linux/amd64` only (CI `images`). `true`: push a `linux/amd64` + `linux/arm64` index to a registry with no Docker at all (minikube's registry addon, real registries). |
 | `frontendImageRegistry` | — | host plus optional path prefix; **required** when pushing |
 | `frontendImageTag` | `project.version` | the tag |
 | `frontendImageUsername` / `frontendImagePassword` | — | push credentials; otherwise `~/.docker/config.json` and the well-known credential helpers |

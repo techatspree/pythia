@@ -95,6 +95,13 @@ dependency resolution long before it reaches a deploy.
      -PfrontendImageRegistry="$REGISTRY" -PfrontendImageTag="$IMAGE_TAG"
    ```
 
+   **Pushed images are multi-arch** (task-196): any push builds
+   `linux/amd64` + `linux/arm64` as one index, for both images, without asking
+   — `-Dquarkus.container-image.push=true` (or the plugin's `imagePush` task)
+   for the backend, `-PfrontendImagePush=true` for the frontend. Each node pulls
+   its native variant. Only a build into a local Docker daemon is single-platform
+   (`linux/amd64`), because a daemon load takes one image, not an index.
+
    **No image build needs a Docker daemon** (task-195). The backend pushes
    through Quarkus/Jib with `-Dquarkus.container-image.push=true`, and the
    frontend through jib-core, so a pipeline needs no Docker-in-Docker. Registry

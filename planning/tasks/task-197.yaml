@@ -1,0 +1,152 @@
+id: task-197
+phase: phase-14
+title: "One Node.js version for frontend and Kotlin/JS"
+depends_on: [task-196]
+description: |
+  Every build prints, from `:kotlinNpmInstall`:
+
+      (node:…) [DEP0169] DeprecationWarning: `url.parse()` behavior is not
+      standardized and prone to errors that have security implications. …
+
+  ## Why
+
+  The build runs TWO Node.js versions:
+
+  - the frontend's **22.14.0**, pinned in `src/frontend/build.gradle.kts`
+    (`node { version.set("22.14.0") }`, gradle-node-plugin);
+  - the Kotlin Gradle plugin's own default, **24.10.0** (downloaded to
+    `~/.gradle/nodejs/node-v24.10.0-*`). It runs Yarn 1 for the Kotlin/JS
+    toolchain of `:domain` and its three sub-projects
+    (`kotlinNodeJsSetup`, `kotlinYarnSetup`, `kotlinNpmInstall`).
+
+  Yarn 1 calls Node's `url.parse()`, and from Node 24 on that prints DEP0169
+  at runtime. Measured on 2026-10-11 with Yarn 1.22.22 on a throwaway
+  project: Node 22.0.0 and 22.14.0 print nothing, Node 24.10.0 prints the
+  warning. Upgrading Kotlin does NOT fix this. KGP 2.4.10 moves from Yarn
+  1.22.17 to 1.22.22, which is the final Yarn 1 release and still prints it,
+  and KGP 2.3.21 and 2.4.10 have the same Node default.
+
+  ## Target state
+
+  - **One Node.js version, declared once:** `nodeVersion=22.14.0` in the root
+    `gradle.properties`. Both toolchains read it: the frontend's `node { }`
+    block, and every project that applies the Kotlin/JS Node.js plugin.
+    22.14.0 is chosen because the frontend, the CI `setup-node` steps and the
+    old frontend image already used it; Node 22 is an LTS line.
+  - **The Kotlin/JS side is set through KGP 2.3.21's API**, verified in the
+    plugin jar: `org.jetbrains.kotlin.gradle.targets.js.nodejs.NodeJsEnvSpec`
+    (a project extension registered by `NodeJsPlugin`) inherits
+    `version: Property<String>` from
+    `org.jetbrains.kotlin.gradle.targets.js.EnvSpec`. The older
+    `NodeJsRootExtension` no longer carries a version, so do NOT use it.
+    `kotlinNodeJsSetup` exists in the ROOT project and in `:domain`,
+    `:domain:core`, `:domain:method-threepoint` and
+    `:domain:method-bucketsampled`, so the setting is applied wherever
+    `NodeJsPlugin` is applied:
+        allprojects {
+            plugins.withType<org.jetbrains.kotlin.gradle.targets.js.nodejs.NodeJsPlugin> {
+                the<org.jetbrains.kotlin.gradle.targets.js.nodejs.NodeJsEnvSpec>()
+                    .version.set(providers.gradleProperty("nodeVersion"))
+            }
+        }
+    in the root `build.gradle.kts`. Configuring each sub-project separately
+    would recreate the drift this task removes.
+  - **CI cannot drift either.** `.github/workflows/ci.yaml` pins
+    `node-version: 22.14.0` in two `actions/setup-node` steps. GitHub Actions
+    cannot read `gradle.properties` directly, so a validation asserts that both
+    literals equal `nodeVersion`, and each step gets a comment naming the
+    source.
+  - **`npmVersion` stays where it is** (frontend-only; Kotlin/JS uses Yarn).
+
+  ## What stays
+
+  `warning Ignored scripts due to flag.` is intentional: KGP runs Yarn with
+  `--ignore-scripts`, so dependencies cannot run install scripts during the
+  build. Do not change that.
+
+  ## About testing
+
+  `:domain` has NO Kotlin/JS test sources (`compileTestKotlinJs` is
+  `NO-SOURCE`; the domain tests are `jvmTest`). The JS output is exercised
+  by the frontend, which consumes the packaged TypeScript/JS. So the evidence
+  is `./gradlew build` (the domain JS compile, packaging, `:frontend:check`)
+  plus the Playwright suite, which runs the domain's JS in a browser.
+
+  ## Out of scope
+
+  Upgrading Kotlin or Quarkus (task-198), replacing Yarn with npm for
+  Kotlin/JS, and the frontend's npm version.
+
+steps:
+  - |
+    Read the root `build.gradle.kts`, the root `gradle.properties`,
+    `src/frontend/build.gradle.kts` (the `node { }` block), and the two
+    `setup-node` steps in `.github/workflows/ci.yaml`. Record the before state
+    of the warning:
+      ./gradlew kotlinNpmInstall --rerun --console=plain 2>&1 | grep -c DEP0169
+    It is expected to print 1.
+  - |
+    Root `gradle.properties`: add `nodeVersion=22.14.0` with a comment saying
+    it is the ONE Node.js version of the build (frontend and Kotlin/JS), why
+    22 and not 24 (DEP0169 from Yarn 1 on Node 24+, measured 2026-10-11), and
+    that the CI `setup-node` steps must match it.
+  - |
+    `src/frontend/build.gradle.kts`: replace `version.set("22.14.0")` with
+    `version.set(providers.gradleProperty("nodeVersion"))`, keeping the
+    `npmVersion` line.
+  - |
+    Root `build.gradle.kts`: add the `allprojects { plugins.withType<NodeJsPlugin> { … } }`
+    block from the description, with a comment: Kotlin/JS would otherwise
+    download its own Node default (24.10.0 for KGP 2.3.21), Yarn 1 prints
+    DEP0169 on Node 24+, and the version comes from `gradle.properties` so
+    the two toolchains cannot drift. Use fully-qualified names or imports at
+    the top of the script, matching the file's existing style.
+  - |
+    `.github/workflows/ci.yaml`: keep both `node-version: 22.14.0` literals and
+    add a comment above each: "must equal nodeVersion in gradle.properties
+    (task-197)".
+  - |
+    Verify the effect:
+      ./gradlew kotlinNodeJsSetup --rerun --console=plain
+      ls ~/.gradle/nodejs | grep -q 'node-v22.14.0'
+      ./gradlew kotlinNpmInstall --rerun --console=plain 2>&1 | grep -c DEP0169   # must print 0
+      ./gradlew kotlinNpmInstall --rerun --console=plain 2>&1 | grep -q 'Ignored scripts'  # stays
+    Also confirm that every Kotlin/JS project resolves 22.14.0, not only the
+    root. Run `./gradlew :domain:core:kotlinNodeJsSetup --rerun --info` and
+    check the logged installation directory names `node-v22.14.0`.
+  - |
+    Run the Playwright suite against `./scripts/dev.sh` (English, then German,
+    as `src/frontend/CLAUDE.md` describes). The domain's Kotlin/JS output runs
+    in the browser there, and it is the only runtime exercise it gets.
+  - |
+    ./gradlew build
+
+validation:
+  - |
+    grep -qx 'nodeVersion=22.14.0' gradle.properties
+    grep -q 'providers.gradleProperty("nodeVersion")' src/frontend/build.gradle.kts
+    ! grep -q 'version.set("22.14.0")' src/frontend/build.gradle.kts
+    grep -q 'NodeJsEnvSpec' build.gradle.kts
+    grep -q 'gradleProperty("nodeVersion")' build.gradle.kts
+  - |
+    # CI's setup-node literals must equal the one declared version.
+    V=$(grep -E '^nodeVersion=' gradle.properties | cut -d= -f2)
+    test "$(grep -cE "node-version: ${V//./\\.}$" .github/workflows/ci.yaml)" -eq 2
+    test "$(grep -cE 'node-version:' .github/workflows/ci.yaml)" -eq 2
+    ruby -ryaml -e 'YAML.load_file(".github/workflows/ci.yaml")'
+  - |
+    ./gradlew kotlinNodeJsSetup :domain:core:kotlinNodeJsSetup --rerun --console=plain > /dev/null
+    ls ~/.gradle/nodejs | grep -q 'node-v22.14.0'
+    test "$(./gradlew kotlinNpmInstall --rerun --console=plain 2>&1 | grep -c DEP0169)" -eq 0
+  - |
+    ./gradlew build
+  - |
+    cd src/frontend
+    E2E_LANG=en npx playwright test
+    E2E_LANG=de npx playwright test
+
+outputs:
+  - modified: gradle.properties
+  - modified: build.gradle.kts
+  - modified: src/frontend/build.gradle.kts
+  - modified: .github/workflows/ci.yaml

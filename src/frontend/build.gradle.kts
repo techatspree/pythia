@@ -297,13 +297,23 @@ tasks.register("imageBuild") {
             .setToolName("pythia")
             .addEventHandler(LogEvent::class.java) { logger.info(it.message) }
 
-        logger.lifecycle("Building frontend image $ref on $frontendBaseImage (push=$push)")
+        // A registry holds a multi-platform index, so a push builds amd64 + arm64
+        // (task-196) and every consumer pulls its native variant. A daemon load
+        // takes one image, so that path stays linux/amd64 — a fixed platform, not
+        // the host's, so the image never depends on the machine that built it.
+        val platforms = if (push) {
+            setOf(Platform("amd64", "linux"), Platform("arm64", "linux"))
+        } else {
+            setOf(Platform("amd64", "linux"))
+        }
+        val platformList = platforms.joinToString { "${it.os}/${it.architecture}" }
+        logger.lifecycle("Building frontend image $ref on $frontendBaseImage (push=$push, platforms=$platformList)")
         // Entrypoint and CMD are deliberately NOT set: inheriting nginx's
         // /docker-entrypoint.sh is what renders the template and runs the
         // local-resolvers script. Creation and modification times stay at Jib's
         // fixed defaults, so the image does not depend on WHEN it is built.
         val container = Jib.from(frontendBaseImage)
-            .setPlatforms(setOf(Platform("amd64", "linux")))
+            .setPlatforms(platforms)
             .setFileEntriesLayers(listOf(configLayer, spaLayer.build()))
             .addEnvironmentVariable("NGINX_ENTRYPOINT_LOCAL_RESOLVERS", "1")
             .addExposedPort(Port.tcp(80))
