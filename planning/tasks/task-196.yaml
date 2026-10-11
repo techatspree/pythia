@@ -1,0 +1,631 @@
+id: task-196
+phase: phase-7
+title: "Multi-arch images (amd64+arm64) delivered via a registry"
+depends_on: [task-195]
+description: |
+  Both container images are `linux/amd64` only: the backend through
+  `quarkus.jib.platforms=linux/amd64`, the frontend through
+  `Platform("amd64", "linux")` in `:frontend:imageBuild` (task-195). On an
+  arm64 machine (Apple Silicon, Graviton) every container runs under
+  emulation, and minikube on a Mac runs amd64 images on an arm64 node.
+
+  ## The model: build multi-arch, deliver through a registry
+
+  A multi-platform image is an INDEX over per-platform images, and only a
+  registry can hold one. Every consumer pulls the tag and receives its own
+  variant: the Mac's Docker daemon gets arm64, a CI runner amd64, minikube's
+  node whichever it is. Jib's DIRECT daemon load (`DockerDaemonImage`, and
+  Quarkus' daemon build) is single-platform, because it hands the daemon a
+  single-image `docker load` tarball. That is the only single-platform path.
+
+  Cross-building costs nothing: Jib never executes anything inside the image.
+  It stacks the application layers onto each platform's base image, so there
+  is no QEMU and no buildx.
+
+  ## Target state
+
+  - **Pushing an image always means amd64 + arm64**, for both images, without
+    the caller having to ask. A downstream pipeline that already pushes gets
+    multi-arch images with no change on its side.
+  - **The daemon path stays single-platform `linux/amd64`**, as today. It is a
+    fallback for building without a registry, and CI's `images` job uses it on
+    an amd64 runner. Deliberately NOT the host architecture: a daemon image
+    that depended on the machine that built it would break the "independent of
+    *where* it runs" rule in the root CLAUDE.md. The arm64-Mac emulation
+    problem is solved by the minikube path below, not by this fallback.
+  - **Backend base re-pinned to its multi-arch INDEX.** The current pin
+    `registry.access.redhat.com/ubi9/openjdk-21-runtime@sha256:87aadb888d0c…`
+    is a single-platform (amd64) manifest, so an arm64 variant is impossible
+    with it. Verified 2026-10-11: it is the amd64 member of the index for tag
+    `1.21-1.1741781258` (also tagged `1.21`), index
+    `sha256:360822c35c5741f542ab78fe123e6c4d9b68e0113a88d6e0250bb1f377b17f29`,
+    which covers amd64, arm64, ppc64le and s390x. Re-pin to that index. The
+    amd64 variant stays byte-identical to today's base. Upgrading the JRE
+    release (the newest is 1.24) is a separate decision.
+  - **The frontend base is already an index** (nginx 1.27.5-alpine, verified
+    in task-195 to include arm64). Only the platform list changes.
+
+  ## Backend: "push implies multi-arch"
+
+  `gradle.properties` keeps `quarkus.jib.platforms=linux/amd64` for daemon
+  builds. `src/backend/implementation/build.gradle.kts` sets
+  `quarkus { set("jib.platforms", "linux/amd64,linux/arm64") }` when the
+  build pushes. There are TWO ways to push, and both must trigger it:
+
+  - `imageBuild -Dquarkus.container-image.push=true`, the form
+    `docs/deployment.md` already documents and this task uses everywhere;
+  - the plugin's separate `imagePush` task (`io.quarkus.gradle.tasks.ImagePush`,
+    verified in the 3.35.1 plugin), which forces `container-image.build` and
+    `container-image.push` itself. Those forced values are not visible as
+    system properties, so the condition also checks
+    `gradle.startParameter.taskNames` for a task ending in `imagePush`.
+    Without this, `./gradlew imagePush` would silently ship amd64 only.
+
+  The Quarkus 3.35.1 Gradle extension has `set(String, String)`. The
+  precedence was verified from the plugin's `EffectiveConfig` bytecode
+  (2026-10-11) and is non-obvious, so record it in the backend comment:
+  forced task properties (600) > task properties (500) > system properties
+  (400) > environment (300) > `quarkus { set() }` (290) > `gradle.properties`
+  `quarkus.*` (280). So `set()` overrides the `gradle.properties` default, and
+  an explicit `-Dquarkus.jib.platforms=…` still wins over both. The validation
+  additionally proves the outcome by reading the pushed index's platforms.
+
+  `imageBuild` forces only `container-image.build`, so a `-D` push is
+  expected to survive. That has not been run yet. The local-registry
+  validation proves it, and fails loudly if nothing arrives.
+
+  A plain-HTTP local registry needs `-Dquarkus.container-image.insecure=true`
+  (the key exists in quarkus-container-image 3.35.1). The frontend already
+  allows plain HTTP for `localhost`/`127.0.0.1` only (task-195).
+
+  ## Frontend
+
+  `:frontend:imageBuild` uses `amd64` + `arm64` when `frontendImagePush=true`
+  and `amd64` otherwise. Nothing else changes.
+
+  ## minikube: pull from its registry addon instead of side-loading
+
+  `scripts/minikube-deploy.sh` today side-loads with
+  `docker save | minikube ssh -- docker load`, uses `imagePullPolicy: Never`,
+  and carries a freshness check because `minikube image load` can serve a
+  stale cached tarball. All of that is replaced by a registry:
+
+  - `minikube addons enable registry` runs the registry in the cluster, plus a
+    proxy that serves it on the NODE's `localhost:5000`. Inside the node,
+    `localhost` is the node, so pods reference
+    `localhost:5000/pythia/pythia-{backend,frontend}:1.0.0-SNAPSHOT`, and the
+    node's runtime pulls over HTTP, which Docker allows for `localhost` by
+    default.
+  - The host reaches it through
+    `kubectl -n kube-system port-forward svc/registry 5005:80`. Not 5000: on
+    macOS, ControlCenter (AirPlay Receiver) listens on 5000 (verified on the
+    development Mac). Both images are pushed to `localhost:5005/...`, which is
+    the same registry storage the node reads as `localhost:5000/...`.
+  - The minikube overlay rewrites the image names to
+    `localhost:5000/pythia/...` (the `images:` pattern staging and production
+    already use) and patches `imagePullPolicy: Always`. With the fixed
+    `1.0.0-SNAPSHOT` tag, `Always` plus the existing `rollout restart` is what
+    picks up a rebuild. A unique tag per deploy was rejected because a dirty
+    working tree would reuse the same commit SHA.
+  - **Every deploy pushes again, and the backend build is forced.** The
+    registry lives INSIDE the cluster: `minikube-reset.sh` deletes it, and a
+    stop/start may drop its storage. Side-loading never had this problem,
+    because the image survived in the host's Docker. Measured on 2026-10-11:
+    the plugin's `imageBuild` task always runs, but the image is built and
+    pushed inside `quarkusAppPartsBuild`, as a side effect, not a tracked
+    output. That task's up-to-date check DOES include `quarkus.*` system
+    properties (changing `-Dquarkus.container-image.registry` re-ran it), so
+    a repeat build with the SAME properties is skipped, and the build cache
+    can also replay it (`FROM-CACHE`). Either way nothing is pushed. A
+    reset → deploy with no code change would therefore push NOTHING to the
+    fresh registry, and the pods would sit in `ImagePullBackOff`. **Every
+    backend push in this task (script, local checks, validation) runs
+    `:backend:implementation:quarkusAppPartsBuild --rerun`**, which forces
+    execution past both the up-to-date check and the cache. The frontend's
+    `imageBuild` is never up to date (task-195), so it needs nothing. The CI
+    push step happens to rerun anyway (different properties than the daemon
+    build before it, plus `--no-build-cache`), but takes `--rerun` too, so
+    no push depends on what ran before it.
+  - **The node-side pull is the least certain link and is tested FIRST.**
+    The proxy binds a `hostPort`, and whether the node's own Docker reaches
+    it as `localhost:5000` depends on the CNI's port mapping. Before
+    rewriting the script, push one image through the port-forward and run
+    `minikube ssh -- docker pull localhost:5000/<image>`. If that fails, use
+    the fallback consistently: pods reference `$(minikube ip):5000/...`
+    (rendered into the overlay by the deploy script), and
+    `minikube-setup.sh` starts the cluster with
+    `--insecure-registry "$(minikube ip):5000"`-equivalent configuration (an
+    insecure-registry CIDR such as `192.168.0.0/16`, because the IP is not
+    known before `minikube start`). Record which path was taken in the
+    script's comment and in `docs/development.md`.
+    **The fallback and the settings file:** the node's IP is unknown until
+    the cluster runs, so `scripts/minikube-env.sh` cannot hold it as a
+    default. Computing it there would run `minikube` on every `source`,
+    including from `minikube-reset.sh`, and break the file's "only assigns"
+    rule. In fallback mode the file's default is EMPTY, and
+    `minikube-deploy.sh` resolves it at runtime:
+    `MINIKUBE_IMAGE_REGISTRY="${MINIKUBE_IMAGE_REGISTRY:-$(minikube ip):5000}"`.
+    The overlay validation then resolves it the same way, and a running
+    cluster is required for that check.
+  - The freshness check compares the pod's `imageID` digest with the digest
+    the registry currently serves for the tag (an HTTP HEAD with the OCI index
+    `Accept` header through the port-forward). The `docker save` loop, its
+    stale-cache NOTE and the old in-node `docker inspect` comparison are
+    removed.
+
+  ## One settings file for the local cluster
+
+  This task introduces values that several scripts must agree on (the
+  host-side registry port, the node-side registry address), next to ones that
+  are already repeated (the namespace `estimation` appears 6 times in
+  `minikube-deploy.sh` alone, the image names and tag 3 times). They move into
+  ONE file, **`scripts/minikube-env.sh`**, which `minikube-setup.sh`,
+  `minikube-deploy.sh` and `minikube-reset.sh` source:
+
+  | variable | default | used by |
+  |---|---|---|
+  | `MINIKUBE_CPUS` / `MINIKUBE_MEMORY` / `MINIKUBE_DRIVER` | `4` / `8192` / `docker` | setup |
+  | `MINIKUBE_NAMESPACE` | `estimation` | deploy, reset |
+  | `MINIKUBE_REGISTRY_HOST_PORT` | `5005` (not 5000: AirPlay on macOS) | deploy, reset |
+  | `MINIKUBE_IMAGE_REGISTRY` | `localhost:5000` (the node-side proxy); EMPTY in fallback mode, resolved by deploy to `$(minikube ip):5000` | deploy, the minikube overlay |
+  | `MINIKUBE_IMAGE_TAG` | `1.0.0-SNAPSHOT` | deploy |
+
+  Rules for the file:
+
+  - **Overridable without editing.** Every value is set as
+    `: "${MINIKUBE_CPUS:=4}"`, so `MINIKUBE_MEMORY=12288
+    ./scripts/minikube-setup.sh` works for one run.
+  - **Plain variables, never `export`ed.** Sourcing the file can then not
+    leak anything into Gradle, Docker or the user's shell. The scripts'
+    existing refuse-to-be-sourced guards protect the INTERACTIVE shell from
+    the scripts and stay as they are. A script sourcing a settings file is a
+    different thing. Where a child process needs a value (e.g. `envsubst`),
+    the script passes it explicitly.
+  - **No secrets and no organisation coordinates.** The `ENTRA_*` ids stay in
+    the workspace's `EntraIdVariables.sh`, outside every repo (workspace
+    CLAUDE.md). This file is public.
+  - **Comments may name the defaults, code may not.** A comment explaining
+    "pods pull from `localhost:5000`, the host pushes through 5005 because
+    AirPlay holds 5000" is wanted. A literal `5005` in a command is not. The
+    validation checks code lines only.
+  - **It is a library, not a script:** no shebang-driven execution, no
+    `set -e` and no side effects; it only assigns. It carries its own guard
+    so that running it directly prints a hint and exits non-zero.
+
+  **The minikube overlay follows the file.** Its `images:` entries use a
+  `${MINIKUBE_IMAGE_REGISTRY}` placeholder, the same convention staging and
+  production use with `${REGISTRY}`, and `minikube-deploy.sh` adds that name
+  to its existing `envsubst` allow-list. The settings file is then the single
+  source of the registry address, and the `$(minikube ip):5000` fallback is a
+  one-value change.
+
+  **Values the file must NOT try to own**, because another file is their real
+  owner and a shell file cannot reach it: the namespace in the base manifests
+  (`k8s/base/**`, owned by kustomize), and the image tag, owned by `version`
+  in the root `build.gradle.kts`. The settings file names both owners in a
+  comment, and the validation checks that the defaults still agree with
+  them.
+
+  **Out of scope:** `scripts/deploy.sh`, the server-side deploy, which has
+  its own interface (variables provided by the internal pipeline), and the
+  dev stack (`dev.sh`, ports 8090/5173), which is not minikube.
+
+  ## The local cluster's lifecycle scripts
+
+  The local cluster has three scripts, and all three change:
+
+  - **`scripts/minikube-setup.sh` (setup and startup)** already enables the
+    cluster's addons (`ingress`, `metrics-server`). The `registry` addon is
+    added there, because setup is where a cluster's addons are declared.
+    `minikube-deploy.sh` ALSO enables it, idempotently, so a cluster created
+    before this task keeps working without a reset.
+  - **`scripts/minikube-deploy.sh`** builds, pushes and deploys, as described
+    above.
+  - **`scripts/minikube-reset.sh` (teardown)** deletes the namespace and the
+    cluster. The registry addon and every pushed image go with the cluster,
+    which is correct and needs no extra step. One leftover remains: the
+    deploy's background `kubectl port-forward` on 5005 is killed by its
+    `trap … EXIT`, but not if the deploy itself was killed hard. The reset
+    therefore also stops a leftover port-forward, matched narrowly on
+    `port-forward svc/registry 5005:80` so that no other process is touched,
+    and says so.
+
+  `minikube stop` / `minikube start` (outside these scripts) keep the addon
+  enabled. Whether pushed images survive a restart depends on the addon's
+  storage. It does not matter, because every deploy pushes again.
+
+  ## The base's `imagePullPolicy: Never`
+
+  After this task no overlay wants `Never`: minikube patches `Always`, and
+  staging and production already patch `IfNotPresent` with a comment that
+  calls `Never` "right for a local minikube where images are side-loaded",
+  which stops being true. Change `k8s/base/{backend,frontend}/deployment.yaml`
+  to `IfNotPresent`, the right default for any registry-pulled image. Delete
+  the now-redundant `imagePullPolicy` patches (and their comments) from the
+  staging and production overlays. Keep production's comment about using a
+  commit-SHA tag rather than the floating `1.0.0-SNAPSHOT` (it is about
+  `IfNotPresent` and stays true). The rendered output for staging and
+  production must not change except that the patch is no longer needed.
+  Production's patch targets EVERY `kind: Deployment`, not named ones.
+  Removing it is still equivalent, because the only other workload
+  (`postgres`) is a StatefulSet the patch never matched. Prove the
+  equivalence by diffing the rendered overlays before and after (see the
+  validation).
+
+  ## Open questions, recorded and not decided here
+
+  - **The production server's architecture is unknown.** It does not matter
+    for this task: the pushed index always contains amd64, so production keeps
+    working either way.
+  - **Nothing EXERCISES the backend's arm64 variant in CI.** A JVM image on
+    `ubi9/openjdk-21-runtime` arm64 is expected to work. This task checks
+    locally that both variants exist and start a JVM of the right
+    architecture (see the steps). It does not add an arm64 runner.
+
+  ## Out of scope
+
+  Changing the internal deployment pipeline (it pushes, so it gets multi-arch
+  automatically), upgrading either base image's release, ppc64le/s390x, and an
+  arm64 CI runner.
+
+steps:
+  - |
+    Read `src/backend/implementation/gradle.properties`,
+    `src/backend/implementation/build.gradle.kts` (its `quarkus { }`
+    configuration, if any), the `imageBuild` task in
+    `src/frontend/build.gradle.kts`, `scripts/minikube-deploy.sh`,
+    `k8s/base/{backend,frontend}/deployment.yaml`, and the three overlays'
+    `kustomization.yaml`. Also read the `images` job in
+    `.github/workflows/ci.yaml` and the "Verify the image build stays time-
+    and environment-independent" step.
+  - |
+    Backend:
+      * `gradle.properties`: re-pin `quarkus.jib.base-jvm-image` to
+        `registry.access.redhat.com/ubi9/openjdk-21-runtime@sha256:360822c35c5741f542ab78fe123e6c4d9b68e0113a88d6e0250bb1f377b17f29`.
+        Add a comment: this is the multi-arch index of release
+        1.21-1.1741781258, containing the previously pinned amd64 manifest,
+        and an index is required for arm64. Keep
+        `quarkus.jib.platforms=linux/amd64` with a comment that it is the
+        single-platform DAEMON default.
+      * `build.gradle.kts`: when
+        `providers.systemProperty("quarkus.container-image.push")` is `"true"`
+        OR `gradle.startParameter.taskNames.any { it.endsWith("imagePush") }`,
+        `quarkus { set("jib.platforms", "linux/amd64,linux/arm64") }`. Comment:
+        a registry can hold a multi-platform index and a daemon load cannot,
+        so pushing implies multi-arch and callers need not ask; why both
+        triggers are needed; and the verified precedence order from the
+        description.
+  - |
+    Frontend, `src/frontend/build.gradle.kts` `imageBuild`: platforms are
+    `setOf(Platform("amd64", "linux"), Platform("arm64", "linux"))` when
+    pushing, `setOf(Platform("amd64", "linux"))` otherwise. Log the platform
+    list in the existing `logger.lifecycle` line. Comment why the daemon path
+    stays single-platform.
+  - |
+    k8s:
+      * `k8s/base/{backend,frontend}/deployment.yaml`: `imagePullPolicy:
+        IfNotPresent`.
+      * `k8s/overlays/staging/kustomization.yaml` and
+        `k8s/overlays/production/kustomization.yaml`: remove the
+        `imagePullPolicy` patches and the comment that justifies them by the
+        base's `Never`. Keep everything else, including production's
+        commit-SHA tag comment.
+      * `k8s/overlays/minikube/kustomization.yaml`: add an `images:` block
+        rewriting `pythia/pythia-backend` and `pythia/pythia-frontend` to
+        `${MINIKUBE_IMAGE_REGISTRY}/pythia/...` (tag unchanged), and a patch
+        setting `imagePullPolicy: Always` on both deployments. Comment why
+        `Always` is needed (fixed tag), that the placeholder is resolved by
+        `minikube-deploy.sh`'s `envsubst` from `scripts/minikube-env.sh`, and
+        why its default is `localhost:5000` (the node-side proxy of the
+        registry addon).
+  - |
+    Test the node-side pull BEFORE rewriting any script (see the
+    description):
+      minikube start && minikube addons enable registry
+      kubectl -n kube-system rollout status ds/registry-proxy --timeout=120s
+      kubectl -n kube-system port-forward svc/registry 5005:80 &  PF=$!
+      ./gradlew :frontend:imageBuild -PfrontendImagePush=true -PfrontendImageRegistry=localhost:5005
+      minikube ssh -- docker pull localhost:5000/pythia/pythia-frontend:1.0.0-SNAPSHOT
+      minikube ssh -- docker image inspect localhost:5000/pythia/pythia-frontend:1.0.0-SNAPSHOT --format '{{.Architecture}}'
+      kill $PF
+    The pull must succeed and print the node's native architecture. If it
+    fails, switch to the `$(minikube ip):5000` fallback from the description
+    for every following step.
+  - |
+    Create `scripts/minikube-env.sh` with the variables and rules from "One
+    settings file for the local cluster" in the description: a header comment
+    explaining the file's purpose, the no-export rule, and the two owners
+    it does not replace (base manifests' namespace, Gradle `version`); the
+    `: "${VAR:=default}"` assignments; and a guard at the top that, when the
+    file is EXECUTED rather than sourced, prints "source it from the
+    minikube scripts" and exits 1. Make it non-executable (`chmod -x`), and
+    give it a `# shellcheck shell=bash` directive. Each of the three scripts
+    sources it right after its refuse-to-be-sourced guard:
+      # shellcheck source=scripts/minikube-env.sh
+      . "$(dirname "$0")/minikube-env.sh"
+    Replace every literal those variables cover in the three scripts
+    (namespace, registry ports and address, image tag, cluster sizing).
+  - |
+    `scripts/minikube-setup.sh`: start the cluster with
+    `--cpus="$MINIKUBE_CPUS" --memory="$MINIKUBE_MEMORY" --driver="$MINIKUBE_DRIVER"`,
+    and add `minikube addons enable registry` next to the existing addons,
+    with a comment saying that `minikube-deploy.sh`
+    pushes the images there, and why pods reference `localhost:5000` (the
+    node-side proxy) while the host pushes through 5005 (AirPlay holds 5000
+    on macOS).
+    `scripts/minikube-reset.sh`: before stopping the cluster, stop a leftover
+    registry port-forward, matched narrowly (e.g.
+    `pkill -f "port-forward svc/registry ${MINIKUBE_REGISTRY_HOST_PORT}:80" || true`),
+    with a comment:
+    the deploy's trap normally ends it, and this covers a deploy that was
+    killed. Note in its output that the registry and its images are deleted
+    with the cluster.
+    `bash -n` and `shellcheck` both scripts.
+  - |
+    `scripts/minikube-deploy.sh`:
+      * All values come from `scripts/minikube-env.sh`; the literals below
+        are its defaults.
+      * Before building: `minikube addons enable registry` (idempotent), then
+        start `kubectl -n kube-system port-forward svc/registry
+        "${MINIKUBE_REGISTRY_HOST_PORT}:80"` in the background. Kill it from
+        a `trap … EXIT` installed right after starting it, and wait until
+        `curl -fsS "http://localhost:${MINIKUBE_REGISTRY_HOST_PORT}/v2/"`
+        answers, with a bounded number of retries and a clear error.
+      * Build and push both images through the port-forward, forcing the
+        backend's augmentation (the registry may be fresh and empty, see the
+        description):
+          push_registry="localhost:${MINIKUBE_REGISTRY_HOST_PORT}"
+          "$PROJECT_ROOT/gradlew" \
+              :backend:implementation:quarkusAppPartsBuild --rerun \
+              :backend:implementation:imageBuild \
+              -Dquarkus.container-image.push=true \
+              -Dquarkus.container-image.registry="$push_registry" \
+              -Dquarkus.container-image.tag="$MINIKUBE_IMAGE_TAG" \
+              -Dquarkus.container-image.insecure=true \
+              :frontend:imageBuild -PfrontendImagePush=true \
+              -PfrontendImageRegistry="$push_registry" -PfrontendImageTag="$MINIKUBE_IMAGE_TAG" \
+              -x test
+      * If the fallback is in use, resolve the pull address at runtime (see
+        the description):
+        `MINIKUBE_IMAGE_REGISTRY="${MINIKUBE_IMAGE_REGISTRY:-$(minikube ip):5000}"`.
+      * Add `${MINIKUBE_IMAGE_REGISTRY}` to the `envsubst` allow-list, and
+        pass the value to `envsubst` explicitly (e.g.
+        `MINIKUBE_IMAGE_REGISTRY="$MINIKUBE_IMAGE_REGISTRY" envsubst …`),
+        because the settings file does not export it. Use
+        `$MINIKUBE_NAMESPACE` for every `kubectl -n`.
+      * Remove the `docker save | minikube ssh -- docker load` loop and its
+        NOTE. Keep the `kubectl kustomize | envsubst | kubectl apply` step
+        and `rollout restart`, but update the comment above the restart (the
+        reason is now the fixed tag with `Always`, not `Never`).
+      * Replace `verify_image`: compare the digest in the pod's
+        `.status.containerStatuses[0].imageID` with the registry's current
+        digest for the tag (`curl -sI` against
+        `http://localhost:${MINIKUBE_REGISTRY_HOST_PORT}/v2/pythia/pythia-<app>/manifests/${MINIKUBE_IMAGE_TAG}`
+        with `Accept: application/vnd.oci.image.index.v1+json,
+        application/vnd.docker.distribution.manifest.list.v2+json`, header
+        `Docker-Content-Digest`). Keep it best-effort and `set -e`-safe, as
+        today.
+    `bash -n` and `shellcheck` it.
+  - |
+    `.github/workflows/ci.yaml`, `images` job:
+      * Add a `services: registry: image: registry:2, ports: ['5000:5000']`.
+      * After the existing daemon builds and assertions, add a step that
+        pushes both images multi-arch to it:
+          ./gradlew :backend:implementation:quarkusAppPartsBuild --rerun \
+            :backend:implementation:imageBuild \
+            -Dquarkus.container-image.push=true \
+            -Dquarkus.container-image.registry=localhost:5000 \
+            -Dquarkus.container-image.insecure=true --no-build-cache
+          ./gradlew :frontend:imageBuild -PfrontendImagePush=true \
+            -PfrontendImageRegistry=localhost:5000
+        Then assert, for each of `pythia-backend` and `pythia-frontend`, that
+        the index lists both platforms:
+          curl -fsS -H 'Accept: application/vnd.oci.image.index.v1+json, application/vnd.docker.distribution.manifest.list.v2+json' \
+            "http://localhost:5000/v2/pythia/$img/manifests/1.0.0-SNAPSHOT" \
+            | jq -e '[.manifests[].platform | "\(.os)/\(.architecture)"] | (index("linux/amd64") != null and index("linux/arm64") != null)'
+        Comment: the daemon builds above can only ever check amd64; this
+        proves the arm64 half is buildable and that push implies multi-arch.
+      * Extend the "time- and environment-independent" step's backend
+        digest-pin check to keep passing with the new pin (it greps
+        `@sha256:`, so it should; confirm).
+      * Keep the Trivy scan on the amd64 daemon image.
+  - |
+    Docs:
+      * `docs/deployment.md` stage 1: pushed images are multi-arch
+        (amd64 + arm64) automatically; the daemon path is amd64-only.
+      * `docs/development.md`, "dev-minikube — Full stack on Minikube": the
+        setup step now enables the registry addon; the deploy step builds
+        BOTH architectures and pushes them to the cluster's registry through
+        a port-forward on 5005 (say why not 5000), and the node pulls its
+        native variant (arm64 on Apple Silicon, so nothing runs under
+        emulation). The reset step deletes the registry and its images with
+        the cluster, so every deploy pushes again, which is why the script
+        forces the backend build with `--rerun`. Name
+        `scripts/minikube-env.sh` as the one place for the cluster's
+        settings, with a one-line override example
+        (`MINIKUBE_MEMORY=12288 ./scripts/minikube-setup.sh`). State which
+        pull path is in use (`localhost:5000` or the `$(minikube ip):5000`
+        fallback). Keep
+        the existing "rebuild + redeploy" advice in
+        "Viewing backend logs on Minikube"; it stays true.
+      * `docs/architecture.md`: the image paragraph ("both with Jib …")
+        gains that pushed images are multi-arch (amd64 + arm64) and that the
+        local cluster pulls them from its registry addon.
+      * `docs/entra-setup.md` minikube section: steps become "enable the
+        registry addon, port-forward it to 5005, push both images, the node
+        pulls from `localhost:5000`". Drop the `docker save | docker load`
+        and `minikube image load` explanation, and mention port 5000 vs
+        AirPlay.
+      * `src/frontend/CLAUDE.md` "Container image": platforms depend on
+        push, and the table row for `frontendImagePush` says so.
+      * Root `CLAUDE.md`, "Licence and namespace": the backend base is
+        pinned to its multi-arch INDEX digest, not a single-platform
+        manifest, and why.
+      * Grep for `docker load`, `minikube image load`, `imagePullPolicy:
+        Never` and `linux/amd64` outside `planning/` afterwards. Each
+        remaining hit must be deliberate (the daemon default) and commented.
+  - |
+    Verify locally (Docker running; this host is arm64):
+      docker run -d --rm --name reg196 -p 5005:5000 registry:2
+      ./gradlew :backend:implementation:quarkusAppPartsBuild --rerun \
+        :backend:implementation:imageBuild -Dquarkus.container-image.push=true \
+        -Dquarkus.container-image.registry=localhost:5005 -Dquarkus.container-image.insecure=true \
+        --no-build-cache -x test
+      ./gradlew :frontend:imageBuild -PfrontendImagePush=true -PfrontendImageRegistry=localhost:5005
+    Both indexes must list linux/amd64 and linux/arm64 (the curl/jq check
+    above). Then prove each variant is what it claims, for both platforms:
+      for p in linux/arm64 linux/amd64; do
+        docker run --rm --platform $p --entrypoint uname localhost:5005/pythia/pythia-backend:1.0.0-SNAPSHOT -m
+        docker run --rm --platform $p --entrypoint java  localhost:5005/pythia/pythia-backend:1.0.0-SNAPSHOT -version
+        docker run --rm --platform $p --entrypoint uname localhost:5005/pythia/pythia-frontend:1.0.0-SNAPSHOT -m
+      done
+    The expected results are `aarch64` and `x86_64`, and `java -version`
+    succeeds on both. Run the arm64 frontend with
+    `-p 18080:80 --platform linux/arm64` and repeat task-195's probe:
+    `/` serves index.html, `/config.json` returns 404, and an SPA route
+    returns 200. Finally confirm the daemon fallback is unchanged:
+    `./gradlew :frontend:imageBuild` loads an `amd64` image. Stop
+    `reg196`.
+  - |
+    Verify the minikube registry path (minikube installed, docker driver):
+      minikube start
+      minikube addons enable registry
+    then run `scripts/minikube-deploy.sh` with the `ENTRA_*` variables set
+    (source them from the workspace's `EntraIdVariables.sh`; never print
+    them). Afterwards both pods are Running, the script's freshness check
+    reports a match, and
+      minikube ssh -- docker image inspect localhost:5000/pythia/pythia-frontend:1.0.0-SNAPSHOT --format '{{.Architecture}}'
+    prints the node's native architecture (`arm64` on this Mac). Then prove
+    the ephemeral-registry case: `./scripts/minikube-reset.sh`,
+    `./scripts/minikube-setup.sh`, and `./scripts/minikube-deploy.sh` again
+    with NO code change. Both pods must reach Running, not
+    `ImagePullBackOff`. If the
+    `ENTRA_*` values are unavailable, verify the registry half alone (addon,
+    port-forward, push, then the `minikube ssh -- docker pull` and inspect
+    above) and report the full deploy as not exercised.
+  - |
+    ./gradlew build
+
+validation:
+  - |
+    P=src/backend/implementation/gradle.properties
+    grep -q 'quarkus.jib.base-jvm-image=registry.access.redhat.com/ubi9/openjdk-21-runtime@sha256:360822c35c5741f542ab78fe123e6c4d9b68e0113a88d6e0250bb1f377b17f29' "$P"
+    grep -qx 'quarkus.jib.platforms=linux/amd64' "$P"
+    grep -q 'linux/amd64,linux/arm64' src/backend/implementation/build.gradle.kts
+    grep -q 'imagePush' src/backend/implementation/build.gradle.kts
+    grep -q 'Platform("arm64", "linux")' src/frontend/build.gradle.kts
+  - |
+    # Staging/production render the same as before, except that no patch is
+    # needed. The rendered pull policy must be IfNotPresent for every
+    # container that had one.
+    for o in staging production; do
+      git show HEAD:k8s/base/backend/deployment.yaml > /dev/null || exit 1
+      d=$(mktemp -d); git archive HEAD k8s | tar -x -C "$d"
+      diff <(kubectl kustomize "$d/k8s/overlays/$o") <(kubectl kustomize "k8s/overlays/$o") \
+        || { echo "$o overlay renders differently after the change"; rm -rf "$d"; exit 1; }
+      rm -rf "$d"
+    done
+  - |
+    ! grep -rn "imagePullPolicy: Never" k8s
+    for o in staging production; do
+      kubectl kustomize k8s/overlays/$o > /dev/null || exit 1
+    done
+    REG=$(bash -c '. scripts/minikube-env.sh && printf %s "$MINIKUBE_IMAGE_REGISTRY"')
+    # Fallback mode leaves the default empty; resolve it as the deploy does
+    # (needs a running cluster).
+    [ -n "$REG" ] || REG="$(minikube ip):5000"
+    test -n "$REG"
+    R=$(kubectl kustomize k8s/overlays/minikube | MINIKUBE_IMAGE_REGISTRY="$REG" envsubst '${MINIKUBE_IMAGE_REGISTRY}')
+    echo "$R" | grep -q "image: $REG/pythia/pythia-backend"
+    echo "$R" | grep -q "image: $REG/pythia/pythia-frontend"
+    ! echo "$R" | grep -q 'MINIKUBE_IMAGE_REGISTRY'
+    test "$(kubectl kustomize k8s/overlays/minikube | grep -c 'imagePullPolicy: Always')" -eq 2
+  - |
+    for S in scripts/minikube-setup.sh scripts/minikube-reset.sh scripts/minikube-deploy.sh; do
+      bash -n "$S" || exit 1
+      ! command -v shellcheck >/dev/null || shellcheck "$S" || exit 1
+    done
+    grep -q "addons enable registry" scripts/minikube-setup.sh
+    grep -q 'port-forward svc/registry ${MINIKUBE_REGISTRY_HOST_PORT}:80' scripts/minikube-reset.sh
+    S=scripts/minikube-deploy.sh
+    ! grep -q "docker load" "$S"
+    grep -q "addons enable registry" "$S"
+    grep -q 'port-forward svc/registry "${MINIKUBE_REGISTRY_HOST_PORT}:80"' "$S"
+    grep -q "quarkusAppPartsBuild --rerun" "$S"
+  - |
+    grep -q "registry:2" .github/workflows/ci.yaml
+    grep -q "linux/arm64" .github/workflows/ci.yaml
+    ruby -ryaml -e 'YAML.load_file(".github/workflows/ci.yaml")'
+  - |
+    docker rm -f reg196v > /dev/null 2>&1 || true
+    docker run -d --rm --name reg196v -p 5006:5000 registry:2 && sleep 2
+    ./gradlew :backend:implementation:quarkusAppPartsBuild --rerun \
+      :backend:implementation:imageBuild -Dquarkus.container-image.push=true \
+      -Dquarkus.container-image.registry=localhost:5006 -Dquarkus.container-image.insecure=true \
+      --no-build-cache -x test
+    ./gradlew :frontend:imageBuild -PfrontendImagePush=true -PfrontendImageRegistry=localhost:5006
+    for img in pythia-backend pythia-frontend; do
+      curl -fsS -H 'Accept: application/vnd.oci.image.index.v1+json, application/vnd.docker.distribution.manifest.list.v2+json' \
+        "http://localhost:5006/v2/pythia/$img/manifests/1.0.0-SNAPSHOT" \
+        | jq -e '[.manifests[].platform | "\(.os)/\(.architecture)"] | (index("linux/amd64") != null and index("linux/arm64") != null)' \
+        || { docker stop reg196v; exit 1; }
+    done
+    test "$(docker run --rm --platform linux/arm64 --entrypoint uname localhost:5006/pythia/pythia-backend:1.0.0-SNAPSHOT -m)" = aarch64
+    test "$(docker run --rm --platform linux/arm64 --entrypoint uname localhost:5006/pythia/pythia-frontend:1.0.0-SNAPSHOT -m)" = aarch64
+    docker stop reg196v
+  - |
+    ./gradlew :frontend:imageBuild
+    test "$(docker image inspect pythia/pythia-frontend:1.0.0-SNAPSHOT --format '{{.Architecture}}')" = amd64
+  - |
+    E=scripts/minikube-env.sh
+    test -f "$E" && test ! -x "$E"
+    bash -n "$E" && { ! command -v shellcheck >/dev/null || shellcheck "$E"; }
+    ! grep -qE '^\s*export\b' "$E"
+    ! grep -qiE 'ENTRA_|password|secret|token' "$E"
+    ! bash "$E" > /dev/null 2>&1
+    for S in scripts/minikube-setup.sh scripts/minikube-deploy.sh scripts/minikube-reset.sh; do
+      grep -q 'minikube-env.sh' "$S" || { echo "$S does not source minikube-env.sh"; exit 1; }
+    done
+    # Code lines only: comments may name the defaults (see the description).
+    for S in scripts/minikube-setup.sh scripts/minikube-deploy.sh scripts/minikube-reset.sh; do
+      if grep -vE '^\s*#' "$S" | grep -nE -- '-n estimation|5005|localhost:5000|1\.0\.0-SNAPSHOT|--cpus=4'; then
+        echo "$S hard-codes a value that belongs in scripts/minikube-env.sh"; exit 1
+      fi
+    done
+    ( . "$E"
+      test "$MINIKUBE_NAMESPACE" = "$(grep -m1 -oE 'namespace: [a-z-]+' k8s/base/kustomization.yaml | awk '{print $2}')" \
+        || { echo "MINIKUBE_NAMESPACE disagrees with k8s/base"; exit 1; }
+      grep -q "version = \"$MINIKUBE_IMAGE_TAG\"" build.gradle.kts \
+        || { echo "MINIKUBE_IMAGE_TAG disagrees with the Gradle version"; exit 1; } )
+    test "$(MINIKUBE_CPUS=7 bash -c '. scripts/minikube-env.sh && echo $MINIKUBE_CPUS')" = 7
+  - |
+    grep -q "minikube-env.sh" docs/development.md
+    grep -q "addons enable registry" docs/development.md
+    grep -q "5005" docs/development.md
+    grep -q "arm64" docs/development.md
+    grep -q "arm64" docs/architecture.md
+  - |
+    ! grep -rnE "docker load|minikube image load" --exclude-dir=node_modules --exclude-dir=build --exclude-dir=planning --exclude-dir=.git --exclude-dir=.gradle .
+  - |
+    ./gradlew build
+
+outputs:
+  - modified: src/backend/implementation/gradle.properties
+  - modified: src/backend/implementation/build.gradle.kts
+  - modified: src/frontend/build.gradle.kts
+  - modified: k8s/base/backend/deployment.yaml
+  - modified: k8s/base/frontend/deployment.yaml
+  - modified: k8s/overlays/staging/kustomization.yaml
+  - modified: k8s/overlays/production/kustomization.yaml
+  - modified: k8s/overlays/minikube/kustomization.yaml
+  - created: scripts/minikube-env.sh          # shared settings, sourced by the three scripts
+  - modified: scripts/minikube-setup.sh       # enables the registry addon
+  - modified: scripts/minikube-deploy.sh
+  - modified: scripts/minikube-reset.sh       # stops a leftover registry port-forward
+  - modified: .github/workflows/ci.yaml
+  - modified: docs/deployment.md
+  - modified: docs/development.md             # dev-minikube section
+  - modified: docs/architecture.md
+  - modified: docs/entra-setup.md
+  - modified: src/frontend/CLAUDE.md
+  - modified: CLAUDE.md
