@@ -91,6 +91,33 @@ description: |
     `:frontend:dockerBuildImage`. There is no alias: two definitions of one
     image would drift.
 
+  - **Plain HTTP only for a local registry.** jib-core 0.28.2 has no
+    `localhost` exception: HTTP is allowed only through
+    `Containerizer.setAllowInsecureRegistries(true)` (verified in its
+    sources; the only `localhost` code is reference parsing in
+    `ImageReference`). The task sets it exactly when the registry host is
+    `localhost` or `127.0.0.1`, which is what a throwaway `registry:2` test
+    needs, and never otherwise. Sending credentials over HTTP stays off,
+    which is Jib's default.
+
+  ## Classloading
+
+  Plugins declared in the root build script share a parent classloader with
+  `:frontend`'s build script, and Gradle loads parent-first. At runtime
+  jib-core therefore uses the root classpath's Guava 33.5.0, Jackson 2.21.2
+  and commons-compress 1.28.0, not the 32.1.2 / 2.21.1 / 1.26.0 it declares
+  (verified 2026-10-10 with `buildEnvironment`). All are newer within the same
+  major version, which is expected to be fine, and Gradle reports nothing
+  about it. The end-to-end image build and push in the steps is the real
+  check.
+
+  ## Rollout: a downstream pipeline must switch at the same time
+
+  There is deliberately no `dockerBuildImage` alias. Any downstream pipeline
+  that calls `:frontend:dockerBuildImage` breaks the moment this lands, and
+  must switch to `:frontend:imageBuild` in the same rollout. That switch is
+  also what lets such a pipeline drop its Docker-in-Docker service.
+
   ## What this enables downstream (not done here)
 
   A pipeline can build the frontend with
@@ -112,15 +139,19 @@ steps:
     `src/frontend/build.gradle.kts`: add a `buildscript` block at the top with
     `repositories { mavenCentral() }` and
     `dependencies { classpath("com.google.cloud.tools:jib-core:0.28.2") }`.
-    If the Kotlin DSL then reports a classpath conflict with the node plugin,
-    stop and report it rather than forcing versions.
+    Gradle will NOT report a version clash with the root classpath (see
+    "Classloading"). Do not try to force versions; the image build and push
+    in the verification steps prove the combination works.
     Packages (checked against the 0.28.2 jar): `Jib`, `Containerizer`,
     `DockerDaemonImage`, `RegistryImage`, `Credential` and `JibContainer`
     (`.digest`) are in `com.google.cloud.tools.jib.api`.
     `FileEntriesLayer`, `AbsoluteUnixPath`, `Platform` and `Port` are in
     `com.google.cloud.tools.jib.api.buildplan`, shipped by the transitive
     `jib-build-plan` artifact. `CredentialRetrieverFactory` is in
-    `com.google.cloud.tools.jib.frontend`.
+    `com.google.cloud.tools.jib.frontend`; its `forImage` takes an
+    `ImageReference` (from `ImageReference.parse(ref)`, in
+    `com.google.cloud.tools.jib.api`) and a `Consumer<LogEvent>`, not a
+    string.
   - |
     Replace the `dockerBuildImage` `Exec` task with
     `tasks.register("imageBuild")` (group `build`), `dependsOn(npmBuild)`,
@@ -143,8 +174,12 @@ steps:
       - `containerize` to `DockerDaemonImage.named(ref)` or
         `RegistryImage.named(ref)` with credentials (explicit `Credential.from`
         if both properties are set, else
-        `CredentialRetrieverFactory.forImage(ref, …).dockerConfig()` and
-        `.wellKnownCredentialHelpers()`), with `setToolName("pythia")`;
+        `CredentialRetrieverFactory.forImage(ImageReference.parse(ref), …)`
+        `.dockerConfig()` and `.wellKnownCredentialHelpers()`), with
+        `setToolName("pythia")`;
+      - `setAllowInsecureRegistries(true)` only when the registry host is
+        `localhost` or `127.0.0.1`, with a comment saying why (see the
+        description);
       - log the reference and the resulting digest via `logger.lifecycle`.
     Keep the task-162 comment on why the image takes no build-time
     configuration.
@@ -190,9 +225,22 @@ steps:
       base image digest-pinned now covers both images.
     - `src/frontend/CLAUDE.md`: a short "Container image" note covering
       `:frontend:imageBuild`, the five properties, the `config.json`
-      exclusion, and "never set entrypoint/cmd".
-    Grep the repo for `dockerBuildImage` and `Dockerfile` afterwards. Only
-    `planning/` (historical tasks) may still mention them.
+      exclusion, the localhost-only insecure registry, and "never set
+      entrypoint/cmd". ALSO rewrite the existing "Two ways it can fail open"
+      paragraph in the runtime-config section: its second half says the
+      `Dockerfile`'s `COPY . .` and `.dockerignore` keep `static/config.json`
+      out of the image. Now `:frontend:imageBuild`'s exclusion of
+      `build/config.json` does that, and it must still say "do not undo".
+    - `docs/development.md`, "Dependency vulnerabilities": "nginx serving
+      static files (`src/frontend/Dockerfile`)" → point to
+      `:frontend:imageBuild` in `src/frontend/build.gradle.kts`.
+    - `src/frontend/.gitignore`: the `static/config.json` comment says
+      "(see .dockerignore)". Point it to the `imageBuild` exclusion instead.
+    Grep the repo for `dockerBuildImage`, `src/frontend/Dockerfile` and
+    `.dockerignore` afterwards. Only `planning/` (historical tasks) may still
+    mention them. Do NOT touch the backend's Quarkus scaffold files
+    `src/backend/implementation/src/main/docker/Dockerfile.*`; they are
+    unrelated and stay.
   - |
     Verify the image locally (Docker running):
       ./gradlew :frontend:imageBuild
@@ -217,8 +265,9 @@ steps:
         -PfrontendImagePush=true -PfrontendImageRegistry=localhost:5005 -PfrontendImageTag=check
       curl -fsS http://localhost:5005/v2/pythia/pythia-frontend/tags/list | grep -q check
       docker stop reg
-    (`DOCKER_HOST` pointing nowhere proves no daemon is used. Jib allows
-    plain HTTP for `localhost`.)
+    (`DOCKER_HOST` pointing nowhere proves no daemon is used. The plain-HTTP
+    push works only because the task allows insecure transport for a
+    `localhost` registry; see the description.)
   - |
     ./gradlew :frontend:check
   - |
@@ -238,7 +287,11 @@ validation:
     grep -q 'npmInstallCommand' "$F"
     ! grep -q 'setEntrypoint\|setProgramArguments\|Instant.now' "$F"
   - |
-    ! grep -rn "dockerBuildImage" --exclude-dir=node_modules --exclude-dir=build --exclude-dir=planning --exclude-dir=.gradle .
+    ! grep -rn "dockerBuildImage" --exclude-dir=node_modules --exclude-dir=build --exclude-dir=planning --exclude-dir=.gradle --exclude-dir=.git .
+    ! grep -rnE "src/frontend/Dockerfile|\.dockerignore" --exclude-dir=node_modules --exclude-dir=build --exclude-dir=planning --exclude-dir=.gradle --exclude-dir=.git .
+    ! grep -q "dockerignore" src/frontend/CLAUDE.md
+    grep -q "setAllowInsecureRegistries" src/frontend/build.gradle.kts
+    grep -q "ImageReference.parse" src/frontend/build.gradle.kts
   - |
     grep -q ':frontend:imageBuild' .github/workflows/ci.yaml scripts/minikube-deploy.sh docs/deployment.md
     grep -q "nginx:.*@sha256:.*src/frontend/build.gradle.kts" .github/workflows/ci.yaml
@@ -267,3 +320,5 @@ outputs:
   - modified: docs/architecture.md
   - modified: CLAUDE.md
   - modified: src/frontend/CLAUDE.md
+  - modified: src/frontend/.gitignore        # comment pointed at .dockerignore
+  - modified: docs/development.md            # "Dependency vulnerabilities" named the Dockerfile

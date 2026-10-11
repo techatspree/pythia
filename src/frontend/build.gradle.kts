@@ -1,5 +1,25 @@
 import com.github.gradle.node.npm.task.NpmTask
 import com.github.gradle.node.task.NodeTask
+import com.google.cloud.tools.jib.api.Containerizer
+import com.google.cloud.tools.jib.api.Credential
+import com.google.cloud.tools.jib.api.DockerDaemonImage
+import com.google.cloud.tools.jib.api.ImageReference
+import com.google.cloud.tools.jib.api.Jib
+import com.google.cloud.tools.jib.api.LogEvent
+import com.google.cloud.tools.jib.api.RegistryImage
+import com.google.cloud.tools.jib.api.buildplan.AbsoluteUnixPath
+import com.google.cloud.tools.jib.api.buildplan.FileEntriesLayer
+import com.google.cloud.tools.jib.api.buildplan.Platform
+import com.google.cloud.tools.jib.api.buildplan.Port
+import com.google.cloud.tools.jib.frontend.CredentialRetrieverFactory
+import java.nio.file.Files
+
+// jib-core assembles the frontend image in-process, like Quarkus/Jib does for the
+// backend: no Docker daemon to build or push (task-195). Maven Central only.
+buildscript {
+    repositories { mavenCentral() }
+    dependencies { classpath("com.google.cloud.tools:jib-core:0.28.2") }
+}
 
 plugins {
     base
@@ -11,6 +31,12 @@ node {
     npmVersion.set("10.9.2")
     download.set(true)
     nodeProjectDir.set(layout.projectDirectory)
+    // CI installs EXACTLY the lockfile (task-195). The image used to be built by
+    // the Dockerfile's `npm ci`, which guaranteed that; `npm install` may resolve
+    // differently and rewrite package-lock.json. `CI` is set by GitHub Actions and
+    // GitLab CI alike, the same signal `openApiGate` uses. Local work keeps
+    // `install`.
+    npmInstallCommand.set(if (providers.environmentVariable("CI").isPresent) "ci" else "install")
 }
 
 // Consume the :domain project's packaged TypeScript library (the KMP/JS
@@ -181,22 +207,107 @@ tasks.named<Delete>("clean") {
     )
 }
 
-// Build the frontend container image (used on the minikube deploy path,
-// replacing the former dev-minikube Maven profile's exec:docker build).
-tasks.register<Exec>("dockerBuildImage") {
+// The frontend container image, built with jib-core (task-195): no Docker daemon,
+// no second `npm run build` inside a container, a digest-pinned base, and a direct
+// registry push. Named after `:backend:implementation:imageBuild`.
+//
+// The image takes no build-time configuration (task-162). VITE_* used to be
+// inlined into the bundle, which made the IMAGE the configuration — a stage
+// needed its own build and an image could not be promoted. The auth coordinates
+// now arrive at runtime from /config.json, so one image serves every stage.
+
+// Pinned by digest like the backend's Jib base (`quarkus.jib.base-jvm-image`): a
+// tag floats, so the same commit could otherwise ship a different nginx. This is
+// the multi-arch index of nginx 1.27.5-alpine; upgrading nginx is a deliberate
+// edit of this line, never a side effect of rebuilding.
+val frontendBaseImage =
+    "nginx:1.27-alpine@sha256:65645c7bb6a0661892a8b03b89d0743208a18dd2f3f17a54ef4b76fb8e2f2a10"
+
+// Targets come from Gradle properties without dots, so each can also be given as
+// ORG_GRADLE_PROJECT_<name> — which keeps a password off the command line.
+val frontendImagePush = providers.gradleProperty("frontendImagePush").map(String::toBoolean).orElse(false)
+val frontendImageRegistry = providers.gradleProperty("frontendImageRegistry")
+val frontendImageTag = providers.gradleProperty("frontendImageTag").orElse(project.version.toString())
+val frontendImageUsername = providers.gradleProperty("frontendImageUsername")
+val frontendImagePassword = providers.gradleProperty("frontendImagePassword")
+
+tasks.register("imageBuild") {
     group = "build"
-    description = "Builds the frontend Docker image."
+    description = "Builds the frontend image with jib-core: into the local Docker daemon, " +
+        "or straight to a registry with -PfrontendImagePush=true."
     dependsOn(npmBuild)
-    workingDir = projectDir
-    // No --build-arg forwarding (task-162). VITE_* used to be inlined into the
-    // bundle here, which made the IMAGE the configuration — a stage needed its
-    // own build and an image could not be promoted. The auth coordinates now
-    // arrive at runtime from /config.json, so the image is stage-independent and
-    // this task takes no environment at all. Passing build args the Dockerfile
-    // no longer declares would only earn a "build args were not consumed"
-    // warning.
-    val imageTag = "pythia/pythia-frontend:${project.version}"
-    doFirst {
-        commandLine("docker", "build", "-t", imageTag, ".")
+    // The image is a side effect, not a declared output, so this task must never
+    // be up to date or cached — the same trap ci.yaml describes for the backend's
+    // augmentation.
+    outputs.upToDateWhen { false }
+    val spaDir = layout.projectDirectory.dir("build").asFile.toPath()
+    val nginxConf = layout.projectDirectory.file("nginx.conf").asFile.toPath()
+    doLast {
+        val push = frontendImagePush.get()
+        val registry = frontendImageRegistry.orNull
+        check(Files.isRegularFile(spaDir.resolve("index.html"))) {
+            "No SPA build at $spaDir — npmBuild should have produced build/index.html"
+        }
+        check(!push || registry != null) {
+            "-PfrontendImagePush=true needs -PfrontendImageRegistry=<host[/prefix]>"
+        }
+        val ref = listOfNotNull(registry, "pythia/pythia-frontend:${frontendImageTag.get()}").joinToString("/")
+        val log: (LogEvent) -> Unit = { logger.info(it.message) }
+
+        // Where the Dockerfile put it: the base image's entrypoint renders
+        // /etc/nginx/templates/*.template (and sets NGINX_LOCAL_RESOLVERS).
+        val configLayer = FileEntriesLayer.builder().setName("nginx-config")
+            .addEntry(nginxConf, AbsoluteUnixPath.get("/etc/nginx/templates/default.conf.template"))
+            .build()
+        val htmlRoot = AbsoluteUnixPath.get("/usr/share/nginx/html")
+        val spaLayer = FileEntriesLayer.builder().setName("spa")
+        Files.walk(spaDir).use { paths ->
+            paths.filter { Files.isRegularFile(it) }.sorted().forEach { file ->
+                val rel = spaDir.relativize(file)
+                // `npm run dev`'s predev writes static/config.json = {"authProvider":
+                // "dev"} (task-162), and Vite copies static/ into build/. Baking it in
+                // would ship a dev-auth config that wins wherever no ConfigMap mounts
+                // over it. Before task-195 the Docker ignore file guarded this; now
+                // this line does — do not undo it.
+                if (rel.toString() == "config.json") return@forEach
+                spaLayer.addEntry(file, htmlRoot.resolve(rel.joinToString("/")))
+            }
+        }
+
+        val target = if (push) {
+            val image = RegistryImage.named(ref)
+            val user = frontendImageUsername.orNull
+            val password = frontendImagePassword.orNull
+            if (user != null && password != null) {
+                image.addCredential(user, password)
+            } else {
+                val credentials = CredentialRetrieverFactory.forImage(ImageReference.parse(ref), log)
+                image.addCredentialRetriever(credentials.dockerConfig())
+                image.addCredentialRetriever(credentials.wellKnownCredentialHelpers())
+            }
+            Containerizer.to(image)
+        } else {
+            Containerizer.to(DockerDaemonImage.named(ref))
+        }
+        // jib-core has NO localhost exception: plain HTTP needs this flag. Allow it
+        // for a local registry only (a throwaway registry:2 in a test), never for a
+        // real one. Credentials over HTTP stay off, which is Jib's default.
+        val registryHost = ImageReference.parse(ref).registry.substringBefore(':')
+        target.setAllowInsecureRegistries(push && registryHost in setOf("localhost", "127.0.0.1"))
+            .setToolName("pythia")
+            .addEventHandler(LogEvent::class.java) { logger.info(it.message) }
+
+        logger.lifecycle("Building frontend image $ref on $frontendBaseImage (push=$push)")
+        // Entrypoint and CMD are deliberately NOT set: inheriting nginx's
+        // /docker-entrypoint.sh is what renders the template and runs the
+        // local-resolvers script. Creation and modification times stay at Jib's
+        // fixed defaults, so the image does not depend on WHEN it is built.
+        val container = Jib.from(frontendBaseImage)
+            .setPlatforms(setOf(Platform("amd64", "linux")))
+            .setFileEntriesLayers(listOf(configLayer, spaLayer.build()))
+            .addEnvironmentVariable("NGINX_ENTRYPOINT_LOCAL_RESOLVERS", "1")
+            .addExposedPort(Port.tcp(80))
+            .containerize(target)
+        logger.lifecycle("Frontend image $ref: ${container.digest}")
     }
 }

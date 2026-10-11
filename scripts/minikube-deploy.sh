@@ -72,10 +72,11 @@ export OIDC_REDIRECT_URI="${OIDC_REDIRECT_URI:-http://localhost:8080}"
 echo "Building backend and frontend container images..."
 cd "$PROJECT_ROOT"
 # Backend image via Quarkus/Jib (container-image build enabled); frontend image
-# via the Gradle Docker task. Tests are skipped for the deploy build.
+# via jib-core (task-195), loaded into the local Docker daemon by default. Tests
+# are skipped for the deploy build.
 "$PROJECT_ROOT/gradlew" \
     :backend:implementation:imageBuild -Dquarkus.container-image.build=true \
-    :frontend:dockerBuildImage \
+    :frontend:imageBuild \
     -x test
 
 echo "Loading images into Minikube..."

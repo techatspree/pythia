@@ -314,8 +314,8 @@ image build, and then:
 
 1. builds both container images with Gradle
    (`./gradlew :backend:implementation:imageBuild -Dquarkus.container-image.build=true
-   :frontend:dockerBuildImage -x test` — backend via Quarkus/Jib, frontend via
-   the Gradle Docker task);
+   :frontend:imageBuild -x test` — backend via Quarkus/Jib, frontend via
+   jib-core);
 2. loads them into minikube with `docker save <img> | minikube ssh -- docker load`
    — deliberately **not** `minikube image load`, which caches the exported
    tarball and, for a fixed tag like `1.0.0-SNAPSHOT`, silently reuses the STALE

@@ -53,9 +53,28 @@ The SPA's auth coordinates are fetched at **runtime**, not inlined at build time
 
 **The bootstrap seam is `+layout.ts`, not `+layout.svelte`.** A SvelteKit universal `load` resolves before the layout component initialises and therefore before every component beneath it, which is what lets `getRuntimeConfig()` be written as "throws if not loaded" — `getAuthProvider()` has eight call sites including `$lib/api/fetch.ts`. `+layout.svelte` itself calls it at script top level, so there is no point inside that file where an `await` could run first. **Order inside the load matters:** `waitLocale()` first, then `loadRuntimeConfig()`, because a config failure throws a message resolved through `get(_)` and `+error.svelte` renders `page.error?.message` verbatim — before the locale is ready that would render as a raw dotted key.
 
-**Two ways it can fail open, both closed deliberately — do not undo either.** `nginx.conf`'s catch-all `try_files $uri $uri/ /index.html` would serve `index.html` with status **200** for a missing `/config.json`, so a `location = /config.json { try_files $uri =404; }` block sits above it. And `Dockerfile`'s `COPY . .` would bake a developer's locally generated config into the image, so `.dockerignore` excludes `static/config.json`.
+**Two ways it can fail open, both closed deliberately — do not undo either.** `nginx.conf`'s catch-all `try_files $uri $uri/ /index.html` would serve `index.html` with status **200** for a missing `/config.json`, so a `location = /config.json { try_files $uri =404; }` block sits above it. And the image build would bake a developer's locally generated config into the image — `predev` writes `static/config.json` = `{"authProvider":"dev"}` and Vite copies `static/` into `build/` — so `:frontend:imageBuild` skips `build/config.json` (task-195). Do not undo it.
 
 Local dev, `scripts/dev.sh` and CI all get the file from **one** place: the `predev` npm script writes `static/config.json` with the dev shape, npm runs it automatically before `dev`, and `dev.sh` starts the frontend with `npm run dev`. A bare `npm run dev` therefore works too.
+
+## Container image (`:frontend:imageBuild`, task-195)
+
+The image is assembled by **jib-core**, used as a library in `src/frontend/build.gradle.kts`, the way Quarkus/Jib builds the backend's. There is no Dockerfile: no Docker daemon to build or push, no second `npm run build` inside a container (the image takes `build/` from Gradle's `npmBuild`), and a **digest-pinned** nginx base (`frontendBaseImage`). Upgrading nginx is a deliberate edit of that line. It is `linux/amd64` only, like `quarkus.jib.platforms`.
+
+Layers: `nginx.conf` → `/etc/nginx/templates/default.conf.template`, then every file under `build/` except `config.json` (see above) → `/usr/share/nginx/html`, in sorted order. **Never set an entrypoint or CMD**: inheriting nginx's `/docker-entrypoint.sh` is what renders the template (`${NGINX_LOCAL_RESOLVERS}`) and runs the local-resolvers script, because `NGINX_ENTRYPOINT_LOCAL_RESOLVERS=1`. Never take a creation time from the clock either. Jib's fixed epoch keeps the build independent of *when* it runs, and CI asserts both the digest pin and the absence of `Instant.now`/`setCreationTime`.
+
+Targets are Gradle properties without dots, so each can also come from `ORG_GRADLE_PROJECT_<name>`:
+
+| property | default | meaning |
+|---|---|---|
+| `frontendImagePush` | `false` | `false`: load into the local Docker daemon (minikube, CI `images`). `true`: push to a registry with no Docker at all. |
+| `frontendImageRegistry` | — | host plus optional path prefix; **required** when pushing |
+| `frontendImageTag` | `project.version` | the tag |
+| `frontendImageUsername` / `frontendImagePassword` | — | push credentials; otherwise `~/.docker/config.json` and the well-known credential helpers |
+
+The reference is `[<registry>/]pythia/pythia-frontend:<tag>`. The k8s base, the overlays' `images:` rewrite and `minikube-deploy.sh` depend on that name. The task is never up to date and not cacheable, because the image is a side effect. Plain HTTP is allowed **only** for a `localhost`/`127.0.0.1` registry (a throwaway `registry:2` in a test). jib-core has no such exception of its own, and a real registry must stay HTTPS.
+
+In CI (`CI` set), `npmInstall` runs `npm ci`, so the shipped bundle is built from exactly `package-lock.json`, as the old Dockerfile's `npm ci` guaranteed. Locally it stays `npm install`.
 
 ## HTTP: `apiFetch` only
 

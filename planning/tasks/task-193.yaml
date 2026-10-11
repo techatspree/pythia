@@ -1,7 +1,7 @@
 id: task-193
 phase: phase-18
 title: "Release convention: v<semver> tags on main, CI-gated"
-depends_on: [task-162]
+depends_on: [task-162, task-195]
 description: |
   Pythia has no notion of a release. There are no git tags, the Gradle version
   is a permanent `1.0.0-SNAPSHOT`, and `docs/deployment.md` describes a
@@ -69,10 +69,21 @@ steps:
     only for a release tag, tagged `IMAGE_TAG=<release tag>` instead of the
     short SHA; deploying is a separate, manually started pipeline that deploys
     the latest release (or a named one, for rollback) to staging, then — after
-    manual approval — production. Keep the `APP_AUTH_PROVIDER` build-time
-    paragraph in stage 1 verbatim: it applies unchanged. Update the
+    manual approval — production. Keep stage 1's two paragraphs "No image
+    build needs a Docker daemon" (task-195) and "The image build takes no auth
+    provider" (task-194) verbatim, and its two `./gradlew …imageBuild`
+    commands, which already push with `$IMAGE_TAG`: they apply unchanged. Update the
     `IMAGE_TAG` table row ("The short commit SHA" → "The release tag, e.g.
     v1.2.0") and the rollback section (redeploy the previous release tag).
+    While in this file, fix the stale "**4. Runner requirements.** Docker,
+    plus …" paragraph left over from before task-195: the runner needs NO
+    Docker daemon. It needs Maven Central, the npm registry, and the two
+    digest-pinned base images — `registry.access.redhat.com` for the backend
+    and Docker Hub for the frontend's nginx — both fetched by the JVM (Jib),
+    so a proxy must be configured for the JVM, not for a Docker daemon. Also
+    reword the `REGISTRY_USER` / `REGISTRY_PASSWORD` row, which still says
+    "for `docker login` on the runner": they are the cluster's pull
+    credentials, and the image push needs credentials with write access.
   - |
     Root `CLAUDE.md`, paragraph "Deployment (task-028) is NOT in this
     repository": add one sentence that downstream deploys only `v<semver>`
@@ -103,6 +114,10 @@ validation:
     grep -q "Releasing" CLAUDE.md
   - |
     grep -q "<internal-group>/<deploy-project>" docs/deployment.md
+  - |
+    ! grep -q "docker login" docs/deployment.md
+  - |
+    ! grep -qi "Runner requirements.\*\* Docker" docs/deployment.md
   - |
     ./gradlew build
 

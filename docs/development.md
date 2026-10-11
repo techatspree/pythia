@@ -220,7 +220,8 @@ fail on the accepted esbuild advisory below.
   Svelte's SSR advisories (e.g. XSS via spread attributes or promise
   serialisation during SSR) are unreachable.
 - **No SvelteKit server.** With `@sveltejs/adapter-static`, production is
-  nginx serving static files (`src/frontend/Dockerfile`). Server-side Kit
+  nginx serving static files (the image `:frontend:imageBuild` assembles in
+  `src/frontend/build.gradle.kts`). Server-side Kit
   advisories (content-negotiation ReDoS, remote-function forms,
   `query.batch`, cookie handling) have nothing to attack.
 - **vite and esbuild are dev and build only.** Their dev-server advisories

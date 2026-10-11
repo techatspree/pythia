@@ -1155,10 +1155,16 @@
       "notes": "Auth module chosen at runtime, not build time; fail closed when the configured provider has no module"
     },
     "task-195": {
+      "status": "done",
+      "started_at": "2026-10-11T14:38:58+00:00",
+      "completed_at": "2026-10-11T14:45:05+00:00",
+      "notes": "Build the frontend image daemonless with jib-core instead of docker build"
+    },
+    "task-196": {
       "status": "pending",
       "started_at": null,
       "completed_at": null,
-      "notes": "Build the frontend image daemonless with jib-core instead of docker build"
+      "notes": "Multi-arch (amd64+arm64) backend and frontend images, delivered through a registry; minikube pulls from its registry addon"
     }
   }
 }

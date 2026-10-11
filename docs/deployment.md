@@ -91,10 +91,18 @@ dependency resolution long before it reaches a deploy.
      -Dquarkus.container-image.build=true \
      -Dquarkus.container-image.registry="$REGISTRY" \
      -Dquarkus.container-image.push=true
-   ./gradlew :frontend:dockerBuildImage
-   docker tag  pythia/pythia-frontend:1.0.0-SNAPSHOT "$REGISTRY/pythia/pythia-frontend:$IMAGE_TAG"
-   docker push "$REGISTRY/pythia/pythia-frontend:$IMAGE_TAG"
+   ./gradlew :frontend:imageBuild -PfrontendImagePush=true \
+     -PfrontendImageRegistry="$REGISTRY" -PfrontendImageTag="$IMAGE_TAG"
    ```
+
+   **No image build needs a Docker daemon** (task-195). The backend pushes
+   through Quarkus/Jib with `-Dquarkus.container-image.push=true`, and the
+   frontend through jib-core, so a pipeline needs no Docker-in-Docker. Registry
+   credentials for the frontend come from `~/.docker/config.json` and the
+   well-known credential helpers, or explicitly from
+   `ORG_GRADLE_PROJECT_frontendImageUsername` / `ORG_GRADLE_PROJECT_frontendImagePassword`.
+   Use those environment variables, not `-P`, so the password stays off the
+   command line.
 
    **The image build takes no auth provider** (task-194). A production build
    always contains the Entra module and never the dev one, so the image stays

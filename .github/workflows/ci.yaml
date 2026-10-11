@@ -206,11 +206,16 @@ jobs:
       #
       # This disables only the TASK-OUTPUT cache; the dependency cache still
       # applies, so the job stays fast. Do not remove it to shave a minute.
+      #
+      # The frontend needs no such flag: `:frontend:imageBuild` (jib-core,
+      # task-195) declares itself never up to date and has no cacheable outputs.
+      # It loads into this runner's daemon because the job pushes nothing; with
+      # -PfrontendImagePush=true it would push with no Docker at all.
       - name: Build both container images
         run: |
           ./gradlew :backend:implementation:imageBuild \
             -Dquarkus.container-image.build=true --no-build-cache
-          ./gradlew :frontend:dockerBuildImage --no-build-cache
+          ./gradlew :frontend:imageBuild
 
       - name: Assert both image references exist
         run: |
@@ -227,8 +232,9 @@ jobs:
       # image id differs across identical builds for reasons no setting here can
       # fix. Asserting byte-identity would fail the pipeline forever.
       #
-      # What IS ours: both Jib timestamp flags off, and a digest-pinned base
-      # image. Those are what keep the build independent of WHEN and WHERE it
+      # What IS ours: both Jib timestamp flags off, and digest-pinned base
+      # images — the backend's Jib base and the frontend's nginx base (task-195),
+      # whose jib-core build must never set a creation time from the clock. Those are what keep the build independent of WHEN and WHERE it
       # runs, and they are what the root CLAUDE.md rule protects.
       - name: Verify the image build stays time- and environment-independent
         run: |
@@ -239,7 +245,13 @@ jobs:
             || { echo "quarkus.jib.use-current-timestamp-file-modification must stay false" >&2; exit 1; }
           grep -q 'quarkus.jib.base-jvm-image=.*@sha256:' "$P" \
             || { echo "the Jib base image must be pinned by digest, not a floating tag" >&2; exit 1; }
-          echo "Timestamp flags off and base image digest-pinned."
+          F=src/frontend/build.gradle.kts
+          grep -q 'nginx:[^"]*@sha256:' src/frontend/build.gradle.kts \
+            || { echo "the frontend nginx base image must be pinned by digest" >&2; exit 1; }
+          if grep -qE 'Instant\.now|setCreationTime' "$F"; then
+            echo "the frontend image must not take its creation time from the clock" >&2; exit 1
+          fi
+          echo "Timestamp flags off and both base images digest-pinned."
 
       # The image exists only on this runner's Docker daemon, so the image scan
       # lives here rather than in the `security` job.
