@@ -103,7 +103,11 @@ description: |
   `--dry-run` runs every check and prints the plan, but changes nothing. If
   anything fails before the push, the script tells the maintainer how to
   discard the local commits and tag (`git reset --hard origin/main`,
-  `git tag -d vX.Y.Z`); nothing has been published at that point. History
+  `git tag -d vX.Y.Z`); nothing has been published at that point. The same
+  applies when the ATOMIC PUSH is rejected, e.g. because someone pushed to
+  `main` between the script's fetch and its push. `--atomic` then refuses
+  BOTH refs, so nothing was published. The script says exactly that, prints
+  the two discard commands, and suggests simply rerunning it. History
   has no merge commits, because `main` takes direct pushes. If `main` ever
   requires pull requests, the script must open one instead; note that in the
   script's header comment.
@@ -124,6 +128,15 @@ description: |
   | `k8s/overlays/production/kustomization.yaml` and `docs/deployment.md` ("never the floating 1.0.0-SNAPSHOT") | reworded: "never a SNAPSHOT tag" |
   | `src/frontend/src/lib/api/openapi.json` | changes in each release commit, by design (see above) |
   | `src/backend/implementation/README.md` | untouched: an outdated Quarkus scaffold line about a Maven `target/` path, unrelated |
+
+  ## Consequence for task-199
+
+  task-199 (publishing images and a deploy bundle per release) was written
+  assuming "task-193 keeps `1.0.0-SNAPSHOT`" and lists deriving the Gradle
+  version from the tag as out of scope. After this task that assumption is
+  false: a release build already carries version `X.Y.Z`, so its image tags
+  default to the release version. task-199 must be updated, and reviewed
+  with /improve-task, before it is implemented. This task does not edit it.
 
   ## What does NOT go here
 
@@ -183,10 +196,17 @@ steps:
     as strings (`1.10.0` > `1.9.0`), e.g. with `sort -V`. `bash -n` and
     `shellcheck` it.
   - |
-    Test the script WITHOUT touching the real repository or GitHub, in a
-    throwaway clone whose `origin` is a local bare repository (scratchpad):
-      B=<scratch>/origin.git; C=<scratch>/clone
-      git clone --bare . "$B" && git clone "$B" "$C" && cd "$C"
+    Test the script WITHOUT touching the real repository or GitHub. A plain
+    `git clone` would NOT do: it contains only committed state, and at this
+    point `scripts/release.sh` and every other change of this task are
+    uncommitted. So build the test fixture from a COPY of the working tree,
+    and commit inside the copy's OWN `.git`. Every commit, tag and push below
+    happens only in scratch repositories, never in this repository:
+      W=<scratch>/work; B=<scratch>/origin.git; C=<scratch>/clone
+      rsync -a --exclude '.gradle/' --exclude 'build/' --exclude 'node_modules/' \
+        --exclude '.svelte-kit/' --exclude 'src/frontend/node/' --exclude 'test-results/' ./ "$W/"
+      (cd "$W" && git checkout -q -B main && git add -A && git commit -qm "fixture: working tree")
+      git clone -q --bare "$W" "$B" && git clone -q "$B" "$C" && cd "$C"
     Then, in "$C":
       * `./scripts/release.sh 1.0.0 --dry-run` exits 0 and changes nothing
         (`git status` clean, no new tag, `HEAD` unchanged);
@@ -202,6 +222,13 @@ steps:
             tagged commit;
       * a second `./scripts/release.sh 1.0.0 …` is refused (tag exists), and
         `./scripts/release.sh 0.9.9 …` is refused (not monotonic).
+    Also verify the rejected-push path: in a second clone of "$B", push one
+    extra commit to `main` while the release is between its fetch and its
+    push (or simply: make "$B"'s `main` move ahead before running the release
+    from a clone that is not up to date). The script must refuse up front
+    (`main` differs from `origin/main`), or, if the race happens at push
+    time, report the atomic rejection with the discard commands. "$B" must
+    hold no new tag afterwards.
     Delete the scratch repositories afterwards. Never run the script against
     the real `origin`.
   - |
@@ -244,10 +271,11 @@ validation:
     test "$(./gradlew -q :backend:implementation:properties | grep '^version:' | awk '{print $2}')" = 1.0.0-SNAPSHOT
     test "$(./gradlew -q :frontend:properties | grep '^version:' | awk '{print $2}')" = 1.0.0-SNAPSHOT
   - |
-    # The literal survives only where the table allows it.
-    ! grep -rnF "1.0.0-SNAPSHOT" --exclude-dir=node_modules --exclude-dir=build --exclude-dir=planning \
-        --exclude-dir=.git --exclude-dir=.gradle --exclude-dir=node --exclude=package-lock.json \
-        --exclude=gradle.properties --exclude=openapi.json --exclude=README.md .
+    # The literal survives only where the table allows it. Scan what git counts
+    # as the repository (tracked + new untracked, minus ignored), so stale local
+    # build output such as an old Maven target/ cannot trigger it.
+    ! git ls-files -co --exclude-standard -- . ':!planning' ':!*package-lock.json' \
+        ':!gradle.properties' ':!*openapi.json' ':!*README.md' | xargs grep -lF "1.0.0-SNAPSHOT" 2>/dev/null
   - |
     grep -q "tags: \['v\*'\]" .github/workflows/ci.yaml
     grep -q "release-tag:" .github/workflows/ci.yaml

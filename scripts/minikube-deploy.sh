@@ -133,9 +133,10 @@ if ! command -v envsubst >/dev/null 2>&1; then
 fi
 # shellcheck disable=SC2016  # single quotes are intentional: this literal is
 # envsubst's allow-list of variable NAMES, not a shell expansion.
-# MINIKUBE_IMAGE_REGISTRY is passed explicitly: minikube-env.sh does not export.
+# MINIKUBE_IMAGE_REGISTRY and MINIKUBE_IMAGE_TAG are passed explicitly:
+# minikube-env.sh does not export.
 kubectl kustomize "$K8S_OVERLAY" \
-    | MINIKUBE_IMAGE_REGISTRY="$MINIKUBE_IMAGE_REGISTRY" envsubst '${OIDC_AUTH_SERVER_URL} ${OIDC_CLIENT_ID} ${OIDC_TOKEN_AUDIENCE} ${OIDC_TENANT_ID} ${OIDC_SPA_CLIENT_ID} ${OIDC_REDIRECT_URI} ${MINIKUBE_IMAGE_REGISTRY}' \
+    | MINIKUBE_IMAGE_REGISTRY="$MINIKUBE_IMAGE_REGISTRY" MINIKUBE_IMAGE_TAG="$MINIKUBE_IMAGE_TAG" envsubst '${OIDC_AUTH_SERVER_URL} ${OIDC_CLIENT_ID} ${OIDC_TOKEN_AUDIENCE} ${OIDC_TENANT_ID} ${OIDC_SPA_CLIENT_ID} ${OIDC_REDIRECT_URI} ${MINIKUBE_IMAGE_REGISTRY} ${MINIKUBE_IMAGE_TAG}' \
     | kubectl apply -f -
 
 # The image tag is fixed (MINIKUBE_IMAGE_TAG), so a pushed image or a changed

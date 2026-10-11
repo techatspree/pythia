@@ -10,6 +10,9 @@ on:
   pull_request:
   push:
     branches: [main]
+    # Release tags (task-193): a release must pass the same gate as main, plus
+    # the release-tag checks below.
+    tags: ['v*']
 
 permissions:
   contents: read
@@ -180,8 +183,42 @@ jobs:
 
   # Verifies both images still build. Publishing them is the internal
   # pipeline's business, not this one's — nothing here pushes.
+  # Release checks (task-193). Releases are published from this tag (task-199)
+  # and downstream deploys key on it, so a tag that is not on main, or whose
+  # commit carries a different version, would ship something that never passed
+  # review as that release. Tags are immutable: a bad one is fixed by the next
+  # patch version, never by moving it.
+  release-tag:
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # Full history and all branches, so origin/main exists for the
+          # ancestry check.
+          fetch-depth: 0
+
+      - name: Verify the release tag
+        run: |
+          if [[ ! "$GITHUB_REF_NAME" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Release tag '$GITHUB_REF_NAME' is not strict v<MAJOR>.<MINOR>.<PATCH>." >&2
+            exit 1
+          fi
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then
+            echo "Release tag '$GITHUB_REF_NAME' points at a commit that is not on main." >&2
+            exit 1
+          fi
+          version=$(grep '^version=' gradle.properties | cut -d= -f2)
+          if [ "$version" != "${GITHUB_REF_NAME#v}" ]; then
+            echo "Release tag '$GITHUB_REF_NAME' sits on a commit whose gradle.properties says version=$version." >&2
+            echo "Releases are cut with scripts/release.sh, which tags the commit that sets the version." >&2
+            exit 1
+          fi
+          echo "Release $GITHUB_REF_NAME: on main, version $version."
+
   images:
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))
     needs: [build, e2e]
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -194,6 +231,16 @@ jobs:
           - 5000:5000
     steps:
       - uses: actions/checkout@v7
+
+      # The image tags follow the application version, whose ONE source is
+      # `version=` in gradle.properties (task-193): a SNAPSHOT on main, X.Y.Z on
+      # a release tag. Read it once; every step below uses $PYTHIA_VERSION.
+      - name: Read the application version
+        run: |
+          v=$(grep '^version=' gradle.properties | cut -d= -f2)
+          test -n "$v" || { echo "no version= in gradle.properties" >&2; exit 1; }
+          echo "PYTHIA_VERSION=$v" >> "$GITHUB_ENV"
+          echo "Application version: $v"
 
       - uses: actions/setup-java@v5
         with:
@@ -227,8 +274,8 @@ jobs:
 
       - name: Assert both image references exist
         run: |
-          docker image inspect pythia/pythia-backend:1.0.0-SNAPSHOT > /dev/null
-          docker image inspect pythia/pythia-frontend:1.0.0-SNAPSHOT > /dev/null
+          docker image inspect "pythia/pythia-backend:$PYTHIA_VERSION" > /dev/null
+          docker image inspect "pythia/pythia-frontend:$PYTHIA_VERSION" > /dev/null
 
       # The daemon builds above can only ever produce and check linux/amd64. This
       # pushes both images to the throwaway registry and asserts each index lists
@@ -247,7 +294,7 @@ jobs:
             -PfrontendImageRegistry=localhost:5000
           for img in pythia-backend pythia-frontend; do
             curl -fsS -H 'Accept: application/vnd.oci.image.index.v1+json, application/vnd.docker.distribution.manifest.list.v2+json' \
-              "http://localhost:5000/v2/pythia/$img/manifests/1.0.0-SNAPSHOT" \
+              "http://localhost:5000/v2/pythia/$img/manifests/$PYTHIA_VERSION" \
               | jq -e '[.manifests[].platform | "\(.os)/\(.architecture)"] | (index("linux/amd64") != null and index("linux/arm64") != null)' \
               || { echo "$img is not a linux/amd64 + linux/arm64 index" >&2; exit 1; }
           done
@@ -280,7 +327,7 @@ jobs:
           # The greps above only prove the settings are WRITTEN. Prove they are
           # APPLIED: with the timestamp flags in effect Jib stamps the fixed epoch.
           # This is what caught Quarkus 3.40 silently ignoring the old location.
-          created=$(docker image inspect pythia/pythia-backend:1.0.0-SNAPSHOT --format '{{.Created}}')
+          created=$(docker image inspect "pythia/pythia-backend:$PYTHIA_VERSION" --format '{{.Created}}')
           case "$created" in
             1970-01-01T00:00:00*) ;;
             *) echo "backend image created at $created: the Jib timestamp flags are not applied" >&2; exit 1 ;;
@@ -299,7 +346,7 @@ jobs:
         continue-on-error: true
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
-          image-ref: pythia/pythia-backend:1.0.0-SNAPSHOT
+          image-ref: pythia/pythia-backend:${{ env.PYTHIA_VERSION }}
           severity: HIGH,CRITICAL
           ignore-unfixed: true
           exit-code: '1'

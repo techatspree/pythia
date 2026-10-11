@@ -273,10 +273,79 @@ The backend logs what it resolved at startup — `AuthProviderGuard` writes the
 active auth provider at INFO and the issuer, client id and audience at DEBUG —
 so a mis-set key shows up in the pod log instead of as an unexplained 401.
 
+## Releasing
+
+Pythia's releases are defined here, publicly, because a release is a property of
+the project, not of any one installation (task-193). A downstream deployment such
+as `<internal-group>/<deploy-project>` deploys only releases.
+
+**A release is an annotated git tag `v<MAJOR>.<MINOR>.<PATCH>`** (e.g. `v1.2.0`; no
+pre-release or build suffix) on a commit that is on `main`. A GitHub Release may
+be attached for notes, but the tag is the release; consumers key on the tag only.
+
+**The application version is the release version.** It lives in ONE line,
+`version=` in the root `gradle.properties`:
+
+- between releases it is a `-SNAPSHOT` (e.g. `1.0.1-SNAPSHOT`);
+- a release is a commit that sets it to `X.Y.Z`, and the tag `vX.Y.Z` sits on
+  exactly that commit;
+- the next commit moves `main` to the following SNAPSHOT.
+
+So a release build identifies itself everywhere: the backend and frontend image
+tags, the jar manifest (`Implementation-Version`), and the OpenAPI document's
+`info.version`. The committed OpenAPI client (`src/frontend/src/lib/api/openapi.json`)
+is therefore regenerated in every release commit, deliberately. The drift gate
+then guarantees the client in a release matches that exact backend.
+
+### Cutting a release
+
+```bash
+./scripts/release.sh 1.2.0            # main continues as 1.2.1-SNAPSHOT
+./scripts/release.sh 1.3.0 --next 1.4.0-SNAPSHOT
+./scripts/release.sh 1.2.0 --dry-run  # every check, no change
+```
+
+The script refuses to start unless the working tree is clean, you are on `main`
+and it equals `origin/main`, `gradle.properties` holds a `-SNAPSHOT` whose base
+is not above the release, and the tag is new and greater than every existing
+`v*` tag. It then builds the release (tests included unless `--skip-tests`),
+commits "Release X.Y.Z", tags it, commits "Start <next>", shows a summary, asks
+for confirmation, and pushes with `git push --atomic origin main refs/tags/vX.Y.Z`.
+`main` and the tag land together or not at all. If the push is rejected
+(someone pushed to `main` in between), nothing was published. The script prints
+how to discard the local release (`git reset --hard origin/main`,
+`git tag -d vX.Y.Z`), and you rerun it.
+
+CI builds the tag with the same gate as `main`, and its `release-tag` job
+re-checks that the tag is strict semver, on `main`, and on a commit whose
+`version=` equals the tag.
+
+**The first release is `v1.0.0`:** `./scripts/release.sh 1.0.0`.
+
+### Tags are immutable
+
+A wrongly tagged commit gets the **next patch version**. A release tag is never
+moved or deleted: an image named after it would otherwise stand for two
+different builds. Protect this on GitHub with a ruleset for `v*` tags
+(Settings → Rules → Rulesets: restrict deletions and updates).
+
+### Mirrors must sync release tags
+
+A mirror of this repository sees a release only if it receives the tag. A
+mirror must therefore sync `refs/tags/v*` (e.g.
+`git push <mirror> 'refs/tags/v*:refs/tags/v*'`):
+
+- **without force**, so a moved tag is rejected loudly instead of silently
+  replacing a release;
+- **without pruning** (`--mirror` or `--prune`), so tags the mirror writes for
+  itself survive.
+
+A mirror that syncs only `main` never sees a release.
+
 ## Image tags: always immutable
 
 Push every build under the short commit SHA and deploy *that*. The overlays set
-`imagePullPolicy: IfNotPresent`, so a floating tag like `1.0.0-SNAPSHOT` would
+`imagePullPolicy: IfNotPresent`, so a floating SNAPSHOT tag would
 silently keep serving whatever image is already on the node — the deploy would
 report success and change nothing. An immutable tag also makes rollback trivial.
 

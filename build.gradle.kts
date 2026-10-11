@@ -19,7 +19,9 @@ plugins {
 
 allprojects {
     group = "io.pythia"
-    version = "1.0.0-SNAPSHOT"
+    // Single source: `version` in the root gradle.properties, changed only by
+    // scripts/release.sh (task-193).
+    version = providers.gradleProperty("version").get()
 
     // Kotlin/JS (:domain and its sub-projects, plus the root) would otherwise
     // download the Kotlin Gradle plugin's own Node default (24.10.0 when this was

@@ -16,7 +16,10 @@ spec:
     spec:
       containers:
         - name: backend
-          image: pythia/pythia-backend:1.0.0-SNAPSHOT
+          # No tag here, deliberately (task-193): the version changes with every
+          # release, so every overlay sets newTag (staging/production: ${IMAGE_TAG},
+          # minikube: ${MINIKUBE_IMAGE_TAG}).
+          image: pythia/pythia-backend
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 8080

@@ -14,10 +14,12 @@
 # No secrets and no organisation coordinates here: this file is public. The
 # ENTRA_* ids stay in the workspace's EntraIdVariables.sh, outside the repo.
 #
-# Two values have another owner that a shell file cannot reach. Keep the
-# defaults in step with them (the task-196 validation checks both):
+# One value has another owner that a shell file cannot reach. Keep the default
+# in step with it:
 #   - MINIKUBE_NAMESPACE  <-> `namespace:` in k8s/base/kustomization.yaml
-#   - MINIKUBE_IMAGE_TAG  <-> `version` in the root build.gradle.kts
+# MINIKUBE_IMAGE_TAG used to mirror the Gradle version; since task-193 that
+# version changes with every release, so the local cluster uses its own fixed
+# tag instead. The deploy passes it explicitly to both image builds.
 
 if [ "${BASH_SOURCE[0]}" = "$0" ]; then
     echo "minikube-env.sh holds settings; source it from the minikube scripts, do not run it." >&2
@@ -43,5 +45,5 @@ fi
 # default containerd; the node pulls its native variant.
 : "${MINIKUBE_IMAGE_REGISTRY:=localhost:5000}"
 
-# The image tag pushed and deployed.
-: "${MINIKUBE_IMAGE_TAG:=1.0.0-SNAPSHOT}"
+# The image tag pushed to and deployed from the local cluster's registry.
+: "${MINIKUBE_IMAGE_TAG:=local}"

@@ -1143,9 +1143,9 @@
       "notes": "Frontend dependency CVEs (svelte, @sveltejs/kit, vite) are invisible to the project's checks: upgrade them and fix the CI audit's --omit=dev blind spot"
     },
     "task-193": {
-      "status": "pending",
-      "started_at": null,
-      "completed_at": null,
+      "status": "done",
+      "started_at": "2026-10-11T17:09:15+00:00",
+      "completed_at": "2026-10-11T17:18:58+00:00",
       "notes": "Define the release convention: v<semver> tags on main, gated by CI, documented for the downstream deployment"
     },
     "task-194": {
