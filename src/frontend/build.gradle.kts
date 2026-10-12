@@ -231,6 +231,12 @@ val frontendImageRegistry = providers.gradleProperty("frontendImageRegistry")
 val frontendImageTag = providers.gradleProperty("frontendImageTag").orElse(project.version.toString())
 val frontendImageUsername = providers.gradleProperty("frontendImageUsername")
 val frontendImagePassword = providers.gradleProperty("frontendImagePassword")
+// Optional OCI `org.opencontainers.image.source` label (task-199). Only the
+// release `publish` job sets it, so GHCR links the package to the repository;
+// every other build leaves the image exactly as before. Constant per
+// repository, so it does not touch the build's independence of when and where
+// it runs.
+val frontendImageSourceUrl = providers.gradleProperty("frontendImageSourceUrl")
 
 tasks.register("imageBuild") {
     group = "build"
@@ -242,6 +248,12 @@ tasks.register("imageBuild") {
     // augmentation.
     outputs.upToDateWhen { false }
     val spaDir = layout.projectDirectory.dir("build").asFile.toPath()
+    // Where the pushed digest is recorded, like Quarkus' backend `jib-image.digest`.
+    // For a push it is the multi-arch INDEX's digest, which the release job
+    // cross-checks against what the registry serves (task-199). NOT under this
+    // project's build/: that directory IS the SPA the image is made from, so a
+    // file written there would ship in the next image.
+    val digestFile = rootProject.layout.buildDirectory.file("frontend-image/jib-image.digest").get().asFile.toPath()
     val nginxConf = layout.projectDirectory.file("nginx.conf").asFile.toPath()
     doLast {
         val push = frontendImagePush.get()
@@ -313,12 +325,15 @@ tasks.register("imageBuild") {
         // /docker-entrypoint.sh is what renders the template and runs the
         // local-resolvers script. Creation and modification times stay at Jib's
         // fixed defaults, so the image does not depend on WHEN it is built.
-        val container = Jib.from(frontendBaseImage)
+        val builder = Jib.from(frontendBaseImage)
             .setPlatforms(platforms)
             .setFileEntriesLayers(listOf(configLayer, spaLayer.build()))
             .addEnvironmentVariable("NGINX_ENTRYPOINT_LOCAL_RESOLVERS", "1")
             .addExposedPort(Port.tcp(80))
-            .containerize(target)
+        frontendImageSourceUrl.orNull?.let { builder.addLabel("org.opencontainers.image.source", it) }
+        val container = builder.containerize(target)
+        Files.createDirectories(digestFile.parent)
+        Files.writeString(digestFile, container.digest.toString())
         logger.lifecycle("Frontend image $ref: ${container.digest}")
     }
 }

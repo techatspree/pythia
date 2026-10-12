@@ -65,15 +65,10 @@ jobs:
       # survive build-time gating, so the generated-bytecode jar is the proof.
       # Before task-194 a default build contained NEITHER module and still
       # started, authenticating nobody.
+      # The check lives in a script because `publish` runs it too, on the
+      # augmentation it actually pushes (task-199).
       - name: Verify the default build carries Entra and not the dev auth module
-        run: |
-          J=src/backend/implementation/build/quarkus-app/quarkus/generated-bytecode.jar
-          unzip -l "$J" | grep -q 'io/pythia/auth/entra/EntraAuthModule_Bean.class' \
-            || { echo "default build lacks EntraAuthModule_Bean" >&2; exit 1; }
-          if unzip -l "$J" | grep -q 'io/pythia/auth/dev/DevAuthModule_Bean.class'; then
-            echo "default build contains the forgeable DevAuthModule_Bean" >&2; exit 1
-          fi
-          echo "Default build: Entra present, dev absent."
+        run: ./scripts/verify-auth-modules.sh
 
       # Not redundant with `build`. The consolidated report is produced by
       # :frontend:sarifHtmlReport, which is wired into the root staticAnalysis
@@ -350,6 +345,165 @@ jobs:
           severity: HIGH,CRITICAL
           ignore-unfixed: true
           exit-code: '1'
+
+  # Publishes a release (task-199): both images, multi-arch, on GHCR, and a
+  # deploy bundle as the GitHub Release's assets — everything a deployment
+  # needs, so a consumer builds nothing and clones nothing. docs/deployment.md
+  # ("What a release publishes") documents the result as a public contract.
+  #
+  # Order, and why it is this order:
+  #   1. refuse if the release is already PUBLISHED (releases are immutable,
+  #      task-193); delete a DRAFT a failed run left behind;
+  #   2. push the backend, then run the task-194 auth-module check on THAT
+  #      augmentation — the one whose image was just pushed;
+  #   3. push the frontend;
+  #   4. read both index digests back from GHCR, require linux/amd64 AND
+  #      linux/arm64, and require each to equal the digest Jib recorded for its
+  #      own push, so a tag overwritten in between fails the job;
+  #   5. build the bundle, pinned to those digests;
+  #   6. create the release as a DRAFT with both assets, then publish it.
+  # A consumer therefore only ever sees a release whose images exist and passed
+  # the checks; a failed run leaves at most unreferenced images and a draft.
+  #
+  # Raised permissions are scoped to THIS job; the workflow stays read-only.
+  # It uses the built-in token and no secret. The owner is never written here
+  # as a literal: it comes from the repository the run belongs to, which is
+  # also what lets the job run unchanged in a fork (the pre-release dry run).
+  publish:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [build, e2e, images, release-tag]
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: write
+      packages: write
+    concurrency:
+      group: publish-${{ github.ref }}
+      cancel-in-progress: false
+    env:
+      GH_TOKEN: ${{ github.token }}
+      REPOSITORY_OWNER: ${{ github.repository_owner }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - uses: gradle/actions/setup-gradle@v6
+
+      # V is the tag (v1.2.0) and names the release and the bundle. VER is the
+      # application version (1.2.0), which task-193 put in gradle.properties on
+      # the tagged commit and `release-tag` checked; it is the IMAGE tag, so the
+      # tag, the version the app reports and the Gradle version are one string.
+      - name: Identify the release
+        run: |
+          V="$GITHUB_REF_NAME"
+          VER="${V#v}"
+          OWNER="${REPOSITORY_OWNER,,}"
+          {
+            echo "V=$V"
+            echo "VER=$VER"
+            echo "BASE=ghcr.io/$OWNER/pythia"
+            echo "SRC=$GITHUB_SERVER_URL/$GITHUB_REPOSITORY"
+          } >> "$GITHUB_ENV"
+          echo "Publishing $V as ghcr.io/$OWNER/pythia/pythia-{backend,frontend}:$VER"
+
+      - name: Refuse a published release, clear a draft
+        run: |
+          if state=$(gh release view "$V" --json isDraft -q .isDraft 2>"$RUNNER_TEMP/view.err"); then
+            if [ "$state" = "false" ]; then
+              echo "Release $V is already published. Releases are immutable; tag the next patch version." >&2
+              exit 1
+            fi
+            echo "Deleting the draft a previous run left for $V (the tag stays)."
+            gh release delete "$V" --yes
+          elif grep -qi 'release not found' "$RUNNER_TEMP/view.err"; then
+            echo "No release for $V yet."
+          else
+            cat "$RUNNER_TEMP/view.err" >&2
+            exit 1
+          fi
+
+      # quarkusAppPartsBuild is where the image is built and pushed; --rerun and
+      # --no-build-cache keep a cached augmentation from replaying files without
+      # the push (see the `images` job). Pushing implies multi-arch (task-196).
+      # `container-image.image` sets registry, group, name and tag in one value.
+      # The source label links the GHCR package to this repository; it is set
+      # here only, so no other build changes. Credentials travel as environment
+      # variables, never on a command line.
+      - name: Push the backend image
+        env:
+          QUARKUS_CONTAINER_IMAGE_USERNAME: ${{ github.actor }}
+          QUARKUS_CONTAINER_IMAGE_PASSWORD: ${{ github.token }}
+        run: |
+          ./gradlew :backend:implementation:quarkusAppPartsBuild --rerun \
+            :backend:implementation:imageBuild \
+            -Dquarkus.container-image.push=true \
+            -Dquarkus.container-image.image="$BASE/pythia-backend:$VER" \
+            -Dquarkus.container-image.labels.\"org.opencontainers.image.source\"="$SRC" \
+            -x test --no-build-cache
+
+      - name: Verify the pushed augmentation carries Entra and not the dev auth module
+        run: ./scripts/verify-auth-modules.sh
+
+      - name: Push the frontend image
+        env:
+          ORG_GRADLE_PROJECT_frontendImageUsername: ${{ github.actor }}
+          ORG_GRADLE_PROJECT_frontendImagePassword: ${{ github.token }}
+        run: |
+          ./gradlew :frontend:imageBuild -PfrontendImagePush=true \
+            -PfrontendImageRegistry="ghcr.io/${REPOSITORY_OWNER,,}" \
+            -PfrontendImageTag="$VER" -PfrontendImageSourceUrl="$SRC"
+
+      # A manifest's digest is the SHA-256 of its exact bytes, so the raw index
+      # is fetched and hashed rather than trusting a tag. Jib wrote the digest
+      # of what IT pushed to jib-image.digest (backend: Quarkus' default file;
+      # frontend: :frontend:imageBuild), and the two must agree.
+      - name: Read and check both index digests
+        run: |
+          command -v skopeo >/dev/null || { sudo apt-get update -q && sudo apt-get install -y -q skopeo; }
+          skopeo login ghcr.io -u "$GITHUB_ACTOR" --password-stdin <<< "$GH_TOKEN"
+          for x in backend frontend; do
+            skopeo inspect --raw "docker://$BASE/pythia-$x:$VER" > "$RUNNER_TEMP/$x.json"
+            jq -e '[.manifests[].platform.architecture] | (index("amd64") != null and index("arm64") != null)' \
+              "$RUNNER_TEMP/$x.json" > /dev/null \
+              || { echo "$x is not a linux/amd64 + linux/arm64 index" >&2; exit 1; }
+            digest="sha256:$(sha256sum "$RUNNER_TEMP/$x.json" | cut -d' ' -f1)"
+            case "$x" in
+              backend)  recorded=$(cat src/backend/implementation/build/jib-image.digest) ;;
+              frontend) recorded=$(cat build/frontend-image/jib-image.digest) ;;
+            esac
+            if [ "$digest" != "$recorded" ]; then
+              echo "$x: registry serves $digest, but Jib pushed $recorded" >&2
+              exit 1
+            fi
+            echo "$x: $digest"
+            echo "${x^^}_DIGEST=$digest" >> "$GITHUB_ENV"
+          done
+
+      - name: Build the deploy bundle
+        run: |
+          scripts/release-bundle.sh "$V" "$BASE" "$BACKEND_DIGEST" "$FRONTEND_DIGEST" dist
+          (cd dist && sha256sum -c "pythia-deploy-$V.tar.gz.sha256")
+
+      - name: Create the release as a draft, then publish it
+        run: |
+          sum=$(cut -d' ' -f1 < "dist/pythia-deploy-$V.tar.gz.sha256")
+          cat > "$RUNNER_TEMP/notes.md" <<EOF
+          Images (multi-arch: linux/amd64, linux/arm64), pinned by digest:
+
+          - \`$BASE/pythia-backend:$VER@$BACKEND_DIGEST\`
+          - \`$BASE/pythia-frontend:$VER@$FRONTEND_DIGEST\`
+
+          Deploy bundle: \`pythia-deploy-$V.tar.gz\`, SHA-256 \`$sum\`.
+          See docs/deployment.md, "What a release publishes", for its contents
+          and how to verify and deploy it.
+          EOF
+          gh release create "$V" --verify-tag --draft --title "Pythia $VER" \
+            --notes-file "$RUNNER_TEMP/notes.md" dist/*
+          gh release edit "$V" --draft=false
 
   # Reports; it does not gate. A CVE published overnight in a transitive
   # dependency would otherwise turn every unrelated PR red. That matters MORE

@@ -16,9 +16,15 @@ description: |
   a consumer builds nothing and clones nothing:
 
   1. **Both images, multi-arch, on GHCR**:
-     `ghcr.io/<owner>/pythia/pythia-backend:<tag>` and
-     `ghcr.io/<owner>/pythia/pythia-frontend:<tag>`, where `<owner>` is the
-     GitHub owner of this repository, lower-cased. The `pythia/pythia-*`
+     `ghcr.io/<owner>/pythia/pythia-backend:<version>` and
+     `ghcr.io/<owner>/pythia/pythia-frontend:<version>`, where `<owner>` is the
+     GitHub owner of this repository, lower-cased, and `<version>` is the
+     tag WITHOUT its `v` (`v1.2.0` → `1.2.0`). That is the application
+     version task-193 puts in `gradle.properties` on the release commit, the
+     value `frontendImageTag` already defaults to, and the API's
+     `info.version`, so the image tag, the version the app reports and the
+     Gradle version are one string. Only the tag, the GitHub Release and the
+     bundle keep the `v`. The `pythia/pythia-*`
      part deliberately equals the image names the overlays already use
      (`${REGISTRY}/pythia/pythia-backend`), so `REGISTRY=ghcr.io/<owner>`
      pulls straight from GHCR and a consumer that copies the images into its
@@ -78,6 +84,20 @@ description: |
   overlays. The minikube overlay is untouched (it uses its own registry and
   tag, task-196).
 
+  ## The images are linked to this repository
+
+  Jib images carry no `org.opencontainers.image.source` label, so GHCR
+  cannot link the packages to this repository on its own. The publish job
+  therefore sets that label to `${{ github.server_url }}/${{ github.repository }}`
+  on BOTH images, passed as a build argument in that job ONLY:
+    - backend: `-Dquarkus.container-image.labels."org.opencontainers.image.source"=…`
+      (Quarkus 3.40 has no `quarkus.jib.labels`; the generic key is it);
+    - frontend: a new optional Gradle property `frontendImageSourceUrl` that
+      `:frontend:imageBuild` turns into the same label when set.
+  The value is constant per repository, never clock- or host-derived, so the
+  reproducibility rules (root CLAUDE.md, CI's assertions) are unaffected.
+  Local and CI builds without the property stay byte-identical to today.
+
   ## deploy.sh reads release.env
 
   When `$PROJECT_ROOT/release.env` exists (i.e. `deploy.sh` runs from an
@@ -86,6 +106,10 @@ description: |
   - It parses the file, never `source`s it: only lines matching
     `^[A-Z_]+=[^[:space:]]*$`, only the keys listed above, anything else is
     an error. The bundle is downloaded data.
+  - ALL six keys must be present, each exactly once. A bundle missing
+    `FRONTEND_DIGEST` would otherwise fall through to whatever the caller's
+    environment holds, the exact ambiguity the refusal below exists to
+    prevent.
   - If the caller ALSO set `BACKEND_DIGEST` or `FRONTEND_DIGEST` to a
     DIFFERENT value, it refuses. The bundle's pin wins by refusal, not by
     silently overriding either side.
@@ -105,12 +129,19 @@ description: |
   (`contents: write` for the release, `packages: write` for GHCR); the
   workflow-level `permissions: contents: read` stays, and it uses the
   built-in `GITHUB_TOKEN` and no secret. The owner is never written as a
-  literal: `ci.yaml` must not contain it (task-027's leak check greps for
-  it), so the job derives it from `${{ github.repository_owner }}`.
+  literal: `ci.yaml` must not contain it (task-027's validation greps the
+  workflow for it), so the job derives it from
+  `${{ github.repository_owner }}`. That also makes the job work unchanged in
+  a fork, which the dry run below relies on.
 
   Order, and why: push the backend → `_Bean` check (task-194) on the
   augmentation that was just pushed → push the frontend → read both index
-  digests from the registry and assert amd64 + arm64 → build the bundle →
+  digests from the registry, assert amd64 + arm64, and cross-check each
+  against the digest Jib itself recorded for its push (the backend's
+  `build/quarkus-app/jib-image.digest`, the frontend's
+  `build/frontend-image/jib-image.digest` at the ROOT, which `:frontend:imageBuild`
+  writes — its own build/ is the SPA and would ship the file),
+  so a tag overwritten between push and read fails the job → build the bundle →
   create the release as a DRAFT with both assets → publish the draft. A
   consumer can only see a release whose images exist and passed the check;
   a failed run leaves at most unreferenced images on GHCR and a draft.
@@ -119,6 +150,36 @@ description: |
   ("releases are immutable; tag the next patch version", task-193). A DRAFT
   left by a failed run is deleted and recreated (`gh release delete` without
   `--cleanup-tag` keeps the tag).
+
+  ## Dry run in a fork, before any real release
+
+  Nothing exercises the `publish` job until a real `v*` tag, and tags are
+  immutable (task-193), so a defect found that way costs a version number.
+  Since the job derives its owner, registry path and release target from
+  the repository it runs in, a personal fork runs it end to end against the
+  FORK's own GHCR namespace and Releases: push the branch to the fork, cut a
+  throwaway tag there (e.g. `v0.0.1`, on a commit whose `gradle.properties`
+  says `version=0.0.1`, so `release-tag` passes), and let the workflow run.
+  Then download the fork's bundle and run the consumer-side verification
+  from `docs/deployment.md` against it. This touches only the fork, never
+  this repository's origin, tags, packages or releases. It is an outward
+  action on the user's GitHub account, so the implementer asks the user
+  before pushing anything and records the run URL. The task is NOT done
+  until that run is green.
+
+  ## Downstream consequences (internal, reported, not done here)
+
+  Dropping the mirror model changes the internal side, which this public
+  repository must not name. The implementer's final report lists, without
+  internal names:
+    - the GitLab sync job becomes obsolete (and the open follow-up "make it
+      push `refs/tags/v*`" is withdrawn);
+    - the deploy pipeline project must be rewritten to poll releases,
+      download and verify the bundle, optionally copy the images, and run
+      `deploy.sh` from the bundle;
+    - the server must reach `github.com`, its release-asset host and
+      `ghcr.io` (or the internal registry holding copies);
+    - the workspace-level notes describing the mirror wiring become stale.
 
   ## One-time GitHub settings (documented, not automated)
 
@@ -135,8 +196,10 @@ description: |
   ## Out of scope
 
   Signing or attestations (cosign, GitHub artifact attestations), SBOMs,
-  publishing the minikube overlay, deriving the Gradle version from the tag
-  (task-193 keeps `1.0.0-SNAPSHOT`), and any downstream pipeline.
+  publishing the minikube overlay, and any downstream pipeline. (The
+  version model is settled by task-193: the release commit carries
+  `version=X.Y.Z`, `release-tag` enforces that the tag matches it, and
+  `main` moves on to the next `-SNAPSHOT`. This task relies on that.)
 
   ## What does NOT go here
 
@@ -158,8 +221,14 @@ steps:
     `release.env` provides; drop the "short commit SHA" sentence. Keep
     production's point that a floating tag must never be deployed.
   - |
+    `k8s/base/backend/deployment.yaml` and `k8s/base/frontend/deployment.yaml`:
+    their image comment (line ~20) says the overlays set
+    `newTag (staging/production: ${IMAGE_TAG}, …)`. Rewrite it for the digest
+    pin (`staging/production: digest ${BACKEND_DIGEST}` /
+    `${FRONTEND_DIGEST}`; minikube unchanged).
+  - |
     `scripts/deploy.sh`: implement "deploy.sh reads release.env" exactly as
-    described, placed BEFORE `kubectl kustomize` (and before the tool check,
+    described (all six keys required), placed BEFORE `kubectl kustomize` (and before the tool check,
     so a mismatch fails with no cluster contact). Validate every `*_DIGEST`
     the rendered overlay requires after the existing placeholder check.
     Update the header comment and the usage text (they name `IMAGE_TAG`
@@ -198,20 +267,24 @@ steps:
     a. Release state: `gh release view "$V" --json isDraft -q .isDraft`;
        `false` → fail with the immutability message; `true` → delete the
        draft; not found → continue.
+    Also `VER="${V#v}"` (the image tag, see the description) and
+    `SRC="${{ github.server_url }}/${{ github.repository }}"`.
     b. Backend, credentials as environment variables only
        (`QUARKUS_CONTAINER_IMAGE_USERNAME=${{ github.actor }}`,
        `QUARKUS_CONTAINER_IMAGE_PASSWORD=${{ github.token }}`):
          ./gradlew :backend:implementation:quarkusAppPartsBuild --rerun \
            :backend:implementation:imageBuild \
            -Dquarkus.container-image.push=true \
-           -Dquarkus.container-image.image="$BASE/pythia-backend:$V" \
+           -Dquarkus.container-image.image="$BASE/pythia-backend:$VER" \
+           -Dquarkus.container-image.labels.\"org.opencontainers.image.source\"="$SRC" \
            --no-build-cache
        `quarkus.container-image.image` replaces registry/group/name/tag in
        one value. Confirm in the log that the pushed reference is exactly
-       `$BASE/pythia-backend:$V` and that task-196's push-implies-multi-arch
+       `$BASE/pythia-backend:$VER`, and that the label reached the image config
+       (task-198 lesson: Quarkus 3.40 ignores keys it does not read), and that task-196's push-implies-multi-arch
        still triggers (it keys on `quarkus.container-image.push`). If Quarkus
        ignores `image`, use `registry=ghcr.io`, `group=$OWNER/pythia`,
-       `tag=$V` instead, and say so in a comment.
+       `tag=$VER` instead, and say so in a comment.
     c. The task-194 `_Bean` check on
        `src/backend/implementation/build/quarkus-app/quarkus/generated-bytecode.jar`
        of THIS augmentation: `EntraAuthModule_Bean.class` present,
@@ -220,17 +293,22 @@ steps:
     d. Frontend (`ORG_GRADLE_PROJECT_frontendImageUsername` / `…Password`
        from the same token):
          ./gradlew :frontend:imageBuild -PfrontendImagePush=true \
-           -PfrontendImageRegistry="ghcr.io/$OWNER" -PfrontendImageTag="$V"
-       which yields `$BASE/pythia-frontend:$V`.
+           -PfrontendImageRegistry="ghcr.io/$OWNER" -PfrontendImageTag="$VER" \
+           -PfrontendImageSourceUrl="$SRC"
+       which yields `$BASE/pythia-frontend:$VER`. Add `frontendImageSourceUrl`
+       to `src/frontend/build.gradle.kts` (optional; when set, jib-core adds
+       the `org.opencontainers.image.source` label; when unset, the image is
+       unchanged) and to the property table in `src/frontend/CLAUDE.md`.
     e. Digests: for each image, `skopeo inspect --raw --creds
-       "${{ github.actor }}:$GH_TOKEN" "docker://$BASE/pythia-<x>:$V"` into a
+       "${{ github.actor }}:$GH_TOKEN" "docker://$BASE/pythia-<x>:$VER"` into a
        file; assert with jq that `.manifests[].platform.architecture`
        contains `amd64` and `arm64`; digest = `sha256:` + SHA-256 of those
-       raw bytes (the definition of a manifest digest). Install skopeo with
+       raw bytes (the definition of a manifest digest). Fail unless it equals
+       the digest Jib recorded for that push (see the description). Install skopeo with
        apt only if `command -v skopeo` fails.
     f. `scripts/release-bundle.sh "$V" "$BASE" "$BD" "$FD" dist`, then
        `(cd dist && sha256sum -c pythia-deploy-$V.tar.gz.sha256)`.
-    g. `gh release create "$V" --verify-tag --draft --title "Pythia ${V#v}"
+    g. `gh release create "$V" --verify-tag --draft --title "Pythia $VER"
        --notes-file notes.md dist/*` where notes.md lists both image
        references WITH digests and the bundle checksum; then
        `gh release edit "$V" --draft=false`.
@@ -251,7 +329,7 @@ steps:
         sha256sum -c pythia-deploy-v1.2.0.tar.gz.sha256
         skopeo copy --all --preserve-digests \
           docker://ghcr.io/<owner>/pythia/pythia-backend@$BACKEND_DIGEST \
-          docker://$REGISTRY/pythia/pythia-backend:v1.2.0
+          docker://$REGISTRY/pythia/pythia-backend:1.2.0
       (`--all` keeps every platform, `--preserve-digests` keeps the digest
       the overlay pins). Keep the paragraphs from tasks 194/195/196 about how
       the images are built (no auth provider, no Docker daemon, multi-arch,
@@ -268,6 +346,10 @@ steps:
       `*.githubusercontent.com` host), `ghcr.io` (blobs redirect to
       `pkg-containers.githubusercontent.com`), and the consumer's own
       registry if it copies.
+    - Remove "### Mirrors must sync release tags" (task-193): there is no
+      mirror. Rewrite "### Why the pipeline is not in this repository" so it
+      still explains the publishability split but describes the downstream
+      as a CONSUMER of releases, not a mirror running this repo's CI.
     - "Image tags: always immutable" → digests; "Deploying by hand" →
       download, verify, unpack, run `./scripts/deploy.sh <stage>` inside the
       bundle directory; "Rollback" → deploy the previous release's bundle.
@@ -285,11 +367,27 @@ steps:
     the bundle layout and `release.env` keys are a public contract
     documented in `docs/deployment.md`. Keep "never commit a real one".
   - |
+    DRY RUN IN A FORK (see the description). Ask the user first — it pushes
+    to their GitHub account. Then: push this branch to the fork, set the
+    fork's version to `0.0.1` on a throwaway commit there and tag `v0.0.1`,
+    and watch the fork's workflow. Required: `publish` green; both packages
+    on the fork's GHCR as multi-arch indexes carrying the source label; a
+    published release with the bundle and `.sha256`; and the consumer flow
+    from `docs/deployment.md` (download, `sha256sum -c`, unpack,
+    `release.env` digests equal the registry's) succeeding against it.
+    Re-running the job must fail with the immutability message. Record the
+    run URL. Afterwards delete the throwaway release, tag and packages in the
+    fork. Do not mark the task done before this step passes.
+  - |
     Re-read every changed line for an internal hostname, registry, group,
     project or organisation name; and `ci.yaml` for the literal repository
     owner (must be absent, see the description).
   - |
     ./gradlew build
+  - |
+    In the final report, list the downstream consequences from the
+    description WITHOUT internal names: obsolete sync job, rewritten deploy
+    pipeline, the server's new egress, stale workspace notes.
 
 validation:
   - |
@@ -359,11 +457,30 @@ validation:
     ! "$O/pythia-deploy-v0.0.0/scripts/deploy.sh" staging
     rm -rf "$O"
   - |
+    # A release.env missing a key is refused.
+    REF=$(git stash create); REF=${REF:-HEAD}
+    D="sha256:$(printf 'a%.0s' $(seq 64))"; F="sha256:$(printf 'b%.0s' $(seq 64))"
+    O=$(mktemp -d)
+    scripts/release-bundle.sh v0.0.0 ghcr.io/acme/pythia "$D" "$F" "$O" "$REF"
+    tar -xzf "$O/pythia-deploy-v0.0.0.tar.gz" -C "$O"
+    grep -v '^FRONTEND_DIGEST=' "$O/pythia-deploy-v0.0.0/release.env" > "$O/e" && mv "$O/e" "$O/pythia-deploy-v0.0.0/release.env"
+    ! FRONTEND_DIGEST="$F" "$O/pythia-deploy-v0.0.0/scripts/deploy.sh" staging
+    rm -rf "$O"
+  - |
+    # Image tags are the version without `v`; the source label is set; the
+    # Jib digest is cross-checked.
+    W=.github/workflows/ci.yaml
+    grep -q 'VER="${V#v}"' $W
+    grep -q 'org.opencontainers.image.source' $W
+    grep -q 'frontendImageSourceUrl' $W src/frontend/build.gradle.kts src/frontend/CLAUDE.md
+    grep -q 'jib-image.digest' $W
+  - |
     shellcheck scripts/deploy.sh scripts/release-bundle.sh
   - |
     grep -q "^## What a release publishes" docs/deployment.md && grep -q "release.env" docs/deployment.md && grep -q -- "--preserve-digests" docs/deployment.md
   - |
     ! grep -qi "pull mirror" docs/deployment.md
+    ! grep -q "Mirrors must sync" docs/deployment.md
   - |
     grep -q "<internal-group>/<deploy-project>" docs/deployment.md
   - |
@@ -376,8 +493,13 @@ validation:
 outputs:
   - modified: .github/workflows/ci.yaml
   - created: scripts/release-bundle.sh
+  - created: scripts/verify-auth-modules.sh   # the task-194 check, shared by `build` and `publish`
   - modified: scripts/deploy.sh
   - modified: k8s/overlays/staging/kustomization.yaml
   - modified: k8s/overlays/production/kustomization.yaml
+  - modified: k8s/base/backend/deployment.yaml
+  - modified: k8s/base/frontend/deployment.yaml
+  - modified: src/frontend/build.gradle.kts
+  - modified: src/frontend/CLAUDE.md
   - modified: docs/deployment.md
   - modified: CLAUDE.md

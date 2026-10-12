@@ -71,6 +71,9 @@ Targets are Gradle properties without dots, so each can also come from `ORG_GRAD
 | `frontendImageRegistry` | — | host plus optional path prefix; **required** when pushing |
 | `frontendImageTag` | `project.version` | the tag |
 | `frontendImageUsername` / `frontendImagePassword` | — | push credentials; otherwise `~/.docker/config.json` and the well-known credential helpers |
+| `frontendImageSourceUrl` | — | when set, adds the OCI `org.opencontainers.image.source` label. Only the release `publish` job sets it (task-199), so GHCR links the package to the repository; unset, the image is unchanged |
+
+Every build also writes the image's digest to the ROOT `build/frontend-image/jib-image.digest` — for a push, the multi-arch index's digest, which `publish` cross-checks against GHCR. Not under `src/frontend/build/`: that directory IS the SPA the image is made from, so a file there would ship in the next image.
 
 The reference is `[<registry>/]pythia/pythia-frontend:<tag>`. The k8s base, the overlays' `images:` rewrite and `minikube-deploy.sh` depend on that name. The task is never up to date and not cacheable, because the image is a side effect. Plain HTTP is allowed **only** for a `localhost`/`127.0.0.1` registry (a throwaway `registry:2` in a test). jib-core has no such exception of its own, and a real registry must stay HTTPS.
 

@@ -11,11 +11,18 @@
 # minikube by exporting the same variables, which is how the script gets tested
 # without the corporate network.
 #
-# Every environment-specific coordinate — registry host, image tag, ingress
-# host, OIDC endpoints — arrives through the environment, and there are
-# deliberately NO defaults. A default naming a host or registry would put an
-# internal coordinate into a public repository, and a default image tag would
-# quietly deploy the wrong build.
+# It normally runs from an unpacked RELEASE BUNDLE (task-199,
+# docs/deployment.md "What a release publishes"): `pythia-deploy-<tag>/` holds
+# this script, the manifests of exactly that release, and `release.env`, which
+# pins both images by the digest of their published multi-arch index. Run from
+# a git checkout instead (testing against a local minikube), there is no
+# release.env and the caller supplies BACKEND_DIGEST and FRONTEND_DIGEST.
+#
+# Every environment-specific coordinate — registry host, ingress host, OIDC
+# endpoints — arrives through the environment, and there are deliberately NO
+# defaults. A default naming a host or registry would put an internal
+# coordinate into a public repository, and a default image would quietly
+# deploy the wrong build.
 
 # Refuse to be sourced. `set -euo pipefail` below would otherwise leak into the
 # caller's interactive shell, where the next failing command or unset variable
@@ -52,12 +59,83 @@ case "$ENVIRONMENT" in
         echo "" >&2
         echo "Required environment variables are reported by the script itself:" >&2
         echo "they are whichever \${...} placeholders the chosen overlay contains" >&2
-        echo "(REGISTRY, IMAGE_TAG, INGRESS_HOST, and the OIDC endpoints)." >&2
+        echo "(REGISTRY, BACKEND_DIGEST, FRONTEND_DIGEST, INGRESS_HOST, and the" >&2
+        echo "OIDC endpoints). From a release bundle, release.env supplies both digests." >&2
         exit 1
         ;;
 esac
 
 OVERLAY="$PROJECT_ROOT/k8s/overlays/$ENVIRONMENT"
+
+DIGEST_RE='^sha256:[0-9a-f]{64}$'
+
+# The release's identity (task-199). Handled BEFORE anything else — before the
+# tool check and long before any cluster contact — so a broken or conflicting
+# bundle fails without side effects.
+#
+# The file is downloaded data, so it is PARSED, never sourced: `source` would
+# execute whatever a tampered bundle put there. Every line must be KEY=value
+# with one of the six known keys, each exactly once, and all six must be
+# present — a missing FRONTEND_DIGEST would otherwise fall through to whatever
+# the caller's environment holds.
+RELEASE_ENV="$PROJECT_ROOT/release.env"
+PYTHIA_VERSION="${PYTHIA_VERSION:-}"
+if [ -f "$RELEASE_ENV" ]; then
+    # Plain REL_<KEY> variables rather than an associative array: macOS still
+    # ships bash 3.2 as /bin/bash, and a developer runs this script there.
+    seen=" "
+    lineno=0
+    while IFS= read -r line || [ -n "$line" ]; do
+        lineno=$((lineno + 1))
+        if ! [[ "$line" =~ ^[A-Z_]+=[^[:space:]]*$ ]]; then
+            echo "Error: release.env line $lineno is not KEY=value: $line" >&2
+            exit 1
+        fi
+        key="${line%%=*}"
+        case "$key" in
+            PYTHIA_VERSION|SOURCE_COMMIT|BACKEND_IMAGE|BACKEND_DIGEST|FRONTEND_IMAGE|FRONTEND_DIGEST) ;;
+            *) echo "Error: release.env line $lineno has an unknown key: $key" >&2; exit 1 ;;
+        esac
+        case "$seen" in
+            *" $key "*) echo "Error: release.env sets $key twice." >&2; exit 1 ;;
+        esac
+        seen="$seen$key "
+        printf -v "REL_$key" '%s' "${line#*=}"
+    done < "$RELEASE_ENV"
+    for key in PYTHIA_VERSION SOURCE_COMMIT BACKEND_IMAGE BACKEND_DIGEST FRONTEND_IMAGE FRONTEND_DIGEST; do
+        ref="REL_$key"
+        if [ -z "${!ref:-}" ]; then
+            echo "Error: release.env does not set $key." >&2
+            exit 1
+        fi
+    done
+    for key in BACKEND_DIGEST FRONTEND_DIGEST; do
+        ref="REL_$key"
+        if ! [[ "${!ref}" =~ $DIGEST_RE ]]; then
+            echo "Error: release.env's $key='${!ref}' is not a digest of the form sha256:<64 hex>." >&2
+            exit 1
+        fi
+    done
+    if ! [[ "$REL_PYTHIA_VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+        echo "Error: release.env's PYTHIA_VERSION='$REL_PYTHIA_VERSION' is not v<MAJOR>.<MINOR>.<PATCH>." >&2
+        exit 1
+    fi
+    # The bundle's pin wins by REFUSAL: a caller who also set a digest to a
+    # different value is told so, rather than either side silently winning.
+    for key in BACKEND_DIGEST FRONTEND_DIGEST; do
+        ref="REL_$key"
+        if [ -n "${!key:-}" ] && [ "${!key}" != "${!ref}" ]; then
+            echo "Error: $key=${!key} is set in the environment, but this bundle's release.env" >&2
+            echo "pins ${!ref}. Unset it to deploy the bundle's release." >&2
+            exit 1
+        fi
+    done
+    # envsubst reads the environment, so the pins must be exported.
+    export BACKEND_DIGEST="$REL_BACKEND_DIGEST"
+    export FRONTEND_DIGEST="$REL_FRONTEND_DIGEST"
+    PYTHIA_VERSION="$REL_PYTHIA_VERSION"
+    echo "Deploying release $PYTHIA_VERSION (commit $REL_SOURCE_COMMIT)."
+fi
 
 for tool in kubectl envsubst; do
     if ! command -v "$tool" >/dev/null 2>&1; then
@@ -101,6 +179,19 @@ if [ -n "$MISSING" ]; then
     exit 1
 fi
 
+# A malformed digest would render fine and only fail at image pull, minutes
+# into a rollout; refuse it here instead.
+for name in $REQUIRED; do
+    case "$name" in
+        *_DIGEST)
+            if ! [[ "${!name}" =~ $DIGEST_RE ]]; then
+                echo "Error: $name='${!name}' is not a digest of the form sha256:<64 hex>." >&2
+                exit 1
+            fi
+            ;;
+    esac
+done
+
 echo "Applying to namespace $NAMESPACE..."
 envsubst "$ALLOW_LIST" < "$RENDERED" | kubectl apply -f -
 
@@ -113,4 +204,6 @@ kubectl -n "$NAMESPACE" rollout status deployment/backend --timeout=300s
 echo "Waiting for the frontend rollout..."
 kubectl -n "$NAMESPACE" rollout status deployment/frontend --timeout=300s
 
-echo "Deployed $ENVIRONMENT (image tag ${IMAGE_TAG:-unknown}) to $NAMESPACE."
+echo "Deployed $ENVIRONMENT, release ${PYTHIA_VERSION:-unversioned}, to $NAMESPACE:"
+echo "  backend  ${BACKEND_DIGEST:-?}"
+echo "  frontend ${FRONTEND_DIGEST:-?}"

@@ -10,17 +10,20 @@ namespace: estimation-staging
 resources:
   - ../../base
 
-# Deploy-time coordinates. `${REGISTRY}` and `${IMAGE_TAG}` survive
-# `kubectl kustomize` as literal text and are resolved by envsubst in
-# scripts/deploy.sh — kustomize itself cannot read the environment, and the
-# registry host must not be committed to a public repository.
+# Deploy-time coordinates. `${REGISTRY}`, `${BACKEND_DIGEST}` and
+# `${FRONTEND_DIGEST}` survive `kubectl kustomize` as literal text and are
+# resolved by envsubst in scripts/deploy.sh — kustomize itself cannot read the
+# environment, and the registry host must not be committed to a public
+# repository. The images are pinned by the digest of a released multi-arch
+# index (task-199), which the release bundle's release.env provides: a digest,
+# unlike a tag, cannot be moved after the fact.
 images:
   - name: pythia/pythia-backend
     newName: ${REGISTRY}/pythia/pythia-backend
-    newTag: ${IMAGE_TAG}
+    digest: ${BACKEND_DIGEST}
   - name: pythia/pythia-frontend
     newName: ${REGISTRY}/pythia/pythia-frontend
-    newTag: ${IMAGE_TAG}
+    digest: ${FRONTEND_DIGEST}
 
 replicas:
   - name: backend

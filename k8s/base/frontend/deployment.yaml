@@ -17,8 +17,9 @@ spec:
       containers:
         - name: frontend
           # No tag here, deliberately (task-193): the version changes with every
-          # release, so every overlay sets newTag (staging/production: ${IMAGE_TAG},
-          # minikube: ${MINIKUBE_IMAGE_TAG}).
+          # release, so every overlay pins it — staging/production by the digest
+          # of a released image (${FRONTEND_DIGEST}, task-199), minikube by
+          # newTag ${MINIKUBE_IMAGE_TAG}.
           image: pythia/pythia-frontend
           imagePullPolicy: IfNotPresent
           ports:
