@@ -1,8 +1,11 @@
 package io.pythia.testdata
 
+import io.pythia.auth.CurrentUser
+import io.pythia.auth.dev.DEV_USERS
 import io.pythia.domain.AdditionalCostType
 import io.pythia.domain.Estimation
 import io.pythia.domain.EstimationBucket
+import io.pythia.domain.User
 import io.pythia.domain.draft.DraftAdditionalCost
 import io.pythia.domain.draft.DraftBucketedItemNode
 import io.pythia.domain.draft.DraftEffortDriver
@@ -10,12 +13,13 @@ import io.pythia.domain.draft.DraftEstimationNode
 import io.pythia.domain.draft.DraftEstimationVersion
 import io.pythia.domain.draft.DraftFixedItemNode
 import io.pythia.domain.draft.DraftGroupNode
-import io.pythia.domain.draft.DraftScheduleDependency
 import io.pythia.domain.draft.DraftProjectPhase
+import io.pythia.domain.draft.DraftScheduleDependency
 import io.pythia.domain.draft.DraftTimeRelativeItemNode
 import io.pythia.method.EstimationMethod
 import io.pythia.repository.DraftEstimationVersionRepository
 import io.pythia.repository.ProjectRepository
+import io.pythia.service.CurrentUserService
 import io.pythia.service.EstimationService
 import io.pythia.service.EstimationVersionService
 import io.pythia.service.ProjectService
@@ -69,8 +73,28 @@ class TestDataSeeder(
     private val estimationVersionService: EstimationVersionService,
     private val draftRepository: DraftEstimationVersionRepository,
     private val projectRepository: ProjectRepository,
-    private val entityManager: EntityManager
+    private val entityManager: EntityManager,
+    private val currentUserService: CurrentUserService
 ) {
+
+    // Ownership is spread over several people, so each dev user's default
+    // "my projects" view differs (task-200). dev-viewer owns nothing — a viewer
+    // cannot create projects — which makes it the user who sees the empty state.
+    private fun devUser(subjectId: String): User {
+        val dev = DEV_USERS.getValue(subjectId)
+        return currentUserService.ensureUser(
+            CurrentUser(
+                subjectId = dev.subjectId,
+                email = dev.email,
+                displayName = dev.displayName,
+                roles = dev.roles,
+                providerName = "dev"
+            )
+        )
+    }
+
+    private fun seedColleagues(): Map<String, User> =
+        SeededUsers.ALL.associate { it.subjectId to currentUserService.ensureUser(it) }
 
     // `event` is the CDI observed event — required by @Observes for the
     // observer signature even though the body does not read it.
@@ -85,8 +109,12 @@ class TestDataSeeder(
         //
         // Deliberately NOT tacked onto seedDataPlatform's own log: that
         // estimation is the one left without a graph.
-        val edges = seedWebshop() + seedMobileApp() + seedDataPlatform()
-        Log.info("Seeded dev fixture: schedule edges=$edges")
+        val colleagues = seedColleagues()
+        val edges = seedWebshop(colleagues.getValue(SeededUsers.ANNA_BECKER.subjectId)) +
+            seedMobileApp(devUser("dev-estimator")) +
+            seedDataPlatform(devUser("dev-admin"))
+        seedIntranetRelaunch()
+        Log.info("Seeded dev fixture: schedule edges=$edges, colleagues=${colleagues.size}")
     }
 
     private fun fixedLeaf(
@@ -198,11 +226,12 @@ class TestDataSeeder(
         version.roots.addAll(leaves)
     }
 
-    private fun seedWebshop(): Int {
+    private fun seedWebshop(owner: User): Int {
         val project = projectService.create(
             name = SeededProjects.WEBSHOP,
             description = "Komplette Neuentwicklung der E-Commerce-Plattform",
-            client = "RetailCorp GmbH"
+            client = "RetailCorp GmbH",
+            owner = owner
         )
         val estimation = estimationService.create(
             offer = "WS-2026-001",
@@ -470,11 +499,12 @@ class TestDataSeeder(
         return draft1Edges + draft2Edges
     }
 
-    private fun seedMobileApp(): Int {
+    private fun seedMobileApp(owner: User): Int {
         val project = projectService.create(
             name = SeededProjects.MOBILE_APP,
             description = "Native iOS/Android-App für Kunden-Self-Service",
-            client = "FinanceAG"
+            client = "FinanceAG",
+            owner = owner
         )
         val estimation = estimationService.create(
             offer = "MA-2026-001",
@@ -618,11 +648,12 @@ class TestDataSeeder(
         ))
     }
 
-    private fun seedDataPlatform(): Int {
+    private fun seedDataPlatform(owner: User): Int {
         val project = projectService.create(
             name = SeededProjects.DATA_PLATFORM,
             description = "Migration der Datenplattform auf ein Lakehouse",
-            client = "DataWorks AG"
+            client = "DataWorks AG",
+            owner = owner
         )
         val estimation = estimationService.create(
             offer = "DP-2026-001",
@@ -728,5 +759,16 @@ class TestDataSeeder(
 
         // No schedule graph here, by design (see the class KDoc).
         return 0
+    }
+
+    // A finished, archived project from before ownership existed: no owner, no
+    // estimations. Shows "—" as owner; only an admin can assign one (task-200).
+    private fun seedIntranetRelaunch() {
+        val project = projectService.create(
+            name = SeededProjects.INTRANET_RELAUNCH,
+            description = "Neuaufbau des Mitarbeiterportals auf Basis des neuen CMS",
+            client = "Stadtwerke Lindenau"
+        )
+        projectService.archive(project.id!!)
     }
 }

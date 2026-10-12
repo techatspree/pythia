@@ -7,14 +7,24 @@
 	import { formatDate, DEFAULT_LOCALE } from '$lib/format';
 	import RequiredRole from '$lib/auth/RequiredRole.svelte';
 	import CreateEstimationDialog from '$lib/components/CreateEstimationDialog.svelte';
+	import ChangeOwnerDialog from '$lib/components/ChangeOwnerDialog.svelte';
 	import { formatMethodLabel } from '$lib/methods/labels';
 	import type { components } from '$lib/api/schema';
+	import type { ApiProjectDetail } from '$lib/api/types';
 
 	type EstimationSummaryDto = components['schemas']['EstimationSummaryDto'];
 
 	let { project, loading, error }: { project: any | null; loading: boolean; error: string } = $props();
 
 	let dialogOpen = $state(false);
+	let ownerDialogOpen = $state(false);
+
+	// The response carries the backend's fresh `canChangeOwner`: after handing a
+	// project away, the caller usually loses the button.
+	function handleOwnerChanged(updated: ApiProjectDetail) {
+		project.owner = updated.owner;
+		project.canChangeOwner = updated.canChangeOwner;
+	}
 
 	function handleCreated(created: EstimationSummaryDto) {
 		if (project && Array.isArray(project.estimations)) {
@@ -44,6 +54,23 @@
 		{#if project.client}
 			<p class="text-sm text-ink-muted">{$_('project.detailClient', { values: { client: project.client } })}</p>
 		{/if}
+		<div class="flex items-center gap-3 mt-1">
+			<p class="text-sm text-ink-muted" data-testid="project-detail.owner">
+				{project.owner?.displayName
+					? $_('project.detailOwner', { values: { owner: project.owner.displayName } })
+					: $_('project.detailOwnerNone')}
+			</p>
+			{#if project.canChangeOwner}
+				<Button
+					variant="secondary"
+					size="xs"
+					data-testid="project-detail.change-owner"
+					onclick={() => (ownerDialogOpen = true)}
+				>
+					{$_('project.detailChangeOwner')}
+				</Button>
+			{/if}
+		</div>
 	</div>
 
 	<div class="flex items-center justify-between mb-3">
@@ -102,4 +129,10 @@
 	{/if}
 
 	<CreateEstimationDialog bind:open={dialogOpen} projectId={project.id} oncreated={handleCreated} />
+	<ChangeOwnerDialog
+		bind:open={ownerDialogOpen}
+		projectId={project.id}
+		currentOwnerId={project.owner?.id ?? null}
+		onchanged={handleOwnerChanged}
+	/>
 {/if}

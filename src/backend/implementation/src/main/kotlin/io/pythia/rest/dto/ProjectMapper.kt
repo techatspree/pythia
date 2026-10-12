@@ -2,24 +2,31 @@ package io.pythia.rest.dto
 
 import io.pythia.domain.Estimation
 import io.pythia.domain.Project
+import io.pythia.domain.User
 import io.pythia.method.EstimationMethodRegistry
 
-fun Project.toSummaryDto() = ProjectSummaryDto(
-    id = id,
-    name = name,
-    description = description,
-    client = client,
-    status = status,
-    createdAt = createdAt
-)
+fun User.toRefDto() = UserRefDto(id = id, displayName = displayName)
 
-fun Project.toDetailDto() = ProjectDetailDto(
+fun Project.toSummaryDto(canChangeOwner: Boolean) = ProjectSummaryDto(
     id = id,
     name = name,
     description = description,
     client = client,
     status = status,
     createdAt = createdAt,
+    owner = owner?.toRefDto(),
+    canChangeOwner = canChangeOwner
+)
+
+fun Project.toDetailDto(canChangeOwner: Boolean) = ProjectDetailDto(
+    id = id,
+    name = name,
+    description = description,
+    client = client,
+    status = status,
+    createdAt = createdAt,
+    owner = owner?.toRefDto(),
+    canChangeOwner = canChangeOwner,
     estimations = estimations.map { it.toSummaryDto() }
 )
 

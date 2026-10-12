@@ -90,7 +90,19 @@ Check whether the task introduces **user-visible GUI text** and, if so, whether 
   ```
 - Backend-only tasks, pure refactors, and tasks that touch no user-visible text are exempt — rate PASS and say so in one line rather than inventing a finding.
 
-### 8. Report
+### 8. Wireframe completeness
+
+Check whether the task adds or changes a **GUI function** — a screen, a dialog, a panel, a control, or a new state of an existing view (empty, error, filtered, role-dependent) — and, if so, whether its `description` carries wireframes in the form `/add-task` prescribes (reference: `planning/tasks/task-200.yaml`).
+
+- A GUI task must have a `## Wireframes` section in `description`. If it has none, that is a FAIL — `/implement-task` would have to invent the layout.
+- There must be one `### <screen>: <state>` wireframe for **every** affected screen and every state the steps introduce. Compare against the steps: a dialog, an empty state, a disabled/hidden variant or a role-dependent view that the steps build but no wireframe shows is a FAIL.
+- Each wireframe is an ASCII box showing the German UI text as it will appear and realistic seeded test data, not `Lorem`/`XXX` placeholders. Placeholder content is a WARN.
+- Each wireframe is annotated with bullets naming the `data-testid` of every new element, the i18n key of every new string, who sees what (role/user), when elements are hidden or disabled, and which `$lib/ui` primitives or existing dialogs it reuses. Missing annotations are a WARN.
+- **Consistency:** the testids and i18n keys in the wireframe annotations must match the steps, the i18n table and the `validation` greps exactly. Flag every mismatch (a testid in a step that no wireframe shows, a key in a wireframe missing from the catalog step) as FAIL.
+- Frontend steps should refer to the wireframes ("as wireframed") rather than re-describe the layout differently. Flag contradictions between a step and its wireframe as FAIL.
+- Backend-only, domain-only, infrastructure and documentation tasks with no GUI change are exempt — rate PASS and say so in one line.
+
+### 9. Report
 
 Produce this exact structure:
 
@@ -121,6 +133,10 @@ Produce this exact structure:
 [PASS | WARN | FAIL]
 <one line per finding, or "No issues found." — or "No user-visible text — exempt.">
 
+### Wireframe completeness
+[PASS | WARN | FAIL]
+<one line per finding, or "No issues found." — or "No GUI change — exempt.">
+
 ### Improvement suggestions
 <bullet list of optional improvements, or "None.">
 
@@ -133,11 +149,12 @@ Rating rules:
 - **WARN** — issues that should be addressed but won't block execution
 - **FAIL** — issues that must be fixed before running `/implement-task $ARGUMENTS`
 
-### 9. Apply fixes (if requested)
+### 10. Apply fixes (if requested)
 
 If the user asks you to apply fixes after seeing the report:
 
 - Edit `planning/tasks/$ARGUMENTS.yaml` to address all FAIL items and any WARN items the user confirms.
+- For a missing or incomplete wireframe section, draw the missing wireframes into `description` from the steps and the current components (read the affected `.svelte` files and the i18n catalogs so the text and testids are real), then align steps, i18n table and validation with them.
 - If `status.json` is missing the entry for `$ARGUMENTS`, add it:
   ```json
   "$ARGUMENTS": { "status": "pending", "started_at": null, "completed_at": null, "notes": "" }

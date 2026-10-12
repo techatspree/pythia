@@ -56,6 +56,8 @@ description: |
     Kotlin/JS constraints relevant to this specific change.
   - If it touches multiple modules, describe the interface
     between them clearly.
+  - If it adds or changes any GUI function, a `## Wireframes`
+    section (see the style rule "Wireframes" below).
   Do NOT describe how to implement — that goes in steps.>
 
 steps:
@@ -101,6 +103,7 @@ outputs:
 - If the task adds a Flyway migration, specify the migration file name (`V<N>__<description>.sql`) and the key DDL changes.
 - If the task touches the KMP domain, flag the super-property pitfall: `super.<computed prop>` causes infinite recursion on Kotlin/JS — inline the parent formula instead.
 - **Logging.** If the task adds a backend service or REST endpoint, a domain operation, or a significant frontend flow, it MUST include log statements at appropriate levels following the CLAUDE.md "Logging" conventions: backend via `io.quarkus.logging.Log` (INFO on the operation with key ids, DEBUG for finer detail, ERROR on failure paths); domain via the `KotlinLogging.logger {}` facade with the lambda form; frontend via `log` from `$lib/log.ts` (never bare `console.*`, and errors still surface via `ErrorBanner`). Add a validation check that proves it — e.g. `grep -q "Log\\." <service-or-resource>.kt`, `grep -q "logger\\." <domain-file>.kt`, or `grep -q "log\\." <frontend-file>` plus `! grep -q "console\\." <frontend-file>`.
+- **Wireframes.** If the task adds or changes any GUI function — a screen, a dialog, a panel, a control, a new state of an existing view (empty, error, filtered, role-dependent) — the `description` MUST contain a `## Wireframes` section with one ASCII wireframe per affected screen and state, before any step is written (see `planning/tasks/task-200.yaml` for the reference form). Each wireframe is a `### <screen>: <state>` heading, an indented box drawn with `+`, `-`, `|`, `[ Button ]`, `[x]`/`[ ]` checkboxes and `[ … v ]` selects, showing the German UI text as it will appear and realistic seeded test data (not placeholders). Below each box, bullets annotate it: the `data-testid` of every new element, the i18n key behind every new string, which role/user sees what, when an element is hidden or disabled, and how it relates to existing components (`$lib/ui` primitives, an existing dialog it mirrors). Show only the part of an existing page that changes, with `…` for the rest. Frontend steps then reference the wireframes ("as wireframed") instead of re-describing the layout, and the i18n table and testids in the steps must match the wireframes exactly. A task without GUI changes has no wireframe section.
 - **e2e tests.** If the task adds or changes a screen, dialog, or any control a Playwright spec will drive, it MUST go through the **Page Object Model**: a class in `src/frontend/e2e/pages/` (exported from the barrel), with the component carrying a new `data-testid="<screen>.<element>"` — English, dot-separated lower-kebab. Never write a spec that matches on a translated label: `getByRole(…, { name: '<text>' })`, `getByText('<text>')`, `getByLabel`/`getByPlaceholder`/`getByTitle`/`getByAltText('<text>')`, `locator('text=…')`, `{ hasText: '<text>' }`, a literal value in a `[title|placeholder|aria-label|alt="<text>"]` attribute selector, and `toHaveAttribute('aria-label'|'title'|'placeholder'|'alt', '<text>' or /<text>/)` are ESLint-banned under `e2e/**` and fail `:frontend:check` (via the blocking `lintE2e` gate). Assert a translated value through `catalogText()`/`catalogPattern()` from `e2e/helpers.ts`. Role-only `getByRole('dialog')` and `getByText(<variable>)` (test data) stay legal. Do NOT rename any existing flat-kebab testid. Add a validation check that proves it — e.g. `grep -q 'data-testid="<screen>.<element>"' <component>` plus `grep -q "from './pages'" src/frontend/e2e/<spec>`. See `src/frontend/CLAUDE.md`.
 - Outputs must list every file the steps create, modify, or delete. Include test files.
 
@@ -121,5 +124,6 @@ One short paragraph: the new task ID and title, which phase and dependencies it 
 - Never reuse an existing task ID, even for a deleted or skipped task.
 - Never edit existing task YAML files.
 - Never change the `status`, `started_at`, or `completed_at` of any existing entry in `status.json`.
+- Never write a task that adds or changes a GUI function without wireframes for every affected screen and state.
 - If $ARGUMENTS is too vague to write concrete steps and validation, ask one focused clarifying question before writing anything.
 - The task must be implementable directly by `/implement-task <new-id>` without any further conversation.

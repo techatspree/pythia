@@ -1,4 +1,5 @@
 export { BucketEditor } from './BucketEditor';
+export { ChangeOwnerDialog } from './ChangeOwnerDialog';
 export { CreateEstimationDialog } from './CreateEstimationDialog';
 export { CreateProjectDialog } from './CreateProjectDialog';
 export { DevLoginDialog } from './DevLoginDialog';

@@ -262,7 +262,22 @@
     "pageSearch": "Search projects...",
     "pageLoadFailed": "Failed to load projects",
     "pageBack": "← Back to projects",
-    "pageNotFound": "Project not found"
+    "pageNotFound": "Project not found",
+    "listColOwner": "Owner",
+    "listOnlyMine": "Only my projects",
+    "listEmptyMine": "You don't own any projects yet.",
+    "listShowAll": "Show all projects",
+    "detailOwner": "Owner: {owner}",
+    "detailOwnerNone": "No owner",
+    "detailChangeOwner": "Change owner",
+    "changeOwnerTitle": "Change owner",
+    "changeOwnerLabel": "New owner",
+    "changeOwnerHint": "Only people who have used Pythia before can be selected.",
+    "changeOwnerPlaceholder": "Select a person…",
+    "changeOwnerSave": "Apply",
+    "changeOwnerCancel": "Cancel",
+    "changeOwnerFailed": "The owner could not be changed.",
+    "usersLoadFailed": "The list of people could not be loaded."
   },
   "estimation": {
     "detailLatest": "Latest: v{n}",

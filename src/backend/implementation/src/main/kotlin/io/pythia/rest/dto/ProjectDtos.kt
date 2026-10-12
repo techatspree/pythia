@@ -11,7 +11,12 @@ data class ProjectSummaryDto(
     val description: String?,
     val client: String?,
     val status: ProjectStatus,
-    val createdAt: Instant?
+    val createdAt: Instant?,
+    // The project's owner (task-200); null for a project from before ownership existed.
+    val owner: UserRefDto?,
+    // Whether the CURRENT user may transfer ownership (owner or ADMIN). The UI only
+    // shows or hides its control by this; PUT /owner enforces the rule itself.
+    val canChangeOwner: Boolean
 )
 
 data class ProjectDetailDto(
@@ -21,7 +26,20 @@ data class ProjectDetailDto(
     val client: String?,
     val status: ProjectStatus,
     val createdAt: Instant?,
+    val owner: UserRefDto?,
+    val canChangeOwner: Boolean,
     val estimations: List<EstimationSummaryDto>
+)
+
+/** A user as referenced from other resources: id plus display name (task-200). */
+data class UserRefDto(
+    val id: UUID?,
+    val displayName: String?
+)
+
+/** Body of PUT /api/projects/{id}/owner (task-200). */
+data class ProjectOwnerUpdateDto(
+    val ownerId: UUID
 )
 
 data class EstimationSummaryDto(

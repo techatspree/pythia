@@ -1213,10 +1213,11 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** List all projects, optionally filtered by status */
+        /** List projects, optionally filtered by status and/or to the current user's own (owner=me) */
         get: {
             parameters: {
                 query: {
+                    owner: string | null;
                     status: components["schemas"]["ProjectStatus"] | null;
                 };
                 header?: never;
@@ -1233,6 +1234,13 @@ export interface paths {
                     content: {
                         "application/json": components["schemas"]["ProjectSummaryDto"][];
                     };
+                };
+                /** @description Unsupported owner filter (only 'me' is supported) */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
                 };
                 /** @description Not Authorized */
                 401: {
@@ -1539,6 +1547,76 @@ export interface paths {
                 };
             };
         };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/projects/{id}/owner": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Transfer the project to another owner (current owner or ADMIN only) */
+        put: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: components["schemas"]["UUID"];
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["ProjectOwnerUpdateDto"];
+                };
+            };
+            responses: {
+                /** @description The project with its new owner */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ProjectDetailDto"];
+                    };
+                };
+                /** @description Unknown user */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Not Authorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Neither the project's owner nor an administrator */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Project not found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -2804,6 +2882,56 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/users": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List all provisioned users, sorted by display name */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description The users */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["UserRefDto"][];
+                    };
+                };
+                /** @description Not Authorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Not Allowed */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -3166,7 +3294,12 @@ export interface components {
             client: string | null;
             status: components["schemas"]["ProjectStatus"];
             createdAt: components["schemas"]["Instant"] | null;
+            owner: components["schemas"]["UserRefDto"] | null;
+            canChangeOwner: boolean;
             estimations: components["schemas"]["EstimationSummaryDto"][];
+        };
+        ProjectOwnerUpdateDto: {
+            ownerId: components["schemas"]["UUID"];
         };
         ProjectPhaseDto: {
             id?: components["schemas"]["UUID"] | null;
@@ -3185,6 +3318,8 @@ export interface components {
             client: string | null;
             status: components["schemas"]["ProjectStatus"];
             createdAt: components["schemas"]["Instant"] | null;
+            owner: components["schemas"]["UserRefDto"] | null;
+            canChangeOwner: boolean;
         };
         ProjectUpdateDto: {
             name?: string | null;
@@ -3249,6 +3384,10 @@ export interface components {
         };
         /** Format: uuid */
         UUID: string;
+        UserRefDto: {
+            id: components["schemas"]["UUID"] | null;
+            displayName: string | null;
+        };
         VersionComparisonDto: {
             /** Format: int32 */
             versionA: number;

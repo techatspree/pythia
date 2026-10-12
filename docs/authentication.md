@@ -19,6 +19,16 @@ The REST API is **role-protected** — endpoints are not open. Using the
   **`ESTIMATOR`** (`@RolesAllowed("ESTIMATOR")` on the method).
 * The admin canary `GET /api/admin/ping` requires **`ADMIN`**.
 
+One action is gated by **ownership** on top of a role (task-200): changing a
+project's owner, `PUT /api/projects/{id}/owner`. The role gate is
+`@RolesAllowed("ESTIMATOR", "ADMIN")`; behind it the caller must be the
+project's current **owner** or hold **`ADMIN`**, otherwise **403** with the
+same structured `{message, status}` body. A `VIEWER` who happens to own a
+project therefore cannot hand it on — only an admin can move it. The creator
+of a project becomes its owner. The backend computes this rule once
+(`ProjectService.mayChangeOwner`) and reports it per project as
+`canChangeOwner`, so the UI never re-derives it.
+
 An **anonymous** request → **401**; an authenticated request lacking the
 required role (e.g. a `VIEWER` attempting a write) → **403**. `MeResource`
 (`/api/auth/me`) keeps its own 401-on-anonymous check so it stays reachable

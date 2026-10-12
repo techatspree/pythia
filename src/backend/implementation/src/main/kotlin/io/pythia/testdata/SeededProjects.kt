@@ -18,5 +18,9 @@ object SeededProjects {
     const val MOBILE_APP = "Mobile App MVP"
     const val DATA_PLATFORM = "Data Platform Migration"
 
-    val ALL = listOf(WEBSHOP, MOBILE_APP, DATA_PLATFORM)
+    // Archived and deliberately unowned: data from before projects had owners
+    // (task-200). It shows the "—" owner and the admin-only assignment.
+    const val INTRANET_RELAUNCH = "Intranet-Relaunch 2024"
+
+    val ALL = listOf(WEBSHOP, MOBILE_APP, DATA_PLATFORM, INTRANET_RELAUNCH)
 }

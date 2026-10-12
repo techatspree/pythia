@@ -39,6 +39,10 @@ class CurrentUserService(private val userRepository: UserRepository) {
         return user
     }
 
+    // Read-only counterpart of ensureUser (task-200): the principal's row, or
+    // null when it was never provisioned. For reads, which must not provision.
+    fun findUser(principal: CurrentUser): User? = userRepository.findByEntraSubjectId(principal.subjectId)
+
     // Persist an explicit language choice for the current user (find-or-create,
     // then set). Explicit choice always wins over the seeded default.
     @Transactional

@@ -1038,7 +1038,7 @@
       },
       "ProjectDetailDto" : {
         "type" : "object",
-        "required" : [ "id", "name", "description", "client", "status", "createdAt", "estimations" ],
+        "required" : [ "id", "name", "description", "client", "status", "createdAt", "owner", "canChangeOwner", "estimations" ],
         "properties" : {
           "id" : {
             "anyOf" : [ {
@@ -1066,11 +1066,30 @@
               "type" : "null"
             } ]
           },
+          "owner" : {
+            "anyOf" : [ {
+              "$ref" : "#/components/schemas/UserRefDto"
+            }, {
+              "type" : "null"
+            } ]
+          },
+          "canChangeOwner" : {
+            "type" : "boolean"
+          },
           "estimations" : {
             "type" : "array",
             "items" : {
               "$ref" : "#/components/schemas/EstimationSummaryDto"
             }
+          }
+        }
+      },
+      "ProjectOwnerUpdateDto" : {
+        "type" : "object",
+        "required" : [ "ownerId" ],
+        "properties" : {
+          "ownerId" : {
+            "$ref" : "#/components/schemas/UUID"
           }
         }
       },
@@ -1106,7 +1125,7 @@
       },
       "ProjectSummaryDto" : {
         "type" : "object",
-        "required" : [ "id", "name", "description", "client", "status", "createdAt" ],
+        "required" : [ "id", "name", "description", "client", "status", "createdAt", "owner", "canChangeOwner" ],
         "properties" : {
           "id" : {
             "anyOf" : [ {
@@ -1133,6 +1152,16 @@
             }, {
               "type" : "null"
             } ]
+          },
+          "owner" : {
+            "anyOf" : [ {
+              "$ref" : "#/components/schemas/UserRefDto"
+            }, {
+              "type" : "null"
+            } ]
+          },
+          "canChangeOwner" : {
+            "type" : "boolean"
           }
         }
       },
@@ -1323,6 +1352,22 @@
         "format" : "uuid",
         "pattern" : "[a-fA-F0-9]{8}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{12}"
       },
+      "UserRefDto" : {
+        "type" : "object",
+        "required" : [ "id", "displayName" ],
+        "properties" : {
+          "id" : {
+            "anyOf" : [ {
+              "$ref" : "#/components/schemas/UUID"
+            }, {
+              "type" : "null"
+            } ]
+          },
+          "displayName" : {
+            "type" : [ "string", "null" ]
+          }
+        }
+      },
       "VersionComparisonDto" : {
         "type" : "object",
         "required" : [ "versionA", "versionB", "addedNodes", "removedNodes", "modifiedNodes", "parameterChanges" ],
@@ -1439,6 +1484,9 @@
   }, {
     "name" : "System",
     "description" : "Per-installation settings: name, standard effort drivers, custom CSS"
+  }, {
+    "name" : "Users",
+    "description" : "Provisioned users"
   } ],
   "paths" : {
     "/api/admin/ping" : {
@@ -2306,9 +2354,16 @@
     },
     "/api/projects" : {
       "get" : {
-        "summary" : "List all projects, optionally filtered by status",
+        "summary" : "List projects, optionally filtered by status and/or to the current user's own (owner=me)",
         "tags" : [ "Projects" ],
         "parameters" : [ {
+          "name" : "owner",
+          "in" : "query",
+          "schema" : {
+            "type" : [ "string", "null" ]
+          },
+          "required" : true
+        }, {
           "name" : "status",
           "in" : "query",
           "schema" : {
@@ -2333,6 +2388,9 @@
                 }
               }
             }
+          },
+          "400" : {
+            "description" : "Unsupported owner filter (only 'me' is supported)"
           },
           "401" : {
             "description" : "Not Authorized"
@@ -2557,6 +2615,57 @@
         },
         "security" : [ {
           "SecurityScheme" : [ "ESTIMATOR" ]
+        } ]
+      }
+    },
+    "/api/projects/{id}/owner" : {
+      "put" : {
+        "summary" : "Transfer the project to another owner (current owner or ADMIN only)",
+        "tags" : [ "Projects" ],
+        "parameters" : [ {
+          "name" : "id",
+          "in" : "path",
+          "required" : true,
+          "schema" : {
+            "$ref" : "#/components/schemas/UUID"
+          }
+        } ],
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/ProjectOwnerUpdateDto"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "200" : {
+            "description" : "The project with its new owner",
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ProjectDetailDto"
+                }
+              }
+            }
+          },
+          "400" : {
+            "description" : "Unknown user"
+          },
+          "403" : {
+            "description" : "Neither the project's owner nor an administrator"
+          },
+          "404" : {
+            "description" : "Project not found"
+          },
+          "401" : {
+            "description" : "Not Authorized"
+          }
+        },
+        "security" : [ {
+          "SecurityScheme" : [ "ESTIMATOR", "ADMIN" ]
         } ]
       }
     },
@@ -3394,6 +3503,36 @@
                   "type" : "array",
                   "items" : {
                     "$ref" : "#/components/schemas/EffortDriverDto"
+                  }
+                }
+              }
+            }
+          },
+          "401" : {
+            "description" : "Not Authorized"
+          },
+          "403" : {
+            "description" : "Not Allowed"
+          }
+        },
+        "security" : [ {
+          "SecurityScheme" : [ "VIEWER" ]
+        } ]
+      }
+    },
+    "/api/users" : {
+      "get" : {
+        "summary" : "List all provisioned users, sorted by display name",
+        "tags" : [ "Users" ],
+        "responses" : {
+          "200" : {
+            "description" : "The users",
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "type" : "array",
+                  "items" : {
+                    "$ref" : "#/components/schemas/UserRefDto"
                   }
                 }
               }

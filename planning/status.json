@@ -1089,8 +1089,8 @@
       "notes": "No way to upload an xlsx: add the import endpoint and the upload UI, reusing the Merlin import shape"
     },
     "task-184": {
-      "status": "pending",
-      "started_at": null,
+      "status": "in_progress",
+      "started_at": "2026-10-12T13:59:13+00:00",
       "completed_at": null,
       "notes": "Pointer cross-bucket drop is a silent no-op under load (~1/20 full-suite runs); split from task-163, which fixed the keyboard publish defect and ruled out the anomaly-revert and zero-height-zone hypotheses"
     },
@@ -1183,6 +1183,12 @@
       "started_at": null,
       "completed_at": null,
       "notes": "Publish each release: multi-arch images to GHCR plus a digest-pinned deploy bundle as a GitHub Release asset"
+    },
+    "task-200": {
+      "status": "done",
+      "started_at": "2026-10-11T20:22:02+00:00",
+      "completed_at": "2026-10-11T20:36:46+00:00",
+      "notes": "Projects get an owner; project list filtered to 'my projects' by default (user can disable); only owner or admin can change ownership; wireframes define the GUI"
     }
   }
 }

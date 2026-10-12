@@ -262,7 +262,22 @@
     "pageSearch": "Projekte suchen…",
     "pageLoadFailed": "Projekte konnten nicht geladen werden",
     "pageBack": "← Zurück zu den Projekten",
-    "pageNotFound": "Projekt nicht gefunden"
+    "pageNotFound": "Projekt nicht gefunden",
+    "listColOwner": "Besitzer",
+    "listOnlyMine": "Nur meine Projekte",
+    "listEmptyMine": "Sie besitzen noch keine Projekte.",
+    "listShowAll": "Alle Projekte anzeigen",
+    "detailOwner": "Besitzer: {owner}",
+    "detailOwnerNone": "Kein Besitzer",
+    "detailChangeOwner": "Besitzer ändern",
+    "changeOwnerTitle": "Besitzer ändern",
+    "changeOwnerLabel": "Neuer Besitzer",
+    "changeOwnerHint": "Nur Personen, die Pythia schon einmal genutzt haben, stehen zur Auswahl.",
+    "changeOwnerPlaceholder": "Person auswählen…",
+    "changeOwnerSave": "Übernehmen",
+    "changeOwnerCancel": "Abbrechen",
+    "changeOwnerFailed": "Der Besitzer konnte nicht geändert werden.",
+    "usersLoadFailed": "Die Personenliste konnte nicht geladen werden."
   },
   "estimation": {
     "detailLatest": "Aktuell: v{n}",

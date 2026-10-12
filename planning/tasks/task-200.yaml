@@ -1,0 +1,514 @@
+id: task-200
+phase: phase-14
+title: "Project ownership and a default 'my projects' filter"
+depends_on: [task-198]
+description: |
+  Every project should have an OWNER. The project list shows only the
+  logged-in user's projects by default; the user can switch that off. Only a
+  project's owner or an administrator may change who owns it.
+
+  ## Current state (verified 2026-10-11)
+
+  - `projects.owner_id UUID` with `FK → users(id)` and the index
+    `idx_projects_owner` exist since `V1__initial_schema.sql`, and
+    `Project.owner: User?` is mapped. But NOTHING sets it:
+    `ProjectResource.createProject` calls `projectService.create(name,
+    description, client)` without an owner, and no DTO exposes one. Every
+    existing project therefore has `owner = NULL`.
+  - There is no endpoint that lists users, which an owner picker needs.
+  - `GET /api/projects` returns all projects (optionally by `status`).
+    `routes/projects/+page.svelte` filters them client-side by a search box
+    and renders `ProjectList.svelte` (columns Name, Client, Status, Created).
+    `ProjectDetail.svelte` shows the name, a status `Badge`, the client, and
+    the estimations.
+  - Users are provisioned just-in-time (`CurrentUserService.ensureUser`), so
+    only users who have used Pythia at least once exist as `User` rows.
+    Roles are NOT stored on the row; they come from the token.
+
+  ## Decisions
+
+  1. **The owner is the creator.** `POST /api/projects` sets
+     `owner = ensureUser(current user)`. There is no "owner" field in the
+     create form.
+  2. **No migration and no backfill.** The column, FK and index already
+     exist. Existing projects stay unowned (`NULL`): nothing records who
+     created them, so a backfill would be guesswork. They show "—" as the
+     owner, appear only when the filter is off, and only an administrator can
+     assign them an owner.
+  3. **Who may change ownership:** the current owner, or a user with the
+     `ADMIN` role. Anyone else gets `403`. This is the ONLY ownership-gated
+     action. Editing a project or its estimations stays as it is today
+     (`ESTIMATOR`); do not widen the gate.
+  4. **Ownership is transferred, never removed.** The new owner must be an
+     existing (provisioned) user; there is no "no owner" option. Roles are not
+     stored per user, so the target's role is not validated.
+  5. **The filter runs on the server:** `GET /api/projects?owner=me`, which
+     combines with `status` and the existing client-side search. The UI
+     checkbox "Only my projects" is ON by default. Switching it off adds
+     `?scope=all` to the page URL, so reload and back/forward keep the
+     choice; without the parameter, the default (on) applies again. It is
+     deliberately not stored per user.
+  6. **The UI asks the backend whether to offer the control.** The project
+     DTOs carry `canChangeOwner: Boolean`, computed server-side (owner == me
+     || ADMIN). The frontend uses it only to show or hide the button; the PUT
+     endpoint enforces the rule regardless.
+  7. **The demo data looks like a real team.** `TestDataSeeder` (dev
+     profile only) seeds ownership the way an actual installation would
+     look, instead of handing every project to one technical account:
+     - **Three colleagues** as `User` rows, defined once in a new
+       `testdata/SeededUsers.kt`: **Anna Becker**, **Jonas Weber**, **Leonie
+       Schulz**. They are provisioned through `CurrentUserService.ensureUser`
+       with a complete `CurrentUser` principal: `subjectId` = a synthetic id
+       (`seed:anna.becker`, …), `displayName` = the name, `email = null`,
+       `roles = emptySet()`, `providerName = "seed"`. They cannot log in, because they are not dev-login users. They
+       exist so that the owner picker and the "all projects" view show
+       people, not only `Dev …` accounts. Not every colleague owns a project:
+       Jonas and Leonie appear only in the picker, as in a real team.
+     - **Ownership spread over several people**, with each dev user's default
+       view different:
+
+       | project | client | owner | status |
+       |---|---|---|---|
+       | Webshop Redesign | RetailCorp GmbH | Anna Becker | Aktiv |
+       | Mobile App MVP | FinanceAG | Dev Estimator | Aktiv |
+       | Data Platform Migration | DataWorks AG | Dev Admin | Aktiv |
+       | **Intranet-Relaunch 2024** (new) | Stadtwerke Lindenau | — (none) | Archiviert |
+
+       `dev-admin` and `dev-estimator` are provisioned from their `DEV_USERS`
+       principals so they can own a project before they first log in.
+       `dev-viewer` owns nothing, which is natural, since a viewer cannot
+       create projects, and makes it the user who sees the "you own no
+       projects" state.
+     - **The new archived, unowned project** represents data from before
+       ownership existed. It demonstrates the "—" owner and the admin-only
+       assignment. It has a short German description and no estimations, and
+       it is created with `projectService.create(...)` and then
+       `projectService.archive(...)`. Add its name to
+       `SeededProjects.ALL`, or the e2e reset (`DELETE /api/dev/test-data`)
+       would delete it.
+  8. **Reading "who am I" never creates a user.** `?owner=me` and
+     `canChangeOwner` resolve the current user READ-ONLY with
+     `UserRepository.findByEntraSubjectId(currentUser.subjectId)`, never
+     with `ensureUser`. Provisioning is reserved for mutating requests and
+     `GET /api/auth/me` (see `src/backend/CLAUDE.md`), and a project-list
+     read must not write. A user without a row yet owns nothing: `owner=me`
+     returns an empty list, and `canChangeOwner` is `false` unless the caller
+     is ADMIN. `dev-viewer` never makes a mutating request, so their "you own
+     no projects" state depends on exactly this.
+  9. **A viewer can end up as owner, and that is intended.** An admin may
+     assign any provisioned user, including a viewer. The transfer endpoint
+     requires ESTIMATOR or ADMIN, so such an owner sees no change-owner
+     button and only an admin can move the project on.
+  10. **The KMP domain is not involved.** Ownership is persistence and
+     authorisation, not business logic.
+
+  ## REST API
+
+  - `GET /api/projects?owner=me[&status=…]` (`ProjectResource.listProjects`,
+    `@RolesAllowed("VIEWER")` as today). `owner=me` returns only projects
+    whose owner is the current user; any other `owner` value → `400`.
+  - `ProjectSummaryDto` and `ProjectDetailDto` gain
+    `owner: UserRefDto?` (`{ id: UUID, displayName: String }`, `null` when
+    unowned) and `canChangeOwner: Boolean`.
+  - `PUT /api/projects/{id}/owner`, body `{ "ownerId": "<uuid>" }`,
+    `@RolesAllowed("ESTIMATOR", "ADMIN")` (an Entra admin need not also hold
+    ESTIMATOR). It returns `200` + `ProjectDetailDto`; `400` for an unknown
+    `ownerId`; `403` when the caller is neither the owner nor ADMIN, with the
+    structured `{message, status}` body of `ForbiddenExceptionMapper`; `404`
+    for an unknown project. Logged at INFO with project id, previous owner id
+    and new owner id; a refused attempt at WARN.
+  - `GET /api/users` (new `UserResource`, `@RolesAllowed("VIEWER")`) returns
+    `[{ id, displayName }]`, sorted by `displayName`, i.e. every provisioned
+    user. It is read-only.
+
+  ## Wireframes
+
+  ### Project list: default ("Only my projects" on)
+
+      +---------------------------------------------------------------------------+
+      | Projekte                                          [ + Neues Projekt ]     |
+      |                                                                           |
+      | [ Suchen…                         ]   [x] Nur meine Projekte              |
+      |                                                                           |
+      | NAME              KUNDE        BESITZER        STATUS      ERSTELLT       |
+      | ------------------------------------------------------------------------- |
+      | Mobile App MVP    FinanceAG    Dev Estimator   Aktiv       11.10.2026     |
+      +---------------------------------------------------------------------------+
+
+    - Seen as `dev-estimator` with the seeded data: only the project they own.
+
+    - The checkbox `projects.only-mine` sits next to the search box and is
+      checked on first load.
+    - A new **Owner** column (`project.listColOwner`) between Client and
+      Status shows the display name, or "—" for an unowned project.
+
+  ### Project list: filter on, but the user owns nothing
+
+      +---------------------------------------------------------------------------+
+      | Projekte                                          [ + Neues Projekt ]     |
+      |                                                                           |
+      | [ Suchen…                         ]   [x] Nur meine Projekte              |
+      |                                                                           |
+      |   Du besitzt noch keine Projekte.                                         |
+      |   [ Alle Projekte anzeigen ]                                              |
+      +---------------------------------------------------------------------------+
+
+    - It replaces the generic empty text ONLY when the filter is on.
+      `project.listEmptyMine` and the button `projects.show-all`
+      (`project.listShowAll`) unchecks the filter. Viewers, who cannot create
+      projects, land here by default.
+
+  ### Project list: filter off (`/projects?scope=all`)
+
+      +--------------------------------------------------------------------------------------+
+      | [ Suchen…                         ]   [ ] Nur meine Projekte                         |
+      |                                                                                      |
+      | NAME                     KUNDE                BESITZER        STATUS      ERSTELLT   |
+      | Webshop Redesign         RetailCorp GmbH      Anna Becker     Aktiv       11.10.2026 |
+      | Mobile App MVP           FinanceAG            Dev Estimator   Aktiv       11.10.2026 |
+      | Data Platform Migration  DataWorks AG         Dev Admin       Aktiv       11.10.2026 |
+      | Intranet-Relaunch 2024   Stadtwerke Lindenau  —               Archiviert  11.10.2026 |
+      +--------------------------------------------------------------------------------------+
+
+    - The full seeded set. The unowned archived project shows "—".
+
+  ### Project detail: header with owner
+
+      +---------------------------------------------------------------------------+
+      | < Zurück zu den Projekten                                                 |
+      |                                                                           |
+      | Webshop Redesign   [Aktiv]                                                |
+      | Kunde: RetailCorp GmbH                                                    |
+      | Besitzer: Anna Becker    [ Besitzer ändern ]                              |
+      |                                                                           |
+      | Angebote                                         [ + Neues Angebot ]      |
+      | …                                                                         |
+      +---------------------------------------------------------------------------+
+
+    - The line `project-detail.owner` uses `project.detailOwner` with
+      `{owner}`, or `project.detailOwnerNone` ("Kein Besitzer") when unowned.
+    - Seen as `dev-admin`: not the owner (Anna Becker is), but an admin, so
+      the button is there. `dev-estimator` would see the same page without
+      it.
+    - The `secondary` Button `project-detail.change-owner`
+      (`project.detailChangeOwner`) is rendered ONLY when
+      `canChangeOwner` is true. Everyone else sees the owner line without
+      the button.
+
+  ### Change-owner dialog
+
+      +-------------------------------------------------+
+      | Besitzer ändern                             [x] |
+      |                                                 |
+      | Neuer Besitzer                                  |
+      | [ Anna Becker                               v ] |
+      |   Anna Becker                                   |
+      |   Dev Admin                                     |
+      |   Dev Estimator                                 |
+      |   Jonas Weber                                   |
+      |   Leonie Schulz                                 |
+      | Nur Personen, die Pythia schon einmal genutzt   |
+      | haben, stehen zur Auswahl.                      |
+      |                                                 |
+      |                  [ Abbrechen ]  [ Übernehmen ]  |
+      +-------------------------------------------------+
+
+    - A modal in the style of the existing dialogs (`CreateProjectDialog`).
+      Title `project.changeOwnerTitle`. The `$lib/ui/Field` label
+      `project.changeOwnerLabel` holds the `$lib/ui/Select`
+      `change-owner-dialog.select`, filled from `GET /api/users` and
+      preselected with the current owner. When the project is unowned, a
+      placeholder `<option value="">` reading `project.changeOwnerPlaceholder`
+      is selected, the same pattern as `session.setup.selectProject` on the
+      sessions page.
+      The hint is `project.changeOwnerHint`.
+    - Buttons: `change-owner-dialog.cancel` (`secondary`, `common`
+      cancel key if one exists, else `project.changeOwnerCancel`) and
+      `change-owner-dialog.save` (`primary`,
+      `project.changeOwnerSave`), disabled until a DIFFERENT user is
+      selected.
+    - On success the dialog closes and the detail page shows the new owner.
+      If the caller is no longer the owner, the button disappears
+      (`canChangeOwner` from the response). A failure stays in the dialog
+      via `ErrorBanner`, and is logged with `log.error`.
+    - Focus moves to the Select on open, matching the other dialogs.
+
+  ## i18n (both catalogs, real translations; German shown in the wireframes)
+
+  | key | de | en |
+  |---|---|---|
+  | `project.listColOwner` | Besitzer | Owner |
+  | `project.listOnlyMine` | Nur meine Projekte | Only my projects |
+  | `project.listEmptyMine` | Du besitzt noch keine Projekte. | You don't own any projects yet. |
+  | `project.listShowAll` | Alle Projekte anzeigen | Show all projects |
+  | `project.detailOwner` | Besitzer: {owner} | Owner: {owner} |
+  | `project.detailOwnerNone` | Kein Besitzer | No owner |
+  | `project.detailChangeOwner` | Besitzer ändern | Change owner |
+  | `project.changeOwnerTitle` | Besitzer ändern | Change owner |
+  | `project.changeOwnerLabel` | Neuer Besitzer | New owner |
+  | `project.changeOwnerHint` | Nur Personen, die Pythia schon einmal genutzt haben, stehen zur Auswahl. | Only people who have used Pythia before can be selected. |
+  | `project.changeOwnerPlaceholder` | Person auswählen… | Select a person… |
+  | `project.changeOwnerSave` | Übernehmen | Apply |
+  | `project.changeOwnerCancel` | Abbrechen | Cancel |
+  | `project.changeOwnerFailed` | Der Besitzer konnte nicht geändert werden. | The owner could not be changed. |
+  | `project.usersLoadFailed` | Die Personenliste konnte nicht geladen werden. | The list of people could not be loaded. |
+
+  Reuse an existing generic cancel key instead of `project.changeOwnerCancel`
+  if the catalogs already have one; check before adding.
+
+  ## Out of scope
+
+  Per-project permissions beyond ownership (owner-only editing), team or
+  shared ownership, notifications on transfer, and showing roles in the
+  picker.
+
+steps:
+  - |
+    Read `Project.kt`, `User.kt`, `ProjectService.kt`, `ProjectResource.kt`,
+    `rest/dto/ProjectDtos.kt` (and the `toSummaryDto`/`toDetailDto` mappers),
+    `CurrentUserService.kt`, `CurrentUserProvider`, `testdata/TestDataSeeder.kt`,
+    `auth/dev/DevUser.kt`, `rest/error/AuthorizationExceptionMappers.kt`; on
+    the frontend `routes/projects/+page.svelte`, `routes/projects/[id]/+page.svelte`,
+    `lib/components/ProjectList.svelte`, `ProjectDetail.svelte`,
+    `CreateProjectDialog.svelte`, `$lib/ui/{Button,Select,Field}.svelte`,
+    `$lib/api/types.ts`, and `e2e/pages/{ProjectsListPage,ProjectDetailPage,index}.ts`.
+  - |
+    Backend service: `ProjectService.create` already accepts `owner`. Add
+    `findOwnedBy(user: User)` (repository finder `findByOwner`, combinable
+    with status) and
+    `changeOwner(projectId: UUID, newOwnerId: UUID, caller: User, callerIsAdmin: Boolean): Project`.
+    It throws a not-found for an unknown project or user, and a forbidden
+    (`io.quarkus.security.ForbiddenException`) unless
+    `project.owner?.id == caller.id || callerIsAdmin`. Log at INFO on success
+    (project id, old owner id, new owner id) and at WARN on a refusal.
+  - |
+    REST:
+      * `createProject` passes `owner = currentUserService.ensureUser(currentUserProvider.get())`.
+      * `listProjects` gains `@QueryParam("owner") owner: String?`: `"me"`
+        filters to the current user's projects, resolved READ-ONLY via
+        `UserRepository.findByEntraSubjectId` (decision 8; no row → empty
+        list); any other non-null value is `400`. `canChangeOwner` in every
+        DTO uses the same read-only resolution, never `ensureUser`.
+      * `PUT /api/projects/{id}/owner` with a new `ProjectOwnerUpdateDto(ownerId: UUID)`,
+        `@RolesAllowed("ESTIMATOR", "ADMIN")`, the admin flag taken from
+        `SecurityIdentity.hasRole("ADMIN")`, statuses as in the description,
+        full `@Operation`/`@APIResponse` annotations.
+      * `UserRefDto(id, displayName)`. `ProjectSummaryDto`/`ProjectDetailDto`
+        gain `owner` and `canChangeOwner`; the mappers compute
+        `canChangeOwner` for the current user. Change the mapper signatures as
+        needed, and keep every call site compiling.
+      * New `rest/UserResource.kt`: `GET /api/users`,
+        `@RolesAllowed("VIEWER")`, returning `List<UserRefDto>` sorted by
+        display name.
+  - |
+    Demo data, as described in decision 7:
+      * new `testdata/SeededUsers.kt`: an object with the three colleagues
+        (synthetic subject id + display name), like `SeededProjects`;
+      * `TestDataSeeder`: provision the colleagues and `dev-admin` /
+        `dev-estimator` (from `DEV_USERS`) via `currentUserService.ensureUser`,
+        pass the owners from the table to `projectService.create`, and add
+        "Intranet-Relaunch 2024" (client "Stadtwerke Lindenau", a short German
+        description, no estimations) created unowned and then archived;
+      * `SeededProjects`: add `INTRANET_RELAUNCH = "Intranet-Relaunch 2024"`
+        to the constants and to `ALL`.
+    The seeder runs in `%dev` only (`@IfBuildProfile("dev")`), so none of
+    this reaches a production database. Check the dev stack afterwards: as
+    `dev-estimator` the default list shows only "Mobile App MVP", and the
+    full list shows all four projects with the owners from the table.
+  - |
+    Backend tests, a new `ProjectOwnershipIT` (`@QuarkusTest`, dev auth via
+    the `DevAuthTestSupport` helpers):
+      * creating a project as dev-estimator sets it as the owner;
+      * `GET /api/projects?owner=me` as dev-estimator returns that project
+        and not one created by dev-admin, and `owner=other` → `400`;
+      * dev-estimator (owner) transfers to dev-admin → `200`, and afterwards
+        `canChangeOwner` is false for dev-estimator;
+      * dev-viewer, who is neither owner nor admin, gets `403` with the
+        structured body;
+      * dev-admin, who is not the owner, may change it → `200`;
+      * a user with no `User` row yet (a fresh dev subject that never
+        mutated) gets an empty list for `owner=me`, and the list read creates
+        no `User` row (count users before and after);
+      * an unknown `ownerId` → `400`, and an unknown project → `404`;
+      * `GET /api/users` lists the provisioned users sorted by display name.
+    Run: `./gradlew :backend:implementation:test`.
+  - |
+    Regenerate the OpenAPI client (`./gradlew build` refreshes
+    `src/frontend/src/lib/api/openapi.json` and `schema.d.ts`; commit them
+    with this change), and extend the hand-written `$lib/api/types.ts`
+    (`ApiProjectSummary`, `ApiProjectDetail`: `owner`, `canChangeOwner`;
+    new `ApiUserRef`).
+  - |
+    Frontend, list (`routes/projects/+page.svelte`, `ProjectList.svelte`):
+    the "Only my projects" checkbox (`data-testid="projects.only-mine"`), on
+    by default, synced with `?scope=all` in the page URL (SvelteKit
+    `page.url.searchParams` + `goto(…, { replaceState: true, keepFocus: true, noScroll: true })`),
+    loading `/api/projects?owner=me` when on and `/api/projects` when off,
+    always through `apiFetch` + `assertOk`. The Owner column; the empty state
+    with `projects.show-all` when the filter is on. Errors surface via the
+    existing `ErrorBanner` and are logged with `log`.
+  - |
+    Frontend, detail (`ProjectDetail.svelte`) and the new
+    `lib/components/ChangeOwnerDialog.svelte`, as wireframed: the owner line
+    `project-detail.owner`; the button `project-detail.change-owner` only
+    when `canChangeOwner`; the dialog with `change-owner-dialog.select`,
+    `.save` and `.cancel`, built from `$lib/ui` primitives only (no retyped
+    utility classes, no raw grey palette classes, per the root CLAUDE.md
+    frontend rules). It loads `/api/users` and sends
+    `PUT /api/projects/{id}/owner` through `apiFetch`, with every `catch`
+    surfacing via `ErrorBanner` + `log.error`.
+  - |
+    i18n: add every key from the table to BOTH `de.json` and `en.json` with
+    the translations given. Check first for an existing generic cancel key,
+    and reuse it if present.
+  - |
+    e2e, Page Object Model only (no translated-label selectors; the
+    `lintE2e` gate enforces this):
+      * `e2e/pages/ProjectsListPage.ts`: `setOnlyMine(on: boolean)`,
+        `expectOnlyMine(on: boolean)`, `rowIds(): Promise<string[]>`,
+        `showAllFromEmptyState()`.
+      * `e2e/pages/ProjectDetailPage.ts`: `ownerText()`,
+        `expectChangeOwnerVisible(visible: boolean)`, `openChangeOwner()`.
+      * new `e2e/pages/ChangeOwnerDialog.ts` (exported from `pages/index.ts`):
+        `selectOwnerByDisplayName(name)` (test data, not a label), `save()`,
+        `cancel()`.
+      * new `e2e/project-ownership.test.ts`:
+          - as dev-estimator, a project dev-estimator created via the API is
+            listed by default, and one dev-admin created is not until the
+            filter is switched off;
+          - the URL carries `scope=all` and a reload keeps the filter off;
+          - dev-viewer sees the empty-mine state and can show all;
+          - on its own project, dev-estimator transfers the owner to the seeded
+            colleague "Anna Becker" through the dialog; the owner line updates
+            and the button disappears;
+          - dev-viewer sees no change-owner button on that project.
+        Create the test PROJECTS per test, never rely on the seeded ones (the
+        e2e reset keeps them, but other specs read the list in parallel). Give
+        them natural names with a short unique suffix, e.g.
+        `Kundenportal ${suffix}` / `Lagerverwaltung ${suffix}` with client
+        "Nordwind Logistik GmbH", not `test-project-1`. The transfer target
+        "Anna Becker" is test DATA, not a UI label, so selecting it by its
+        display name is allowed. Keep it in one constant at the top of the
+        spec, with a comment naming `SeededUsers.kt` as its source.
+  - |
+    Docs:
+      * `src/backend/CLAUDE.md`, "Endpoint notes": ownership (creator is
+        owner; who may transfer; the `owner=me` filter; `GET /api/users`
+        lists only provisioned users; unowned legacy projects).
+      * `docs/authentication.md`: add ownership as the one owner-or-admin
+        gated action next to the role table.
+      * `src/frontend/CLAUDE.md`: a short note on the "Only my projects"
+        default and that `canChangeOwner` comes from the backend.
+  - |
+    ./gradlew :frontend:check
+  - |
+    ./gradlew build, then the Playwright suite in both languages against
+    `./scripts/dev.sh` (English first, then German).
+
+validation:
+  - |
+    B=src/backend/implementation/src/main/kotlin/io/pythia
+    grep -q 'owner' $B/rest/dto/ProjectDtos.kt
+    grep -q 'canChangeOwner' $B/rest/dto/ProjectDtos.kt
+    grep -q 'class UserRefDto' -r $B/rest/dto
+    grep -q '@Path("/{id}/owner")' $B/rest/ProjectResource.kt
+    grep -q 'QueryParam("owner")' $B/rest/ProjectResource.kt
+    test -f $B/rest/UserResource.kt
+    grep -q 'Log\.' $B/service/ProjectService.kt
+    ! ls src/backend/implementation/src/main/resources/db/migration | grep -qiE 'owner'
+  - |
+    test -f src/backend/implementation/src/test/kotlin/io/pythia/rest/ProjectOwnershipIT.kt \
+      || find src/backend/implementation/src/test -name ProjectOwnershipIT.kt | grep -q .
+    ./gradlew :backend:implementation:test --tests '*ProjectOwnershipIT'
+  - |
+    F=src/frontend/src
+    test -f $F/lib/components/ChangeOwnerDialog.svelte
+    grep -q 'data-testid="projects.only-mine"' -r $F
+    grep -q 'data-testid="projects.show-all"' -r $F
+    grep -q 'data-testid="project-detail.owner"' -r $F
+    grep -q 'data-testid="project-detail.change-owner"' -r $F
+    grep -q 'change-owner-dialog.select' $F/lib/components/ChangeOwnerDialog.svelte
+    grep -q 'canChangeOwner' $F/lib/components/ProjectDetail.svelte
+    grep -q 'scope' $F/routes/projects/+page.svelte
+    ! grep -q 'console\.' $F/lib/components/ChangeOwnerDialog.svelte
+    grep -q 'log\.' $F/lib/components/ChangeOwnerDialog.svelte
+  - |
+    python3 - <<'PY'
+    import json, pathlib, sys
+    cats = {p.stem: json.loads(p.read_text())
+            for p in pathlib.Path('src/frontend/src/lib/i18n').glob('*.json')}
+    def flat(o, p=''):
+        s = set()
+        for k, v in o.items():
+            n = f'{p}.{k}' if p else k
+            s |= flat(v, n) if isinstance(v, dict) else {n}
+        return s
+    keys = {l: flat(d) for l, d in cats.items()}
+    ref = set().union(*keys.values())
+    bad = {l: sorted(ref - k) for l, k in keys.items() if ref - k}
+    need = {'project.listColOwner','project.listOnlyMine','project.listEmptyMine','project.listShowAll',
+            'project.detailOwner','project.detailOwnerNone','project.detailChangeOwner',
+            'project.changeOwnerTitle','project.changeOwnerLabel','project.changeOwnerHint',
+            'project.changeOwnerSave','project.changeOwnerFailed','project.usersLoadFailed',
+            'project.changeOwnerPlaceholder'}
+    missing = {l: sorted(need - k) for l, k in keys.items() if need - k}
+    def get(d, key):
+        for part in key.split('.'): d = d[part]
+        return d
+    same = [k for k in need if all(k in keys[l] for l in cats) and get(cats['de'], k) == get(cats['en'], k)]
+    print('catalogs:', sorted(cats), '| missing:', bad or 'none', '| new keys missing:', missing or 'none', '| untranslated:', same or 'none')
+    sys.exit(1 if bad or missing or same else 0)
+    PY
+  - |
+    T=src/backend/implementation/src/main/kotlin/io/pythia/testdata
+    test -f $T/SeededUsers.kt
+    for n in "Anna Becker" "Jonas Weber" "Leonie Schulz"; do grep -q "$n" $T/SeededUsers.kt || exit 1; done
+    grep -q 'Intranet-Relaunch 2024' $T/SeededProjects.kt
+    grep -q 'INTRANET_RELAUNCH' $T/SeededProjects.kt
+    grep -q 'archive' $T/TestDataSeeder.kt
+  - |
+    E=src/frontend/e2e
+    test -f $E/pages/ChangeOwnerDialog.ts
+    grep -q 'ChangeOwnerDialog' $E/pages/index.ts
+    test -f $E/project-ownership.test.ts
+    grep -q "from './pages'" $E/project-ownership.test.ts
+  - |
+    grep -q 'owner' src/backend/CLAUDE.md
+    grep -qi 'owner' docs/authentication.md
+    grep -q 'Only my projects\|only-mine' src/frontend/CLAUDE.md
+  - |
+    ./gradlew :frontend:check
+  - |
+    ./gradlew build
+  - |
+    cd src/frontend
+    E2E_LANG=en npx playwright test
+    E2E_LANG=de npx playwright test
+
+outputs:
+  - modified: src/backend/implementation/src/main/kotlin/io/pythia/service/ProjectService.kt
+  - modified: src/backend/implementation/src/main/kotlin/io/pythia/repository/ProjectRepository.kt   # findByOwner (locate the actual file)
+  - modified: src/backend/implementation/src/main/kotlin/io/pythia/rest/ProjectResource.kt
+  - modified: src/backend/implementation/src/main/kotlin/io/pythia/rest/dto/ProjectDtos.kt
+  - created: src/backend/implementation/src/main/kotlin/io/pythia/rest/UserResource.kt
+  - modified: src/backend/implementation/src/main/kotlin/io/pythia/testdata/TestDataSeeder.kt
+  - created: src/backend/implementation/src/main/kotlin/io/pythia/testdata/SeededUsers.kt
+  - modified: src/backend/implementation/src/main/kotlin/io/pythia/testdata/SeededProjects.kt
+  - created: src/backend/implementation/src/test/kotlin/io/pythia/rest/ProjectOwnershipIT.kt
+  - modified: src/frontend/src/lib/api/openapi.json
+  - modified: src/frontend/src/lib/api/schema.d.ts
+  - modified: src/frontend/src/lib/api/types.ts
+  - modified: src/frontend/src/routes/projects/+page.svelte
+  - modified: src/frontend/src/lib/components/ProjectList.svelte
+  - modified: src/frontend/src/lib/components/ProjectDetail.svelte
+  - created: src/frontend/src/lib/components/ChangeOwnerDialog.svelte
+  - modified: src/frontend/src/lib/i18n/de.json
+  - modified: src/frontend/src/lib/i18n/en.json
+  - modified: src/frontend/e2e/pages/ProjectsListPage.ts
+  - modified: src/frontend/e2e/pages/ProjectDetailPage.ts
+  - created: src/frontend/e2e/pages/ChangeOwnerDialog.ts
+  - modified: src/frontend/e2e/pages/index.ts
+  - created: src/frontend/e2e/project-ownership.test.ts
+  - modified: src/backend/CLAUDE.md
+  - modified: docs/authentication.md
+  - modified: src/frontend/CLAUDE.md

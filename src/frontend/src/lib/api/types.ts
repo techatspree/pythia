@@ -115,6 +115,12 @@ export interface ApiEstimationDetail {
 	versions: ApiVersionSummary[];
 }
 
+/** A user as referenced from other resources (task-200). */
+export interface ApiUserRef {
+	id: string | null;
+	displayName: string | null;
+}
+
 export interface ApiProjectSummary {
 	id: string | null;
 	name: string | null;
@@ -122,6 +128,10 @@ export interface ApiProjectSummary {
 	client: string | null;
 	status: string;
 	createdAt: string | null;
+	/** null for a project from before ownership existed (task-200). */
+	owner: ApiUserRef | null;
+	/** Whether the CURRENT user may transfer ownership; the backend decides. */
+	canChangeOwner: boolean;
 }
 
 export interface ApiComparisonNode {
@@ -167,5 +177,7 @@ export interface ApiProjectDetail {
 	client: string | null;
 	status: string;
 	createdAt: string | null;
+	owner: ApiUserRef | null;
+	canChangeOwner: boolean;
 	estimations: ApiEstimationSummary[];
 }
