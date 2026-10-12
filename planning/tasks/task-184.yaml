@@ -77,6 +77,31 @@ description: |
     `--global-timeout=420000`, record per-run wall time, and treat anything far
     off the ~95-99s baseline as environmental — check `uptime` before starting.
 
+  ## What changed since this task was written (2026-09-15)
+
+  The suite and its stack moved on before anyone came back to this:
+  task-188 put the specs behind Page Objects (`e2e/pages/BucketEditor.ts`),
+  task-190 made the suite locale-independent (`E2E_LANG`, default `de`), and
+  task-192/198 upgraded Svelte, SvelteKit, Vite, Quarkus and Kotlin.
+  `svelte-dnd-action` itself is unchanged at 0.9.69. The suite is also
+  larger and faster: 126 tests in ~1.1 min at the default worker count on a
+  12-core machine (task-200), so the ~95-99s baseline below is history —
+  **measure a fresh baseline before trusting any timing**.
+
+  ## If it does not reproduce
+
+  A capture that never fails is a realistic outcome now, and it is NOT a
+  fix. If 40 full-suite runs at `--workers=4` stay green:
+    - change no behaviour — a speculative "fix" for a cause nobody observed
+      is exactly what the rulings above exist to prevent;
+    - record it in `src/frontend/CLAUDE.md` beside the task-163 paragraphs
+      (runs, worker count, per-run times, the date, and that the
+      instrumentation stays in place for the next occurrence);
+    - do NOT run `./scripts/task.sh done task-184`. Leave it pending, put the
+      observation in its `status.json` notes, and report it. Closing the
+      task as "not reproducible" is the user's decision, not the
+      implementer's.
+
   ## Constraints (inherited, all still binding)
 
   - **Do not add Playwright `retries`.** `playwright.config.ts` argues the case;
@@ -102,48 +127,71 @@ steps:
     paragraphs under the generic `TreeTable` section) so the ruled-out
     hypotheses are not re-derived.
   - |
-    Confirm the machine is idle before spending an hour on capture:
+    Confirm the machine is idle before spending an hour on capture, then
+    measure the baseline the later steps compare against. The dev stack
+    (`./scripts/dev.sh`, Docker up) must be running for every Playwright
+    run in this task. Runs use the default `E2E_LANG` (`de`) unless stated.
       uptime            # load should be well under the core count
       ps -Ao %cpu,comm -r | head -5
+      cd src/frontend
+      for i in 1 2 3; do s=$(date +%s); npx playwright test --workers=4 > /dev/null 2>&1; echo "baseline run $i: $(( $(date +%s) - s ))s exit=$?"; done
+    Write the baseline down. A later run far off it (say over 1.5x) means
+    the machine degraded, and that run's result is void.
   - |
-    Capture a failing run WITH its trace. Start a fresh stack
-    (`./scripts/dev.sh`, Docker up) and loop until the first failure:
+    Capture a failing run WITH its trace. Keep logs and traces in a scratch
+    directory, not the repo, and keep only the FIRST failing trace (a later
+    run clears `test-results/`):
 
       cd src/frontend
+      OUT=<scratch dir>
       for i in $(seq 1 40); do
-        if ! npx playwright test --workers=4 --global-timeout=420000 > "/tmp/cap_$i.log" 2>&1; then
-          echo "FAILED on run $i"; cp -R test-results "/tmp/capture_$i"; break
+        s=$(date +%s)
+        if ! npx playwright test --workers=4 --global-timeout=420000 > "$OUT/cap_$i.log" 2>&1; then
+          echo "FAILED on run $i after $(( $(date +%s) - s ))s"; cp -R test-results "$OUT/capture_$i"; break
         fi
-        echo "run $i ok ($(date +%s))"
+        echo "run $i ok in $(( $(date +%s) - s ))s"
       done
 
-    Then read the browser console entries out of the preserved trace
-    (`npx playwright show-trace /tmp/capture_<i>/<dir>/trace.zip`, or unzip it
-    and grep the `.trace` jsonl for `TreeTable finalize:`).
+    If a run fails in an UNRELATED spec, or far off the baseline, it is
+    environmental: note it and continue looping rather than analysing it.
+    If all 40 runs stay green, follow "If it does not reproduce" in the
+    description and stop there — skip steps 4–6 and the gate.
   - |
-    From the captured log decide which zone received the drop:
+    From the preserved trace, read the browser console entries
+    (`npx playwright show-trace <capture>/<dir>/trace.zip`, or unzip it and
+    grep the `.trace` jsonl). Collect BOTH the `TreeTable finalize:` lines
+    and the `Bucket view: leaf … reassigned to bucket …` line (or its
+    absence), then decide which zone received the drop:
       - `path=[]` / `zone=__root__`  → the root zone took it
       - only ONE finalize, `zone=<source bucket>` → shadow never left the source
-      - `zone=<target bucket>` with a correct path → the loss is downstream of
-        TreeTable, in `onBucketChildrenChange` or the autosave
+      - `zone=<target bucket>` with a correct path and NO `reassigned` line →
+        the payload reached `onBucketChildrenChange` and was discarded there
+      - `zone=<target bucket>` AND a `reassigned` line → the loss is further
+        downstream, in the projection rebuild or the autosave
     Write the finding down before changing behaviour.
   - |
     Fix the confirmed cause. Keep the fix in the component that owns the defect
-    — `TreeTable.svelte` if the zone geometry or detection is wrong, the bucket
-    editor if the payload arrives correctly and is then discarded. A test-only
+    — `src/lib/components/treetable/TreeTable.svelte` if the zone geometry or
+    detection is wrong, `src/lib/methods/bucketSampled/EditorModule.svelte`
+    if the payload arrives correctly and is then discarded. A test-only
     change is NOT a fix here: a real user drops into a bucket the same way.
+    Put a `task-184` comment at the fix explaining the cause.
   - |
     Add a deterministic regression test if the confirmed cause can be triggered
-    from the UI. If it cannot, say so explicitly and explain what the new
-    coverage does assert — do not present a probabilistic test as deterministic.
+    from the UI — in `e2e/bucket-views.test.ts`, driving `e2e/pages/BucketEditor.ts`
+    (extend the Page Object rather than adding raw selectors to the spec). If it
+    cannot, say so explicitly and explain what the new coverage does assert —
+    do not present a probabilistic test as deterministic.
   - |
-    Record the outcome in `src/frontend/CLAUDE.md` beside the task-163
-    paragraphs, and update the `dragDependency` doc comment in
-    `e2e/schedule.test.ts`, which names this task as the open one.
+    Record the outcome in `src/frontend/CLAUDE.md`: replace the "task-184,
+    still open" sentence beside the task-163 paragraphs with the diagnosis and
+    the fix. Rewrite the `dragDependency` doc comment in `e2e/schedule.test.ts`,
+    which still calls the pointer drop "still unexplained (task-184; …".
   - |
-    Run the gate: 20 full-suite runs, all green, per-run time near the ~95-99s
-    baseline. Report the observed count and the residual uncertainty honestly —
-    20 green runs against a 1-in-20 flake is suggestive, not proof.
+    Run the gate: 20 full-suite runs (40 if time allows), all green, each near
+    the step-2 baseline. Report the observed count and the residual
+    uncertainty honestly. Even at the old 1-in-20 rate, 20 clean runs happen by
+    chance ~36% of the time (0.95^20), 40 ~13%: suggestive, not proof.
   - |
     `./gradlew :frontend:check`, then `./gradlew build`.
 
@@ -161,20 +209,27 @@ validation:
       grep -q "cycle protection rejects dropping a group into its descendant" "$F/e2e/tree-table.test.ts"
       grep -q "dragging a group onto its own descendant is a no-op" "$F/e2e/smoke.test.ts"
   - |
-    The diagnosis is written down, and the forward reference naming this task
-    as open has been updated:
-      grep -q "task-184" src/frontend/CLAUDE.md
-      ! grep -q "task-184 is still open" src/frontend/e2e/schedule.test.ts
+    The diagnosis is written down and the "open" wording is gone (both greps
+    match TODAY's text, so they fail until the docs are actually updated):
+      F=src/frontend
+      grep -q "task-184" "$F/CLAUDE.md"
+      ! grep -q "task-184\*\*, still open" "$F/CLAUDE.md"
+      ! grep -q "still unexplained (task-184" "$F/e2e/schedule.test.ts"
   - |
-    Behaviour actually changed, carrying its rationale marker:
-      git diff HEAD -- src/frontend/src | grep -q "task-184"
+    Behaviour actually changed, carrying its rationale marker at the fix site
+    (independent of whether the change is committed yet):
+      F=src/frontend/src
+      grep -q "task-184" "$F/lib/components/treetable/TreeTable.svelte" \
+        || grep -q "task-184" "$F/lib/methods/bucketSampled/EditorModule.svelte"
   - |
-    THE GATE. 20 full-suite runs, zero failures, each near the ~95-99s baseline
-    (a run far off it means the machine degraded and the result is void):
+    THE GATE, with the dev stack running. 20 full-suite runs, zero failures,
+    each near the step-2 baseline (a run far off it is void, not a pass):
       cd src/frontend
       fails=0
       for i in $(seq 1 20); do
-        npx playwright test --workers=4 --global-timeout=420000 > "/tmp/gate_$i.log" 2>&1 || fails=$((fails + 1))
+        s=$(date +%s)
+        npx playwright test --workers=4 --global-timeout=420000 > "<scratch dir>/gate_$i.log" 2>&1 || fails=$((fails + 1))
+        echo "gate run $i: $(( $(date +%s) - s ))s"
       done
       echo "failed runs: $fails / 20"
       test "$fails" -eq 0
@@ -184,9 +239,13 @@ validation:
     ./gradlew build
 
 outputs:
-  # The defect is not yet located, so these are the candidate sites rather than
-  # a promise. Whichever is changed, CLAUDE.md and the schedule.test.ts comment
-  # are updated either way.
+  # The defect is not yet located, so the two source files are CANDIDATE sites;
+  # the fix lands in whichever owns the confirmed cause. The docs are updated
+  # either way. If the flake does not reproduce, only CLAUDE.md and
+  # status.json change and the task stays pending.
   - modified: src/frontend/src/lib/components/treetable/TreeTable.svelte
+  - modified: src/frontend/src/lib/methods/bucketSampled/EditorModule.svelte
+  - modified: src/frontend/e2e/bucket-views.test.ts
+  - modified: src/frontend/e2e/pages/BucketEditor.ts
   - modified: src/frontend/CLAUDE.md
   - modified: src/frontend/e2e/schedule.test.ts

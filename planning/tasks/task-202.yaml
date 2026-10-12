@@ -1,0 +1,116 @@
+id: task-202
+phase: phase-14
+title: "Declare OpenAPI security on every operation"
+depends_on: [task-201]
+description: |
+  Redocly reports `security-defined` for 5 of the 51 operations in the
+  committed `src/frontend/src/lib/api/openapi.json`. It is a warning under
+  `minimal` and an ERROR under `recommended`, the ruleset task-204 gates on.
+  Every other operation carries a per-operation `security` requirement that
+  SmallRye derives from `@RolesAllowed` (`[{"SecurityScheme": ["VIEWER"]}]` and
+  so on; `quarkus.smallrye-openapi.security-scheme=oidc`). These five carry
+  none, so the document is silent about whether they need a login.
+
+  They are two different cases, and the fix differs:
+
+  | operation | really | today | target |
+  |---|---|---|---|
+  | `GET /api/ping` | public (heartbeat, task-136) | `@PermitAll` | `security: []` |
+  | `GET /api/system` | public (branding before login, task-146) | `@PermitAll` | `security: []` |
+  | `GET /api/system/css` | public (`<link>` stylesheet, no header) | `@PermitAll` | `security: []` |
+  | `GET /api/auth/me` | any authenticated user | no annotation; hand-written 401 | `[{"SecurityScheme": []}]` |
+  | `PUT /api/auth/me/language` | any authenticated user | no annotation; hand-written 401 | `[{"SecurityScheme": []}]` |
+
+  ## Decisions
+
+  1. **Public endpoints declare `security: []`.** In OpenAPI an empty array
+     on an operation means "no security", an explicit statement rather than
+     an omission. They stay `@PermitAll`; nothing about their runtime
+     behaviour changes.
+  2. **`MeResource` gets `@io.quarkus.security.Authenticated` at class level.**
+     The documentation then follows from the enforcement, the same way it
+     does for `@RolesAllowed`. That is better than a documentation-only
+     annotation, which could claim a requirement that nothing enforces.
+     Behaviour change, deliberately small: an anonymous request is now
+     rejected by Quarkus before the method runs, with the structured
+     `{message, status}` body of `UnauthorizedExceptionMapper` (task-093),
+     instead of the method's own `401`. The status stays `401`, which is all
+     `$lib/auth/currentUser.ts` reads (`if (res.status === 401) return null`).
+     Keep the method's own null check as defence in depth.
+  3. **The mechanism is verified, not assumed.** MicroProfile OpenAPI's
+     `@SecurityRequirements` / `@SecurityRequirementsSet` with no value is the
+     expected way to emit `security: []`, and Quarkus'
+     `auto-add-security-requirement` is expected to cover `@Authenticated`.
+     If either does not produce the target shape, register an `OASFilter`
+     (`mp.openapi.filter`) that sets it, keyed off the operations'
+     annotations, NOT off a hardcoded path list. Use only one of the two
+     mechanisms.
+
+  No new endpoint, service or GUI text, so logging, i18n and wireframes are
+  not affected.
+
+steps:
+  - |
+    Read `rest/PingResource.kt`, `rest/SystemSettingsResource.kt`,
+    `rest/MeResource.kt`, `rest/error/AuthorizationExceptionMappers.kt`,
+    `src/frontend/src/lib/auth/currentUser.ts`, `docs/authentication.md`
+    (endpoint-authorization section), and the tests that call `/api/auth/me`
+    anonymously (`grep -rln "auth/me" src/backend/implementation/src/test src/frontend/e2e`).
+  - |
+    Annotate the three `@PermitAll` reads so the document shows
+    `"security": []` (decision 1/3). Check with:
+      ./gradlew :backend:implementation:quarkusAppPartsBuild --rerun
+      jq '.paths["/api/ping"].get.security' src/backend/implementation/build/openapi/openapi.json
+    (or wherever the snapshot lands; see `src/backend/CLAUDE.md`). The result
+    must be `[]`, not `null`.
+  - |
+    Add `@Authenticated` to `MeResource` (decision 2) and confirm both `/me`
+    operations now document `[{"SecurityScheme": []}]`. Update any backend test
+    or e2e spec that asserted the OLD anonymous response body (the status must
+    still be 401).
+  - |
+    Add to `EndpointAuthorizationIT` (or a new `OpenApiSecurityIT`, whichever
+    fits the existing file better) a test that fetches `/q/openapi?format=json`
+    and asserts that EVERY operation has a non-null `security`, and that the
+    three public paths carry exactly `[]`.
+  - |
+    Docs: in `docs/authentication.md`, state that the three public reads are
+    documented with `security: []` and that `/api/auth/me` is `@Authenticated`
+    (any role). In `src/backend/CLAUDE.md`, update the `MeResource` sentence
+    ("keeps its own 401-on-anonymous check") to the new enforcement.
+  - |
+    ./gradlew build, commit the regenerated `openapi.json` + `schema.d.ts`,
+    and run the Playwright suite (`E2E_LANG=en`, then `de`) against
+    `./scripts/dev.sh`, because auth behaviour changed. `auth-gate.test.ts` and
+    `auth.test.ts` exercise the anonymous path.
+
+validation:
+  - |
+    J=src/frontend/src/lib/api/openapi.json
+    test "$(jq '[.paths[] | to_entries[] | select(.key|test("^(get|put|post|delete|patch)$")) | select(.value.security == null)] | length' $J)" -eq 0
+    test "$(jq -c '.paths["/api/ping"].get.security' $J)" = "[]"
+    test "$(jq -c '.paths["/api/system"].get.security' $J)" = "[]"
+    test "$(jq -c '.paths["/api/system/css"].get.security' $J)" = "[]"
+    jq -e '.paths["/api/auth/me"].get.security[0] | has("SecurityScheme")' $J
+  - |
+    grep -q "@Authenticated" src/backend/implementation/src/main/kotlin/io/pythia/rest/MeResource.kt
+  - |
+    grep -q 'security: \[\]' docs/authentication.md
+  - |
+    ./gradlew :backend:implementation:test
+  - |
+    ./gradlew build
+  - |
+    cd src/frontend
+    E2E_LANG=en npx playwright test
+    E2E_LANG=de npx playwright test
+
+outputs:
+  - modified: src/backend/implementation/src/main/kotlin/io/pythia/rest/PingResource.kt
+  - modified: src/backend/implementation/src/main/kotlin/io/pythia/rest/SystemSettingsResource.kt
+  - modified: src/backend/implementation/src/main/kotlin/io/pythia/rest/MeResource.kt
+  - modified: src/backend/implementation/src/test/kotlin/io/pythia/rest/EndpointAuthorizationIT.kt
+  - modified: src/frontend/src/lib/api/openapi.json
+  - modified: src/frontend/src/lib/api/schema.d.ts
+  - modified: docs/authentication.md
+  - modified: src/backend/CLAUDE.md

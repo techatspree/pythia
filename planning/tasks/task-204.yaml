@@ -1,0 +1,144 @@
+id: task-204
+phase: phase-14
+title: "Redocly as a blocking OpenAPI lint gate"
+depends_on: [task-201, task-202, task-203]
+description: |
+  Nothing checks the OpenAPI document itself. The drift gate
+  (`:frontend:verifyOpenApiSchemaCommitted`, task-114) proves the committed
+  file equals what the backend generates, but not that what it generates is
+  any good. A Redocly run on 2026-10-12 found 51 operations without an
+  `operationId`, 5 without a `security` declaration and an `example.com`-class
+  server URL. tasks 201–203 fix those by hand. This task makes sure they stay
+  fixed and that new ones are caught when they are written.
+
+  ## Decisions
+
+  1. **Ruleset `recommended`**, not `minimal`. `recommended` is what
+     surfaced the security finding as an error. On today's document (after
+     tasks 201–203) it leaves exactly two findings, which this task resolves:
+       * `info-license` (1): the API is Apache-2.0 (task-145), so declare it:
+         `quarkus.smallrye-openapi.info-license-name=Apache-2.0` and
+         `quarkus.smallrye-openapi.info-license-url=https://www.apache.org/licenses/LICENSE-2.0`.
+         Use SPDX `identifier` instead of `url` if SmallRye emits it for 3.1;
+         one of the two, not both.
+       * `operation-4xx-response` (2): `GET /api/ping` and `GET /api/system`
+         are public reads that cannot return a 4xx. Inventing one would make
+         the document lie, so they go into Redocly's ignore file
+         (`.redocly.lint-ignore.yaml`, generated with
+         `redocly lint --generate-ignore-file`). Each entry gets a comment
+         saying why. Do not switch the rule off globally: every other
+         operation must keep proving it documents its errors.
+  2. **Blocking, with a zero baseline**, like `lintE2e` (task-191) and
+     `checkDesignTokens` (task-149), and unlike the informational ESLint/
+     detekt reports. The document is generated and small, and its baseline
+     is zero after this task, so there is no legacy debt to grandfather.
+  3. **Wired as `:frontend:lintOpenApi`**, an `NpmTask` running
+     `npm run lint:openapi`, that lints the SAME file the client is generated
+     from. It therefore depends on `syncBackendOpenapi`, so it checks the
+     freshly generated document, not a stale committed copy. It is added to
+     `:frontend:check` and to the root `staticAnalysis` task.
+  4. **`@redocly/cli` is a pinned frontend devDependency** (exact version,
+     no `^`), not `npx @redocly/cli@latest`. A floating version would let
+     the gate change its verdict without a commit. It is subject to the
+     existing `npm audit` CI step, which since task-192 covers dev
+     dependencies. If the audit flags the new tree at `high`, stop and
+     report; do not add an audit exception.
+  5. **Telemetry off.** Redocly CLI sends anonymous usage telemetry by
+     default. The gate must set `REDOCLY_TELEMETRY=off`, and also
+     `REDOCLY_SUPPRESS_UPDATE_NOTICE=true` so a release announcement cannot
+     clutter the log, in the npm script itself (`cross-env` is NOT a
+     dependency here, so set them in the Gradle `NpmTask`'s `environment`),
+     so that local runs and CI behave identically. Verify no telemetry
+     request is made: run once with network inspection or `--verbose`, or
+     check the CLI's documented behaviour for the pinned version.
+  6. **Config lives in `src/frontend/redocly.yaml`**, beside the document it
+     lints and the npm script that runs it:
+       extends: [recommended]
+     plus nothing else unless a rule is justified in a comment.
+
+  ## Out of scope
+
+  The IntelliJ "Incompatible types: Required boolean, Actual array" warnings
+  on the four multipart `required: ["file"]` arrays. They are an IDE
+  false positive; the document is valid OpenAPI 3.1 and Redocly agrees.
+  SARIF integration into the consolidated `sarifHtmlReport` is also out of
+  scope: Redocly's output formats do not include SARIF, and a blocking gate
+  with a zero baseline needs no report.
+
+steps:
+  - |
+    Read `src/frontend/build.gradle.kts` (`syncBackendOpenapi`, `genApi`,
+    `lintE2e`, the `check` wiring), the root `build.gradle.kts`
+    (`staticAnalysis`), `src/frontend/package.json`, and the CI workflow's
+    `npm audit` step.
+  - |
+    Add `@redocly/cli` as an exact-pinned devDependency (`npm install -D -E
+    @redocly/cli@<current>`), add `src/frontend/redocly.yaml` (decision 6),
+    and the script
+      "lint:openapi": "redocly lint src/lib/api/openapi.json"
+    Then run `npm audit --audit-level=high` in `src/frontend` and report the
+    result (decision 4).
+  - |
+    Resolve the two remaining findings (decision 1): the license properties in
+    `application.properties`, then regenerate (`./gradlew :frontend:genApi`);
+    then the ignore file for the two 4xx findings, each entry commented.
+  - |
+    Register `lintOpenApi` in `src/frontend/build.gradle.kts` after the
+    `lintE2e` pattern, with `dependsOn(tasks.npmInstall, syncBackendOpenapi)`
+    and the telemetry environment (decision 5), plus a comment explaining
+    why it blocks. Add it to `check` and to `staticAnalysis` in the root
+    `build.gradle.kts`.
+  - |
+    PROVE it blocks: temporarily remove the `security` annotation from one
+    endpoint (or add an operation without a 4xx response), run
+    `./gradlew :frontend:lintOpenApi`, and see it FAIL naming the rule. Then
+    revert.
+  - |
+    Docs:
+      * root `CLAUDE.md`, the `staticAnalysis` line in "Build & run": it now
+        also lints the OpenAPI document (blocking);
+      * `src/backend/CLAUDE.md`, the OpenAPI section: the document is linted by
+        Redocly's `recommended` ruleset; a new endpoint must declare
+        security, an `operationId` (via its method name, task-201) and its 4xx
+        responses, or the build fails; exceptions go in the ignore file with a
+        reason.
+  - |
+    ./gradlew :frontend:check, then ./gradlew build, then ./gradlew staticAnalysis.
+
+validation:
+  - |
+    F=src/frontend
+    test -f $F/redocly.yaml
+    grep -q "recommended" $F/redocly.yaml
+    jq -e '.devDependencies["@redocly/cli"] | test("^[0-9]")' $F/package.json
+    jq -e '.scripts["lint:openapi"]' $F/package.json
+  - |
+    grep -q 'register<NpmTask>("lintOpenApi")' src/frontend/build.gradle.kts
+    grep -q "REDOCLY_TELEMETRY" src/frontend/build.gradle.kts
+    grep -q "lintOpenApi" build.gradle.kts
+  - |
+    jq -e '.info.license' src/frontend/src/lib/api/openapi.json
+  - |
+    ./gradlew :frontend:lintOpenApi
+  - |
+    grep -qi "redocly" CLAUDE.md
+    grep -qi "redocly" src/backend/CLAUDE.md
+  - |
+    ./gradlew :frontend:check
+  - |
+    ./gradlew build
+  - |
+    ./gradlew staticAnalysis
+
+outputs:
+  - modified: src/frontend/package.json
+  - modified: src/frontend/package-lock.json
+  - created: src/frontend/redocly.yaml
+  - created: src/frontend/.redocly.lint-ignore.yaml
+  - modified: src/frontend/build.gradle.kts
+  - modified: build.gradle.kts
+  - modified: src/backend/implementation/src/main/resources/application.properties
+  - modified: src/frontend/src/lib/api/openapi.json
+  - modified: src/frontend/src/lib/api/schema.d.ts
+  - modified: CLAUDE.md
+  - modified: src/backend/CLAUDE.md
