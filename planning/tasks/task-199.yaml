@@ -167,6 +167,19 @@ description: |
   before pushing anything and records the run URL. The task is NOT done
   until that run is green.
 
+  **Outcome (2026-10-12):** the user chose to test on the real project
+  instead, accepting that a defect would cost a version number. Release
+  `v1.0.1` was cut with `scripts/release.sh 1.0.1` and is the end-to-end test:
+  run https://github.com/techatspree/pythia/actions/runs/38275185660.
+    - attempt 1: `publish` failed with a transient GHCR `500 UNKNOWN` on one
+      frontend manifest PUT, before any release existed;
+    - attempt 2: green. Both images are public amd64 + arm64 indexes whose
+      digests equal `release.env`'s, the bundle's checksum verifies, its
+      `SOURCE_COMMIT` is the tag's commit, and a local
+      `release-bundle.sh` rebuild from the tag is byte-identical;
+    - attempt 3 (deliberate): re-running `publish` refused with the
+      immutability message and skipped every push step.
+
   ## Downstream consequences (internal, reported, not done here)
 
   Dropping the mirror model changes the internal side, which this public
