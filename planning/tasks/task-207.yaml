@@ -1,0 +1,203 @@
+id: task-207
+phase: phase-18
+title: "Open-source compliance policy, checked in the build"
+depends_on: [task-206]
+description: |
+  Pythia is Apache-2.0 (task-145) and is distributed as binaries: two
+  container images, a JavaScript bundle inside one of them, and the
+  release's deploy bundle (task-199). Nothing says which third-party licenses
+  may be part of that, and nothing checks it. One dependency bump can bring
+  in a GPL-3.0 or AGPL library unnoticed. task-206 made the build produce
+  SBOMs that list every shipped component with its license. This task adds
+  the two missing pieces: a written POLICY of what is acceptable, and a
+  CHECK in the build that fails when a shipped component violates it.
+
+  ## The policy is the specification
+
+  `compliance/oss-policy.json` is the single, reviewable statement of the
+  project's open-source compliance requirements. It is JSON rather than
+  YAML so the checker needs no parser dependency. Comments are replaced
+  by mandatory `reason` fields, which the checker enforces, so no
+  exception exists without a justification. Shape:
+
+      {
+        "scope": ["build/sbom/pythia-backend.cdx.json",
+                  "build/sbom/pythia-frontend.cdx.json"],
+        "firstParty": ["pkg:maven/io.pythia/", "pkg:npm/frontend@"],
+        "licenses": {
+          "allowed":     { "<SPDX id>": "<why it is compatible>" },
+          "conditional": { "<SPDX id>": "<the obligation we accept>" },
+          "forbidden":   { "<SPDX id>": "<why it is incompatible>" }
+        },
+        "aliases": { "<non-SPDX name in metadata>": "<SPDX id>" },
+        "exceptions": [
+          { "purl": "<exact purl, version included>",
+            "license": "<what the license really is>",
+            "reason": "<why this component is acceptable>",
+            "pendingReview": false }
+        ]
+      }
+
+  Initial classification (the implementer copies it, with the reasons):
+
+  | category | SPDX ids | meaning |
+  |---|---|---|
+  | allowed | Apache-2.0, MIT, MIT-0, BSD-2-Clause, BSD-3-Clause, ISC, 0BSD, Zlib, CC0-1.0, Unlicense, BlueOak-1.0.0, UPL-1.0, Python-2.0 | permissive; compatible with distributing an Apache-2.0 product in binary form, given attribution (task-208) |
+  | conditional | EPL-1.0, EPL-2.0, MPL-2.0, LGPL-2.1-only, LGPL-2.1-or-later, LGPL-3.0-only, LGPL-3.0-or-later, GPL-2.0-with-classpath-exception, CDDL-1.0, CDDL-1.1 | weak copyleft; acceptable for an UNMODIFIED third-party library used as a separate component. Each entry states the obligation (e.g. "source of the library is available upstream; we do not modify it") |
+  | forbidden | GPL-2.0-only, GPL-2.0-or-later, GPL-3.0-only, GPL-3.0-or-later, AGPL-3.0-only, AGPL-3.0-or-later, SSPL-1.0, BUSL-1.1, CC-BY-NC-4.0, CC-BY-SA-4.0 | strong or network copyleft, or non-commercial or source-available terms: incompatible with distributing Pythia under Apache-2.0 |
+
+  A license NOT in any list counts as unknown and fails. The list is a
+  closed allow-list, never an open deny-list.
+
+  ## The check's rules
+
+  For every component of every SBOM in `scope`:
+  1. A `firstParty` purl prefix → passes (our own code, Apache-2.0).
+  2. An `exceptions` entry with exactly this purl → its `license` and
+     `reason` decide it, and the component passes. `pendingReview: true`
+     passes with a WARNING (see task-208).
+  3. Otherwise its license is read from the SBOM: an SPDX `id`, an
+     `expression`, or a `name` mapped through `aliases`. An expression is
+     evaluated: `A OR B` passes if either side passes (the best alternative
+     is chosen, which is what dual licensing means); `A AND B` passes only if
+     both do; `A WITH <exception>` is treated as `A` unless the policy lists
+     the combined form; parentheses are honoured.
+  4. Result: allowed → pass; conditional → pass, listed in the report with
+     its obligation; forbidden, unknown or missing → FAIL.
+  5. The policy itself is checked, too. An exception whose purl matches no
+     component (stale), an entry without a `reason`, and an id in two
+     categories are all errors. Otherwise a removed dependency leaves a
+     permanent hole in the policy.
+
+  The check prints one line per failure (purl, the license found, why it
+  failed), a summary per category, and every conditional component with its
+  obligation. It exits non-zero on any failure.
+
+  ## Decisions
+
+  - **Scope = the two application SBOMs.** The image SBOMs (task-206)
+    include the base images' OS packages (UBI 9, Alpine: GPL tools such as
+    busybox and coreutils, shipped as separate programs, i.e. aggregation).
+    We do not build those, and a gate on them would break whenever a base
+    image moves. They are reviewed once by hand in task-208 and documented,
+    not gated.
+  - **Blocking, in `./gradlew build`.** It joins the established blocking
+    gates (`checkDesignTokens`, `lintE2e`, the OpenAPI drift gate). It reads
+    the SBOMs that `build` already produces (task-206), so it adds no second
+    dependency resolution and cannot disagree with them.
+  - **Implementation: a zero-dependency Node ESM script**,
+    `scripts/check-oss-compliance.mjs`, run on the project's pinned Node
+    through a Gradle `NodeTask` in `:frontend` (where the Node plugin
+    lives), named `checkOssCompliance`. Its logic is unit-tested with
+    `node --test` (`scripts/check-oss-compliance.test.mjs`, fixtures under
+    `scripts/fixtures/oss-compliance/`), run by a second task
+    `testOssCompliance`. Both are wired into `check`.
+  - **The first run will find things.** task-206's survey already shows
+    components with no or non-SPDX license metadata (e.g. `jdom2`'s "Similar
+    to Apache License…", "Public Domain", `javax.annotation-api` with none).
+    This task does NOT judge them. Each finding becomes an `exceptions` entry
+    with `pendingReview: true` and the reason "pending review in task-208".
+    The build is then green but prints a warning per pending entry. A
+    FORBIDDEN license is not parked this way: if one is found, stop and
+    report it, because it is task-208's replacement work and must not be
+    papered over.
+  - **Documentation:** `docs/oss-compliance.md` explains the policy in prose:
+    the categories and why, how the check decides, how to add or justify an
+    exception (a PR changing `compliance/oss-policy.json`, reviewed like
+    code), and what the check does NOT cover (image OS packages,
+    attribution, which task-208 handles).
+
+  No application code, no GUI, no new runtime dependency.
+
+steps:
+  - |
+    Read task-206's SBOMs (`./gradlew sbom`, then `build/sbom/*.cdx.json`)
+    to see how licenses appear there (`license.id`, `license.name`,
+    `expression`), and `src/frontend/build.gradle.kts` (how `NodeTask`s
+    such as `checkDesignTokens` are registered).
+  - |
+    Write `compliance/oss-policy.json` with the categories and reasons from
+    the description, `scope`, `firstParty`, and `aliases` for the common
+    non-SPDX names found in the SBOMs (e.g. "The Apache Software License,
+    Version 2.0" → Apache-2.0; "The MIT License" → MIT).
+  - |
+    Write `scripts/check-oss-compliance.mjs` (Node ≥ 22, ESM, no
+    dependencies) implementing the rules 1–5 exactly. Usage:
+      node scripts/check-oss-compliance.mjs [--policy <file>] [<sbom>...]
+    Defaults: `compliance/oss-policy.json` and its `scope`. Exit 0 on pass
+    (warnings allowed), 1 on any failure, 2 on unreadable input.
+  - |
+    Unit tests `scripts/check-oss-compliance.test.mjs` with small fixture
+    SBOMs and policies under `scripts/fixtures/oss-compliance/`, covering at
+    least: allowed id; conditional id (passes and is reported); forbidden id
+    fails; unknown id fails; missing license fails; `OR` with one allowed
+    side passes; `AND` with one forbidden side fails; parenthesised
+    expression; `WITH` exception; alias mapping; first-party prefix;
+    exception overrides; `pendingReview` warns but passes; stale exception
+    fails; exception without `reason` fails; id in two categories fails.
+  - |
+    Gradle: in `src/frontend/build.gradle.kts`, register `testOssCompliance`
+    (`node --test` on the test file) and `checkOssCompliance` (the script,
+    `dependsOn(":sbom")` from task-206, inputs = policy + SBOMs). Wire both
+    into `:frontend:check` and the root `staticAnalysis`, with a comment that
+    this gate BLOCKS, like `checkDesignTokens`.
+  - |
+    First run on the real SBOMs. Record every non-passing component as an
+    `exceptions` entry with `pendingReview: true` and reason "pending
+    review in task-208". If any is FORBIDDEN, stop and report it instead
+    (see the decisions). The build must then be green, with the warnings
+    listed.
+  - |
+    Write `docs/oss-compliance.md` (see the decisions) and link it from
+    `README.md`'s documentation list and from root `CLAUDE.md` (one
+    sentence: dependency changes must pass `checkOssCompliance`; exceptions
+    need a reason in `compliance/oss-policy.json`).
+  - |
+    ./gradlew :frontend:check, then ./gradlew build.
+
+validation:
+  - |
+    test -f compliance/oss-policy.json
+    jq -e '.licenses.allowed["Apache-2.0"] and .licenses.forbidden["AGPL-3.0-only"] and .licenses.conditional["EPL-2.0"]' compliance/oss-policy.json
+    jq -e '[.exceptions[] | select((.reason // "") == "")] | length == 0' compliance/oss-policy.json
+  - |
+    node --test scripts/check-oss-compliance.test.mjs
+  - |
+    node scripts/check-oss-compliance.mjs
+  - |
+    # A forbidden component makes the check fail and is named.
+    T=$(mktemp -d)
+    jq '.components += [{"type":"library","name":"evil","version":"1.0.0","purl":"pkg:npm/evil@1.0.0","licenses":[{"license":{"id":"GPL-3.0-only"}}]}]' \
+      build/sbom/pythia-frontend.cdx.json > "$T/f.json"
+    ! node scripts/check-oss-compliance.mjs "$T/f.json" build/sbom/pythia-backend.cdx.json > "$T/out" 2>&1
+    grep -q "pkg:npm/evil@1.0.0" "$T/out"
+    rm -rf "$T"
+  - |
+    # A stale exception fails the check.
+    T=$(mktemp -d)
+    jq '.exceptions += [{"purl":"pkg:npm/not-a-dependency@0.0.1","license":"MIT","reason":"test"}]' compliance/oss-policy.json > "$T/p.json"
+    ! node scripts/check-oss-compliance.mjs --policy "$T/p.json"
+    rm -rf "$T"
+  - |
+    grep -q 'checkOssCompliance' src/frontend/build.gradle.kts
+    grep -q 'testOssCompliance' src/frontend/build.gradle.kts
+    grep -q 'checkOssCompliance' build.gradle.kts
+  - |
+    test -f docs/oss-compliance.md
+    grep -q 'oss-compliance' README.md
+    grep -q 'checkOssCompliance' CLAUDE.md
+  - |
+    ./gradlew :frontend:check
+  - |
+    ./gradlew build
+
+outputs:
+  - created: compliance/oss-policy.json
+  - created: scripts/check-oss-compliance.mjs
+  - created: scripts/check-oss-compliance.test.mjs
+  - created: scripts/fixtures/oss-compliance/
+  - modified: src/frontend/build.gradle.kts
+  - modified: build.gradle.kts
+  - created: docs/oss-compliance.md
+  - modified: README.md
+  - modified: CLAUDE.md

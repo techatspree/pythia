@@ -1,0 +1,212 @@
+id: task-208
+phase: phase-18
+title: "Review shipped OSS components, attribution, replacements"
+depends_on: [task-207]
+description: |
+  task-206 lists what Pythia ships (SBOMs); task-207 states what is
+  acceptable (`compliance/oss-policy.json`) and gates the build on it, but
+  deliberately parked every unclear component as an exception with
+  `pendingReview: true`. This task makes the actual compliance JUDGEMENT:
+  every shipped component is either shown to be compatible, or it is
+  replaced. It also meets the obligations that compatibility alone does not
+  cover. A permissive license is compatible, but it still has conditions.
+
+  ## 1. Resolve every pending exception
+
+  For each `pendingReview: true` entry, find the component's REAL license:
+  the upstream repository's LICENSE file at that version, its POM or
+  `package.json`, or the project site, not only the metadata the SBOM
+  copied. Then exactly one of:
+    - **compatible:** set `license` to the SPDX id (or the license's name
+      when there is no SPDX id, e.g. the JDOM license), write a `reason`
+      that names the source checked (URL + version), and set
+      `pendingReview: false`. If the metadata just used a non-SPDX spelling
+      of an allowed license, prefer an `aliases` entry over a per-component
+      exception;
+    - **incompatible:** replace the component (section 3).
+
+  Candidates already visible in task-206's survey (2026-10-13; confirm
+  against the SHIPPED set, since some may be build-only and vanish):
+  `javax.annotation:javax.annotation-api:1.3.2` (no license metadata;
+  upstream is CDDL-1.1 OR GPL-2.0-with-classpath-exception → conditional),
+  `org.jdom:jdom2:2.0.6.1` (the JDOM license, an Apache-style license
+  without the acknowledgement clause → compatible, non-SPDX),
+  `aopalliance:aopalliance:1.0` and `org.jboss:jboss-transaction-spi`
+  ("Public Domain" metadata, verify upstream),
+  `io.smallrye.classfile:jdk-classfile-backport` (GPL-2.0 with Classpath
+  Exception → conditional, as for the JDK itself).
+
+  ## 2. Meet the attribution obligations
+
+  Nearly every license in the allowed and conditional lists requires the
+  copyright notice and license text to accompany a binary distribution.
+  Apache-2.0 additionally requires a dependency's NOTICE to be passed on.
+  Measured 2026-10-13: the SPA bundle in `src/frontend/build/` contains
+  **zero** license or copyright comments, because Vite's minifier strips
+  them. So the frontend image ships MIT code (Svelte, MSAL, svelte-i18n …)
+  without the notice MIT requires. Backend jars mostly carry their own
+  `META-INF/LICENSE`/`NOTICE`, but that is not guaranteed for every jar, and
+  nobody has checked.
+
+  Target: **each image contains a `THIRD-PARTY-LICENSES.txt`** that lists
+  every shipped component (name, version, license) with the full license
+  text and, for Apache-2.0 components, the content of their NOTICE file.
+  The file is generated from that image's application SBOM (task-206) plus
+  the license and notice files of the packages themselves, so it cannot
+  drift from what ships:
+    - frontend: written into the SPA build output, so nginx serves it at
+      `/THIRD-PARTY-LICENSES.txt` and `:frontend:imageBuild` packages it
+      unchanged (the image is made from `src/frontend/build/`);
+    - backend: added to the image next to the application (Quarkus/Jib:
+      the `src/main/jib` directory, or the extension's equivalent; verify
+      that the file actually lands in the image).
+  The texts come from the package files (`node_modules/<pkg>/LICENSE*`, the
+  jar's `META-INF/LICENSE*`/`NOTICE*`). Where a package ships no license
+  file, use the canonical SPDX text for its license id and say so in the
+  entry.
+
+  The generator is one zero-dependency Node script,
+  `scripts/generate-third-party-licenses.mjs`, used for both images. It runs
+  in the build after the SBOMs exist, and its output is deterministic: the
+  same SBOM gives the same file (sorted, no timestamps). The root CLAUDE.md
+  rule against environment- or time-derived content in images applies.
+
+  Our own `NOTICE` (task-145) stays as it is; the third-party file
+  complements it.
+
+  ## 3. Replace what is incompatible
+
+  If section 1 finds a component under a forbidden or unacceptable license,
+  replace it with a compatible alternative, or remove the dependency when it
+  is not really needed. Prefer the smallest change: a different version or
+  artifact of the same library (e.g. a relicensed fork), then an
+  alternative library, then removing the feature use. Each replacement gets
+  its own commit-sized change with tests green, and a line in
+  `docs/oss-compliance.md`. **If nothing is incompatible, nothing is
+  replaced.** Say so explicitly in the report; do not swap a compatible
+  library for its own sake.
+
+  ## 4. The base images, reviewed once
+
+  The image SBOMs (task-206) include the OS packages of the base images
+  (Red Hat UBI 9 OpenJDK runtime; nginx on Alpine). They are not gated
+  (task-207). Review them once and document the conclusion in
+  `docs/oss-compliance.md` → "Base images":
+    - the UBI terms permit redistribution of UBI-based images;
+    - GPL packages in them (e.g. busybox, coreutils, bash) are separate
+      programs shipped side by side, i.e. aggregation, so their license
+      does not extend to Pythia;
+    - the corresponding sources are published by Red Hat and Alpine;
+    - note any package whose license falls outside that pattern.
+
+  No application behaviour, GUI or REST change. If a replacement changes
+  code, that code's tests must stay green.
+
+steps:
+  - |
+    `./gradlew sbom`, then list the pending exceptions:
+      jq -r '.exceptions[] | select(.pendingReview) | .purl' compliance/oss-policy.json
+    and research each as section 1 describes. Record the source checked
+    (URL + version) in its `reason`.
+  - |
+    Apply the outcome to `compliance/oss-policy.json` (resolved exception,
+    alias, or removal after a replacement). Run
+    `node scripts/check-oss-compliance.mjs`: it must pass with no
+    `pendingReview` warnings.
+  - |
+    Replacements (section 3), if any: change the dependency
+    (`src/backend/implementation/build.gradle.kts`, `src/domain/**/build.gradle.kts`
+    or `src/frontend/package.json` + lockfile via plain `npm install`),
+    adapt code, run that module's tests. Document each in
+    `docs/oss-compliance.md` → "Replaced components".
+  - |
+    Write `scripts/generate-third-party-licenses.mjs` (section 2): input an
+    application SBOM plus the directory to read package files from
+    (`src/frontend/node_modules`, or the backend's
+    `build/quarkus-app/lib/**` jars, read with `unzip -p` or Node's zlib),
+    output `THIRD-PARTY-LICENSES.txt`. Sort by component; no timestamps.
+    Unit-test it with `node --test`
+    (`scripts/generate-third-party-licenses.test.mjs`) on fixtures:
+    a package with LICENSE, one without (canonical text used and noted),
+    and an Apache-2.0 one with a NOTICE (NOTICE included).
+  - |
+    Frontend: run the generator after `npmBuild` so the file lands in
+    `src/frontend/build/THIRD-PARTY-LICENSES.txt`, BEFORE
+    `:frontend:imageBuild` (which must depend on it). Backend: generate into
+    the location Quarkus/Jib adds to the image (verify), with
+    `:backend:implementation:imageBuild` depending on it.
+  - |
+    Prove the file is IN both images: build both into the local Docker
+    daemon (`./gradlew :backend:implementation:imageBuild
+    -Dquarkus.container-image.build=true`, `./gradlew :frontend:imageBuild`),
+    then `docker create` + `docker cp` the file out of each and check it
+    lists, e.g., `svelte` and `@azure/msal-browser` (frontend) and
+    `jackson-databind` and `quarkus-core` (backend). Find the backend path
+    first; it depends on where Jib puts it.
+  - |
+    Base images (section 4): generate the image SBOMs locally with Trivy
+    (`trivy image --format cyclonedx` on the two daemon images, if Trivy is
+    installed; otherwise from the last release's image SBOM assets), review
+    the license spread, and write `docs/oss-compliance.md` → "Base images".
+  - |
+    Docs: `docs/oss-compliance.md` gains "Attribution"
+    (`THIRD-PARTY-LICENSES.txt`, where it is in each image, how it is
+    generated), "Base images" and "Replaced components" (or "none,
+    as of <date>"). Root CLAUDE.md: one sentence that both images carry a
+    generated third-party license file which must not be removed.
+  - |
+    ./gradlew :frontend:check, then ./gradlew build, then the Playwright
+    suite (`E2E_LANG=en`, then `de`) against `./scripts/dev.sh` if any
+    dependency was replaced.
+
+validation:
+  - |
+    test "$(jq '[.exceptions[] | select(.pendingReview == true)] | length' compliance/oss-policy.json)" -eq 0
+    jq -e '[.exceptions[] | select((.reason // "") | test("task-208|pending"; "i"))] | length == 0' compliance/oss-policy.json
+  - |
+    ./gradlew sbom
+    node scripts/check-oss-compliance.mjs
+  - |
+    node --test scripts/generate-third-party-licenses.test.mjs
+  - |
+    F=src/frontend/build/THIRD-PARTY-LICENSES.txt
+    test -s "$F"
+    for p in svelte @azure/msal-browser svelte-i18n devalue; do grep -q "$p" "$F" || { echo "missing $p"; exit 1; }; done
+    # every frontend SBOM component is listed
+    for n in $(jq -r '.components[] | if .group then "\(.group)/\(.name)" else .name end' build/sbom/pythia-frontend.cdx.json); do grep -qF "$n" "$F" || { echo "not listed: $n"; exit 1; }; done
+  - |
+    # Deterministic: regenerating gives the same bytes.
+    ./gradlew :frontend:npmBuild -q
+    sha1=$(shasum src/frontend/build/THIRD-PARTY-LICENSES.txt)
+    ./gradlew :frontend:npmBuild --rerun -q
+    test "$sha1" = "$(shasum src/frontend/build/THIRD-PARTY-LICENSES.txt)"
+  - |
+    # In the frontend image.
+    ./gradlew :frontend:imageBuild -q
+    c=$(docker create "pythia/pythia-frontend:$(grep '^version=' gradle.properties | cut -d= -f2)")
+    docker cp "$c:/usr/share/nginx/html/THIRD-PARTY-LICENSES.txt" /tmp/fe-tpl.txt; docker rm "$c" > /dev/null
+    grep -q "svelte" /tmp/fe-tpl.txt
+  - |
+    # In the backend image (path as documented in docs/oss-compliance.md).
+    grep -q "THIRD-PARTY-LICENSES.txt" docs/oss-compliance.md
+  - |
+    grep -q "^## Base images" docs/oss-compliance.md
+    grep -q "^## Attribution" docs/oss-compliance.md
+    grep -qi "^## Replaced components" docs/oss-compliance.md
+    grep -q "THIRD-PARTY-LICENSES" CLAUDE.md
+  - |
+    ./gradlew :frontend:check
+  - |
+    ./gradlew build
+
+outputs:
+  - modified: compliance/oss-policy.json
+  - created: scripts/generate-third-party-licenses.mjs
+  - created: scripts/generate-third-party-licenses.test.mjs
+  - created: scripts/fixtures/third-party-licenses/
+  - modified: src/frontend/build.gradle.kts
+  - modified: src/backend/implementation/build.gradle.kts
+  - modified: docs/oss-compliance.md
+  - modified: CLAUDE.md
+  # Only if section 3 replaces a component:
+  # - modified: src/backend/implementation/build.gradle.kts / src/frontend/package.json / package-lock.json and the code using it

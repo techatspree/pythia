@@ -1219,6 +1219,24 @@
       "started_at": null,
       "completed_at": null,
       "notes": "Fix the npm security audit: source-map-js (high) and postcss-selector-parser (moderate), blocked by an eslint/@eslint/js major mismatch that makes every npm re-resolution fail with ERESOLVE"
+    },
+    "task-206": {
+      "status": "pending",
+      "started_at": null,
+      "completed_at": null,
+      "notes": "Generate CycloneDX SBOMs (backend, frontend bundle, both images) in the build and publish them as release artifacts"
+    },
+    "task-207": {
+      "status": "pending",
+      "started_at": null,
+      "completed_at": null,
+      "notes": "Specify open-source compliance requirements as a policy file and check the SBOMs against it automatically in the build"
+    },
+    "task-208": {
+      "status": "pending",
+      "started_at": null,
+      "completed_at": null,
+      "notes": "Review all shipped open-source components against the policy, meet attribution obligations, and replace incompatible ones"
     }
   }
 }
