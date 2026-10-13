@@ -250,6 +250,39 @@ the log is new:
 | GHSA-pxg6-pf52-xh8x | `cookie <0.7.0` (via `@sveltejs/kit`) | low | Every Kit 2.x declares `cookie: ^0.6.0`; only Kit 3 removes it. Cookie handling runs in a SvelteKit server, which this app does not have. Do not force `cookie@0.7` through npm `overrides`: Kit 2 pins `^0.6.0` deliberately. |
 | GHSA-67mh-4wv8-2f99 | `esbuild <=0.24.2` (via `svelte-i18n`) | moderate | A dev-server flaw, and `svelte-i18n` uses esbuild only for its build-time CLI. npm's only "fix" is a major *downgrade* of `svelte-i18n`. Accepted until `svelte-i18n` updates its esbuild. |
 
+**Applying a fix** (task-205). Run `npm audit fix` in `src/frontend`. Never add
+`--force`: it applies the major "fixes" npm proposes for the accepted findings
+above (Kit 3, new adapter majors, a downgrade of `svelte-i18n`). Then check that
+only the accepted advisories remain and run the full build and Playwright suite.
+
+An `ERESOLVE` from `npm audit fix`, `npm update` or `npm install <pkg>` means a
+**peer-dependency mismatch in `package.json`**. CI never sees one, because
+`npm ci` installs the lockfile without re-resolving peers, so it can sit there
+unnoticed until someone needs to change a dependency. Fix it where it is:
+
+- **Align the versions** when two packages are simply out of step.
+  `@eslint/js` must stay on `eslint`'s major: it is ESLint's own
+  recommended-config package. `@eslint/js` 10 next to `eslint` 9 is what blocked
+  every fix until task-205. When the pair moves to ESLint 10, drop the three
+  rules `eslint.config.js` re-enables after `js.configs.recommended`; they are
+  in 10's recommended set.
+- **Add a targeted `overrides` entry** only when a package's declared peer
+  range is merely stale and the package demonstrably works. There is exactly
+  one: `"openapi-typescript": { "typescript": "$typescript" }`.
+  `openapi-typescript` 7.13.0 (its latest release) declares TypeScript `^5`, but
+  it runs on our TypeScript 6 in every build (`:frontend:genApi`), and the
+  OpenAPI drift gate would catch any change in what it generates. Remove the
+  override once `openapi-typescript` declares TypeScript 6 support.
+  `package.json` cannot carry a comment, so this paragraph is its documentation.
+- **Never `--legacy-peer-deps` or `--force`.** They switch off EVERY peer check
+  and write a lockfile the next person trips over.
+
+npm 11 also prints an `install-scripts` warning for `esbuild` and `fsevents`:
+it no longer runs install scripts it has not been told to approve. Neither
+matters here. That `esbuild` is used only by `svelte-i18n`'s command-line tool,
+which the build never calls, and `fsevents` is an optional macOS
+file-watching helper.
+
 **An IDE can show findings CI does not.** IntelliJ's dependency inspection
 uses Mend.io data, while `npm audit` uses the GitHub Advisory Database, so
 the two lists differ. Kit's Mend-only "Insufficient Information" CVEs are an

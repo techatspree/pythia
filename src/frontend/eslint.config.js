@@ -36,6 +36,18 @@ export default [
 
 	js.configs.recommended,
 
+	// @eslint/js must stay on eslint's major (task-205): `@eslint/js` 10 next to
+	// `eslint` 9 broke every npm re-resolution with ERESOLVE. Its recommended set
+	// had three rules that 9's lacks; they exist in eslint 9 and stay on here, so
+	// the alignment did not weaken the lint. Drop this block with ESLint 10.
+	{
+		rules: {
+			'no-unassigned-vars': 'error',
+			'no-useless-assignment': 'error',
+			'preserve-caught-error': 'error'
+		}
+	},
+
 	...tseslint.configs.recommended.map((c) => ({
 		...c,
 		files: ['**/*.ts']

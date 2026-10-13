@@ -32,14 +32,30 @@ description: |
       npm error ERESOLVE … While resolving: @eslint/js@10.0.1
       Found: eslint@9.39.4 … peerOptional eslint@"^10.0.0" from @eslint/js
 
-  `package.json` declares `eslint@^9.39.4` next to `@eslint/js@^10.0.1`.
+  There are TWO latent peer conflicts, and the second only shows once the
+  first is fixed (found by simulating the fix on a lockfile copy,
+  2026-10-13).
+
+  **Conflict 1:** `package.json` declares `eslint@^9.39.4` next to `@eslint/js@^10.0.1`.
   `@eslint/js` is ESLint's own recommended-config package and is versioned
   in lock-step with it, so the pair belongs to the same major. The mismatch
   has been latent since `@eslint/js` moved to 10. `npm ci` (CI) installs the
   lockfile without re-resolving peers and never notices. Every command that
   re-resolves the tree fails. That includes `npm audit fix`, `npm update`,
-  and adding a dependency (task-204's `@redocly/cli` would hit it too). In
-  practice the project could no longer take a security fix the normal way.
+  and adding a dependency (task-204's `@redocly/cli` and task-206's
+  `rollup-plugin-sbom` would hit it too). In practice the project could no
+  longer take a security fix the normal way.
+
+  **Conflict 2:** with conflict 1 fixed, `npm install` still fails:
+
+      While resolving: openapi-typescript@7.13.0
+      Found: typescript@6.0.3 … peer typescript@"^5.x" from openapi-typescript@7.13.0
+
+  `openapi-typescript` (the generator behind `:frontend:genApi`, task-114)
+  declares TypeScript 5 only, and 7.13.0 IS its latest release, so no
+  upgrade fixes it. Yet it runs on TypeScript 6 in every build today, and the
+  OpenAPI drift gate (`verifyOpenApiSchemaCommitted`) would notice if its
+  output changed. The peer range is stale, not the code broken.
 
   ## Decisions
 
@@ -49,9 +65,19 @@ description: |
      10 is a major upgrade with its own breaking changes and belongs in its
      own task; every plugin here already accepts `^10`
      (`eslint-plugin-svelte`, `typescript-eslint`, `@html-eslint/eslint-plugin`),
-     so that task is not blocked. NEVER resolve this with
-     `--legacy-peer-deps` or `--force`: both write a lockfile with a peer
-     violation that the next person trips over.
+     so that task is not blocked.
+  1a. **A targeted override for conflict 2**, in `src/frontend/package.json`:
+
+         "overrides": { "openapi-typescript": { "typescript": "$typescript" } }
+
+     This tells npm that this ONE package uses the project's own TypeScript.
+     It is acceptable because the behaviour is proven (decision 6), it is
+     scoped to one package, and it is documented with a removal condition:
+     drop it once `openapi-typescript` declares TypeScript 6 support. That is
+     the line between an override and the banned blanket switches. NEVER use
+     `--legacy-peer-deps` or `--force`: they silence EVERY peer check and
+     write a lockfile the next person trips over. Downgrading TypeScript to
+     5 is not an option either.
   2. **Then `npm audit fix` WITHOUT `--force`.** It may only move transitive
      packages within their declared ranges. Expected: `source-map-js` →
      1.2.2, `postcss-selector-parser` → 7.1.6, and nothing else of
@@ -68,12 +94,35 @@ description: |
      `npm audit --audit-level=high` exits 0, and every advisory id in
      `npm audit --json` is one of the two accepted ones. That is the
      state the `security` job is meant to have, so a new finding stands out
-     again.
+     again. If an advisory published AFTER 2026-10-13 shows up, apply the
+     same rule as for the two new ones: fix it if a patch inside the
+     declared range exists (`npm audit fix` will take it), otherwise stop
+     and report it rather than widening the accepted list.
   5. **Document the trap** in `docs/development.md` → "Dependency
      vulnerabilities": how to apply a fix (`npm audit fix`, never
-     `--force`), and that an `ERESOLVE` means a peer mismatch in
-     `package.json` to fix, not to override. `@eslint/js` must stay on the
-     same major as `eslint`.
+     `--force`); that an `ERESOLVE` means a peer mismatch to fix in
+     `package.json`, by aligning versions or, if a package's peer range is
+     merely stale, with a targeted and documented `overrides` entry, never
+     with `--legacy-peer-deps`; that `@eslint/js` must stay on `eslint`'s
+     major; and the `openapi-typescript` override with its reason and
+     removal condition. `package.json` cannot carry a comment, so this
+     paragraph is the override's documentation.
+  6. **Prove the override and the lockfile change are harmless.**
+     `./gradlew :frontend:genApi` must regenerate a byte-identical
+     `schema.d.ts` (the version of `openapi-typescript` does not change). The
+     lockfile may change only in the expected places, as simulated:
+     `@eslint/js` 10.0.1 → 9.39.5, `source-map-js` 1.2.1 → 1.2.2,
+     `postcss-selector-parser` 7.1.4 → 7.1.6, and npm re-nesting two
+     unchanged packages (`esbuild@0.19.12`, including its `@esbuild/*`
+     platform packages, moves under `svelte-i18n`, its only user;
+     `yaml@1.10.3` moves under `postcss-load-config`). Anything else is
+     reported, not accepted.
+  7. **The tree is resolvable again**, which is the property task-204 and
+     task-206 depend on: a plain `npm install` completes with no `ERESOLVE`.
+     npm 11 may additionally print an `install-scripts` warning about
+     `esbuild`'s postinstall. That is npm's new install-script approval; the
+     esbuild in question is used only by `svelte-i18n`'s command-line tool,
+     which the build never calls. Leave it and mention it in the docs.
 
   No source code changes, no GUI, no logging. Out of scope: the ESLint 10
   upgrade, Kit 3, and gating the `security` job.
@@ -90,18 +139,26 @@ steps:
       ./node_modules/.bin/eslint . -f json -o <scratch>/eslint-before.json || true
       jq '[.[] | .errorCount + .warningCount] | add' <scratch>/eslint-before.json
   - |
+    Save the current lockfile's package list for step 5's comparison:
+      jq -r '.packages | to_entries[] | "\(.key)@\(.value.version)"' src/frontend/package-lock.json | sort > <scratch>/lock-before.txt
+  - |
     In `src/frontend/package.json`, set `"@eslint/js": "^9.39.5"` (decision 1)
-    and run `npm install` in `src/frontend`. It must complete WITHOUT
-    `--legacy-peer-deps`/`--force` and without an ERESOLVE. Confirm with
-    `npm ls @eslint/js eslint` that both are on 9.x and that `npm ls` reports
-    no invalid or missing peer.
+    and add the `overrides` entry from decision 1a. Run `npm install` in
+    `src/frontend`. It must complete WITHOUT `--legacy-peer-deps`/`--force`
+    and without an ERESOLVE. Confirm with `npm ls @eslint/js eslint
+    openapi-typescript typescript` that `@eslint/js` and `eslint` are both
+    on 9.x and that `npm ls` reports no invalid or missing peer.
   - |
     Run `npm audit fix` (no `--force`, decision 2) in `src/frontend`. Then
     check: `npm ls source-map-js` shows only 1.2.2, `npm ls
-    postcss-selector-parser` shows only ≥ 7.1.6, and `git diff --stat
-    src/frontend/package.json` shows no change beyond the `@eslint/js` line.
-    If `audit fix` wants to change anything else, stop and report rather than
-    accept it.
+    postcss-selector-parser` shows only ≥ 7.1.6, and `git diff
+    src/frontend/package.json` shows nothing beyond the `@eslint/js` line and
+    the `overrides` block. Compare the lockfile's package list with
+    `<scratch>/lock-before.txt` (decision 6). If `audit fix` wants to change
+    anything else, stop and report rather than accept it.
+  - |
+    Prove the override harmless (decision 6): `./gradlew :frontend:genApi`,
+    then `git diff --exit-code src/frontend/src/lib/api/` must be empty.
   - |
     `npm audit --audit-level=high` must exit 0, and the advisory ids left
     must be exactly the accepted two (decision 4; see validation).
@@ -116,8 +173,10 @@ steps:
     `npm audit fix` in `src/frontend`, never `--force` (it applies the
     major "fixes" the accepted table rejects); an `ERESOLVE` means a peer
     mismatch in `package.json` to fix, not to override with
-    `--legacy-peer-deps`; `@eslint/js` must stay on `eslint`'s major
-    (task-205). Leave the accepted-findings table as it is: both entries
+    `--legacy-peer-deps`; `@eslint/js` must stay on `eslint`'s major; the
+    `openapi-typescript` override, why it is safe and when to remove it; the
+    npm 11 `install-scripts` warning about `esbuild` (decision 7). Reference
+    task-205. Leave the accepted-findings table as it is: both entries
     still apply.
   - |
     ./gradlew :frontend:check, then ./gradlew build, then the Playwright
@@ -129,7 +188,8 @@ validation:
     cd src/frontend
     jq -e '.devDependencies["@eslint/js"] | test("^\\^9\\.")' package.json
     jq -e '.devDependencies.eslint | test("^\\^9\\.")' package.json
-    npm ls @eslint/js eslint > /dev/null
+    jq -e '.overrides["openapi-typescript"].typescript == "$typescript"' package.json
+    npm ls @eslint/js eslint openapi-typescript typescript > /dev/null
   - |
     cd src/frontend
     test "$(npm ls source-map-js --json | jq -r '[.. | objects | select(has("version")) | select(.version|test("^1\\.2\\.[01]$"))] | length')" -eq 0
@@ -151,8 +211,30 @@ validation:
     jq -e '.devDependencies["@sveltejs/kit"] | test("^\\^2\\.")' package.json
     test "$(jq -r '.version' node_modules/svelte-i18n/package.json | cut -d. -f1)" -ge 4
   - |
+    # The tree is resolvable again (decision 7): a plain install re-resolves
+    # without ERESOLVE and leaves the lockfile as it is.
+    cd src/frontend
+    npm install --package-lock-only --ignore-scripts
+    git diff --quiet -- package-lock.json || git diff --stat -- package-lock.json
+  - |
+    # Lockfile changed only where expected (decision 6), relative to HEAD.
+    cd src/frontend
+    git show HEAD:src/frontend/package-lock.json | jq -r '.packages | to_entries[] | "\(.key)@\(.value.version)"' | sort > /tmp/lock-head.txt
+    jq -r '.packages | to_entries[] | "\(.key)@\(.value.version)"' package-lock.json | sort > /tmp/lock-now.txt
+    unexpected=$(diff /tmp/lock-head.txt /tmp/lock-now.txt | grep '^[<>]' \
+      | grep -vE ' node_modules/(@eslint/js|source-map-js|postcss-selector-parser|yaml|esbuild|@esbuild/[a-z0-9-]+)@' \
+      | grep -vE ' node_modules/svelte-i18n/node_modules/(esbuild|@esbuild/[a-z0-9-]+)@0\.19\.12$' \
+      | grep -vE ' node_modules/postcss-load-config/node_modules/yaml@1\.10\.3$' || true)
+    test -z "$unexpected" || { echo "unexpected lockfile changes:"; echo "$unexpected"; exit 1; }
+  - |
+    # The override changed nothing the generator produces.
+    ./gradlew :frontend:genApi -q
+    git diff --exit-code -- src/frontend/src/lib/api/
+  - |
     grep -q "task-205" docs/development.md
     grep -q -- "--legacy-peer-deps" docs/development.md
+    grep -q "openapi-typescript" docs/development.md
+    grep -q "overrides" docs/development.md
   - |
     ./gradlew :frontend:lintE2e
   - |
@@ -166,5 +248,6 @@ validation:
 
 outputs:
   - modified: src/frontend/package.json
+  - modified: src/frontend/eslint.config.js   # re-enables the 3 rules of @eslint/js 10's recommended set that 9's lacks
   - modified: src/frontend/package-lock.json
   - modified: docs/development.md

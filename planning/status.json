@@ -1215,9 +1215,9 @@
       "notes": "Add Redocly (recommended ruleset) as a blocking OpenAPI lint gate in check and staticAnalysis"
     },
     "task-205": {
-      "status": "pending",
-      "started_at": null,
-      "completed_at": null,
+      "status": "done",
+      "started_at": "2026-10-13T17:57:24+00:00",
+      "completed_at": "2026-10-13T18:04:13+00:00",
       "notes": "Fix the npm security audit: source-map-js (high) and postcss-selector-parser (moderate), blocked by an eslint/@eslint/js major mismatch that makes every npm re-resolution fail with ERESOLVE"
     },
     "task-206": {

@@ -21,7 +21,7 @@
     "lint:report": "node -e \"require('fs').mkdirSync('reports',{recursive:true})\" && (eslint . -f json -o reports/eslint.json || true) && (eslint . -f html -o reports/eslint.html || true)"
   },
   "devDependencies": {
-    "@eslint/js": "^10.0.1",
+    "@eslint/js": "^9.39.5",
     "@html-eslint/eslint-plugin": "^0.62.0",
     "@html-eslint/parser": "^0.62.0",
     "@playwright/test": "^1.59.1",
@@ -48,5 +48,10 @@
     "loglevel": "^1.9.2",
     "svelte-dnd-action": "^0.9.69",
     "svelte-i18n": "^4.0.1"
+  },
+  "overrides": {
+    "openapi-typescript": {
+      "typescript": "$typescript"
+    }
   }
 }
