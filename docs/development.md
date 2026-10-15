@@ -560,3 +560,14 @@ It **restores the language preference it found** when it finishes, failures incl
 `gen:screenshots` is safe to run before the Playwright suite. Without that the suite meets
 an English UI and fails 28 of its German text assertions, with nothing in the output
 pointing back at the screenshots (task-180).
+
+**Capture from a freshly started stack, and nothing else first.** The shots are
+reproducible byte for byte from ANY fresh dev stack (task-181 proved it across two
+restarts): the seed is deterministic, ids included (task-212), and the levelled schedule
+follows the tree order rather than random ids (task-211). A long-lived dev database is
+not: edits made through the UI, or an e2e run, change what the screens show, and the
+e2e reset `DELETE /api/dev/test-data` keeps the seeded projects including those edits.
+So stop the stack, make sure :8090, :5173 and :5432 are free — otherwise a new
+`dev.sh` cannot bind PostgreSQL and the capture silently runs against whatever stack
+holds the ports — start `./scripts/dev.sh`, and run `npm run gen:screenshots` before
+anything else.

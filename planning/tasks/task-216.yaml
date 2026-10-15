@@ -1,0 +1,152 @@
+id: task-216
+phase: phase-20
+title: "Zero-length leaves must not stretch a phase window"
+depends_on: [task-211]
+description: |
+  A phase's window in the levelled plan (`PhaseWindow`, task-177) is the span
+  of that phase's scheduled leaves: `phaseWindowsOf` in
+  `src/domain/core/src/main/kotlin/io/pythia/model/ProjectSchedule.kt` takes
+  the earliest start and the latest finish over EVERY scheduled leaf carrying
+  the phase. That includes leaves with zero effort, i.e. items nobody has
+  estimated yet (min = likely = max = 0), which occupy no time but still sit
+  at some point on the timeline.
+
+  Found 2026-10-15 while recapturing the screenshots (task-181). In the
+  seeded Webshop draft, group "U05: Noch zu schätzen" holds four 0/0/0 items,
+  three in phase UM and "Mehrsprachigkeit (i18n)" in phase KO. Since task-211
+  levels by tree order, U05 (listed last) is placed last, around day 29.
+  So the KO window runs from day 0 to about day 29 instead of ending with KO's
+  real work (about day 9.8), and the Gantt draws the KO accompanying work
+  "Projektbegleitung" across nearly the whole plan.
+
+  ## Why it matters beyond the picture
+
+  - **An AUTOMATIC phase takes its length from this window**
+    (`PhaseWindow.durationWeeks`, which `PhasesPanel` writes back, task-177).
+    Accompanying work's effort is `PERT(min, likely, max) × phase.durationWeeks`.
+    So adding an unestimated placeholder to an AUTOMATIC phase can lengthen
+    the phase, and with it the accompanying effort, the cost and the offer
+    price, merely by where the placeholder ends up in the levelling order.
+  - The window then depends on something unrelated to the phase's work:
+    task-211 made the levelling order the tree order, so moving the
+    placeholder group up or down moves the phase window.
+
+  ## Target
+
+  A leaf contributes to its phase's window only if it has DURATION: its
+  levelled `earliestFinish - earliestStart` is greater than
+  `CRITICAL_SLACK_EPSILON` (the existing tolerance in the same file). Zero-length
+  leaves are still scheduled and still drawn on the Gantt as the thin markers
+  they are now; they only stop defining when a phase starts and ends.
+
+  - `scheduledLeafCount` counts the CONTRIBUTING leaves. A phase whose
+    scheduled leaves all have zero length therefore has no window, which is
+    exactly the existing "no scheduled work" case: `PhasesPanel` already
+    explains it (`phase-no-window`, task-177) instead of rendering 0 weeks,
+    and `GanttChart` already handles a missing window. That is the honest
+    answer for "only unestimated items", so no UI change is needed.
+  - No change to `ScheduledTask`, to the levelling, to group roll-ups or to
+    the critical chain. `PhaseWindow`'s shape is unchanged, so `domain.d.mts`
+    does not change.
+  - **Expected effect on the seed:** the Webshop draft's KO window ends with
+    KO's estimated work again, so the dashed "Projektbegleitung" bar in
+    `docs/images/schedule-gantt.png` shrinks back. The dependency editor's
+    group spans are untouched (U01 9.8, U02 11.4, U03 11.4, U04 4.3 days),
+    since group spans come from their own children, not from phase windows.
+
+  ## Kotlin Multiplatform
+
+  The change is inside a `private` function of `:domain:core`, which is
+  common code compiled to JVM and JS: no new exported symbol, and common
+  stdlib only. No `super.<computed property>` is involved (that recurses
+  forever on Kotlin/JS, root CLAUDE.md).
+
+  ## Logging
+
+  Extend the existing `computeSchedule` debug log, or add one line in the
+  lambda form, with the number of zero-length leaves left out of the phase
+  windows, e.g.
+  `logger.debug { "schedule(): $ignored zero-length leaf/leaves left out of phase windows" }`,
+  logged only when that number is greater than zero.
+
+steps:
+  - |
+    In `src/domain/core/src/main/kotlin/io/pythia/model/ProjectSchedule.kt`,
+    `phaseWindowsOf`: after resolving each leaf's forward state, keep only
+    states with `earliestFinish - earliestStart > CRITICAL_SLACK_EPSILON`
+    before grouping by phase. Update the KDoc of `PhaseWindow` (and of
+    `phaseWindowsOf`, if it has one) to say that zero-length leaves do not
+    shape a window and are not counted in `scheduledLeafCount` (task-216),
+    and why: an unestimated placeholder must not set a phase's length, which
+    an AUTOMATIC phase and its accompanying work's effort derive from.
+  - |
+    Add the debug log described above. Compute the count where the windows are
+    computed, or pass it out, without changing `PhaseWindow`'s shape.
+  - |
+    Tests in `src/domain/src/test/kotlin/io/pythia/model/ProjectScheduleTest.kt`,
+    next to `a phase window spans exactly that phase's scheduled leaves`:
+      - `a zero-length leaf does not stretch its phase window`: one worker,
+        phase KO with a 10-day leaf, and after it in the tree a 0/0/0 leaf
+        also in KO that the levelling places later. The KO window is [0, 10]
+        and `scheduledLeafCount` is 1;
+      - `a phase with only zero-length leaves has no window`: a phase whose
+        only scheduled leaf is 0/0/0 does not appear in `phaseWindows`;
+      - `a zero-length leaf is still scheduled`: the 0/0/0 leaf from the
+        first test is still in `tasks`, with `durationDays == 0.0`;
+      - the existing phase-window tests stay green unchanged. If one changes,
+        it relied on a zero-length leaf; say so in its comment.
+  - |
+    Update `src/domain/CLAUDE.md`, the task-177 paragraph on accompanying work
+    and AUTOMATIC phases: one sentence that a phase window is spanned by the
+    phase's scheduled leaves WITH duration only, and why (task-216).
+  - |
+    Build the domain and its consumers:
+      ./gradlew :domain:build
+      ./gradlew :frontend:check
+  - |
+    The Gantt screenshot changes materially, so recapture the screenshots by
+    the documented procedure (`docs/development.md` → `gen:screenshots`:
+    check that :8090 / :5173 / :5432 are free, start a fresh `./scripts/dev.sh`,
+    run `npm run gen:screenshots` before anything else, and stop only the
+    `dev.sh` you started). Open `docs/images/schedule-gantt.png`: the dashed
+    "Projektbegleitung" bar now ends with KO's estimated work. Only
+    `schedule-gantt.png` should differ from the committed set; if another
+    shot changes, explain why before keeping it.
+  - |
+    Run the schedule e2e spec against that stack, in both languages, before
+    stopping it:
+      cd src/frontend && E2E_LANG=en npx playwright test e2e/schedule.test.ts
+      cd src/frontend && E2E_LANG=de npx playwright test e2e/schedule.test.ts
+  - |
+    Final:
+      ./gradlew build
+
+validation:
+  - |
+    F=src/domain/core/src/main/kotlin/io/pythia/model/ProjectSchedule.kt
+    sed -n '/private fun phaseWindowsOf/,/^}/p' "$F" | grep -q "CRITICAL_SLACK_EPSILON"
+    grep -q "task-216" "$F"
+    grep -q "zero-length" "$F"
+  - |
+    T=src/domain/src/test/kotlin/io/pythia/model/ProjectScheduleTest.kt
+    grep -q "a zero-length leaf does not stretch its phase window" "$T"
+    grep -q "a phase with only zero-length leaves has no window" "$T"
+    grep -q "a zero-length leaf is still scheduled" "$T"
+  - |
+    grep -q "task-216" src/domain/CLAUDE.md
+  - |
+    # no exported surface change
+    ! git diff --quiet HEAD -- src/domain/core/src/main/kotlin/io/pythia/model/ProjectSchedule.kt
+    git diff HEAD -- src/domain/core/src/main/kotlin/io/pythia/model/ProjectSchedule.kt | grep -E "^[-+].*(data class PhaseWindow|val (abbreviation|earliestStart|earliestFinish|scheduledLeafCount))" && exit 1 || true
+  - |
+    ./gradlew :domain:build
+  - |
+    ./gradlew :frontend:check
+  - |
+    ./gradlew build
+
+outputs:
+  - modified: src/domain/core/src/main/kotlin/io/pythia/model/ProjectSchedule.kt
+  - modified: src/domain/src/test/kotlin/io/pythia/model/ProjectScheduleTest.kt
+  - modified: src/domain/CLAUDE.md
+  - modified: docs/images/schedule-gantt.png

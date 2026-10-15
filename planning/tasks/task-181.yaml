@@ -4,8 +4,9 @@ title: "Recapture the screenshots, reproducible from any fresh seed"
 depends_on: [task-180, task-187, task-211, task-212]
 description: |
   The committed screenshots in `docs/images/` cannot be regenerated without an
-  unexplained diff, and one of them shows nothing at all. This task recaptures
-  all six once the causes are fixed (task-211, task-212). It proves they are
+  unexplained diff, and one of them shows nothing at all. This task drops that
+  one (`version-compare.png`, see below) and recaptures the remaining five
+  once the causes are fixed (task-211, task-212). It proves they are
   reproducible across FRESH stacks, not only across repeated captures on one
   stack, and writes the procedure down.
 
@@ -65,30 +66,45 @@ description: |
       `/estimations/{id}/compare?a=1&b=draft` after `networkidle` + 900 ms,
       and the comparison never appears. No document references this image
       (`grep -rn version-compare.png README.md docs/` is empty), which is
-      presumably why nobody noticed. Whether this is a capture-timing problem
-      or a broken page is NOT known yet. Finding out is part of this task.
+      presumably why nobody noticed. **Decided 2026-10-15: the shot is
+      DROPPED**, not fixed. Even once it loads it would be meaningless:
+      `VersionComparisonService` matches nodes by `logicalId`, and the seeder
+      builds the Webshop draft from its own nodes rather than copying
+      version 1 (task-212), so the two share no id and the comparison would
+      list every item as both removed and added. Making the seeded draft a
+      real continuation of version 1 would be a separate decision.
 
   ## Key decisions already made
 
-  - **Recapture all six.** For each shot that changes, say what differs and
+  - **Drop `version-compare.png`:** delete the file and its `shoot(…)` call
+    in `capture-screenshots.mjs`, and fix the script's header comment and its
+    closing "6 screenshots" message.
+  - **Recapture the remaining five.** For each shot that changes, say what differs and
     why: task-211's new order, the task-186 seed change, or rendering noise.
     An unexplained content change is reported, not committed.
   - **Pristine means a freshly started stack**, i.e. the backend restarted so
     `drop-and-create` re-seeds, with nothing done before capturing. The e2e
     reset `DELETE /api/dev/test-data` (task-176) is NOT a substitute: it
     keeps the seeded projects, including any edits made to them.
+  - **The stack must be THIS task's own.** If another `dev.sh` already holds
+    :8090 / :5173 / :5432, a new `dev.sh` fails to bind PostgreSQL, Vite moves
+    to another port, and `gen:screenshots` silently captures the OTHER stack's
+    long-lived database. That happened once on 2026-10-15 (task-187 work),
+    and here it would reproduce exactly the drift this task removes. So check
+    the three ports are free before each start, and stop only the `dev.sh`
+    this task started (its parent process is this session), never another.
+  - **Expected numbers.** task-211 measured the seeded Webshop draft's
+    dependency editor after the tree-order fix: U01 9.8, U02 11.4, U03 11.4,
+    U04 4.3 days, planned length 32.5 days. The new `schedule-dependencies.png`
+    must show those spans; a difference means something changed since and is
+    explained before committing.
+  - **The bucket shot** keeps its capture as it is (`DP-2026-001`, draft,
+    which opens in the bucket view with bucket rows collapsed). After task-187
+    it must show the "Begleitende Leistungen" row next to the bucket rows.
   - **Prove reproducibility ACROSS fresh stacks:** capture on stack A, stop it
     (SIGTERM), start stack B, capture again, and require identical SHA-256
-    hashes for all six. Two captures on one stack prove nothing new; that is
+    hashes for all five. Two captures on one stack prove nothing new; that is
     exactly what misled task-180.
-  - **version-compare:** the capture script is tooling, so fixing its WAIT is
-    in scope. Wait for the comparison's own content (a `data-testid` the
-    compare view renders once loaded) instead of a fixed timeout, and refuse
-    to write the shot while "Loading…" is showing, like `refuseEmpty` does
-    for the schedule. If the page never loads even when given time, that is
-    a product bug and is out of scope: do NOT commit the image, report it
-    with what the browser console/network shows, and propose a follow-up
-    task.
   - **The note** belongs in `docs/development.md`, next to the
     `gen:screenshots` paragraph (task-180 added one there). It says that the
     shots are reproducible from any freshly started dev stack because the
@@ -100,31 +116,37 @@ steps:
     Confirm the dependencies are in: `jq -r '.tasks["task-187"].status, .tasks["task-211"].status, .tasks["task-212"].status' planning/status.json`
     prints `done` three times (task-187 adds the accompanying-work row the bucket-editor shot must show). Do not start otherwise.
   - |
-    Fix the version-compare capture in `src/frontend/scripts/capture-screenshots.mjs`.
-    Open `${APP}/estimations/<pert id>/compare?a=1&b=draft` in a browser on a
-    running dev stack, find the `data-testid` of the loaded comparison (read
-    the compare route under `src/frontend/src/routes/estimations/[id]/compare/`),
-    and pass a `prepare` that waits for it (`await p.locator('[data-testid="…"]').waitFor()`)
-    and throws if the loading text is still showing. Use a testid, never the
-    translated "Loading…" text. If it never loads, stop as described under
-    "Key decisions".
+    Drop the compare shot: delete `docs/images/version-compare.png`, remove
+    its `shoot(…)` line from `src/frontend/scripts/capture-screenshots.mjs`,
+    and update that script's header comment ("Five of the six shots …") and
+    its closing message ("6 screenshots") to the new count of five.
   - |
-    Stack A: stop any running `./scripts/dev.sh` with SIGTERM (never `pkill`
-    the child JVMs), start it fresh, run nothing else, then
-    `cd src/frontend && npm run gen:screenshots`. Save
-    `shasum -a 256 docs/images/*.png > /tmp/shots-a.sha256` and a copy of the
-    six PNGs outside the repo.
+    Stack A. First make sure no other stack is running:
+      curl -s -o /dev/null -w '%{http_code}' --max-time 3 localhost:8090/q/health   # must not be 200
+      curl -s -o /dev/null -w '%{http_code}' --max-time 3 localhost:5173            # must not be 200
+      nc -z localhost 5432 && echo "5432 IN USE — stop: another stack is running"
+    If any is in use, do NOT continue and do NOT stop it: it is someone
+    else's stack. Report it and wait. Otherwise start `./scripts/dev.sh`,
+    check its log shows Vite on :5173 (not "Port 5173 is in use"), run
+    nothing else, then `cd src/frontend && npm run gen:screenshots` and save
+      mkdir -p build/screenshots && shasum -a 256 docs/images/*.png > build/screenshots/shots-a.sha256
+    plus a copy of the five PNGs outside the repo.
   - |
-    Stack B: stop with SIGTERM, start fresh again, run `gen:screenshots`
-    again, and save `shasum -a 256 docs/images/*.png > /tmp/shots-b.sha256`.
-    `cmp /tmp/shots-a.sha256 /tmp/shots-b.sha256` must succeed. If it does
-    not, find which shot differs and why before going on.
+    Stack B: stop stack A by SIGTERM to the `dev.sh` THIS task started (find it
+    with `pgrep -f scripts/dev.sh` and check its parent process; never
+    `pkill`, never another stack's), confirm 5432 is free again, start fresh,
+    run `gen:screenshots` again, and save
+    `shasum -a 256 docs/images/*.png > build/screenshots/shots-b.sha256`.
+    `cmp build/screenshots/shots-a.sha256 build/screenshots/shots-b.sha256`
+    must succeed. If it does not, find which shot differs and why before
+    going on.
   - |
     Inspect every PNG by opening it. The dependency editor shows the four
-    linked group boxes plus the isolated "U05: Noch zu schätzen". The Gantt
-    shows the pinned 2026-03-02 start, a dark-green critical chain and the
-    dashed "Projektbegleitung" row. The compare shot shows an actual
-    comparison. Compare each with the committed version and state what
+    linked group boxes with the expected spans (U01 9.8, U02 11.4, U03 11.4,
+    U04 4.3 days) plus the isolated "U05: Noch zu schätzen". The Gantt shows
+    the pinned 2026-03-02 start, a dark-green critical chain and the dashed
+    "Projektbegleitung" row. The bucket editor shows the "Begleitende
+    Leistungen" row. Compare each with the committed version and state what
     changed and why (see "The other shots").
   - |
     Re-read the alt texts of the shots in `README.md` and `docs/scheduling.md`
@@ -134,8 +156,8 @@ steps:
     Write the note into `docs/development.md` next to the `gen:screenshots`
     paragraph, as described under "Key decisions".
   - |
-    Stop the dev stack with SIGTERM and confirm no orphaned Dev Services
-    PostgreSQL container is left holding 5432.
+    Stop the stack this task started (SIGTERM to its own `dev.sh`) and confirm
+    no orphaned Dev Services PostgreSQL container is left holding 5432.
   - |
     Run the gate and the full build:
       ./gradlew :frontend:check
@@ -145,9 +167,14 @@ validation:
   - |
     jq -e '.tasks["task-187"].status == "done" and .tasks["task-211"].status == "done" and .tasks["task-212"].status == "done"' planning/status.json
   - |
-    All six screenshots are present, real PNGs, and none is a blank or failed
+    The compare shot is gone, from the images and from the script:
+      test ! -e docs/images/version-compare.png
+      ! grep -q "version-compare" src/frontend/scripts/capture-screenshots.mjs
+      ! grep -q "6 screenshots" src/frontend/scripts/capture-screenshots.mjs
+  - |
+    All five screenshots are present, real PNGs, and none is a blank or failed
     capture:
-      test "$(ls docs/images/*.png | wc -l)" -eq 6
+      test "$(ls docs/images/*.png | wc -l)" -eq 5
       for f in docs/images/*.png; do
         test "$(wc -c < "$f")" -gt 15000
         head -c 8 "$f" | od -An -tx1 | tr -d ' \n' | grep -q "^89504e470d0a1a0a$"
@@ -167,15 +194,11 @@ validation:
       done
   - |
     REPRODUCIBLE ACROSS FRESH STACKS (from steps 3 and 4): both captures
-    exist, hash all six, and agree, and the committed images are those
+    exist, hash all five, and agree, and the committed images are those
     captures:
-      test "$(wc -l < /tmp/shots-a.sha256)" -eq 6
-      cmp /tmp/shots-a.sha256 /tmp/shots-b.sha256
-      shasum -a 256 docs/images/*.png | cmp - /tmp/shots-b.sha256
-  - |
-    The version-compare capture waits for real content, by testid:
-      F=src/frontend/scripts/capture-screenshots.mjs
-      grep -A6 "version-compare.png" "$F" | grep -q "data-testid"
+      test "$(wc -l < build/screenshots/shots-a.sha256)" -eq 5
+      cmp build/screenshots/shots-a.sha256 build/screenshots/shots-b.sha256
+      shasum -a 256 docs/images/*.png | cmp - build/screenshots/shots-b.sha256
   - |
     The procedure is written down next to the workflow it constrains:
       W=$(grep -iE -A20 "gen:screenshots" docs/development.md)
@@ -189,11 +212,11 @@ validation:
 
 outputs:
   - modified: src/frontend/scripts/capture-screenshots.mjs
+  - deleted: docs/images/version-compare.png
   - modified: docs/images/schedule-dependencies.png
   - modified: docs/images/schedule-gantt.png
-  - modified: docs/images/version-compare.png
   - modified: docs/images/bucket-editor.png
-  # Rendering noise only; committed with the set so all six come from one capture:
+  # Rendering noise only; committed with the set so all five come from one capture:
   - modified: docs/images/estimation-editor.png
   - modified: docs/images/session-room.png
   - modified: docs/development.md
