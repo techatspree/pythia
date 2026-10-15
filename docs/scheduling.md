@@ -64,6 +64,12 @@ slots and levels the work across them: at most that many real items are ever in
 flight at once, and an item starts when both its predecessors are finished
 **and** a worker is free.
 
+When more items are ready than there are free workers, the item listed
+**first** in the estimate's tree gets the worker. So moving items up or down
+can change a plan whose team is the bottleneck, and that is deliberate: the
+order you arranged the work in is its priority. Renaming items or importing the
+same estimate again does not change the plan (task-211).
+
 A fractional team size rounds down, with a floor of one — 2.5 people schedule
 as two concurrent workers, because half a person cannot take an item.
 

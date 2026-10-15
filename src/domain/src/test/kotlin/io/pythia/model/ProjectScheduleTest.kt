@@ -597,4 +597,65 @@ class ProjectScheduleTest {
         assertTrue(schedule.phaseWindows.none { it.abbreviation == "PM" })
         assertEquals(1, schedule.phaseWindows.single { it.abbreviation == "KO" }.scheduledLeafCount)
     }
+
+    // ------------------------------------------------- levelling priority (task-211)
+    //
+    // The helpers above use ids that are alphabetical in tree order, which is
+    // exactly why levelling by id order looked correct here for so long. These
+    // tests break that coincidence on purpose.
+
+    @Test
+    fun `the item listed FIRST gets the worker first, whatever its id`() {
+        // "z" sorts after "a" but is listed first. Before task-211 "a" started first.
+        val schedule = versionOf(unit("z", 10.0), unit("a", 4.0)).schedule(emptyList(), teamFte = 1.0)
+
+        assertEquals(0.0, schedule.task(leafId("z")).earliestStart, delta)
+        assertEquals(10.0, schedule.task(leafId("a")).earliestStart, delta)
+    }
+
+    @Test
+    fun `relabelling logicalIds does not change the schedule`() {
+        // A diamond plus two independent units, two workers: the team is the
+        // bottleneck, so the levelling order decides the dates. The second copy
+        // inverts the id order completely.
+        val names = listOf("a", "b", "c", "d", "e", "f")
+        val scrambled = names.associateWith { "z" + ('f' - (it[0] - 'a')) }
+        fun build(id: (String) -> String): ProjectSchedule = versionOf(
+            unit(id("a"), 10.0), unit(id("b"), 20.0), unit(id("c"), 5.0),
+            unit(id("d"), 10.0), unit(id("e"), 7.0), unit(id("f"), 3.0)
+        ).schedule(
+            listOf(dep(id("a"), id("b")), dep(id("a"), id("c")), dep(id("b"), id("d")), dep(id("c"), id("d"))),
+            teamFte = 2.0
+        )
+
+        val plain = build { it }
+        val relabelled = build { scrambled.getValue(it) }
+
+        // Positionally: the ids differ, the plan must not.
+        assertEquals(plain.tasks.map { it.earliestStart }, relabelled.tasks.map { it.earliestStart })
+        assertEquals(plain.tasks.map { it.earliestFinish }, relabelled.tasks.map { it.earliestFinish })
+        assertEquals(plain.tasks.map { it.onCriticalPath }, relabelled.tasks.map { it.onCriticalPath })
+        assertEquals(plain.projectDurationDays, relabelled.projectDurationDays, delta)
+        assertEquals(plain.expectedDurationDays, relabelled.expectedDurationDays, delta)
+        assertEquals(plain.durationStdDevDays, relabelled.durationStdDevDays, delta)
+    }
+
+    @Test
+    fun `reordering the tree changes who is levelled first`() {
+        val pFirst = versionOf(unit("p", 6.0), unit("q", 3.0)).schedule(emptyList(), teamFte = 1.0)
+        val qFirst = versionOf(unit("q", 3.0), unit("p", 6.0)).schedule(emptyList(), teamFte = 1.0)
+
+        assertEquals(0.0, pFirst.task(leafId("p")).earliestStart, delta)
+        assertEquals(6.0, pFirst.task(leafId("q")).earliestStart, delta)
+        assertEquals(0.0, qFirst.task(leafId("q")).earliestStart, delta)
+        assertEquals(3.0, qFirst.task(leafId("p")).earliestStart, delta)
+    }
+
+    @Test
+    fun `a group's children are prioritised in their own order`() {
+        val schedule = versionOf(groupOf("g", "z" to 5.0, "a" to 2.0)).schedule(emptyList(), teamFte = 1.0)
+
+        assertEquals(0.0, schedule.task(leafId("z")).earliestStart, delta)
+        assertEquals(5.0, schedule.task(leafId("a")).earliestStart, delta)
+    }
 }

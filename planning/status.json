@@ -1251,9 +1251,9 @@
       "notes": "Open-source notices dialog listing every shipped OSS component with license and copyright holders, generated from the SBOM"
     },
     "task-211": {
-      "status": "pending",
-      "started_at": null,
-      "completed_at": null,
+      "status": "done",
+      "started_at": "2026-10-15T11:53:57+00:00",
+      "completed_at": "2026-10-15T12:14:15+00:00",
       "notes": "Schedule levelling uses the tree order as priority instead of random logicalId order"
     },
     "task-212": {

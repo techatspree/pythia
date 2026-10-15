@@ -136,7 +136,12 @@ private class TreeNode(
     val parentLogicalId: String?,
     val depth: Int,
     /** Every leaf beneath this node; the node itself when it is a leaf. */
-    val subtreeLeafIds: List<String>
+    val subtreeLeafIds: List<String>,
+    /**
+     * Depth-first position in the FULL tree, accompanying work included, so
+     * excluding a leaf shifts nobody's rank. The levelling priority (task-211).
+     */
+    val treeIndex: Int
 ) {
     // Derived rather than copied: EstimationNode already accumulates these over
     // its subtree, so duplicating them into fields would be a second copy to
@@ -172,7 +177,12 @@ private class GraphNode(
      * consumes NO worker. Flagged explicitly rather than inferred from a zero
      * duration — a real leaf may legitimately have zero effort.
      */
-    val isMilestone: Boolean
+    val isMilestone: Boolean,
+    /**
+     * Levelling priority: the node's tree position, a group's milestones taking
+     * the group's (task-211). Lower is served first.
+     */
+    val rank: Int
 )
 
 /**
@@ -245,7 +255,7 @@ internal fun computeSchedule(
         .toSet()
 
     val graph = buildGraph(tree, byId, drawn)
-    val order = topologicalOrder(graph.nodes.map { it.id }, graph.edges)
+    val order = topologicalOrder(graph.nodes, graph.edges)
     if (order.size < graph.nodes.size) {
         val stuck = cycleIdsInUserTerms(graph.nodes.map { it.id } - order.toSet(), drawn)
         logger.debug { "schedule(): dependency cycle over ${stuck.size} node(s): $stuck" }
@@ -260,6 +270,7 @@ internal fun computeSchedule(
     // a floor of one, so 2.5 people schedule as 2 concurrent workers.
     val slots = max(1, floor(teamFte).toInt())
     val forward = forwardPass(order, nodeById, predecessors, slots)
+    logger.debug { "schedule(): levelled ${order.size} graph node(s) by tree order, $slots slot(s)" }
     val projectDurationDays = forward.values.maxOfOrNull { it.earliestFinish } ?: 0.0
     val latestFinish = backwardPass(order, nodeById, successors, projectDurationDays)
 
@@ -318,7 +329,8 @@ private fun indexTree(roots: List<EstimationNode>): List<TreeNode> {
                 node = node,
                 parentLogicalId = parentId,
                 depth = depth,
-                subtreeLeafIds = node.leaves().map { it.logicalId }.toList()
+                subtreeLeafIds = node.leaves().map { it.logicalId }.toList(),
+                treeIndex = out.size
             )
         )
         children.forEach { visit(it, node.logicalId, depth + 1) }
@@ -350,13 +362,18 @@ private fun buildGraph(
 
     tree.forEach { node ->
         if (node.isGroup) {
-            nodes.add(GraphNode("${node.logicalId}#start", 0.0, 0.0, 0.0, isMilestone = true))
-            nodes.add(GraphNode("${node.logicalId}#finish", 0.0, 0.0, 0.0, isMilestone = true))
+            nodes.add(GraphNode("${node.logicalId}#start", 0.0, 0.0, 0.0, isMilestone = true, rank = node.treeIndex))
+            nodes.add(GraphNode("${node.logicalId}#finish", 0.0, 0.0, 0.0, isMilestone = true, rank = node.treeIndex))
         } else {
             // task-166: a leaf takes effortPT DAYS, worked by ONE person. teamFte
             // is a worker COUNT, not a divisor — dividing here is what let the
             // team be cloned once per parallel branch.
-            nodes.add(GraphNode(node.logicalId, node.effortPT, node.meanPT, node.variance, isMilestone = false))
+            nodes.add(
+                GraphNode(
+                    node.logicalId, node.effortPT, node.meanPT, node.variance,
+                    isMilestone = false, rank = node.treeIndex
+                )
+            )
         }
     }
 
@@ -470,25 +487,38 @@ private fun failedSchedule(teamFte: Double, error: ScheduleError) = ProjectSched
 )
 
 /**
- * Kahn's algorithm over the scheduling graph. A result SHORTER than the input
- * means the remainder sits on or behind a cycle — including a self-edge, whose
- * node never reaches in-degree 0. Ready nodes are taken in id order so the
- * emitted order is deterministic.
+ * Kahn's algorithm over the scheduling graph, with a PRIORITY (task-211): of all
+ * nodes whose predecessors are done, the one earliest in the TREE is taken next
+ * ([GraphNode.rank], then id only between a group's own two milestones). So of
+ * two independent items, the one listed first gets the free worker — never the
+ * one whose random `logicalId` happens to sort first, which made the plan depend
+ * on ids nobody chose.
+ *
+ * A result SHORTER than the input means the remainder sits on or behind a
+ * cycle — including a self-edge, whose node never reaches in-degree 0.
+ *
+ * The ready set is a plain list scanned for its minimum: `:domain:core` is
+ * common code compiled to Kotlin/JS too, where the JVM's priority-queue and
+ * sorted-set types do not exist. O(n²) over the few hundred nodes of an
+ * estimate is irrelevant.
  */
-private fun topologicalOrder(nodeIds: List<String>, edges: Set<Pair<String, String>>): List<String> {
-    val inDegree = nodeIds.associateWith { 0 }.toMutableMap()
+private fun topologicalOrder(nodes: List<GraphNode>, edges: Set<Pair<String, String>>): List<String> {
+    val byPriority = compareBy<GraphNode>({ it.rank }, { it.id })
+    val nodeById = nodes.associateBy { it.id }
+    val inDegree = nodes.associate { it.id to 0 }.toMutableMap()
     edges.forEach { (_, to) -> inDegree[to] = inDegree.getValue(to) + 1 }
     val successors = edges.groupBy({ it.first }, { it.second })
 
-    val ready = ArrayDeque(inDegree.filterValues { it == 0 }.keys.sorted())
+    val ready = nodes.filter { inDegree.getValue(it.id) == 0 }.toMutableList()
     val order = mutableListOf<String>()
     while (ready.isNotEmpty()) {
-        val id = ready.removeFirst()
-        order.add(id)
-        successors[id].orEmpty().sorted().forEach { next ->
-            val remaining = inDegree.getValue(next) - 1
-            inDegree[next] = remaining
-            if (remaining == 0) ready.addLast(next)
+        val next = ready.minWith(byPriority)
+        ready.remove(next)
+        order.add(next.id)
+        successors[next.id].orEmpty().forEach { succ ->
+            val remaining = inDegree.getValue(succ) - 1
+            inDegree[succ] = remaining
+            if (remaining == 0) ready.add(nodeById.getValue(succ))
         }
     }
     return order
@@ -503,8 +533,9 @@ private fun topologicalOrder(nodeIds: List<String>, edges: Set<Pair<String, Stri
  * Two properties hold by construction:
  *  - **capacity is never exceeded**: at most [slots] non-milestone nodes are in
  *    flight at any instant, because a node only starts when a slot frees.
- *  - **it is deterministic**: [order] is already sorted, and ties on `freeAt`
- *    resolve to the lowest slot index.
+ *  - **it is deterministic**: [order] follows the tree order (task-211), so
+ *    relabelling ids changes nothing, and ties on `freeAt` resolve to the
+ *    lowest slot index.
  */
 private fun forwardPass(
     order: List<String>,
@@ -516,7 +547,9 @@ private fun forwardPass(
     val freeAt = DoubleArray(slots)
     order.forEach { id ->
         val node = nodeById.getValue(id)
-        val preds = predecessors[id].orEmpty().sorted().mapNotNull { forward[it] }
+        val preds = predecessors[id].orEmpty()
+            .sortedWith(compareBy({ nodeById.getValue(it).rank }, { it }))
+            .mapNotNull { forward[it] }
         val depsReady = preds.maxOfOrNull { it.earliestFinish } ?: 0.0
 
         // The accumulation follows the longest DEPENDENCY path, not the queue.
@@ -569,10 +602,11 @@ private fun backwardPass(
  */
 private fun longestLeafState(tree: List<TreeNode>, forward: Map<String, ForwardState>): ForwardState? {
     var longest: ForwardState? = null
+    // Tree order, not id order, so a tie in longerPath resolves the same way
+    // whatever the ids are (task-211).
     tree.filterNot { it.isGroup }
-        .map { it.logicalId }
-        .sorted()
-        .forEach { id -> forward[id]?.let { longest = longerPath(longest, it) } }
+        .sortedBy { it.treeIndex }
+        .forEach { leaf -> forward[leaf.logicalId]?.let { longest = longerPath(longest, it) } }
     return longest
 }
 

@@ -38,6 +38,13 @@ description: |
   for a fixed set of ids. It is not stable under the one thing that varies
   for real data: the ids themselves.
 
+  Since task-212 the dev SEED draws its ids from a fixed-seed generator, so
+  two fresh stacks no longer show the drift. The table above is history; do
+  not try to reproduce it on a fresh seed. The cause is unchanged for every
+  node created through the UI, an import or the REST API, which still gets a
+  random `logicalId`, and for the fixed seed itself, whose order is just as
+  arbitrary, only repeatable.
+
   In a real project the ids are persisted, so a given plan does not
   reshuffle on its own. But it changes when an item is deleted and re-added,
   re-imported from Excel or Merlin, or copied, and it ignores the order the
@@ -159,6 +166,12 @@ steps:
     its expectation silently: check whether it relied on id order, and say so
     in the test's comment when you update it.
   - |
+    Update `docs/scheduling.md` → "A team is a number of workers" (user
+    documentation): add that when more items are ready than there are free
+    workers, the item listed FIRST in the estimate's tree gets the worker, so
+    reordering items can change a plan whose team is the bottleneck, while
+    renaming or re-importing items does not (task-211).
+  - |
     Update `src/domain/CLAUDE.md`, "Project schedule and critical path": in
     the `teamFte`/resource-levelled paragraph, replace "the result is
     deterministic (the topological order is sorted; …)" with: the levelling
@@ -175,6 +188,15 @@ steps:
     exports):
       ./gradlew :backend:implementation:test
   - |
+    The change alters what the Gantt and the dependency editor show, so run
+    the schedule e2e spec against a running `./scripts/dev.sh`, in both
+    languages:
+      cd src/frontend && E2E_LANG=de npx playwright test e2e/schedule.test.ts
+      cd src/frontend && E2E_LANG=en npx playwright test e2e/schedule.test.ts
+    Then open the seeded Webshop draft's schedule and note the group spans
+    (U01–U04) in the implementation report: task-181 will capture exactly
+    these.
+  - |
     Final:
       ./gradlew build
 
@@ -187,8 +209,8 @@ validation:
     ! grep -q "filterValues { it == 0 }.keys.sorted()" "$F"
     ! grep -q "successors\[id\].orEmpty().sorted()" "$F"
     ! grep -q "predecessors\[id\].orEmpty().sorted()" "$F"
-    # common code only
-    ! grep -qE "java\.util\.|PriorityQueue|TreeSet" "$F"
+    # common code only (comment lines may explain WHY these are avoided)
+    ! grep -vE '^\s*(\*|//)' "$F" | grep -qE "java\.util\.|PriorityQueue|TreeSet"
     grep -q "logger.debug" "$F"
   - |
     T=src/domain/src/test/kotlin/io/pythia/model/ProjectScheduleTest.kt
@@ -199,6 +221,7 @@ validation:
   - |
     grep -q "task-211" src/domain/CLAUDE.md
     grep -qi "tree order" src/domain/CLAUDE.md
+    grep -q "task-211" docs/scheduling.md
   - |
     ./gradlew :domain:build
   - |
@@ -210,3 +233,4 @@ outputs:
   - modified: src/domain/core/src/main/kotlin/io/pythia/model/ProjectSchedule.kt
   - modified: src/domain/src/test/kotlin/io/pythia/model/ProjectScheduleTest.kt
   - modified: src/domain/CLAUDE.md
+  - modified: docs/scheduling.md
