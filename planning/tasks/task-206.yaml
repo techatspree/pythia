@@ -1,6 +1,6 @@
 id: task-206
 phase: phase-18
-title: "CycloneDX SBOMs in the build and in every release"
+title: "One CycloneDX SBOM for Pythia, built and released"
 depends_on: [task-199, task-205]
 description: |
   Pythia ships two container images built from hundreds of third-party
@@ -8,170 +8,288 @@ description: |
   Materials (SBOM). That leaves three gaps: a consumer cannot see what a
   release contains, a vulnerability advisory cannot be matched against a
   release after the fact, and no license-compliance check is possible
-  (task-207 builds on exactly this). This task makes the build produce
-  CycloneDX SBOMs and attaches them to every release (task-199's `publish`
-  job).
+  (task-207 builds on exactly this). This task makes the build produce ONE
+  CycloneDX SBOM for the whole application and publishes it as its own
+  release artifact.
 
-  ## What is described, and by whom
+  ## One SBOM, two components
 
-  An SBOM must list what SHIPS, not everything the build touches. That
-  difference is large here. Measured 2026-10-13 with the CycloneDX Gradle
-  plugin's defaults: 643 backend components, against 243 jars in
-  `build/quarkus-app/lib`. The surplus is test and build tooling, among it
-  the only LGPL-3.0 component (`org.mvnpm:lit-element-state`, Quarkus' dev
-  UI) and the Kotlin compiler's LGPL-2.1 `trove4j`. An over-wide SBOM is
-  wrong in both directions: it flags what we never distribute, and it hides
-  what we do distribute behind noise.
+  CycloneDX lets a component contain components. The SBOM describes the
+  application `pythia` with its two parts, each holding the libraries it
+  ships:
 
-  | SBOM | source of truth | tool | what it lists |
+      metadata.component   pythia (application, X.Y.Z, Apache-2.0)
+      components:
+        pythia-backend     (application, X.Y.Z, Apache-2.0)
+          components:      the 261 jars Quarkus packages
+        pythia-frontend    (application, X.Y.Z, Apache-2.0)
+          components:      the 16 npm packages in the SPA bundle
+                           + the 5 Kotlin/JS libraries and our own Kotlin/JS
+                             modules compiled into domain.mjs
+      dependencies:        pythia → [pythia-backend, pythia-frontend],
+                           each part → its libraries' graph
+
+  The build writes it to `build/sbom/pythia.cdx.json`. A release publishes it
+  as `pythia-vX.Y.Z.cdx.json` + `pythia-vX.Y.Z.cdx.json.sha256`, as its own
+  GitHub Release asset next to the deploy bundle. The bundle (task-199) is
+  NOT changed.
+
+  **Scope: the application, not the images' operating systems.** The base
+  images' OS packages (Red Hat UBI 9, Alpine) are not part of the
+  application. The CI Trivy scan already covers their vulnerabilities, and
+  task-208 reviews their licenses once. They are deliberately not in this
+  SBOM; adding them later as `container` components would be a separate
+  decision.
+
+  ## Where each part comes from (measured 2026-10-13)
+
+  | part | ships | raw source | notes |
   |---|---|---|---|
-  | `pythia-backend` | Gradle, `:backend:implementation` | CycloneDX Gradle plugin `org.cyclonedx.bom` 3.5.1 (verified 2026-10-13 with Gradle 9.6.1) | exactly the jars of the production Quarkus app (`build/quarkus-app/lib/**`), incl. our own `io.pythia` modules |
-  | `pythia-frontend` | the Vite production build | `rollup-plugin-sbom` 4.0.1 (MIT; peer `vite ^6 ‖ ^7 ‖ ^8`, we run Vite 8.3) | exactly the npm packages whose code ends up in `build/` (the SPA bundle). NOT `npm ls` and NOT `cyclonedx-npm`: SvelteKit puts `svelte` and `@sveltejs/kit` in devDependencies yet compiles them into the bundle (task-192), so "prod dependencies" is the wrong set, and "all dependencies" includes ESLint, Playwright and Tailwind's MPL-2.0 `lightningcss` build tooling, none of which ships |
-  | `pythia-backend-image`, `pythia-frontend-image` | the PUSHED images | Trivy (already in CI, `aquasecurity/trivy-action`, pinned) with `--format cyclonedx`, against the image digest | everything in the image: the base image's OS packages (UBI 9 / Alpine) plus the application |
+  | `pythia-backend` | the 261 jars in `build/quarkus-app/lib/{boot,main}` | CycloneDX Gradle plugin `org.cyclonedx.bom` 3.5.1 on `:backend:implementation`, `includeConfigs = ["quarkusProdRuntimeClasspathConfiguration"]`, then TRIMMED to the jars | the plugin resolves POM licenses: of 270 raw components only our own 4 `io.pythia` modules lack one |
+  | `pythia-frontend` | 16 npm packages in the bundle, plus what is compiled into `src/lib/domain/domain.mjs` (460 KB): the Kotlin/JS libraries `kotlin-stdlib-js`, `kotlin-dom-api-compat`, `kotlinx-datetime-js`, `kotlinx-serialization-core-js` (via `kotlinx-datetime`) and `kotlin-logging-js`, and our own modules `io.pythia:core`, `method-threepoint`, `method-bucketsampled` | `rollup-plugin-sbom` 3.2.3 (MIT; peers `vite ^5‖^6‖^7‖^8`; NOT 4.x, see decision 6) for the npm part; the CycloneDX Gradle plugin on `:domain`, `includeConfigs = ["jsRuntimeClasspath"]`, for the Kotlin/JS part | the npm part has licenses for all 16; the Kotlin/JS part is invisible to every npm tool, yet it ships to every browser. Measured on `:domain`: the plugin lists each Kotlin library twice, as a `-js` klib (`?type=klib`, the shipped one) and as a `type=pom` umbrella without the suffix; all five carry Apache-2.0; our own modules carry no license |
 
-  The two application SBOMs are produced by the ordinary build, so every
-  developer and every CI run has them. The two image SBOMs exist only where
-  images are pushed, i.e. in `publish`.
+  ### Why not the alternatives (so nobody re-tries them)
+
+  - **Plugin defaults** (all configurations): 643 backend components, incl.
+    test and build tooling (LGPL-3.0 `lit-element-state` from the Quarkus
+    dev UI, LGPL-2.1 `trove4j` from the Kotlin compiler).
+  - **`quarkusProdRuntimeClasspathConfiguration` alone**: 270 vs 263. The
+    surplus is BOM and Kotlin-Multiplatform umbrella entries
+    (`?type=pom`: `jackson-bom`, `quarkus-bom`, `hibernate-platform`,
+    `kotlinx-coroutines-bom`, `kotlinx-coroutines-core`, `kotlinx-datetime`,
+    `kotlin-logging`; their `-jvm` jars are listed separately) plus two
+    artifacts Quarkus strips from the package (`quarkus-ide-launcher`,
+    `org.eclipse.parsson:jakarta.json:1.1.7`). And our own modules are
+    packaged as `io.pythia.core-jvm-…jar` while the SBOM says `core`. No
+    configuration gives the exact set, hence the trimming step.
+  - **Quarkus' own `quarkus-cyclonedx` extension** (3.40.1): its
+    non-`excluded` components match the 261 jars exactly, but in a Gradle
+    build it emits NO license data (0 of 263 in that probe, even with
+    `quarkus.cyclonedx.include-license-text=true`), and it adds two jars to
+    the shipped app, one an SBOM HTTP endpoint. Rejected.
+  - **`npm ls` / `cyclonedx-npm`**: SvelteKit puts `svelte` and
+    `@sveltejs/kit` in devDependencies yet compiles them into the bundle
+    (task-192), and "all dependencies" includes ESLint, Playwright and
+    Tailwind's build tooling.
 
   ## Decisions
 
-  1. **CycloneDX 1.6, JSON.** It is what the Gradle plugin writes and what
-     Trivy and Dependency-Track read. Files are named `*.cdx.json`.
-  2. **One Gradle entry point:** `./gradlew sbom` (root task) builds both
-     application SBOMs into `build/sbom/` (`pythia-backend.cdx.json`,
-     `pythia-frontend.cdx.json`). `./gradlew build` produces them too,
-     because task-207's compliance check runs inside `build` and reads them.
-  3. **The backend SBOM is checked against the real app**, not trusted: a
-     test of the task compares its component set with the jar files in
-     `build/quarkus-app/lib/**` (by `group:name:version` ↔ jar file name).
-     Configure the plugin to the configuration that yields exactly that set
-     (the Quarkus production runtime classpath, not `runtimeClasspath` alone,
-     and never the defaults). Prove it with the comparison, do not assume it.
-  4. **The frontend SBOM is checked against the bundle**: every component it
-     lists must be an npm package, and `svelte`, `@sveltejs/kit`,
-     `@azure/msal-browser`, `svelte-i18n`, `svelte-dnd-action`, `loglevel`
-     and `devalue` must be in it, while `eslint`, `@playwright/test`,
-     `typescript` and `lightningcss` must not be.
-  5. **Licenses are recorded**, because task-207 checks them: each component
-     carries its `licenses` (SPDX id or expression where the metadata has
-     one). Our own modules (`pkg:maven/io.pythia/*`) and the root component
-     declare `Apache-2.0` (task-145). Today the plugin emits them with no
-     license at all.
-  6. **SBOMs do not break reproducibility rules.** They are build outputs
-     next to the images, never inside them, so the root CLAUDE.md rules
-     about time-derived values do not apply. The bundle stays untouched too:
-     the deploy-bundle contract (task-199) is not extended. SBOMs are
-     separate release assets.
-  7. **Release assets** (in `publish`, after the images are pushed and the
-     digests verified, before the draft is created):
-       * `pythia-backend-X.Y.Z.cdx.json`, `pythia-frontend-X.Y.Z.cdx.json`
-         (from the same Gradle build that pushed the images);
-       * `pythia-backend-image-X.Y.Z.cdx.json`,
-         `pythia-frontend-image-X.Y.Z.cdx.json` (Trivy, against
-         `$BASE/pythia-<x>@<digest>`, so the SBOM provably describes the
-         published image);
-       * `pythia-sbom-vX.Y.Z.sha256`: `sha256sum` lines for all four.
-     The release notes list them. `docs/deployment.md` → "What a release
-     publishes" documents them as part of the public contract.
-  8. **The new npm devDependency** (`rollup-plugin-sbom`, exact-pinned) is
-     installed with a plain `npm install`. That works only because task-205
-     made the tree resolvable again; never `--legacy-peer-deps`.
+  1. **CycloneDX 1.6, JSON, deterministic.** No `serialNumber` and no
+     `metadata.timestamp` (`rollup-plugin-sbom`: `saveTimestamp: false,
+     generateSerial: false`, verified to emit neither; the Gradle plugin:
+     `includeBomSerialNumber = false`; the finalize step drops any remaining
+     timestamp). The same commit gives the same SBOM, so releases diff
+     cleanly.
+  2. **One finalize step assembles the SBOM**: `scripts/sbom-finalize.mjs`,
+     a zero-dependency Node ESM script run on the project's pinned Node
+     through a Gradle `NodeTask` in `:frontend` (the `checkDesignTokens`
+     pattern; task-207's checker will follow it too). It:
+       * **trims** the backend part to the jar files in
+         `build/quarkus-app/lib/{boot,main}`: drop `type=pom` components,
+         drop components with no jar (Quarkus-removed), map a project module
+         `io.pythia/<x>` to `io.pythia.<x>-jvm-<version>.jar`, prune every
+         dependency reference to a dropped component, and print what it
+         dropped. A jar with NO matching component is an ERROR: it would ship
+         undescribed;
+       * **merges** the `:domain` Kotlin/JS components into the frontend part
+         (by purl, no duplicates), after the same cleanup as the backend part:
+         drop the `type=pom` umbrella entries (keeping the `-js` klibs), and
+         give our own `io.pythia` modules found there `Apache-2.0`. They are
+         the frontend's Kotlin/JS code and belong in the frontend part, even
+         though the same purls also appear in the backend part as JVM jars;
+       * **nests** both parts under `pythia` as described above, with the
+         Gradle application version and `Apache-2.0` on `pythia`,
+         `pythia-backend`, `pythia-frontend` and every
+         `pkg:maven/io.pythia/*` library (task-145). Today the root is named
+         `implementation` / `frontend@0.0.1` and our modules have no license;
+       * **keeps `bom-ref`s unique** across the file. The same library can
+         ship in both parts, notably our own `io.pythia` modules (JVM jar and
+         Kotlin/JS), so every library `bom-ref` is prefixed with its part
+         (`pythia-backend:` / `pythia-frontend:`), and the `dependencies`
+         section is rewritten to match. The `purl` stays untouched, because it
+         identifies the library;
+       * writes `build/sbom/pythia.cdx.json` (ROOT build dir).
+     Unit-tested with `node --test` on small fixtures.
+  3. **Never inside the frontend image.** Measured: `rollup-plugin-sbom`
+     writes into the build output, and SvelteKit copies the client copy to
+     `src/frontend/build/cyclonedx/bom.json`. That is the directory the image
+     is made from, so nginx would serve every dependency version publicly at
+     `/cyclonedx/bom.json`. The source is the CLIENT copy
+     `src/frontend/.svelte-kit/output/client/cyclonedx/bom.json` (the
+     `…/output/server/…` copy belongs to SvelteKit's server build, which this
+     static app, `ssr = false`, does not ship). `src/frontend/build/cyclonedx/`
+     is deleted right after `npmBuild`, before anything reads `build/`. A
+     check proves it is absent from the image. The plugin is `apply: 'build'`,
+     so `vite dev` is unaffected.
+  4. **Every build produces it**: `./gradlew sbom` (root task) writes
+     `build/sbom/pythia.cdx.json`, and `build` depends on it, because
+     task-207's compliance check runs in `build` and reads it.
+  5. **Release artifact**: in `publish`, after the images are pushed and
+     their digests verified, copy the SBOM from the same Gradle build to
+     `dist/pythia-$V.cdx.json` and write `dist/pythia-$V.cdx.json.sha256`
+     (`sha256sum` format). The existing `gh release create … dist/*`
+     uploads both. The release notes name it. The deploy bundle and its
+     checksum are unchanged, and `release-bundle.sh` is not touched.
+  6. **The new npm devDependency** `rollup-plugin-sbom` is exact-pinned and
+     installed with a plain `npm install`, which works since task-205. It is
+     **3.2.3, not 4.0.1**, a finding of the implementation: 4.x depends on
+     `normalize-package-data` 9 and `hosted-git-info` 10, which require Node
+     `^22.22.2`. The project pins Node 22.14.0 (`nodeVersion`), and the
+     frontend's `engine-strict=true` refuses the install under Gradle. The
+     system-Node probe did not show it. 3.2.3 has the same options and peers
+     (incl. Vite 8) and runs on 22.14. Bumping Node is a separate task.
+
+  Measured sizes (2026-10-13), so a drift shows: backend part 261
+  components; frontend part 16 npm + 5 Kotlin/JS libraries + our own
+  Kotlin/JS modules.
 
   No application code, no GUI, no logging change.
 
 steps:
   - |
     Read the root `build.gradle.kts`, `src/backend/implementation/build.gradle.kts`,
-    `src/frontend/build.gradle.kts`, `src/frontend/vite.config.ts`, the
-    `publish` job in `.github/workflows/ci.yaml`, and `docs/deployment.md` →
-    "What a release publishes".
+    `src/domain/build.gradle.kts`, `src/frontend/build.gradle.kts`,
+    `src/frontend/vite.config.ts`, the `publish` job in
+    `.github/workflows/ci.yaml`, and `docs/deployment.md` → "What a release
+    publishes". Skim the CycloneDX 1.6 JSON spec for nested `components` and
+    `dependencies`.
   - |
-    Backend SBOM: apply `id("org.cyclonedx.bom") version "3.5.1"` to
-    `:backend:implementation` (declared `apply false` in the root plugins
-    block like the others). Configure: CycloneDX 1.6 JSON only; the
-    configuration matching the shipped jars (decision 3); root component
-    license `Apache-2.0` (decision 5). Make the output land at
-    `build/sbom/pythia-backend.cdx.json` (root build dir), e.g. via a copy
-    task.
+    Gradle plugin: declare `id("org.cyclonedx.bom") version "3.5.1" apply false`
+    in the root plugins block. Apply it to `:backend:implementation` with
+    `includeConfigs = listOf("quarkusProdRuntimeClasspathConfiguration")` and
+    to `:domain` with `includeConfigs = listOf("jsRuntimeClasspath")`; JSON
+    only, schema 1.6, `includeBomSerialNumber = false`. Use the
+    `cyclonedxDirectBom` task (verified to exist in 3.5.1).
   - |
-    Frontend SBOM: `npm install -D -E rollup-plugin-sbom@4.0.1` in
-    `src/frontend`, register it in `vite.config.ts` for production builds
-    only, CycloneDX 1.6 JSON. Have `:frontend:npmBuild` (or a task after it)
-    place it at `build/sbom/pythia-frontend.cdx.json` (root build dir). Never
-    under `src/frontend/build/`, which is the SPA the image is made from
-    (task-199 lesson).
+    Frontend plugin: `npm install -D -E rollup-plugin-sbom@3.2.3` in
+    `src/frontend`. In `vite.config.ts` add it with `apply: 'build'`,
+    `specVersion: '1.6'`, `outFormats: ['json']`, `saveTimestamp: false`,
+    `generateSerial: false`. Delete `src/frontend/build/cyclonedx/` in `npmBuild`'s own
+    `doLast` (decision 3; a separate task would modify `npmBuild`'s output after
+    the fact), and make `:frontend:imageBuild` refuse an SPA that still
+    contains it.
   - |
-    Root task `sbom` (group `verification`) that depends on both and checks
-    that the two files exist. Make `build` produce them (wire it into the
-    root build so `./gradlew build` runs it).
+    Write `scripts/sbom-finalize.mjs` (decision 2). Inputs: the backend plugin
+    output, the `quarkus-app/lib` directory, the client
+    `.svelte-kit/output/client/cyclonedx/bom.json`, the `:domain` plugin
+    output, and the application version. Output: `build/sbom/pythia.cdx.json`.
+    Unit tests `scripts/sbom-finalize.test.mjs` with fixtures under
+    `scripts/fixtures/sbom/`: a `type=pom` entry is dropped; a component
+    without a jar is dropped and reported; `-jvm` project-module mapping; a
+    jar with no component fails; dependency references are pruned; the
+    Kotlin/JS merge drops `type=pom` umbrellas, keeps the `-js` klibs and has
+    no duplicates; `io.pythia` Kotlin/JS modules land in the frontend part
+    with Apache-2.0; the same purl in both parts gets two
+    distinct, prefixed `bom-ref`s and the dependency graph still resolves;
+    the root and part names, versions and licenses; `io.pythia` gets
+    Apache-2.0; no timestamp or serial.
   - |
-    Our own components carry `Apache-2.0` (decision 5): ensure the
-    `io.pythia` modules and the root component have a license in the backend
-    SBOM. Check whether the plugin honours project-level license metadata;
-    otherwise set it explicitly in the plugin configuration.
+    Gradle wiring: a `NodeTask` `:frontend:finalizeSbom` running the script
+    (depends on `:backend:implementation:cyclonedxDirectBom`,
+    `:backend:implementation:quarkusBuild` for `quarkus-app/lib`,
+    `:domain:cyclonedxDirectBom`, `:frontend:npmBuild`); a `NodeTask`
+    `:frontend:testSbomFinalize` (`node --test`); a root task `sbom` depending
+    on `finalizeSbom` and running `scripts/check-sbom.sh`. The root project has no
+    `build` task (no `base` plugin, whose `clean` would also wipe the Kotlin/JS
+    tooling under the root `build/`), so hang `sbom` on `:frontend:build`,
+    which every `./gradlew build` runs. Wire `testSbomFinalize` into
+    `:frontend:check`.
   - |
-    Verification script `scripts/check-sbom.sh` (refuse-to-be-sourced guard,
-    `set -euo pipefail`, shellcheck-clean like the other scripts), run by the
-    `sbom` task and by CI:
-      * both files are valid JSON with `bomFormat == "CycloneDX"` and
-        `specVersion == "1.6"`;
-      * backend: the set of `group:name:version` equals the set derived from
-        the jar file names in `src/backend/implementation/build/quarkus-app/lib/**`
-        (decision 3). On a difference, print both sides;
-      * frontend: the required and forbidden packages from decision 4.
+    `scripts/check-sbom.sh` (refuse-to-be-sourced guard,
+    `set -euo pipefail`, shellcheck-clean):
+      * CycloneDX 1.6 JSON; `metadata.component.name == "pythia"` with the
+        Gradle version; exactly the two top-level components `pythia-backend`
+        and `pythia-frontend`; no `serialNumber`, no `metadata.timestamp`;
+      * every `bom-ref` is unique, and every ref in `dependencies`
+        (`ref` and `dependsOn`) resolves to one;
+      * backend part: every jar in `quarkus-app/lib/{boot,main}` has exactly
+        one component and vice versa (same mapping as decision 2);
+      * frontend part: contains `svelte`, `@sveltejs/kit`,
+        `@azure/msal-browser`, `svelte-i18n`, `svelte-dnd-action`, `loglevel`,
+        `devalue`, `kotlin-stdlib-js`, `kotlin-dom-api-compat`,
+        `kotlinx-datetime-js`, `kotlinx-serialization-core-js`,
+        `kotlin-logging-js`, and no `type=pom` entry; does
+        NOT contain `eslint`, `@playwright/test`, `typescript`, `lightningcss`,
+        `vite`;
+      * `pythia`, both parts and every `pkg:maven/io.pythia/*` component are
+        Apache-2.0.
   - |
-    `publish` job (decision 7): after "Read and check both index digests",
-    copy the two application SBOMs to `dist/` under their versioned names,
-    generate the two image SBOMs with the pinned `aquasecurity/trivy-action`
-    (`scan-type: image`, `format: cyclonedx`, `image-ref:
-    $BASE/pythia-<x>@$<X>_DIGEST`, output into `dist/`), write
-    `dist/pythia-sbom-$V.sha256`, list all four in the release notes, and let
-    the existing `gh release create … dist/*` upload them. The deploy bundle
-    and its `.sha256` are unchanged.
+    `publish` job (decision 5): after "Read and check both index digests",
+    copy `build/sbom/pythia.cdx.json` to `dist/pythia-$V.cdx.json`, write
+    `dist/pythia-$V.cdx.json.sha256` from inside `dist`, and name the asset in
+    the release notes. Nothing else in the job changes.
   - |
-    Docs: `docs/deployment.md` → "What a release publishes": the four SBOMs,
-    what each describes (decision table), and the checksum file.
-    `docs/development.md`: `./gradlew sbom`, where the files land, and why
-    the frontend SBOM comes from the bundle rather than `npm ls`. Root
-    `CLAUDE.md` "Build & run": add the `sbom` entry point.
+    Docs: `docs/deployment.md` → "What a release publishes": the SBOM asset,
+    its structure (the tree above), and its checksum; state that it describes
+    the application, not the base images' OS packages (see the description).
+    `docs/development.md`: `./gradlew sbom`, where the file lands, why the
+    frontend part comes from the bundle plus `:domain`, and why nothing may
+    land in `src/frontend/build/`. Root `CLAUDE.md` "Build & run": add the
+    `sbom` entry point.
   - |
-    ./gradlew sbom, then ./gradlew build, then ./gradlew :frontend:check.
+    ./gradlew sbom, then ./gradlew :frontend:check, then ./gradlew build.
 
 validation:
   - |
     ./gradlew sbom
-    for f in build/sbom/pythia-backend.cdx.json build/sbom/pythia-frontend.cdx.json; do
-      jq -e '.bomFormat == "CycloneDX" and .specVersion == "1.6"' "$f"
-    done
+    S=build/sbom/pythia.cdx.json
+    jq -e '.bomFormat == "CycloneDX" and .specVersion == "1.6" and (.serialNumber == null) and (.metadata.timestamp == null)' $S
+    jq -e '.metadata.component.name == "pythia" and ([.components[].name] | sort == ["pythia-backend","pythia-frontend"])' $S
   - |
     scripts/check-sbom.sh
   - |
-    # Backend: own modules and root component are Apache-2.0.
-    jq -e '[.components[] | select(.purl|startswith("pkg:maven/io.pythia/")) | ([.licenses[]?.license.id] | index("Apache-2.0"))] | all(. != null)' build/sbom/pythia-backend.cdx.json
-    # No build-only tooling in the backend SBOM.
-    ! jq -r '.components[].purl' build/sbom/pythia-backend.cdx.json | grep -qE 'trove4j|lit-element-state|junit|detekt'
+    node --test scripts/sbom-finalize.test.mjs
   - |
-    # Frontend: bundle contents, not the dev toolchain.
-    F=build/sbom/pythia-frontend.cdx.json
-    for p in svelte @sveltejs/kit @azure/msal-browser svelte-i18n svelte-dnd-action loglevel devalue; do
-      jq -e --arg p "$p" '[.components[] | (if .group then "\(.group)/\(.name)" else .name end)] | index($p) != null' "$F" > /dev/null || { echo "missing $p"; exit 1; }
+    # Unique bom-refs, resolvable dependency graph.
+    S=build/sbom/pythia.cdx.json
+    jq -e '[.. | objects | select(has("bom-ref")) | ."bom-ref"] | (length == (unique | length))' $S
+    jq -e '([.. | objects | select(has("bom-ref")) | ."bom-ref"] + [.metadata.component."bom-ref"]) as $r | [.dependencies[] | .ref, (.dependsOn // [])[]] | all(. as $x | $r | index($x) != null)' $S
+  - |
+    # Backend part: exactly the shipped jars; no build tooling; own modules Apache-2.0.
+    S=build/sbom/pythia.cdx.json
+    B='.components[] | select(.name == "pythia-backend")'
+    test "$(jq "[$B | .components[]] | length" $S)" -eq "$(find src/backend/implementation/build/quarkus-app/lib -name '*.jar' | wc -l | tr -d ' ')"
+    ! jq -r "$B | .components[].purl" $S | grep -qE 'type=pom|trove4j|lit-element-state|junit|detekt|quarkus-ide-launcher'
+    jq -e '[.. | objects | select(.purl? // "" | startswith("pkg:maven/io.pythia/")) | ([.licenses[]?.license.id] | index("Apache-2.0"))] | all(. != null)' $S
+  - |
+    # Frontend part: bundle + Kotlin/JS, not the dev toolchain.
+    S=build/sbom/pythia.cdx.json
+    names=$(jq -r '.components[] | select(.name == "pythia-frontend") | .components[] | if .group then "\(.group)/\(.name)" else .name end' $S)
+    for p in svelte @sveltejs/kit @azure/msal-browser svelte-i18n svelte-dnd-action loglevel devalue kotlin-stdlib-js kotlin-dom-api-compat kotlinx-datetime-js kotlinx-serialization-core-js kotlin-logging-js; do
+      echo "$names" | grep -qE "(^|/)${p##*/}$" || { echo "missing $p"; exit 1; }
     done
-    for p in eslint @playwright/test typescript lightningcss; do
-      ! jq -e --arg p "$p" '[.components[] | (if .group then "\(.group)/\(.name)" else .name end)] | index($p) != null' "$F" > /dev/null || { echo "dev tool $p in bundle SBOM"; exit 1; }
+    for p in eslint @playwright/test typescript lightningcss vite; do
+      ! echo "$names" | grep -qxE "$p|.*/${p##*/}" || { echo "dev tool $p in frontend part"; exit 1; }
     done
   - |
-    test ! -e src/frontend/build/sbom && ! ls src/frontend/build/*.cdx.json 2>/dev/null
+    # Never in the SPA output, never in the frontend image.
+    ./gradlew :frontend:npmBuild :frontend:imageBuild -q
+    test ! -e src/frontend/build/cyclonedx
+    c=$(docker create "pythia/pythia-frontend:$(grep '^version=' gradle.properties | cut -d= -f2)")
+    ! docker cp "$c:/usr/share/nginx/html/cyclonedx" /tmp/should-not-exist 2>/dev/null
+    docker rm "$c" > /dev/null
+  - |
+    # Deterministic: a second build gives the same bytes.
+    ./gradlew sbom -q
+    a=$(shasum build/sbom/pythia.cdx.json)
+    ./gradlew :frontend:finalizeSbom --rerun -q
+    test "$a" = "$(shasum build/sbom/pythia.cdx.json)"
+  - |
+    # The deploy bundle is unchanged by this task.
+    git diff --quiet HEAD -- scripts/release-bundle.sh
   - |
     jq -e '.devDependencies["rollup-plugin-sbom"] | test("^[0-9]")' src/frontend/package.json
-    grep -q 'org.cyclonedx.bom' src/backend/implementation/build.gradle.kts
+    grep -q "apply: 'build'" src/frontend/vite.config.ts
+    grep -q 'org.cyclonedx.bom' build.gradle.kts
+    grep -q 'quarkusProdRuntimeClasspathConfiguration' src/backend/implementation/build.gradle.kts
+    grep -q 'jsRuntimeClasspath' src/domain/build.gradle.kts
   - |
     W=.github/workflows/ci.yaml
-    grep -q 'format: cyclonedx' $W
-    grep -q 'pythia-sbom-' $W
-    grep -q 'cdx.json' $W
+    grep -q 'pythia-$V.cdx.json' $W
+    grep -q 'cdx.json.sha256' $W
   - |
     grep -q 'cdx.json' docs/deployment.md
-    grep -q 'sbom' docs/development.md
+    grep -q 'gradlew sbom' docs/development.md
     grep -q 'gradlew sbom' CLAUDE.md
   - |
     shellcheck scripts/check-sbom.sh
@@ -183,10 +301,14 @@ validation:
 outputs:
   - modified: build.gradle.kts
   - modified: src/backend/implementation/build.gradle.kts
+  - modified: src/domain/build.gradle.kts
   - modified: src/frontend/build.gradle.kts
   - modified: src/frontend/vite.config.ts
   - modified: src/frontend/package.json
   - modified: src/frontend/package-lock.json
+  - created: scripts/sbom-finalize.mjs
+  - created: scripts/sbom-finalize.test.mjs
+  - created: scripts/fixtures/sbom/
   - created: scripts/check-sbom.sh
   - modified: .github/workflows/ci.yaml
   - modified: docs/deployment.md

@@ -1,0 +1,572 @@
+id: task-210
+phase: phase-18
+title: "\"Open-Source-Lizenzen\" dialog, generated from the SBOM"
+depends_on: [task-208]
+description: |
+  Pythia ships about 286 third-party components (measured 2026-10-15 in
+  `build/sbom/pythia.cdx.json`: the backend's jars plus the npm and
+  Kotlin/JS libraries in the SPA). Nearly all of their licenses (MIT, BSD,
+  Apache-2.0 …) require the copyright notice to accompany the software.
+  task-208 meets that for the IMAGES with a generated
+  `THIRD-PARTY-LICENSES.txt`. But a person USING Pythia never sees an image;
+  they see the web application, which today says nothing about the software
+  it is built from. This task adds an in-app, human-readable list of every
+  shipped open-source component with its license(s) and its copyright
+  holders, generated from the SBOM at build time so it cannot drift from
+  what ships.
+
+  ## Name
+
+  The dialog is called **"Open-Source-Lizenzen"** (en: "Open-source
+  licenses"), not "regulatory information". The content is license
+  attribution, and this is the name users recognise from other software.
+  "Regulatory information" usually means legal notices such as an imprint,
+  privacy policy or certification marks, which this dialog is not.
+
+  ## The SBOM must carry the copyright holders first
+
+  The user's requirement is "collected from the SBOM". Today the SBOM cannot
+  answer "who holds the copyright". Of 286 library components, 286 have
+  `licenses`, but only 10 have `author`, 19 `publisher`, and none
+  `copyright`. The holders are written in the components' own
+  `LICENSE`/`NOTICE`/`COPYRIGHT` files, which task-208 already reads to
+  build `THIRD-PARTY-LICENSES.txt`. So the pipeline is two steps, each with
+  one job:
+
+    1. **Enrich the SBOM.** `scripts/sbom-finalize.mjs` fills CycloneDX
+       1.6's `component.copyright` (a string) for every library component
+       from its package files. It joins the copyright lines with `\n`. A
+       copyright line is a line of the component's NOTICE*, LICENSE*,
+       LICENCE* or COPYRIGHT* file that starts (after trimming) with
+       `Copyright`, `(c)` or `©`, case-insensitive. Lines are trimmed,
+       deduplicated, kept in file order (NOTICE before LICENSE), and capped
+       at 20 per component. A line that is only the license template
+       placeholder (`Copyright [yyyy] [name of copyright owner]`,
+       `Copyright {yyyy} {name of copyright owner}`) is dropped. Package files
+       are found exactly as task-208's generator finds them: npm under
+       `src/frontend/node_modules/<group/name>/`, backend jars in
+       `build/quarkus-app/lib/**` (`META-INF/`). That lookup is moved into a
+       shared module, `scripts/lib/package-license-files.mjs`, which both
+       scripts import, so there is one implementation. The Kotlin/JS klibs
+       have no package files in reach. They and any component without a
+       match simply get no `copyright`. The release's SBOM thereby gains the
+       holders too, which is a bonus.
+    2. **Project it for the UI.** A new `scripts/generate-oss-notices.mjs`
+       reads ONLY the finalized SBOM and writes `third-party-notices.json`.
+       It does not read package files: the dialog shows what the SBOM says,
+       nothing more.
+
+  ## `third-party-notices.json`, the interface between build and UI
+
+      {
+        "parts": [
+          { "part": "frontend",
+            "components": [
+              { "name": "@azure/msal-browser",
+                "licenses": ["MIT"],
+                "copyright": ["Copyright (c) Microsoft Corporation."],
+                "authors": ["Microsoft"],
+                "homepage": "https://github.com/AzureAD/microsoft-authentication-library-for-js#readme" } ] },
+          { "part": "backend", "components": [ … ] } ]
+      }
+
+  - `parts` always has exactly these two entries, frontend first. They are
+    the SBOM's `pythia-frontend` and `pythia-backend` children, walked to any
+    depth.
+  - `name`: npm `@group/name` (or `name` without a group), Maven
+    `group:name`, i.e. what a person would search for.
+  - `licenses`: each entry's `license.id`, else `license.name`, else the
+    `expression`. Deduplicated, never empty (a component without one fails
+    the generator; task-207's check makes that impossible anyway).
+  - `copyright`: `component.copyright` split on `\n`, or `[]`.
+  - `authors`: SBOM `author`, `authors[].name`, `publisher`,
+    `supplier.name`, deduplicated, or `[]`.
+  - `homepage`: the `externalReferences` entry of type `website`, else
+    `vcs` (with a `git+` prefix stripped), only if it is `https://…`, else
+    `null`.
+  - Components sorted by `name` (then by licenses, for stable output). A
+    name that occurs twice with different versions is listed ONCE, with the
+    union of licenses/copyright/authors.
+  - **No versions, purls or hashes.** The file is served publicly by nginx
+    (it must work before any API call), and the project deliberately does
+    not publish the deployed dependency versions over HTTP (see
+    `docs/development.md` → "The SBOM", "Never in the image"). Leaving out
+    the server's versions in particular avoids handing out a fingerprint of
+    the backend. Attribution needs the name, the license and the holders,
+    not the version. The release's SBOM and the images' license files keep
+    the exact versions.
+  - **First-party components are excluded** (`pkg:maven/io.pythia/`, the
+    `firstParty` prefix of `compliance/oss-policy.json`, plus the three
+    application components). Pythia's own license is stated in the
+    dialog's intro.
+  - Deterministic: no timestamp, sorted keys order as above, a trailing
+    newline. Same SBOM, same bytes.
+
+  It is generated after `npmBuild`, at the same point in the build as
+  task-208's `THIRD-PARTY-LICENSES.txt`, and written to TWO places:
+    - `build/oss-notices/third-party-notices.json` (the ROOT build
+      directory), the persistent copy. task-208's
+      `THIRD-PARTY-LICENSES.txt` is copied next to it, to
+      `build/oss-notices/THIRD-PARTY-LICENSES.txt`. Every frontend build
+      empties `src/frontend/build/` (adapter-static), so a copy that has to
+      outlive later builds cannot live there.
+    - `src/frontend/build/third-party-notices.json`, so `:frontend:imageBuild`
+      packages it and nginx serves it at `/third-party-notices.json`.
+  It is generated, not committed.
+
+  ## Dev mode: the copy from the last full build is shown
+
+  Vite's dev server serves `static/`, not `build/`, and generating the file
+  needs the full SBOM, which needs the backend packaged, far too much for
+  `npm run dev`. But a developer has usually run `./gradlew build` before.
+  So a small **dev-only Vite plugin** (`apply: 'serve'`, in
+  `vite.config.ts`) serves `GET /third-party-notices.json` and
+  `GET /THIRD-PARTY-LICENSES.txt` from `build/oss-notices/` at the
+  repository root when the file is there. When it is not, the plugin
+  answers `404` itself rather than handing on to SvelteKit's fallback, so
+  the dialog sees a clean 404. It reads the file per request, so a build
+  that runs while `dev.sh` is up is picked up without a restart. At server
+  start it logs one line through Vite's own logger
+  (`server.config.logger.info`), naming the file and its modification time,
+  or saying none exists yet.
+
+  The dialog therefore behaves identically in dev and in production: it
+  fetches `/third-party-notices.json`, and the dev copy may be older than the
+  working tree's dependencies. That is acceptable for a developer, and
+  `docs/oss-compliance.md` says so. Only when no full build has ever run
+  (or after `./gradlew clean`) does it get a 404, which it treats as an
+  expected, explained state ("not available yet"), not as an error.
+
+  The Playwright suite runs against the dev stack, where the file may or may
+  not exist, so every e2e test stubs it with `page.route`. A stub takes
+  precedence over the dev plugin.
+
+  ## The dialog
+
+  - **Entry point:** a link-style button "Lizenzen" in the `UserMenu`,
+    between the language select and "Abmelden". It is visible to every
+    signed-in user regardless of role. (Anyone not signed in can still read
+    task-208's public `/THIRD-PARTY-LICENSES.txt`.)
+  - **Content:** an intro stating Pythia's own license and copyright, a
+    filter field, then two sections (web interface, server), each a
+    vertically scrolling list of the components, and a link to the full
+    license texts (`/THIRD-PARTY-LICENSES.txt`, task-208, opened in a new
+    tab).
+  - **Filter:** client-side, case-insensitive substring over name, licenses,
+    copyright lines and authors. The section headings show the filtered
+    count. When nothing matches, one "no match" line replaces both lists.
+  - **Fetching:** `apiFetch('/third-party-notices.json')` (raw `fetch` is
+    banned). The Authorization header it adds is harmless on a static file.
+    It is fetched once per page load and cached in the component's module
+    scope, so reopening the dialog does not refetch. 404 → the
+    "unavailable" state, with no banner and no full-text link. Any other
+    non-OK status, a network error or invalid JSON → `ErrorBanner` with
+    `ossNotices.loadFailed` + `log.error`.
+  - Mirrors `ChangeOwnerDialog.svelte`'s modal structure (`role="dialog"`,
+    `aria-modal`, Escape closes, `$bindable open`), but is wider
+    (`max-w-3xl`) and caps its height (`max-h-[85vh]`) with the list
+    scrolling inside. Buttons come from `$lib/ui/Button.svelte`, the filter
+    from `$lib/ui/Field.svelte`, and license chips from `$lib/ui/Badge.svelte`.
+    Only `ink-*`/`surface-*`/`hairline` tokens, no raw palette classes.
+  - Copyright lines are legal text and are shown verbatim and untranslated.
+    The product name comes only from `$_('brand.name')` (root CLAUDE.md: never
+    hardcode "Pythia"). The intro is about the SOFTWARE's license, so it uses
+    `brand.name`, not the installation's `system.displayName`.
+
+  ## Wireframes
+
+  ### App header: signed in (any role)
+
+      +--------------------------------------------------------------------------------------+
+      | (o) Pythia   Projekte  Sitzungen  …        Anna Admin [ADMIN]  [ Deutsch v ]  Lizenzen  Abmelden |
+      +--------------------------------------------------------------------------------------+
+
+    - New: "Lizenzen" (`menu.user.ossNotices`), `data-testid="user-menu.oss-notices"`,
+      a `<button type="button">` styled exactly like the existing logout
+      button (link look, `text-brand-green`). Visible to VIEWER, ESTIMATOR and
+      ADMIN alike. Opens the dialog below.
+    - The existing `language-select` and `logout-button` are unchanged.
+
+  ### Open-Source-Lizenzen dialog: loaded
+
+      +---------------------------------------------------------------------+
+      | Open-Source-Lizenzen                                                |
+      |                                                                     |
+      | Pythia ist Open-Source-Software unter der Apache-Lizenz 2.0 –       |
+      | Copyright 2026 Pythia Contributors. Es enthält die folgenden        |
+      | Open-Source-Komponenten.                                            |
+      |                                                                     |
+      | Filtern                                                             |
+      | [ Name, Lizenz oder Urheber                                       ] |
+      |                                                                     |
+      | Weboberfläche (läuft in Ihrem Browser) – 21 Komponenten             |
+      | +-----------------------------------------------------------------+ |
+      | | @azure/msal-browser                                       [MIT] | |
+      | |   Copyright (c) Microsoft Corporation.                          | |
+      | |   Projektseite ↗                                                | |
+      | | svelte                                                    [MIT] | |
+      | |   Copyright (c) 2016-2025 Svelte Contributors                   | |
+      | |   Projektseite ↗                                                | |
+      | | kotlin-stdlib-js                                   [Apache-2.0] | |
+      | |   Autoren: JetBrains                                            | |
+      | | …                                                               | |
+      | +-----------------------------------------------------------------+ |
+      | Server – 257 Komponenten                                            |
+      | +-----------------------------------------------------------------+ |
+      | | com.fasterxml.jackson.core:jackson-databind        [Apache-2.0] | |
+      | |   Urheber: siehe Lizenztext                                     | |
+      | |   Projektseite ↗                                                | |
+      | | org.postgresql:postgresql                        [BSD-2-Clause] | |
+      | |   Copyright (c) 1997, PostgreSQL Global Development Group       | |
+      | | …                                                               | |
+      | +-----------------------------------------------------------------+ |
+      |                                                                     |
+      | Vollständige Lizenztexte ↗                         [ Schließen ]    |
+      +---------------------------------------------------------------------+
+
+    - Dialog `data-testid="oss-notices-dialog"`, `aria-label` = title
+      `ossNotices.title`.
+    - Intro `ossNotices.intro` with `{name}` = `$_('brand.name')`,
+      `data-testid="oss-notices-dialog.intro"`.
+    - Filter: `Field` label `ossNotices.filterLabel`, input placeholder
+      `ossNotices.filterPlaceholder`, `data-testid="oss-notices-dialog.filter"`.
+    - Section headings `ossNotices.part.frontend` / `ossNotices.part.backend`
+      with `{count}` = the filtered count, `data-testid="oss-notices-dialog.part.frontend"`
+      / `….part.backend`. A section whose filtered list is empty is hidden.
+    - Each component row `data-testid="oss-notices-dialog.component"` with
+      `data-name="<name>"` (test data, for the page object). Name in
+      `text-ink-strong`, one `Badge` per license, then the copyright lines
+      verbatim. If there are none: `ossNotices.authors` ("Autoren: {names}")
+      when `authors` is non-empty, else `ossNotices.copyrightUnknown`. Then
+      `ossNotices.homepage` as `<a target="_blank" rel="noopener noreferrer">`
+      when `homepage` is set.
+    - Footer: `ossNotices.fullText` → `<a href="/THIRD-PARTY-LICENSES.txt"
+      target="_blank" rel="noopener noreferrer">`,
+      `data-testid="oss-notices-dialog.full-text"` (a public static file, so
+      a plain link is correct, unlike an `/api` download). The close button
+      `ossNotices.close`, `data-testid="oss-notices-dialog.close"`,
+      `Button variant="secondary"`. Escape also closes.
+    - All numbers via `$lib/format.ts` (the counts are integers; use its
+      integer formatter, never `toLocaleString`).
+
+  ### Open-Source-Lizenzen dialog: filter matches nothing
+
+      +---------------------------------------------------------------------+
+      | Open-Source-Lizenzen                                                |
+      | Pythia ist Open-Source-Software … (intro unchanged)                 |
+      |                                                                     |
+      | Filtern                                                             |
+      | [ gpl-3                                                           ] |
+      |                                                                     |
+      | Keine Komponente passt zu „gpl-3“.                                  |
+      |                                                                     |
+      | Vollständige Lizenztexte ↗                         [ Schließen ]    |
+      +---------------------------------------------------------------------+
+
+    - `ossNotices.noMatch` with `{filter}`,
+      `data-testid="oss-notices-dialog.no-match"`. Both section headings are
+      hidden.
+
+  ### Open-Source-Lizenzen dialog: unavailable (dev mode, no full build yet → 404)
+
+      +---------------------------------------------------------------------+
+      | Open-Source-Lizenzen                                                |
+      | Pythia ist Open-Source-Software … (intro unchanged)                 |
+      |                                                                     |
+      | Die Komponentenliste wird beim Bauen der Anwendung erzeugt und ist  |
+      | in dieser Umgebung noch nicht vorhanden.                            |
+      |                                                                     |
+      |                                                    [ Schließen ]    |
+      +---------------------------------------------------------------------+
+
+    - `ossNotices.unavailable`, `data-testid="oss-notices-dialog.unavailable"`,
+      `text-ink-muted`. No filter, no sections, no full-text link (that file
+      is generated in the same build and is equally absent). Logged
+      `log.info`, not an error.
+    - In dev mode with a previous full build, the dialog shows the
+      **loaded** state above, with the content of
+      `build/oss-notices/third-party-notices.json`. It looks no different, so
+      there is no extra wireframe.
+    - Production never reaches this state: `:frontend:imageBuild` refuses an
+      SPA without the file.
+
+  ### Open-Source-Lizenzen dialog: load failed
+
+      +---------------------------------------------------------------------+
+      | Open-Source-Lizenzen                                                |
+      | +-----------------------------------------------------------------+ |
+      | | ! Die Komponentenliste konnte nicht geladen werden. (HTTP 500) [x]| |
+      | +-----------------------------------------------------------------+ |
+      | Pythia ist Open-Source-Software … (intro unchanged)                 |
+      |                                                    [ Schließen ]    |
+      +---------------------------------------------------------------------+
+
+    - The existing `ErrorBanner` with `ossNotices.loadFailed` (via
+      `assertOk`, which appends the status). For a JSON parse error, the
+      parse message instead. No filter, no sections, no full-text link.
+
+  ### i18n keys (both catalogs, key for key)
+
+  | key | de | en |
+  |---|---|---|
+  | `menu.user.ossNotices` | Lizenzen | Licenses |
+  | `ossNotices.title` | Open-Source-Lizenzen | Open-source licenses |
+  | `ossNotices.intro` | {name} ist Open-Source-Software unter der Apache-Lizenz 2.0 – Copyright 2026 {name} Contributors. Es enthält die folgenden Open-Source-Komponenten. | {name} is open-source software under the Apache License 2.0 – Copyright 2026 {name} Contributors. It includes the following open-source components. |
+  | `ossNotices.filterLabel` | Filtern | Filter |
+  | `ossNotices.filterPlaceholder` | Name, Lizenz oder Urheber | Name, license or copyright holder |
+  | `ossNotices.part.frontend` | Weboberfläche (läuft in Ihrem Browser) – {count} Komponenten | Web interface (runs in your browser) – {count} components |
+  | `ossNotices.part.backend` | Server – {count} Komponenten | Server – {count} components |
+  | `ossNotices.authors` | Autoren: {names} | Authors: {names} |
+  | `ossNotices.copyrightUnknown` | Urheber: siehe Lizenztext | Copyright holders: see the license text |
+  | `ossNotices.homepage` | Projektseite | Project page |
+  | `ossNotices.fullText` | Vollständige Lizenztexte | Full license texts |
+  | `ossNotices.noMatch` | Keine Komponente passt zu „{filter}“. | No component matches “{filter}”. |
+  | `ossNotices.unavailable` | Die Komponentenliste wird beim Bauen der Anwendung erzeugt und ist in dieser Umgebung noch nicht vorhanden. | The component list is generated when the application is built and does not exist in this environment yet. |
+  | `ossNotices.loadFailed` | Die Komponentenliste konnte nicht geladen werden. | The component list could not be loaded. |
+  | `ossNotices.close` | Schließen | Close |
+
+  No backend, domain or REST change.
+
+steps:
+  - |
+    Move the package-file lookup that task-208 wrote in
+    `scripts/generate-third-party-licenses.mjs` (find a component's
+    LICENSE*/LICENCE*/NOTICE*/COPYRIGHT* files: npm under
+    `node_modules/<group/name>/`, Maven inside its jar's `META-INF/`) into
+    `scripts/lib/package-license-files.mjs`, exporting it. Make
+    `generate-third-party-licenses.mjs` import it, with unchanged behaviour:
+    `node --test scripts/generate-third-party-licenses.test.mjs` stays green
+    and its output is byte-identical before and after (compare a
+    `shasum` of `src/frontend/build/THIRD-PARTY-LICENSES.txt`).
+  - |
+    In `scripts/sbom-finalize.mjs`, after the trimmed tree is assembled,
+    set `copyright` on every `library` component from its package files per
+    the description's rule (prefixes, placeholder drop, dedupe, file order
+    NOTICE→LICENSE→LICENCE→COPYRIGHT, cap 20, joined with `\n`). Omit the
+    key when nothing is found; never write an empty string. It needs to know
+    where `node_modules` and `build/quarkus-app/lib` are. Pass them as
+    arguments from `:frontend:finalizeSbom` in `src/frontend/build.gradle.kts`
+    and declare them as task inputs. Extend
+    `scripts/sbom-finalize.test.mjs` and `scripts/fixtures/sbom/` with: an
+    npm package whose LICENSE has a copyright line, a jar whose
+    `META-INF/NOTICE` has two (plus a duplicate), a LICENSE with only the
+    Apache template placeholder (→ no `copyright`), and a component with no
+    files (→ no `copyright`). Print the coverage
+    ("copyright found for N of M library components") in `scripts/check-sbom.sh`
+    as information, not as a gate.
+  - |
+    Write `scripts/generate-oss-notices.mjs` (Node, no dependencies, the
+    style of `sbom-finalize.mjs`):
+      node scripts/generate-oss-notices.mjs --sbom <pythia.cdx.json> --out <file>
+    producing `third-party-notices.json` exactly as the description
+    specifies (two parts, name forms, licenses, copyright, authors, homepage,
+    merge of same-name components, first-party exclusion, no
+    versions/purls/hashes, sorted, deterministic). Exit 1 with a clear
+    message on a component without a license or a missing part. Log what it
+    wrote ("N frontend + M backend components") to stdout.
+  - |
+    Unit-test it in `scripts/generate-oss-notices.test.mjs` (`node --test`)
+    on a fixture SBOM in `scripts/fixtures/oss-notices/`: nested components,
+    an npm component with group, a Maven one, a first-party `io.pythia` one
+    (excluded), a component listed twice with two versions (merged), a
+    `vcs` homepage with `git+` (stripped), an `http://` homepage (→ null),
+    license by `id`, by `name` and by `expression`, a component without a
+    license (→ exit 1), and determinism (two runs, same bytes). Assert that
+    the output contains no `"version"` and no `pkg:` string.
+  - |
+    In `src/frontend/build.gradle.kts`: a `NodeTask` `generateOssNotices`
+    after `finalizeSbom` and after task-208's THIRD-PARTY-LICENSES generator,
+    writing `build/oss-notices/third-party-notices.json` (ROOT build dir,
+    declared as the task's output). It then copies that file to
+    `src/frontend/build/third-party-notices.json` and task-208's
+    `src/frontend/build/THIRD-PARTY-LICENSES.txt` to
+    `build/oss-notices/THIRD-PARTY-LICENSES.txt` (a `doLast` copy, or a
+    separate `Copy`/`Sync` task it finalizes). Wire it with
+    `:frontend:imageBuild` and `:frontend:build` depending on it; and a
+    `testOssNotices` `NodeTask` running the test file, added to `check`'s
+    `dependsOn` next to `testSbomFinalize`. In `imageBuild`'s `doLast`, add
+    a `check` that `build/third-party-notices.json` exists (an image without
+    it would show "unavailable" in production).
+  - |
+    Dev-mode serving in `src/frontend/vite.config.ts`: add a plugin object
+    `{ name: 'pythia-oss-notices-dev', apply: 'serve', configureServer(server) { … } }`
+    to `plugins`, with a comment pointing at task-210. Its middleware
+    handles only `GET`/`HEAD` of exactly `/third-party-notices.json` and
+    `/THIRD-PARTY-LICENSES.txt`. It resolves the file under
+    `<repo root>/build/oss-notices/` (from the config file's location via
+    `fileURLToPath(new URL('../../build/oss-notices/', import.meta.url))`,
+    never from `process.cwd()`), reads it on each request, and answers `200`
+    with `application/json; charset=utf-8` or `text/plain; charset=utf-8`
+    and `Cache-Control: no-store`, or `404` with an empty body when the
+    file is missing. Every other path goes to `next()`. On startup, log
+    once through `server.config.logger.info` whether a copy exists and its
+    mtime. Do not touch the production `sbom` plugin entry or the `/api` and
+    `/ws` proxies. Verify by hand: with `build/oss-notices/` present,
+    `curl -s localhost:5173/third-party-notices.json | jq '.parts|length'`
+    prints `2`. After moving it aside, `curl -o /dev/null -w '%{http_code}'`
+    gives `404`.
+  - |
+    Frontend types and filtering in `src/frontend/src/lib/ossNotices.ts`:
+    `OssNoticeComponent`, `OssNotices` (matching the JSON),
+    `filterComponents(components, query): OssNoticeComponent[]` per the
+    description, and `loadOssNotices(): Promise<OssNotices | 'unavailable'>`
+    using `apiFetch('/third-party-notices.json')`: 404 → `'unavailable'`,
+    other non-OK → `assertOk(res, $_('ossNotices.loadFailed'))` (pass the
+    message in from the component), and a module-level cache of the success.
+    `log.info` with both counts on success, `log.info` on unavailable.
+  - |
+    Create `src/frontend/src/lib/components/OssNoticesDialog.svelte` as
+    wireframed (all four states), `open = $bindable(false)`, mirroring
+    `ChangeOwnerDialog.svelte`'s structure. Load on open; on failure
+    `log.error('OssNoticesDialog: loading failed', e)` and the ErrorBanner.
+    No bare `console.*`, no inline strings, no `.toFixed`/`toLocale*`.
+    Counts go through `$lib/format.ts`.
+  - |
+    In `src/frontend/src/lib/components/UserMenu.svelte`, add the
+    "Lizenzen" button (`data-testid="user-menu.oss-notices"`) between the
+    language select and the logout button, as wireframed, and render
+    `<OssNoticesDialog bind:open={ossNoticesOpen} />`.
+  - |
+    Add every i18n key from the table to `src/frontend/src/lib/i18n/de.json`
+    and `en.json`, key for key, with the exact texts.
+  - |
+    Page Object `src/frontend/e2e/pages/OssNoticesDialog.ts` (exported
+    from `e2e/pages/index.ts`): `open()` (clicks `user-menu.oss-notices`),
+    `expectVisible()`, `expectHidden()`, `filter(text)`,
+    `expectComponent(name)` / `expectNoComponent(name)` (by `data-name`),
+    `expectPartCount('frontend'|'backend', n)` (asserting the heading text
+    via `catalogPattern('ossNotices.part.frontend', …)` or equivalent),
+    `expectNoMatch()`, `expectUnavailable()`, `expectLoadFailed()`, `close()`,
+    `closeWithEscape()`. Also `stubNotices(page, json)` and
+    `stubNoticesStatus(page, status)` helpers using
+    `page.route('**/third-party-notices.json', …)`.
+  - |
+    Spec `src/frontend/e2e/oss-notices.test.ts` (Page Objects only, no
+    translated literals). With a stubbed fixture of 3 frontend + 2 backend
+    components (e.g. `@azure/msal-browser` MIT, `svelte` MIT,
+    `kotlin-stdlib-js` Apache-2.0 with authors only,
+    `com.fasterxml.jackson.core:jackson-databind` with nothing,
+    `org.postgresql:postgresql` BSD-2-Clause):
+      - a VIEWER opens it from the user menu; both part counts are right;
+        a component with copyright shows it, one with authors only shows
+        the authors line, one with neither shows the "see the license text"
+        line;
+      - filtering by `postgres` leaves exactly one backend component and
+        hides the frontend section; filtering by `bsd-2` matches by license;
+        filtering by `microsoft` matches by copyright line; filtering by
+        `zzz` shows no-match;
+      - Escape and the close button both close it;
+      - stubbed 404 → unavailable state, no banner, no full-text link;
+      - stubbed 500 → load-failed banner.
+    Run it in both languages: `E2E_LANG=en` and `E2E_LANG=de`.
+  - |
+    Docs: `docs/oss-compliance.md` (task-207/208) gains a section
+    "## In the application" covering what the dialog shows, the SBOM
+    `copyright` enrichment and its rule, `third-party-notices.json` and why it
+    has no versions, the persistent copy in `build/oss-notices/` and the
+    dev-mode plugin that serves it (possibly older than the working tree;
+    run `./gradlew build` to refresh it), and the "unavailable" state when
+    no full build exists.
+    `docs/development.md` → "The SBOM": one paragraph on the new `copyright`
+    field. Root `CLAUDE.md`: one sentence next to task-208's
+    THIRD-PARTY-LICENSES sentence saying that the frontend image also serves
+    a generated `third-party-notices.json` (no versions, by design) shown by
+    the "Open-Source-Lizenzen" dialog.
+  - |
+    Run, in order: `./gradlew sbom`, `./gradlew :frontend:check`, the
+    Playwright spec against `./scripts/dev.sh` (both languages), then
+      ./gradlew build
+
+validation:
+  - |
+    test -f scripts/lib/package-license-files.mjs
+    grep -q "package-license-files" scripts/generate-third-party-licenses.mjs
+    grep -q "package-license-files" scripts/sbom-finalize.mjs
+  - |
+    node --test scripts/sbom-finalize.test.mjs
+    node --test scripts/generate-oss-notices.test.mjs
+    node --test scripts/generate-third-party-licenses.test.mjs
+  - |
+    ./gradlew sbom
+    # the SBOM now carries copyright holders for a substantial part
+    test "$(jq '[.. | objects | select(.type? == "library" and .copyright?)] | length' build/sbom/pythia.cdx.json)" -gt 100
+  - |
+    ./gradlew :frontend:build -x test
+    F=src/frontend/build/third-party-notices.json
+    test -s "$F"
+    jq -e '.parts | length == 2 and .[0].part == "frontend" and .[1].part == "backend"' "$F"
+    jq -e '[.parts[].components[] | select(.licenses | length == 0)] | length == 0' "$F"
+    jq -e '[.parts[].components[].name] | index("@azure/msal-browser") != null' "$F"
+    ! grep -q '"version"' "$F"
+    ! grep -q 'pkg:' "$F"
+    ! grep -q 'io.pythia' "$F"
+  - |
+    # deterministic, and the persistent root copy matches the SPA copy
+    s1=$(shasum < src/frontend/build/third-party-notices.json)
+    ./gradlew :frontend:generateOssNotices --rerun -q
+    test "$s1" = "$(shasum < src/frontend/build/third-party-notices.json)"
+    test "$s1" = "$(shasum < build/oss-notices/third-party-notices.json)"
+    test -s build/oss-notices/THIRD-PARTY-LICENSES.txt
+  - |
+    # the persistent copy survives a later frontend-only build
+    ./gradlew :frontend:npmBuild --rerun -q
+    test -s build/oss-notices/third-party-notices.json
+  - |
+    # dev-only plugin serving the persistent copy
+    grep -q "pythia-oss-notices-dev" src/frontend/vite.config.ts
+    grep -q "apply: 'serve'" src/frontend/vite.config.ts
+    grep -q "build/oss-notices" src/frontend/vite.config.ts
+  - |
+    C=src/frontend/src/lib/components/OssNoticesDialog.svelte
+    test -f "$C"
+    grep -q 'data-testid="oss-notices-dialog"' "$C"
+    grep -q 'data-testid="oss-notices-dialog.filter"' "$C"
+    grep -q 'oss-notices-dialog.unavailable' "$C"
+    grep -q 'oss-notices-dialog.no-match' "$C"
+    grep -q 'ErrorBanner' "$C"
+    grep -q "log\." "$C" src/frontend/src/lib/ossNotices.ts
+    ! grep -q "console\." "$C" src/frontend/src/lib/ossNotices.ts
+    grep -q "apiFetch('/third-party-notices.json')" src/frontend/src/lib/ossNotices.ts
+    ! grep -qE "(^|[^A-Za-z])fetch\(" src/frontend/src/lib/ossNotices.ts
+    grep -q 'data-testid="user-menu.oss-notices"' src/frontend/src/lib/components/UserMenu.svelte
+  - |
+    for k in menu.user.ossNotices ossNotices.title ossNotices.intro ossNotices.filterLabel ossNotices.filterPlaceholder ossNotices.part.frontend ossNotices.part.backend ossNotices.authors ossNotices.copyrightUnknown ossNotices.homepage ossNotices.fullText ossNotices.noMatch ossNotices.unavailable ossNotices.loadFailed ossNotices.close; do
+      for f in src/frontend/src/lib/i18n/de.json src/frontend/src/lib/i18n/en.json; do
+        jq -e --arg k "$k" 'getpath($k | split(".")) | type == "string"' "$f" > /dev/null || { echo "missing $k in $f"; exit 1; }
+      done
+    done
+  - |
+    test -f src/frontend/e2e/pages/OssNoticesDialog.ts
+    grep -q "OssNoticesDialog" src/frontend/e2e/pages/index.ts
+    grep -q "from './pages'" src/frontend/e2e/oss-notices.test.ts
+  - |
+    grep -q "^## In the application" docs/oss-compliance.md
+    grep -q "third-party-notices.json" CLAUDE.md
+  - |
+    ./gradlew :frontend:check
+  - |
+    ./gradlew build
+
+outputs:
+  - created: scripts/lib/package-license-files.mjs
+  - modified: scripts/generate-third-party-licenses.mjs
+  - modified: scripts/sbom-finalize.mjs
+  - modified: scripts/sbom-finalize.test.mjs
+  - modified: scripts/fixtures/sbom/
+  - modified: scripts/check-sbom.sh
+  - created: scripts/generate-oss-notices.mjs
+  - created: scripts/generate-oss-notices.test.mjs
+  - created: scripts/fixtures/oss-notices/
+  - modified: src/frontend/build.gradle.kts
+  - modified: src/frontend/vite.config.ts
+  - created: src/frontend/src/lib/ossNotices.ts
+  - created: src/frontend/src/lib/components/OssNoticesDialog.svelte
+  - modified: src/frontend/src/lib/components/UserMenu.svelte
+  - modified: src/frontend/src/lib/i18n/de.json
+  - modified: src/frontend/src/lib/i18n/en.json
+  - created: src/frontend/e2e/pages/OssNoticesDialog.ts
+  - modified: src/frontend/e2e/pages/index.ts
+  - created: src/frontend/e2e/oss-notices.test.ts
+  - modified: docs/oss-compliance.md
+  - modified: docs/development.md
+  - modified: CLAUDE.md

@@ -51,7 +51,8 @@ description: |
   Target: **each image contains a `THIRD-PARTY-LICENSES.txt`** that lists
   every shipped component (name, version, license) with the full license
   text and, for Apache-2.0 components, the content of their NOTICE file.
-  The file is generated from that image's application SBOM (task-206) plus
+  The file is generated from that image's part of Pythia's SBOM (`pythia-backend` or
+  `pythia-frontend` in `build/sbom/pythia.cdx.json`, task-206) plus
   the license and notice files of the packages themselves, so it cannot
   drift from what ships:
     - frontend: written into the SPA build output, so nginx serves it at
@@ -88,7 +89,9 @@ description: |
 
   ## 4. The base images, reviewed once
 
-  The image SBOMs (task-206) include the OS packages of the base images
+  The base images' OS packages are not in Pythia's SBOM (task-206
+  describes the application only), so they need their own look here. They
+  are the packages of the base images
   (Red Hat UBI 9 OpenJDK runtime; nginx on Alpine). They are not gated
   (task-207). Review them once and document the conclusion in
   `docs/oss-compliance.md` → "Base images":
@@ -121,7 +124,7 @@ steps:
     `docs/oss-compliance.md` → "Replaced components".
   - |
     Write `scripts/generate-third-party-licenses.mjs` (section 2): input an
-    application SBOM plus the directory to read package files from
+    part of the SBOM (`pythia-backend` or `pythia-frontend`) plus the directory to read package files from
     (`src/frontend/node_modules`, or the backend's
     `build/quarkus-app/lib/**` jars, read with `unzip -p` or Node's zlib),
     output `THIRD-PARTY-LICENSES.txt`. Sort by component; no timestamps.
@@ -144,9 +147,10 @@ steps:
     `jackson-databind` and `quarkus-core` (backend). Find the backend path
     first; it depends on where Jib puts it.
   - |
-    Base images (section 4): generate the image SBOMs locally with Trivy
-    (`trivy image --format cyclonedx` on the two daemon images, if Trivy is
-    installed; otherwise from the last release's image SBOM assets), review
+    Base images (section 4): generate SBOMs of the two daemon images with
+    Trivy (`trivy image --format cyclonedx`, or the `aquasec/trivy` container
+    image when Trivy is not installed; task-206 deliberately produces none
+    for the images). These are working material, not committed. Review
     the license spread, and write `docs/oss-compliance.md` → "Base images".
   - |
     Docs: `docs/oss-compliance.md` gains "Attribution"
@@ -173,7 +177,7 @@ validation:
     test -s "$F"
     for p in svelte @azure/msal-browser svelte-i18n devalue; do grep -q "$p" "$F" || { echo "missing $p"; exit 1; }; done
     # every frontend SBOM component is listed
-    for n in $(jq -r '.components[] | if .group then "\(.group)/\(.name)" else .name end' build/sbom/pythia-frontend.cdx.json); do grep -qF "$n" "$F" || { echo "not listed: $n"; exit 1; }; done
+    for n in $(jq -r '.components[] | if .group then "\(.group)/\(.name)" else .name end' <(jq '.components[] | select(.name == "pythia-frontend")' build/sbom/pythia.cdx.json)); do grep -qF "$n" "$F" || { echo "not listed: $n"; exit 1; }; done
   - |
     # Deterministic: regenerating gives the same bytes.
     ./gradlew :frontend:npmBuild -q

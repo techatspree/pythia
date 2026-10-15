@@ -1,0 +1,30 @@
+{
+  "bomFormat": "CycloneDX",
+  "specVersion": "1.6",
+  "metadata": {
+    "timestamp": "2026-10-13T00:00:00Z",
+    "component": {
+      "type": "library",
+      "bom-ref": "pkg:maven/io.pythia/implementation@9.9.9?project_path=%3Abackend%3Aimplementation",
+      "name": "implementation",
+      "group": "io.pythia",
+      "version": "9.9.9",
+      "purl": "pkg:maven/io.pythia/implementation@9.9.9?project_path=%3Abackend%3Aimplementation"
+    }
+  },
+  "components": [
+    { "type": "library", "bom-ref": "pkg:maven/com.acme/lib-a@1.0?type=jar", "group": "com.acme", "name": "lib-a", "version": "1.0", "purl": "pkg:maven/com.acme/lib-a@1.0?type=jar", "licenses": [{ "license": { "id": "MIT" } }] },
+    { "type": "library", "bom-ref": "pkg:maven/com.acme/umbrella@2.0?type=pom", "group": "com.acme", "name": "umbrella", "version": "2.0", "purl": "pkg:maven/com.acme/umbrella@2.0?type=pom", "licenses": [{ "license": { "id": "MIT" } }] },
+    { "type": "library", "bom-ref": "pkg:maven/com.acme/umbrella-jvm@2.0?type=jar", "group": "com.acme", "name": "umbrella-jvm", "version": "2.0", "purl": "pkg:maven/com.acme/umbrella-jvm@2.0?type=jar", "licenses": [{ "license": { "id": "Apache-2.0" } }] },
+    { "type": "library", "bom-ref": "pkg:maven/com.acme/stripped@3.0?type=jar", "group": "com.acme", "name": "stripped", "version": "3.0", "purl": "pkg:maven/com.acme/stripped@3.0?type=jar" },
+    { "type": "library", "bom-ref": "pkg:maven/io.pythia/core@9.9.9?project_path=%3Adomain%3Acore", "group": "io.pythia", "name": "core", "version": "9.9.9", "purl": "pkg:maven/io.pythia/core@9.9.9?project_path=%3Adomain%3Acore" }
+  ],
+  "dependencies": [
+    { "ref": "pkg:maven/io.pythia/implementation@9.9.9?project_path=%3Abackend%3Aimplementation", "dependsOn": ["pkg:maven/com.acme/lib-a@1.0?type=jar", "pkg:maven/com.acme/umbrella@2.0?type=pom", "pkg:maven/io.pythia/core@9.9.9?project_path=%3Adomain%3Acore", "pkg:maven/com.acme/stripped@3.0?type=jar"] },
+    { "ref": "pkg:maven/com.acme/umbrella@2.0?type=pom", "dependsOn": ["pkg:maven/com.acme/umbrella-jvm@2.0?type=jar"] },
+    { "ref": "pkg:maven/com.acme/lib-a@1.0?type=jar", "dependsOn": [] },
+    { "ref": "pkg:maven/com.acme/umbrella-jvm@2.0?type=jar", "dependsOn": [] },
+    { "ref": "pkg:maven/com.acme/stripped@3.0?type=jar", "dependsOn": [] },
+    { "ref": "pkg:maven/io.pythia/core@9.9.9?project_path=%3Adomain%3Acore", "dependsOn": [] }
+  ]
+}

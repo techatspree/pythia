@@ -6,6 +6,19 @@ plugins {
     kotlin("plugin.noarg")
     id("io.quarkus")
     id("io.gitlab.arturbosch.detekt")
+    id("org.cyclonedx.bom")
+}
+
+// Raw SBOM input for the backend part of build/sbom/pythia.cdx.json (task-206).
+// The Quarkus production runtime classpath is the closest configuration to what
+// ships, but not identical (BOM/umbrella `type=pom` entries, artifacts Quarkus
+// strips, `-jvm` jar names), so scripts/sbom-finalize.mjs trims it to the jars
+// in build/quarkus-app/lib. The default (all configurations) would list test and
+// build tooling. Quarkus' own quarkus-cyclonedx extension was rejected: in a
+// Gradle build it emits no license data.
+tasks.named<org.cyclonedx.gradle.CyclonedxDirectTask>("cyclonedxDirectBom") {
+    includeConfigs.set(listOf("quarkusProdRuntimeClasspathConfiguration"))
+    includeBomSerialNumber.set(false)
 }
 
 repositories {

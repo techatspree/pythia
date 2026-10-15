@@ -15,6 +15,10 @@ plugins {
     id("io.quarkus") version "3.40.1" apply false
     id("io.gitlab.arturbosch.detekt") version "1.23.8" apply false
     id("com.github.node-gradle.node") version "7.1.0" apply false
+    // CycloneDX SBOM (task-206). Applied to :backend:implementation and
+    // :domain only; scripts/sbom-finalize.mjs turns their raw output into the
+    // one application SBOM, build/sbom/pythia.cdx.json.
+    id("org.cyclonedx.bom") version "3.5.1" apply false
 }
 
 allprojects {
@@ -52,6 +56,21 @@ allprojects {
 // over the Kotlin modules plus svelte-check and ESLint over the frontend. It
 // runs no tests and needs no Docker — that keeps it a fast, standalone lint
 // pass (the full test suite stays separate via `./gradlew test`).
+// Pythia's one application SBOM (task-206): build/sbom/pythia.cdx.json, assembled
+// by :frontend:finalizeSbom and verified against what ships by
+// scripts/check-sbom.sh. Part of `build`, because the compliance check (task-207)
+// reads it. A release attaches it as pythia-<tag>.cdx.json (ci.yaml, `publish`).
+val sbom = tasks.register<Exec>("sbom") {
+    group = "verification"
+    description = "Builds and checks the application SBOM, build/sbom/pythia.cdx.json."
+    dependsOn(":frontend:finalizeSbom")
+    commandLine(layout.projectDirectory.file("scripts/check-sbom.sh").asFile.path)
+}
+// The root project has no `build` task (no `base` plugin, whose `clean` would also
+// wipe the Kotlin/JS tooling under the root build/), so `./gradlew build` reaches
+// the SBOM through :frontend:build, which runs in every full build.
+project(":frontend").tasks.matching { it.name == "build" }.configureEach { dependsOn(sbom) }
+
 tasks.register("staticAnalysis") {
     group = "verification"
     description = "Runs all static analysis: detekt over the Kotlin modules " +

@@ -96,6 +96,13 @@ val genApi = tasks.register<NpmTask>("genApi") {
 val npmBuild = tasks.register<NpmTask>("npmBuild") {
     dependsOn(tasks.npmInstall, unpackDomainTypescript, genApi)
     args.set(listOf("run", "build"))
+    // rollup-plugin-sbom (vite.config.ts) writes its SBOM into the build output,
+    // and SvelteKit copies it into build/cyclonedx/: the directory the image is
+    // made from, so nginx would serve every dependency version publicly. Remove it
+    // in the SAME task, so build/ is never observable with it (task-206). The
+    // SBOM's source is the client copy under .svelte-kit/output/client/.
+    val bundledSbom = layout.projectDirectory.dir("build/cyclonedx").asFile
+    doLast { bundledSbom.deleteRecursively() }
 }
 
 val npmCheck = tasks.register<NpmTask>("npmCheck") {
@@ -171,6 +178,45 @@ val openApiGate = providers.environmentVariable("CI").isPresent ||
 // enforceable only because task-149 first brought the count to zero. The script
 // resolves its own scan root, so it behaves identically under Gradle's cwd and
 // a manual run from the repo root.
+// Pythia's ONE application SBOM, build/sbom/pythia.cdx.json (task-206): the
+// backend part trimmed to the jars Quarkus packages, the frontend part from the
+// SPA bundle plus the Kotlin/JS code compiled into domain.mjs. See
+// scripts/sbom-finalize.mjs. Run on the managed Node like the other scripts.
+val finalizeSbom = tasks.register<NodeTask>("finalizeSbom") {
+    description = "Assembles build/sbom/pythia.cdx.json from the raw CycloneDX outputs."
+    dependsOn(
+        ":backend:implementation:cyclonedxDirectBom",
+        ":backend:implementation:quarkusBuild",
+        ":domain:cyclonedxDirectBom",
+        npmBuild
+    )
+    script.set(rootProject.file("scripts/sbom-finalize.mjs"))
+    val backendDir = project(":backend:implementation").layout.buildDirectory
+    val domainDir = project(":domain").layout.buildDirectory
+    args.set(
+        listOf(
+            "--backend", backendDir.file("reports/cyclonedx-direct/bom.json").get().asFile.path,
+            "--lib-dir", backendDir.dir("quarkus-app/lib").get().asFile.path,
+            "--frontend", file(".svelte-kit/output/client/cyclonedx/bom.json").path,
+            "--domain", domainDir.file("reports/cyclonedx-direct/bom.json").get().asFile.path,
+            "--version", project.version.toString(),
+            "--out", rootProject.layout.buildDirectory.file("sbom/pythia.cdx.json").get().asFile.path
+        )
+    )
+    // Reads build outputs of three projects; cheap, so always rerun rather than
+    // declare every input.
+    outputs.upToDateWhen { false }
+}
+
+// Unit tests of the finalize step, part of :frontend:check.
+val testSbomFinalize = tasks.register<NodeTask>("testSbomFinalize") {
+    description = "Runs the node --test suite of scripts/sbom-finalize.mjs."
+    dependsOn(tasks.npmInstall)
+    options.set(listOf("--test"))
+    script.set(rootProject.file("scripts/sbom-finalize.test.mjs"))
+    outputs.upToDateWhen { false }
+}
+
 val checkDesignTokens = tasks.register<NodeTask>("checkDesignTokens") {
     dependsOn(tasks.npmInstall)
     script.set(file("scripts/check-design-tokens.mjs"))
@@ -196,7 +242,7 @@ val lintE2e = tasks.register<NpmTask>("lintE2e") {
 }
 
 tasks.named("check") {
-    dependsOn(npmCheck, npmLintReport, checkDesignTokens, lintE2e)
+    dependsOn(npmCheck, npmLintReport, checkDesignTokens, lintE2e, testSbomFinalize)
     if (openApiGate) dependsOn(verifyOpenApiSchemaCommitted)
 }
 
@@ -260,6 +306,11 @@ tasks.register("imageBuild") {
         val registry = frontendImageRegistry.orNull
         check(Files.isRegularFile(spaDir.resolve("index.html"))) {
             "No SPA build at $spaDir — npmBuild should have produced build/index.html"
+        }
+        // The bundler's SBOM must never ship (task-206); npmBuild removes it, this
+        // refuses an image if anything ever puts it back.
+        check(!Files.exists(spaDir.resolve("cyclonedx"))) {
+            "$spaDir/cyclonedx exists: an SBOM would be served publicly by nginx"
         }
         check(!push || registry != null) {
             "-PfrontendImagePush=true needs -PfrontendImageRegistry=<host[/prefix]>"

@@ -21,9 +21,8 @@ description: |
   exception exists without a justification. Shape:
 
       {
-        "scope": ["build/sbom/pythia-backend.cdx.json",
-                  "build/sbom/pythia-frontend.cdx.json"],
-        "firstParty": ["pkg:maven/io.pythia/", "pkg:npm/frontend@"],
+        "scope": ["build/sbom/pythia.cdx.json"],
+        "firstParty": ["pkg:maven/io.pythia/"],
         "licenses": {
           "allowed":     { "<SPDX id>": "<why it is compatible>" },
           "conditional": { "<SPDX id>": "<the obligation we accept>" },
@@ -51,7 +50,12 @@ description: |
 
   ## The check's rules
 
-  For every component of every SBOM in `scope`:
+  task-206 produces ONE SBOM whose root `pythia` holds the two
+  application components `pythia-backend` and `pythia-frontend`, each with
+  its libraries NESTED in its own `components`. The check walks that tree to
+  any depth. The three application components (root and both parts) are our
+  own code and are not checked. For every other component of every SBOM in
+  `scope`:
   1. A `firstParty` purl prefix → passes (our own code, Apache-2.0).
   2. An `exceptions` entry with exactly this purl → its `license` and
      `reason` decide it, and the component passes. `pendingReview: true`
@@ -75,9 +79,9 @@ description: |
 
   ## Decisions
 
-  - **Scope = the two application SBOMs.** The image SBOMs (task-206)
-    include the base images' OS packages (UBI 9, Alpine: GPL tools such as
-    busybox and coreutils, shipped as separate programs, i.e. aggregation).
+  - **Scope = the application SBOM.** It deliberately does not contain the
+    base images' OS packages (UBI 9, Alpine: GPL tools such as busybox and
+    coreutils, shipped as separate programs, i.e. aggregation; task-206).
     We do not build those, and a gate on them would break whenever a base
     image moves. They are reviewed once by hand in task-208 and documented,
     not gated.
@@ -167,9 +171,10 @@ validation:
   - |
     # A forbidden component makes the check fail and is named.
     T=$(mktemp -d)
-    jq '.components += [{"type":"library","name":"evil","version":"1.0.0","purl":"pkg:npm/evil@1.0.0","licenses":[{"license":{"id":"GPL-3.0-only"}}]}]' \
-      build/sbom/pythia-frontend.cdx.json > "$T/f.json"
-    ! node scripts/check-oss-compliance.mjs "$T/f.json" build/sbom/pythia-backend.cdx.json > "$T/out" 2>&1
+    # Injected into the NESTED frontend part, so the tree walk is proven too.
+    jq '(.components[] | select(.name == "pythia-frontend") | .components) += [{"type":"library","bom-ref":"pythia-frontend:pkg:npm/evil@1.0.0","name":"evil","version":"1.0.0","purl":"pkg:npm/evil@1.0.0","licenses":[{"license":{"id":"GPL-3.0-only"}}]}]' \
+      build/sbom/pythia.cdx.json > "$T/f.json"
+    ! node scripts/check-oss-compliance.mjs "$T/f.json" > "$T/out" 2>&1
     grep -q "pkg:npm/evil@1.0.0" "$T/out"
     rm -rf "$T"
   - |

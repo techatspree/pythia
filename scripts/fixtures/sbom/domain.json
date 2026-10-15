@@ -1,0 +1,24 @@
+{
+  "bomFormat": "CycloneDX",
+  "specVersion": "1.6",
+  "metadata": {
+    "timestamp": "2026-10-13T00:00:00Z",
+    "component": {
+      "type": "library",
+      "bom-ref": "pkg:maven/io.pythia/domain@9.9.9?project_path=%3Adomain",
+      "name": "domain", "group": "io.pythia", "version": "9.9.9",
+      "purl": "pkg:maven/io.pythia/domain@9.9.9?project_path=%3Adomain"
+    }
+  },
+  "components": [
+    { "type": "library", "bom-ref": "pkg:maven/org.jetbrains.kotlin/kotlin-stdlib-js@2.4.10?type=klib", "group": "org.jetbrains.kotlin", "name": "kotlin-stdlib-js", "version": "2.4.10", "purl": "pkg:maven/org.jetbrains.kotlin/kotlin-stdlib-js@2.4.10?type=klib", "licenses": [{ "license": { "id": "Apache-2.0" } }] },
+    { "type": "library", "bom-ref": "pkg:maven/org.jetbrains.kotlin/kotlin-stdlib@2.4.10?type=pom", "group": "org.jetbrains.kotlin", "name": "kotlin-stdlib", "version": "2.4.10", "purl": "pkg:maven/org.jetbrains.kotlin/kotlin-stdlib@2.4.10?type=pom", "licenses": [{ "license": { "id": "Apache-2.0" } }] },
+    { "type": "library", "bom-ref": "pkg:maven/io.pythia/core@9.9.9?project_path=%3Adomain%3Acore", "group": "io.pythia", "name": "core", "version": "9.9.9", "purl": "pkg:maven/io.pythia/core@9.9.9?project_path=%3Adomain%3Acore" }
+  ],
+  "dependencies": [
+    { "ref": "pkg:maven/io.pythia/domain@9.9.9?project_path=%3Adomain", "dependsOn": ["pkg:maven/io.pythia/core@9.9.9?project_path=%3Adomain%3Acore", "pkg:maven/org.jetbrains.kotlin/kotlin-stdlib@2.4.10?type=pom"] },
+    { "ref": "pkg:maven/org.jetbrains.kotlin/kotlin-stdlib@2.4.10?type=pom", "dependsOn": ["pkg:maven/org.jetbrains.kotlin/kotlin-stdlib-js@2.4.10?type=klib"] },
+    { "ref": "pkg:maven/io.pythia/core@9.9.9?project_path=%3Adomain%3Acore", "dependsOn": [] },
+    { "ref": "pkg:maven/org.jetbrains.kotlin/kotlin-stdlib-js@2.4.10?type=klib", "dependsOn": [] }
+  ]
+}

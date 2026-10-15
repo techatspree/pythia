@@ -107,6 +107,32 @@ The bundle is built by `scripts/release-bundle.sh` with `git archive` from the
 tag, so it holds exactly the tagged content and is byte-reproducible: the same
 inputs give the same SHA-256.
 
+### The SBOM
+
+Every release also attaches **one CycloneDX 1.6 SBOM for the whole
+application** (task-206), `pythia-vX.Y.Z.cdx.json`, with its checksum file
+`pythia-vX.Y.Z.cdx.json.sha256`. It is its own release asset; the deploy bundle
+does not contain it. Its structure:
+
+```
+pythia (X.Y.Z, Apache-2.0)                     metadata.component
+├─ pythia-backend   the jars Quarkus packages  components[0].components
+└─ pythia-frontend  the npm packages bundled   components[1].components
+                    into the SPA, plus the
+                    Kotlin/JS code compiled
+                    into domain.mjs
+```
+
+Each library carries its purl and license. A library `bom-ref` is prefixed
+with its part (`pythia-backend:…`), because the same library can ship in both
+parts, our own `io.pythia` modules for instance. The `dependencies` section
+holds the graph, from `pythia` down.
+
+It describes the **application**, not the base images' operating-system
+packages (Red Hat UBI 9, Alpine). Those are covered by the CI Trivy scan for
+vulnerabilities and were reviewed once for licenses (task-208). Verify it like
+the bundle: `sha256sum -c pythia-vX.Y.Z.cdx.json.sha256`.
+
 ### Verifying and copying a release
 
 ```bash

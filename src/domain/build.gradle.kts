@@ -4,6 +4,16 @@ plugins {
     kotlin("multiplatform")
     kotlin("plugin.allopen")
     id("io.gitlab.arturbosch.detekt")
+    id("org.cyclonedx.bom")
+}
+
+// Raw SBOM input for the FRONTEND part of build/sbom/pythia.cdx.json
+// (task-206): the Kotlin/JS libraries compiled into domain.mjs ship in the SPA
+// bundle, yet no npm-based tool can see them. scripts/sbom-finalize.mjs keeps
+// the `-js` klibs and drops the `type=pom` umbrella entries.
+tasks.named<org.cyclonedx.gradle.CyclonedxDirectTask>("cyclonedxDirectBom") {
+    includeConfigs.set(listOf("jsRuntimeClasspath"))
+    includeBomSerialNumber.set(false)
 }
 
 repositories {

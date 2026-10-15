@@ -483,6 +483,16 @@ jobs:
             echo "${x^^}_DIGEST=$digest" >> "$GITHUB_ENV"
           done
 
+      # Pythia's one application SBOM (task-206), from this same run: `sbom`
+      # reuses the Quarkus build that was just pushed and checks the SBOM
+      # against exactly those jars. Its own release asset, next to the bundle.
+      - name: Build the application SBOM
+        run: |
+          ./gradlew sbom
+          mkdir -p dist
+          cp build/sbom/pythia.cdx.json "dist/pythia-$V.cdx.json"
+          (cd dist && sha256sum "pythia-$V.cdx.json" > "pythia-$V.cdx.json.sha256")
+
       - name: Build the deploy bundle
         run: |
           scripts/release-bundle.sh "$V" "$BASE" "$BACKEND_DIGEST" "$FRONTEND_DIGEST" dist
@@ -491,6 +501,7 @@ jobs:
       - name: Create the release as a draft, then publish it
         run: |
           sum=$(cut -d' ' -f1 < "dist/pythia-deploy-$V.tar.gz.sha256")
+          sbom_sum=$(cut -d' ' -f1 < "dist/pythia-$V.cdx.json.sha256")
           cat > "$RUNNER_TEMP/notes.md" <<EOF
           Images (multi-arch: linux/amd64, linux/arm64), pinned by digest:
 
@@ -498,6 +509,9 @@ jobs:
           - \`$BASE/pythia-frontend:$VER@$FRONTEND_DIGEST\`
 
           Deploy bundle: \`pythia-deploy-$V.tar.gz\`, SHA-256 \`$sum\`.
+
+          SBOM (CycloneDX 1.6, the application: backend and frontend parts):
+          \`pythia-$V.cdx.json\`, SHA-256 \`$sbom_sum\`.
           See docs/deployment.md, "What a release publishes", for its contents
           and how to verify and deploy it.
           EOF

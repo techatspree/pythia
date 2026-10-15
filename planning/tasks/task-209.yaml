@@ -1,0 +1,202 @@
+id: task-209
+phase: phase-18
+title: "CONTRIBUTORS file naming the \"Pythia Contributors\""
+depends_on: [task-199]
+description: |
+  `NOTICE` (task-145) and every jar manifest name the copyright holder as
+  "Pythia Contributors", but nothing says who that is. A collective name with
+  no defined membership is a weak copyright statement: a licensee cannot tell
+  whose grant they are relying on, and a contributor has no record of being
+  one of the holders. This task adds the missing definition: a `CONTRIBUTORS`
+  file at the repository root that lists the people behind the collective
+  name, referenced from `NOTICE`, shipped wherever `NOTICE` ships, and kept
+  complete by a CI check.
+
+  ## What Apache-2.0 does and does not require (so nobody over-builds this)
+
+  Apache-2.0 does NOT itself require a contributors list. It requires the
+  `LICENSE` text and the `NOTICE` file to travel with every redistribution
+  (section 4), and both already do (`scripts/release-bundle.sh`, task-199).
+  The list is needed because OUR `NOTICE` chose a collective holder. So the
+  file's job is narrow: define "Pythia Contributors". It is not an
+  acknowledgements page, a changelog, or a list of third-party authors (those
+  belong to task-208's `THIRD-PARTY-LICENSES.txt`).
+
+  ## Decisions taken
+
+  - **File name and format: `CONTRIBUTORS`, plain text, no extension**, like
+    `LICENSE` and `NOTICE`, because it travels with them into the release
+    bundle where no Markdown renderer exists. `#` lines are comments. Every
+    other non-blank line is one person, in git's own identity form
+    `Name <email>`, sorted case-insensitively by name. Using git's form means
+    the check below can compare emails exactly, with no fuzzy name matching.
+  - **Email: the address the person's commits are authored under**, which in
+    this repository is a GitHub noreply address (task-145 rewrote the whole
+    history to that form so no corporate or personal address is published).
+    A contributor may use any address, but it must be the one in their
+    commits. Never add a corporate address or a company name (root
+    `CLAUDE.md`, task-145).
+  - **Initial content: one person**, measured 2026-10-15 with
+    `git log --no-merges --format='%aN <%aE>' | sort -u`:
+    `Torsten Fink <tnfink@users.noreply.github.com>`.
+  - **Who counts: human commit authors.** AI assistants named in
+    `Co-Authored-By:` trailers (e.g. `noreply@anthropic.com`) are NOT
+    listed: they are tools, not copyright holders. Bot accounts
+    (`*[bot]@users.noreply.github.com`, `noreply@github.com`) are excluded
+    for the same reason. Merge commits are ignored (`--no-merges`): they
+    carry no authored content, and a fork PR's synthetic merge commit must
+    not trip the check.
+  - **`NOTICE` gains one sentence** pointing at the file. It stays otherwise
+    unchanged (task-208 relies on that):
+
+        Pythia
+        Copyright 2026 Pythia Contributors
+
+        This product includes software developed by
+        Pythia Contributors.
+
+        "Pythia Contributors" are the people listed in the CONTRIBUTORS file
+        distributed with this product.
+
+  - **The release bundle carries it** next to `LICENSE` and `NOTICE`, because
+    `NOTICE` now refers to it and must stay meaningful where it ships. This
+    is an ADDITIVE change to the bundle layout, which is a public contract
+    (task-199, `docs/deployment.md` → "What a release publishes"). It is made
+    deliberately, and the documented layout changes with it. `release.env`
+    is untouched. The container images carry neither `LICENSE` nor `NOTICE`
+    today; putting license material into the images is task-208's job, which
+    should include `CONTRIBUTORS` alongside our `NOTICE` when it does. Out of
+    scope here.
+  - **A CI check keeps the list complete:** `scripts/check-contributors.sh`
+    fails when a non-merge commit's author email (after `--use-mailmap`, so a
+    future `.mailmap` is honoured) is not in `CONTRIBUTORS`, naming every
+    missing identity in the form ready to paste. It runs in the `build` job
+    of `.github/workflows/ci.yaml`, so it gates every PR, and that job's
+    checkout gets `fetch-depth: 0` (a shallow clone would only see one
+    commit). It is a BLOCKING step, since a missing entry is fixed by a
+    one-line addition in the same PR. The check does not flag listed people
+    without commits; someone who contributed design or review work may be
+    listed by hand.
+  - **No `.mailmap` is added** now; with one author and one email there is
+    nothing to map.
+  - **Employer ownership is out of scope.** Whether a contribution's
+    copyright belongs to the contributor or to their employer is a legal
+    question this file does not answer, and the task must not resolve it by
+    adding a company name (forbidden by the root `CLAUDE.md`). The file lists
+    people.
+
+  The contributor workflow ("add yourself to `CONTRIBUTORS` in your first
+  pull request") is documented in `docs/development.md` and linked from the
+  README's Licence section.
+
+steps:
+  - |
+    Create `CONTRIBUTORS` at the repository root: a `#`-comment header that
+    states (a) that "Pythia Contributors", the copyright holder named in
+    `NOTICE`, are the people listed below; (b) the line format
+    `Name <email>`, one per person, sorted by name, the email being the one
+    the person's commits are authored under; (c) "add yourself in your first
+    pull request; CI checks it with scripts/check-contributors.sh". Then the
+    one entry:
+      Torsten Fink <tnfink@users.noreply.github.com>
+    No company name anywhere in the file.
+  - |
+    Append to `NOTICE`, after a blank line, exactly the sentence given in the
+    description ("\"Pythia Contributors\" are the people listed in the
+    CONTRIBUTORS file distributed with this product."). Do not change the
+    existing lines.
+  - |
+    Write `scripts/check-contributors.sh` (bash, executable, the
+    refuse-to-be-sourced preamble and header-comment style of
+    `scripts/release-bundle.sh`, `set -euo pipefail`):
+      Usage: ./scripts/check-contributors.sh [<contributors-file>]
+             (default: CONTRIBUTORS at the repo root)
+      1. Read listed emails: non-comment, non-blank lines, the text between
+         the last `<` and `>`, lower-cased. A non-blank, non-comment line
+         that does not match `^.+ <[^<>@ ]+@[^<>@ ]+>$` is a format error
+         (exit 1, print the line).
+      2. Collect authors: `git log --no-merges --use-mailmap
+         --format='%aN <%aE>'`, unique. Drop emails matching
+         `[bot]@users.noreply.github.com$` or equal to `noreply@github.com`.
+      3. Fail (exit 1) if any remaining author's lower-cased email is not
+         listed. Print "Not listed in CONTRIBUTORS:" followed by each missing
+         `Name <email>` line, then a hint to add them. Otherwise print
+         "CONTRIBUTORS lists all N commit authors." and exit 0.
+      4. Refuse to run in a shallow clone (`git rev-parse
+         --is-shallow-repository` = true): exit 2 with "needs full history
+         (actions/checkout fetch-depth: 0)". Silently passing on one commit
+         would make the gate meaningless.
+    Make it pass shellcheck (the repo's scripts are shellcheck-clean).
+  - |
+    In `.github/workflows/ci.yaml`, `build` job: give its
+    `actions/checkout@v7` step `with: fetch-depth: 0`, and add a step
+    `name: Contributors list is complete` / `run:
+    ./scripts/check-contributors.sh` early in the job (right after the
+    checkout, before the Gradle steps), with a short comment explaining why
+    full history is needed and pointing at `docs/development.md` →
+    "Contributors".
+  - |
+    In `scripts/release-bundle.sh`, add `CONTRIBUTORS` to the `git archive`
+    path list after `NOTICE`, and update the header comment
+    ("LICENSE/NOTICE/CONTRIBUTORS"). In `docs/deployment.md` → "What a
+    release publishes", change the layout line to
+      LICENSE  NOTICE  CONTRIBUTORS   Apache-2.0 requires NOTICE to travel
+                                      along; CONTRIBUTORS defines its holder
+    keeping the block's alignment.
+  - |
+    Documentation:
+      - `docs/development.md`: a new `## Contributors` section (place it
+        after "Dependency vulnerabilities", before "Development Profiles")
+        stating what the file is for, the line format, which email to use,
+        that AI co-authors and bots are not listed and why, and how to run
+        the check locally.
+      - `README.md` → `## Licence`: add "Copyright 2026 Pythia Contributors,
+        the people listed in [CONTRIBUTORS](CONTRIBUTORS). To contribute, see
+        [docs/development.md](docs/development.md#contributors)."
+      - `CLAUDE.md` → "Licence and namespace": after "Copyright is held by
+        \"Pythia Contributors\"", add that they are defined by `CONTRIBUTORS`
+        (task-209), checked in CI by `scripts/check-contributors.sh`, and
+        that the bundle ships it next to `NOTICE`.
+  - |
+    Verify locally: `./scripts/check-contributors.sh` passes; it fails with
+    an empty list (`./scripts/check-contributors.sh <(echo '# empty')`),
+    naming `Torsten Fink <tnfink@users.noreply.github.com>`; `shellcheck
+    scripts/check-contributors.sh` is clean. Then run the full build:
+      ./gradlew build
+
+validation:
+  - |
+    test -f CONTRIBUTORS && grep -qx 'Torsten Fink <tnfink@users.noreply.github.com>' CONTRIBUTORS
+  - |
+    grep -q 'CONTRIBUTORS file' NOTICE && grep -q '^Copyright 2026 Pythia Contributors$' NOTICE
+  - |
+    test -x scripts/check-contributors.sh && ./scripts/check-contributors.sh
+  - |
+    ! ./scripts/check-contributors.sh <(echo '# empty') >/dev/null 2>&1
+  - |
+    ./scripts/check-contributors.sh <(echo '# empty') 2>&1 | grep -q 'tnfink@users.noreply.github.com'
+  - |
+    shellcheck scripts/check-contributors.sh
+  - |
+    grep -q 'check-contributors.sh' .github/workflows/ci.yaml && grep -q 'fetch-depth: 0' .github/workflows/ci.yaml
+  - |
+    grep -q 'LICENSE NOTICE CONTRIBUTORS' scripts/release-bundle.sh
+  - |
+    grep -q 'CONTRIBUTORS' docs/deployment.md && grep -q '^## Contributors' docs/development.md
+  - |
+    grep -q 'CONTRIBUTORS' README.md && grep -q 'check-contributors.sh' CLAUDE.md
+  - |
+    ! grep -qi 'noreply@anthropic.com' CONTRIBUTORS
+  - |
+    ./gradlew build
+
+outputs:
+  - created: CONTRIBUTORS
+  - modified: NOTICE
+  - created: scripts/check-contributors.sh
+  - modified: scripts/release-bundle.sh
+  - modified: .github/workflows/ci.yaml
+  - modified: docs/deployment.md
+  - modified: docs/development.md
+  - modified: README.md
+  - modified: CLAUDE.md

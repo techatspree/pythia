@@ -206,6 +206,43 @@ export staticCodeAnalysis=1
 This convention was introduced in `task-056` and applies to the
 validation blocks of any task whose work spans the lint pipeline.
 
+## The SBOM
+
+`./gradlew sbom` builds and checks Pythia's **one application SBOM**,
+`build/sbom/pythia.cdx.json` (CycloneDX 1.6, task-206). `./gradlew build` runs it
+too, and a release attaches it (`docs/deployment.md` → "The SBOM"). It has two
+parts, `pythia-backend` and `pythia-frontend`, each listing exactly what ships:
+
+- **Backend:** the CycloneDX Gradle plugin on
+  `quarkusProdRuntimeClasspathConfiguration`, trimmed by
+  `scripts/sbom-finalize.mjs` to the jars in `build/quarkus-app/lib`. No
+  configuration matches the package exactly. BOM and Kotlin Multiplatform
+  umbrella entries (`type=pom`) have no jar, Quarkus strips some artifacts, and
+  our own modules ship as `<name>-jvm` jars. A jar that no component describes
+  fails the build. Quarkus' own `quarkus-cyclonedx` extension was rejected: in
+  a Gradle build it emits no license data.
+- **Frontend:** `rollup-plugin-sbom` (3.2.3) lists the npm packages Vite
+  actually bundles. `npm ls` would be wrong both ways: SvelteKit's runtime is a
+  devDependency yet ships, while ESLint and Playwright never do. The Kotlin
+  libraries compiled into `src/lib/domain/domain.mjs` are invisible to any npm
+  tool, so they come from the Gradle plugin on `:domain`
+  (`jsRuntimeClasspath`) and are merged in.
+- **Pinned to 3.2.3, not 4.x:** `rollup-plugin-sbom` 4 depends on
+  `normalize-package-data` 9 and `hosted-git-info` 10, which require Node
+  `^22.22.2`. The project pins Node 22.14.0 (`nodeVersion`), and
+  `engine-strict=true` refuses the install.
+- **Never in the image:** the bundler writes its SBOM into the build output,
+  and SvelteKit copies it to `src/frontend/build/cyclonedx/`, the directory the
+  frontend image is made from. nginx would then serve every dependency version
+  publicly. `npmBuild` deletes it in the same task, and `:frontend:imageBuild`
+  refuses to package an SPA that still contains it.
+
+The output is deterministic (no serial number, no timestamp, sorted), so two
+builds of the same commit give the same file. `scripts/check-sbom.sh` verifies
+it against the build: jars, bundled packages, unique references, a resolvable
+graph, and Apache-2.0 on our own components. The finalize step is unit-tested
+(`node --test scripts/sbom-finalize.test.mjs`, part of `:frontend:check`).
+
 ## Dependency vulnerabilities
 
 `./gradlew staticAnalysis` analyses **our** code (detekt, ESLint,

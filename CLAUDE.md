@@ -45,6 +45,8 @@ cd src/frontend && npm run test:e2e        # Playwright
 #   → backend on :8090 (NOT 8080), Vite on :5173
 ./scripts/minikube-deploy.sh               # full PostgreSQL + Quarkus stack on minikube
 ./scripts/release.sh <X.Y.Z>               # cut release vX.Y.Z (see docs/deployment.md, "Releasing")
+./gradlew sbom                             # the one application SBOM, build/sbom/pythia.cdx.json
+                                           #   (CycloneDX; part of build; see docs/development.md, "The SBOM")
 ```
 
 The local **dev backend listens on :8090**, not Quarkus' default 8080 (`%dev.quarkus.http.port`, task-137). 8080 is deliberately left free for `kubectl -n estimation port-forward svc/frontend 8080:80`: both can bind simultaneously (the port-forward takes `127.0.0.1`, Quarkus `0.0.0.0`), the loopback binding wins for `localhost`, and the Vite proxy plus the Playwright suite then silently reach the CLUSTER — which rejects `Authorization: Dev …` with `401` while both stacks look healthy. Do NOT move it back to 8080. The setting is profile-scoped on purpose: the generated OpenAPI `servers` block comes from the augmentation-time port, and prod augmentation must keep emitting 8080 so the committed `src/frontend/src/lib/api/openapi.json` does not churn. In-cluster ports (`k8s/base/backend/*`) stay 8080 — they are unrelated.
