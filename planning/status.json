@@ -1071,10 +1071,10 @@
       "notes": "gen:screenshots leaves the user in English and breaks the e2e suite; restore the prior language"
     },
     "task-181": {
-      "status": "in_progress",
-      "started_at": "2026-10-15T09:17:52+00:00",
+      "status": "pending",
+      "started_at": null,
       "completed_at": null,
-      "notes": "Committed schedule screenshots show numbers no fresh stack reproduces; recapture from a pristine seed"
+      "notes": "Committed schedule screenshots show numbers no fresh stack reproduces; recapture from a pristine seed — rescoped 2026-10-15: cause is id-ordered levelling + random seeded ids; blocked on task-211 and task-212"
     },
     "task-182": {
       "status": "done",
@@ -1101,10 +1101,10 @@
       "notes": "Exported Excel files have no layout — add a minimal, readable design (header styling, column widths, number formats)"
     },
     "task-186": {
-      "status": "in_progress",
+      "status": "done",
       "started_at": "2026-09-16T07:39:07+00:00",
-      "completed_at": null,
-      "notes": "Bucket estimation UI drops fields the model still carries (assumptions, and whatever else the PERT editor shows) — audit and restore"
+      "completed_at": "2026-09-26T17:22:28+02:00",
+      "notes": "Bucket estimation UI drops fields the model still carries (assumptions, and whatever else the PERT editor shows) — audit and restore — Done in 3a47d2d (completed_at backdated to that commit; status was set 2026-10-15). Split out: task-187 (TIME_RELATIVE leaf in the bucket editor). The bucket-editor.png recapture this task asked for was not committed; task-181 recaptures it."
     },
     "task-187": {
       "status": "pending",

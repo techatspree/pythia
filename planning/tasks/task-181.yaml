@@ -1,7 +1,7 @@
 id: task-181
 phase: phase-18
 title: "Recapture the screenshots, reproducible from any fresh seed"
-depends_on: [task-180, task-211, task-212]
+depends_on: [task-180, task-187, task-211, task-212]
 description: |
   The committed screenshots in `docs/images/` cannot be regenerated without an
   unexplained diff, and one of them shows nothing at all. This task recaptures
@@ -97,8 +97,8 @@ description: |
 
 steps:
   - |
-    Confirm the dependencies are in: `jq -r '.tasks["task-211"].status, .tasks["task-212"].status' planning/status.json`
-    prints `done` twice. Do not start otherwise.
+    Confirm the dependencies are in: `jq -r '.tasks["task-187"].status, .tasks["task-211"].status, .tasks["task-212"].status' planning/status.json`
+    prints `done` three times (task-187 adds the accompanying-work row the bucket-editor shot must show). Do not start otherwise.
   - |
     Fix the version-compare capture in `src/frontend/scripts/capture-screenshots.mjs`.
     Open `${APP}/estimations/<pert id>/compare?a=1&b=draft` in a browser on a
@@ -143,7 +143,7 @@ steps:
 
 validation:
   - |
-    jq -e '.tasks["task-211"].status == "done" and .tasks["task-212"].status == "done"' planning/status.json
+    jq -e '.tasks["task-187"].status == "done" and .tasks["task-211"].status == "done" and .tasks["task-212"].status == "done"' planning/status.json
   - |
     All six screenshots are present, real PNGs, and none is a blank or failed
     capture:

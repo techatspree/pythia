@@ -1,0 +1,372 @@
+id: task-187
+phase: phase-15
+title: "Accompanying work (h/Woche) in bucket estimations"
+depends_on: [task-186, task-198]
+description: |
+  Registered during task-186's audit (status entry only; this file was written
+  2026-10-15 from that note and task-186's description): "Bucket editor renders
+  a TIME_RELATIVE leaf as if it were bucketed (bucket select, no unit, no
+  type)".
+
+  A bucket + sampled estimation can contain a `TIME_RELATIVE` leaf, i.e.
+  accompanying work in h/Woche whose effort is `PERT(min, likely, max) ×
+  phase.durationWeeks`. `ExcelImporter` builds one for any method, and the
+  REST draft update (`DraftUpdateApplier.buildDraftNode`) accepts one for any
+  method. The DOMAIN handles it correctly: `BucketMethodModule.calculateAll`
+  sends every non-bucketed item through `withCalculationParameters`. Every
+  other layer treats it as if it were a bucketed leaf.
+
+  ## Current state (measured 2026-10-15)
+
+  - **Bucket editor** (`src/frontend/src/lib/methods/bucketSampled/EditorModule.svelte`):
+    the row shows a bucket select ("— kein Bucket —") and a sample checkbox.
+    Its Optimistic/Likely/Pessimistic cells show "—", because only a sample
+    shows its numbers, so its effort cannot be seen or edited. It has no unit
+    and no type, and it cannot be created: `addItem`/`addChildLeafAt` only
+    make `BUCKETED` leaves. In the bucket view it lands in "Ohne Bucket",
+    the rescue row for broken bucketed leaves.
+  - **Excel export:** `BucketMethodModule.exportRow` returns five empty
+    cells for any non-`BucketedEstimationItem`, so the effort is LOST.
+  - **Excel import:** `ExcelImporter` reads a `TIME_RELATIVE` row's effort
+    from the hard-coded PERT columns 1..3, which in a bucket workbook hold
+    Bucket / Is Sample / Optimistic, so it comes back empty even if the
+    export had written it.
+
+  ## Decision (2026-10-15): support it fully
+
+  Accompanying work (project management, UX support …) exists whatever the
+  estimation method, and the domain already computes it. So a bucket
+  estimation gets first-class accompanying work. It is NOT forbidden, and it
+  is not just displayed.
+
+  - **Type column, like the PERT grid.** The bucket editor gains a `Typ`
+    column (after Beschreibung) with a select per leaf: "Bucket" (`BUCKETED`)
+    or "h/Woche" (`TIME_RELATIVE`), mirroring `EstimationGrid.svelte`'s
+    `typeCell` (FIXED ↔ TIME_RELATIVE). That is how one is created: add an
+    item, then switch its type. There is no extra add button. This replaces
+    task-186's comment that `type` "has no meaning" here. It now does,
+    because the bucket editor holds two leaf kinds.
+  - **Switching keeps the effort triple** and changes only what differs:
+      - BUCKETED → TIME_RELATIVE: `unit = 'h/Woche'`, `bucketId = null`,
+        `isSample = false`;
+      - TIME_RELATIVE → BUCKETED: `unit = null`,
+        `bucketId = buckets[0]?.id ?? null`, `isSample = false`. The
+        "Bucket" option is DISABLED while no bucket exists, because the
+        backend rejects a BUCKETED leaf with a null bucket (400).
+  - **A TIME_RELATIVE row** shows "—" in Bucket and Stichprobe (no select,
+    no checkbox). Its Optimistic/Erwartet/Pessimistisch are always editable
+    (h/Woche). Mittelwert, Angebots-PT, cost and price are the domain's
+    numbers as for any leaf. A missing phase shows the same "⚠ Phase nötig"
+    in Angebots-PT that the PERT grid shows (`grid.needsPhase`), because
+    without a phase its effort is 0.
+  - **Bucket view:** a new pseudo-row **"Begleitende Leistungen"** collects
+    the TIME_RELATIVE leaves, after the bucket rows and before "Ohne Bucket".
+    "Ohne Bucket" keeps only BUCKETED leaves with a missing or unknown
+    bucket. Drag-and-drop never moves a TIME_RELATIVE leaf into a bucket row,
+    and never moves a bucketed one into "Begleitende Leistungen": both snap
+    back (`projectionNonce++`), as a drop on "Ohne Bucket" already does.
+    Changing the kind is the type select's job, not a drop's.
+  - **Excel round-trip:**
+      - export: `BucketMethodModule.exportRow` writes a non-bucketed item as
+        `["", "", min, likely, max]`, its triple in the SAME columns a sample
+        uses (Optimistic/Likely/Pessimistic), so the sheet reads naturally;
+      - import: the SPI `EstimationMethodModule` (core) gains
+        `val effortColumnOffsets: List<Int>`, the offsets within the method
+        cells where optimistic/likely/pessimistic sit: PERT `[0, 1, 2]`,
+        bucket `[2, 3, 4]`. `ExcelImporter` reads a TIME_RELATIVE row's triple
+        at `METHOD_FIRST_COLUMN + offset` instead of the hard-coded 1..3. The
+        importer still learns no method's shape by name (task-182's rule); it
+        asks the module. The interface is not `@JsExport`ed (checked), so the
+        addition has no Kotlin/JS export surface. Kotlin/JS still compiles
+        core, so use only common stdlib.
+  - **No REST, DTO, OpenAPI or migration change.** `EstimationNodeUpdateDto`
+    already carries `type`, `unit`, the triple and `phaseAbbreviation`, and
+    `DraftUpdateApplier` already builds `DraftTimeRelativeItemNode` for any
+    method.
+  - **Seed:** the Data Platform draft (bucket + sampled) gains one
+    accompanying leaf, `timeRelativeLeaf(draft, "Projektbegleitung", "h/Woche",
+    0.5, 1.0, 2.0, phaseUM)`, as the LAST root, so the editor, the bucket
+    view, the e2e suite and the bucket-editor screenshot all show the case.
+    It adds PERT(0.5, 1, 2) × 12 weeks = 13.00 to the estimation's mean.
+  - **Domain proof:** method modules may not import each other (task-143), so
+    the test that a bucket version containing a `TimeRelativeEstimationItem`
+    calculates correctly lives in the aggregator's suite (`src/domain/src/test`).
+    `TimeRelativeEstimationItem.method` says `THREE_POINT_PERT`. The test
+    proves that this does not stop it from being calculated inside a
+    `BUCKET_SAMPLED_PERT` version, and fails if it ever does.
+
+  ## Wireframes
+
+  Seeded data: "Data Platform Migration", offer DP-2026-001, version 1 (draft),
+  phases KO (3 W.), UM (12 W.), AB (2 W.), buckets S / M / L, as seeded by
+  task-186, plus the new "Projektbegleitung" root leaf.
+
+  ### Bucket editor, hierarchy view: draft with accompanying work
+
+      … (summary panels, Buckets panel unchanged) …
+      [ Nach Bucket ] [*Hierarchie*]
+      +------------------------------------------------------------------------------------------------------------------+
+      | Beschreibung            | Typ         | Bucket   | Stichprobe | Phase  | Optim. | Erwartet | Pessim. | Mittelwert | … | Angebots-PT |
+      |-------------------------+-------------+----------+------------+--------+--------+----------+---------+------------+---+-------------|
+      | ▼ Ingest                |             |          |            |        |        |          |         |       3.00 | … |        3.62 |
+      |    Ingest connector A   | [ Bucket v] | [ S   v] |    [x]     | [KO v] |    1.0 |      2.0 |     3.0 |       2.00 | … |        2.41 |
+      |    Ingest connector B   | [ Bucket v] | [ S   v] |    [ ]     | [KO v] |      — |        — |       — |      2.00  | … |        2.41 |
+      | ▶ Transform             |             |          |            |        |        |          |         |      10.33 | … |       12.46 |
+      |   Reporting dashboard   | [ Bucket v] | [ L   v] |    [x]     | [AB v] |    5.0 |      8.0 |    13.0 |       8.33 | … |       10.05 |
+      |   Data catalog          | [ Bucket v] | [ L   v] |    [ ]     | [AB v] |      — |        — |       — |      8.33  | … |       10.05 |
+      |   Projektbegleitung     | [h/Woche v] |    —     |     —      | [UM v] |  [0.5] |    [1.0] |   [2.0] |      13.00 | … |       15.68 |
+      |   [ + Element hinzufügen ]  [ + Gruppe hinzufügen ]                                                                          |
+      +------------------------------------------------------------------------------------------------------------------+
+
+    - New column `Typ`: header `bucket.colType` ("Typ" / "Type"), width
+      `6rem`, placed right after Beschreibung in `columnMeta`. The cell is a
+      `<select data-testid="bucket.leaf-type">` with the options "Bucket"
+      (`bucket.typeBucketed`, value `BUCKETED`) and "h/Woche"
+      (`bucket.typeTimeRelative`, value `TIME_RELATIVE`), styled like the
+      existing bucket/phase selects. Read-only (submitted version): a plain
+      span with the same label. Groups: empty cell.
+    - The "Bucket" option is `disabled` while `buckets.length === 0`.
+    - TIME_RELATIVE row: Bucket and Stichprobe show `—` (`text-ink-faint`,
+      as the non-sample number cells do). The three effort cells are always
+      inputs (when editable), not gated on `isSample`. The input of the
+      Optimistic cell carries `data-testid="bucket.leaf-optimistic"` (only
+      on TIME_RELATIVE rows; the sample inputs keep their current markup).
+    - Numbers other than the new leaf's are illustrative of the seeded draft;
+      the domain computes them. The implementer replaces them with the
+      rendered values when capturing.
+    - Visible to everyone who can open the draft. Editing follows the
+      existing `editable` flag (owner/admin, draft only), as for every other
+      cell.
+
+  ### Bucket editor, hierarchy view: accompanying leaf without a phase
+
+      |   Projektbegleitung     | [h/Woche v] |    —     |     —      | [— keine — v] |  [0.5] | [1.0] | [2.0] |  0.00 | … | ⚠ Phase nötig |
+
+    - Angebots-PT shows `grid.needsPhase` ("⚠ Phase nötig" / "⚠ needs
+      phase", an existing key, reused) in `text-amber-500` like the PERT grid,
+      with `data-testid="bucket.needs-phase"`. Mittelwert shows the domain's
+      0.00.
+
+  ### Bucket editor, bucket view: accompanying work in its own row
+
+      [*Nach Bucket*] [ Hierarchie ]
+      +---------------------------------------------------------------------------------------------+
+      | Beschreibung                  | Typ         | Bucket | Stichprobe | … | Mittelwert | … | Angebots-PT |
+      |-------------------------------+-------------+--------+------------+---+------------+---+-------------|
+      | ▼ S                           |             |        |            |   |       4.00 | … |        4.82 |
+      |     Ingest connector A        | [ Bucket v] | [S v]  |    [x]     |   |       2.00 | … |        2.41 |
+      |     Ingest connector B        | [ Bucket v] | [S v]  |    [ ]     |   |       2.00 | … |        2.41 |
+      | ▶ M                           |             |        |            |   |      10.33 | … |       12.46 |
+      | ▶ L                           |             |        |            |   |      16.67 | … |       20.10 |
+      | ▼ Begleitende Leistungen      |             |        |            |   |      13.00 | … |       15.68 |
+      |     Projektbegleitung         | [h/Woche v] |   —    |     —      |   |      13.00 | … |       15.68 |
+      | ▶ Ohne Bucket                 |             |        |            |   |       0.00 | … |        0.00 |
+      +---------------------------------------------------------------------------------------------+
+
+    - New pseudo-row label `bucket.accompanying` ("Begleitende Leistungen" /
+      "Accompanying work"), `logicalId: 'bucket:accompanying'`, its label
+      element carrying `data-testid="bucket.row.accompanying"`. Its totals
+      come from the existing `bucketTotals`. It is shown only when at least
+      one TIME_RELATIVE leaf exists, so the seeded estimations without one
+      look unchanged.
+    - "Ohne Bucket" (`bucket.unassigned`, unchanged) now holds only BUCKETED
+      leaves with a null or unknown bucket.
+    - Neither "Begleitende Leistungen" nor "Ohne Bucket" is a drop target,
+      and a TIME_RELATIVE leaf dropped on a bucket row snaps back.
+
+  ### i18n keys (both catalogs, key for key)
+
+  | key | de | en |
+  |---|---|---|
+  | `bucket.colType` | Typ | Type |
+  | `bucket.typeBucketed` | Bucket | Bucket |
+  | `bucket.typeTimeRelative` | h/Woche | h/week |
+  | `bucket.accompanying` | Begleitende Leistungen | Accompanying work |
+
+  (`grid.needsPhase` is reused, not duplicated. "Bucket" is the product's
+  own term in both languages, already used verbatim by `bucket.colBucket`.
+  The stored `unit` VALUE stays `"h/Woche"`, which is data that the backend
+  and Excel carry; only its select LABEL is translated.)
+
+steps:
+  - |
+    Domain SPI: in `src/domain/core/src/main/kotlin/io/pythia/method/EstimationMethodModule.kt`
+    add `val effortColumnOffsets: List<Int>` with a KDoc: the offsets, within
+    [exportColumnHeaders]'s cells, of optimistic/likely/pessimistic, used by
+    the importer for leaves the module does not own (a `TIME_RELATIVE` row,
+    task-187). Implement it as `listOf(0, 1, 2)` in
+    `ThreePointMethodModule` and `listOf(2, 3, 4)` in `BucketMethodModule`.
+    Common stdlib only. No `super.<computed property>` anywhere (Kotlin/JS
+    recursion, root CLAUDE.md).
+  - |
+    In `src/domain/method-bucketsampled/src/main/kotlin/io/pythia/method/bucketsampled/BucketMethodModule.kt`,
+    change `exportRow`'s non-bucketed branch from five empty cells to
+    `listOf("", "", item.minEffort.toString(), item.expectedEffort.toString(), item.maxEffort.toString())`,
+    with a comment naming task-187. Extend `BucketMethodModuleTest` for that
+    and for `effortColumnOffsets` pointing at the triple of a sample row
+    produced by `exportRow`.
+  - |
+    Aggregator test (`src/domain/src/test/kotlin/io/pythia/…`, next to the
+    existing method tests): a `BUCKET_SAMPLED_PERT` `EstimationVersion` with
+    two bucketed leaves (one sample) and one `TimeRelativeEstimationItem`
+    (0.5/1.0/2.0, phase of 12 weeks) calculates. The TIME_RELATIVE leaf's
+    `mean` is 13.0 (± 1e-9), the bucket non-sample still gets its bucket's
+    average, and the version's total mean is the sum. Then
+    `./gradlew :domain:build`.
+  - |
+    Backend import: in `src/backend/implementation/src/main/kotlin/io/pythia/service/ExcelImporter.kt`,
+    read a TIME_RELATIVE row's `minEffort`/`expectedEffort`/`maxEffort` at
+    `METHOD_FIRST_COLUMN + module.effortColumnOffsets[i]` instead of columns
+    1..3. Update the column comment block above the loop. Log at DEBUG per
+    imported TIME_RELATIVE row (`Log.debugf("Imported TIME_RELATIVE row '%s' for %s", label, module.method)`).
+  - |
+    Backend tests: in `ExcelExporterTreeTest`/`ExcelImporterTreeTest` (or a
+    new `ExcelBucketTimeRelativeRoundTripTest` in the same package if the
+    existing classes are PERT-only), export a bucket estimation containing a
+    TIME_RELATIVE leaf (0.5/1.0/2.0, unit h/Woche, phase UM) and import it
+    back: type, unit, triple, phase and logicalId survive. Keep a PERT
+    round-trip assertion green (the PERT offsets are what columns 1..3 were).
+  - |
+    Seed: in `src/backend/implementation/src/main/kotlin/io/pythia/testdata/TestDataSeeder.kt`
+    `seedDataPlatform`, append
+    `timeRelativeLeaf(draft, "Projektbegleitung", "h/Woche", 0.5, 1.0, 2.0, phaseUM)`
+    as the last element of the `addRootLeaves` list, and extend the class
+    KDoc's Data platform bullet with one sentence on it (task-187).
+  - |
+    Frontend, `src/frontend/src/lib/methods/bucketSampled/EditorModule.svelte`,
+    as wireframed:
+      - `columnMeta`: add `{ key: 'type', header: $_('bucket.colType'), width: '6rem' }`
+        after `description`, and replace the task-186 comment about `type`
+        with one explaining why the bucket editor now has a type column
+        (task-187), keeping "keep the two lists diffed";
+      - a shared `leafType(node: Leaf)` snippet (select / read-only span) with
+        the switching rules from the description, and `h*`/`b*` cell
+        snippets delegating to it, like the other columns;
+      - `leafBucket` and `leafSample`: render `—` for a TIME_RELATIVE leaf;
+      - `leafNumber`: editable when `node.isSample || node.type === 'TIME_RELATIVE'`,
+        with `data-testid="bucket.leaf-optimistic"` on the TIME_RELATIVE
+        optimistic input;
+      - the Angebots-PT cell: `grid.needsPhase` with
+        `data-testid="bucket.needs-phase"` for a TIME_RELATIVE leaf without a
+        phase, as `EstimationGrid.svelte`'s `offerPTCell` does;
+      - `bucketRows`: bucket rows and "Ohne Bucket" filter on
+        `l.type === 'BUCKETED'`; add the "Begleitende Leistungen" pseudo-row
+        for `l.type === 'TIME_RELATIVE'` (only when non-empty), placed before
+        "Ohne Bucket";
+      - `onBucketChildrenChange`: snap back (`projectionNonce++`) when the
+        target is the accompanying row, and skip (and snap back if nothing
+        else moved) any TIME_RELATIVE leaf dropped on a bucket row;
+      - `log.debug` when a leaf's type is switched (`Bucket editor: leaf
+        <id> type BUCKETED → TIME_RELATIVE`). No bare `console.*`, no inline
+        UI strings, number formatting only via the existing `num`/`$lib/format.ts`.
+  - |
+    Add the four i18n keys from the table to `src/frontend/src/lib/i18n/de.json`
+    and `en.json`, key for key.
+  - |
+    Page Object `src/frontend/e2e/pages/BucketEditor.ts`: add
+    `setLeafType(description: string, type: 'BUCKETED' | 'TIME_RELATIVE')`
+    (locates the row by its description, which is test data, then
+    `getByTestId('bucket.leaf-type').selectOption(type)`),
+    `fillTimeRelativeOptimistic(description, value)`,
+    `expectAccompanyingRow()` (`bucket.row.accompanying` visible),
+    `expectNeedsPhase(description)` and `expectLeafType(description, type)`.
+  - |
+    Spec `src/frontend/e2e/bucket-accompanying.test.ts` (Page Objects only,
+    no translated literals; create its own bucket estimation the way
+    `bucket-sampled-flow.test.ts` does so it does not depend on the seed):
+      - add an item, switch it to h/Woche: its Bucket/Stichprobe cells show
+        no select/checkbox, the optimistic input is editable, and with no
+        phase the needs-phase warning shows; pick a phase and it disappears;
+      - the bucket view shows the "Begleitende Leistungen" row containing it;
+      - after autosave and reload it is still TIME_RELATIVE with its numbers;
+      - switch it back to Bucket: it gets the first bucket and leaves the
+        accompanying row;
+      - with no bucket defined, the "Bucket" option is disabled (assert via
+        the option's `disabled` attribute on `bucket.leaf-type`).
+    Run it in both languages: `E2E_LANG=en` and `E2E_LANG=de`, plus the
+    existing bucket specs (`bucket-*.test.ts`) to prove nothing regressed.
+  - |
+    Docs: `src/frontend/CLAUDE.md` gets no rule change. Add one sentence to
+    `src/domain/CLAUDE.md` where the method SPI is described:
+    `effortColumnOffsets` and why the importer needs it (task-187).
+  - |
+    Build, test, and finish:
+      ./gradlew :domain:build
+      ./gradlew :backend:implementation:test
+      ./gradlew :frontend:check
+      ./gradlew build
+
+validation:
+  - |
+    grep -q "effortColumnOffsets" src/domain/core/src/main/kotlin/io/pythia/method/EstimationMethodModule.kt
+    grep -q "effortColumnOffsets" src/domain/method-bucketsampled/src/main/kotlin/io/pythia/method/bucketsampled/BucketMethodModule.kt
+    grep -q "effortColumnOffsets" src/domain/method-threepoint/src/main/kotlin/io/pythia/method/threepoint/ThreePointMethodModule.kt
+    ! grep -q 'return listOf("", "", "", "", "")' src/domain/method-bucketsampled/src/main/kotlin/io/pythia/method/bucketsampled/BucketMethodModule.kt
+  - |
+    I=src/backend/implementation/src/main/kotlin/io/pythia/service/ExcelImporter.kt
+    grep -q "effortColumnOffsets" "$I"
+    ! grep -q "node.minEffort = row.cellNumericValue(1)" "$I"
+    grep -q 'Log.debugf("Imported TIME_RELATIVE' "$I"
+  - |
+    sed -n '/private fun seedDataPlatform/,$p' src/backend/implementation/src/main/kotlin/io/pythia/testdata/TestDataSeeder.kt | grep -q 'timeRelativeLeaf(draft, "Projektbegleitung"'
+  - |
+    E=src/frontend/src/lib/methods/bucketSampled/EditorModule.svelte
+    grep -q "key: 'type'" "$E"
+    grep -q 'data-testid="bucket.leaf-type"' "$E"
+    grep -q 'data-testid="bucket.row.accompanying"' "$E"
+    grep -q 'data-testid="bucket.needs-phase"' "$E"
+    grep -q 'data-testid="bucket.leaf-optimistic"' "$E"
+    grep -q "TIME_RELATIVE" "$E"
+    grep -q "log.debug" "$E"
+    ! grep -q "console\." "$E"
+  - |
+    python3 - <<'PY'
+    import json, pathlib, sys
+    cats = {p.stem: json.loads(p.read_text())
+            for p in pathlib.Path('src/frontend/src/lib/i18n').glob('*.json')}
+    def flat(o, p=''):
+        s = set()
+        for k, v in o.items():
+            n = f'{p}.{k}' if p else k
+            s |= flat(v, n) if isinstance(v, dict) else {n}
+        return s
+    keys = {l: flat(d) for l, d in cats.items()}
+    ref = set().union(*keys.values())
+    bad = {l: sorted(ref - k) for l, k in keys.items() if ref - k}
+    need = {'bucket.colType', 'bucket.typeBucketed', 'bucket.typeTimeRelative', 'bucket.accompanying'}
+    missing = {l: sorted(need - k) for l, k in keys.items() if need - k}
+    de = cats['de']['bucket']; en = cats['en']['bucket']
+    same = de['accompanying'] == en['accompanying'] or de['typeTimeRelative'] == en['typeTimeRelative']
+    print('parity:', bad or 'ok', '| new keys:', missing or 'ok', '| translated:', not same)
+    sys.exit(1 if (bad or missing or same) else 0)
+    PY
+  - |
+    test -f src/frontend/e2e/bucket-accompanying.test.ts
+    grep -q "from './pages'" src/frontend/e2e/bucket-accompanying.test.ts
+    grep -q "setLeafType" src/frontend/e2e/pages/BucketEditor.ts
+  - |
+    grep -q "task-187" src/domain/CLAUDE.md
+  - |
+    ./gradlew :domain:build
+  - |
+    ./gradlew :backend:implementation:test
+  - |
+    ./gradlew :frontend:check
+  - |
+    ./gradlew build
+
+outputs:
+  - modified: src/domain/core/src/main/kotlin/io/pythia/method/EstimationMethodModule.kt
+  - modified: src/domain/method-threepoint/src/main/kotlin/io/pythia/method/threepoint/ThreePointMethodModule.kt
+  - modified: src/domain/method-bucketsampled/src/main/kotlin/io/pythia/method/bucketsampled/BucketMethodModule.kt
+  - modified: src/domain/method-bucketsampled/src/test/kotlin/io/pythia/method/bucketsampled/BucketMethodModuleTest.kt
+  - created: src/domain/src/test/kotlin/io/pythia/method/BucketVersionWithTimeRelativeTest.kt
+  - modified: src/backend/implementation/src/main/kotlin/io/pythia/service/ExcelImporter.kt
+  - modified: src/backend/implementation/src/test/kotlin/io/pythia/service/ExcelImporterTreeTest.kt
+  - modified: src/backend/implementation/src/main/kotlin/io/pythia/testdata/TestDataSeeder.kt
+  - modified: src/frontend/src/lib/methods/bucketSampled/EditorModule.svelte
+  - modified: src/frontend/src/lib/i18n/de.json
+  - modified: src/frontend/src/lib/i18n/en.json
+  - modified: src/frontend/e2e/pages/BucketEditor.ts
+  - created: src/frontend/e2e/bucket-accompanying.test.ts
+  - modified: src/domain/CLAUDE.md
