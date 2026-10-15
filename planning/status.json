@@ -1071,8 +1071,8 @@
       "notes": "gen:screenshots leaves the user in English and breaks the e2e suite; restore the prior language"
     },
     "task-181": {
-      "status": "pending",
-      "started_at": null,
+      "status": "in_progress",
+      "started_at": "2026-10-15T09:17:52+00:00",
       "completed_at": null,
       "notes": "Committed schedule screenshots show numbers no fresh stack reproduces; recapture from a pristine seed"
     },
@@ -1249,6 +1249,18 @@
       "started_at": null,
       "completed_at": null,
       "notes": "Open-source notices dialog listing every shipped OSS component with license and copyright holders, generated from the SBOM"
+    },
+    "task-211": {
+      "status": "pending",
+      "started_at": null,
+      "completed_at": null,
+      "notes": "Schedule levelling uses the tree order as priority instead of random logicalId order"
+    },
+    "task-212": {
+      "status": "pending",
+      "started_at": null,
+      "completed_at": null,
+      "notes": "Seed the dev test-data generator with a fixed number so every fresh dev database is identical"
     }
   }
 }

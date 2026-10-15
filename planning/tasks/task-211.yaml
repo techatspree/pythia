@@ -1,0 +1,212 @@
+id: task-211
+phase: phase-20
+title: "Levelling priority is the tree order, not the logicalId"
+depends_on: [task-198]
+description: |
+  The resource-levelled schedule (task-166) decides which ready item gets a
+  free worker first by sorting **`logicalId`s**, and `logicalId`s are random
+  UUIDs. So the plan a user sees depends on an arbitrary identifier, not on
+  anything they chose. Two estimates with the same tree and the same numbers
+  get different schedules, and the order the user arranged the items in has
+  no effect.
+
+  ## How it was found (task-181, 2026-10-15)
+
+  Two freshly seeded dev stacks, untouched, produced different schedules for
+  the same Webshop draft. The leaf durations were identical (3.0, 5.7, 2.7,
+  7.1 … days), but the leaves were placed differently, and so the group
+  spans differed:
+
+  | group | fresh stack A | fresh stack B |
+  |---|---|---|
+  | U01: Konzeption | 9.8 | 8.5 |
+  | U02: Frontend Redesign | 16.9 | 11.4 |
+  | U03: Backend & Datenbank | 19.7 | 13.0 |
+  | U04: Abnahme & Go-live | 4.3 | 4.3 |
+
+  The seeder (like every node creation) assigns a fresh `UUID.randomUUID()`
+  as `logicalId`. In `src/domain/core/src/main/kotlin/io/pythia/model/ProjectSchedule.kt`:
+    - `topologicalOrder` seeds its ready queue with `keys.sorted()` and
+      appends successors `.sorted()`, both by id string;
+    - `forwardPass` processes nodes in that order and gives each the
+      earliest-free worker, so whoever comes first in id order wins;
+    - `forwardPass` sorts `predecessors` by id, and `longestLeafState`
+      sorts leaves by id, before `longerPath`. On an exact tie in
+      `dependencyFinish` and `varianceAccum`, the first in id order wins and
+      that decides which accumulated mean/variance the band is built on.
+  `src/domain/CLAUDE.md` calls the result "deterministic", which is true only
+  for a fixed set of ids. It is not stable under the one thing that varies
+  for real data: the ids themselves.
+
+  In a real project the ids are persisted, so a given plan does not
+  reshuffle on its own. But it changes when an item is deleted and re-added,
+  re-imported from Excel or Merlin, or copied, and it ignores the order the
+  user deliberately set.
+
+  ## Target: the tree order is the scheduling priority
+
+  The **tree order** is the depth-first position of a node in
+  `EstimationVersion.roots` / `EstimationGroup.children`. It is already
+  domain information, held as list order in the domain. It is persisted
+  through `position` + `@OrderColumn` in both `DraftEstimationNode` and
+  `SubmittedEstimationNode` (and the version roots), and it is what the tree
+  table shows and what drag-and-drop changes. `indexTree` already emits it,
+  and `ProjectSchedule.tasks` is contracted to that order (task-164). This
+  task makes it the scheduling priority too:
+
+  - **Rank.** Each node gets `treeIndex`, its position in `indexTree`'s
+    depth-first output, computed over the FULL tree (before unscheduled
+    accompanying work is filtered out), so removing an excluded leaf does
+    not shift anyone's rank. Graph nodes inherit it: a leaf has its own; a
+    group's `g#start` and `g#finish` have the group's.
+  - **Ready order.** `topologicalOrder` becomes Kahn's algorithm with a
+    PRIORITY: among all nodes whose predecessors are done, it always takes
+    the one with the smallest `(treeIndex, id)`. That is a global priority
+    over the ready set, not the current FIFO queue. Of two independent
+    items, the one listed first in the tree gets the worker first. `id` is
+    only the tie-break between a group's own `#start`/`#finish`, which share
+    a rank, and is never between different items.
+  - **Tie-breaks.** `forwardPass`'s `predecessors` and
+    `longestLeafState`'s leaf list are ordered by `treeIndex` instead of by
+    id, so `longerPath` ties also resolve by tree order.
+  - **Unchanged:** the outputs (`ScheduledTask`, `ProjectSchedule`, their
+    `@JsExport` shapes), the emission order of `tasks`, the cycle report
+    (still sorted ids, which is display only), `criticalLeafIds`, and the
+    lowest-slot-index tie on `freeAt`. The critical-path computation
+    (`latestFinish`) does not depend on order. No REST, DTO, migration or UI
+    change. No new exported symbol, so `domain.d.mts` does not change.
+
+  **Consequence, intended and documented:** reordering items in the tree
+  (drag-and-drop, or moving a group) can now change a levelled schedule when
+  the team is the bottleneck. That is the feature: "what is listed first is
+  worked on first" is what a planner expects, and the user can see and
+  control it. A schedule is a pure function of (tree with order, numbers,
+  edges, team size), and **relabelling ids changes nothing.**
+
+  ## Kotlin Multiplatform constraints
+
+  - `:domain:core` is common code compiled to JVM and JS. **`java.util.PriorityQueue`
+    and `TreeSet` are JVM-only and will not compile for JS.** Implement the
+    ready set with common stdlib only, e.g. a `MutableList` from which the
+    minimum by `compareBy({ rank }, { id })` is removed each step. O(n²) on
+    the few hundred nodes of a real estimate is irrelevant. A
+    binary-search insertion is fine too.
+  - No `super.<computed property>` call is involved here. If a helper ends up
+    overriding a parent's computed getter, inline the formula: it recurses
+    forever on Kotlin/JS (root CLAUDE.md).
+  - The change is internal (`private` functions and classes in
+    `ProjectSchedule.kt`), so nothing new needs `@JsExport`/`@JsName`.
+
+  ## Logging
+
+  `computeSchedule` already logs via `KotlinLogging.logger {}`. Extend its
+  existing debug line, or add one in the lambda form, that states the
+  levelling priority used
+  (`logger.debug { "schedule(): levelled ${order.size} graph node(s) by tree order, $slots slot(s)" }`).
+  No info-level logging in the domain.
+
+steps:
+  - |
+    In `src/domain/core/src/main/kotlin/io/pythia/model/ProjectSchedule.kt`,
+    give the private `TreeNode` a `treeIndex: Int`, assigned in `indexTree`
+    as the running index of the depth-first walk (the position in its output
+    list). Compute it over the full tree, before the
+    `filter { it.isGroup || it.isScheduledLeaf }`.
+  - |
+    Give the private `GraphNode` a `rank: Int`. In `buildGraph`, a leaf's
+    `GraphNode` gets its `TreeNode.treeIndex`, and both milestones of a group
+    get the group's `treeIndex`.
+  - |
+    Rewrite `topologicalOrder` to take the ranks (e.g.
+    `topologicalOrder(nodes: List<GraphNode>, edges)`) and run Kahn's
+    algorithm with a priority: keep a ready list, and repeatedly remove the
+    element that is minimal by `compareBy<GraphNode>({ it.rank }, { it.id })`,
+    then release its successors. Use only common stdlib, no `java.util.*`
+    (see the description). Keep the cycle detection contract: a node on a
+    cycle never becomes ready, so `order.size < graph.nodes.size` still
+    signals the cycle. Update the function's KDoc: ready nodes are taken in
+    tree order, not id order.
+  - |
+    In `forwardPass`, order `predecessors[id]` by the predecessor's rank
+    (then id) instead of `.sorted()`. In `longestLeafState`, iterate the
+    leaves by `treeIndex` (they already come in tree order from `tree`), not
+    `.map { it.logicalId }.sorted()`. Update `forwardPass`'s KDoc
+    ("deterministic: [order] follows the tree order …").
+  - |
+    Add or extend the debug log in `computeSchedule` as given in the
+    description (lambda form).
+  - |
+    Tests in `src/domain/src/test/kotlin/io/pythia/model/ProjectScheduleTest.kt`
+    (the existing helpers use ids that are alphabetical in tree order, which
+    is exactly why the bug was invisible here). Add:
+      - `the item listed FIRST gets the worker first, whatever its id`: one
+        worker, roots `unit("z", 10.0)` then `unit("a", 4.0)`, no edges. `z`'s
+        leaf starts at 0 and `a`'s at 10. Before this task `a` started first.
+      - `relabelling logicalIds does not change the schedule`: build the same
+        diamond-with-parallel-work tree twice, the second time with every
+        `_logicalId` replaced by a scrambled one (e.g. reversed strings, so id
+        order inverts). With `teamFte = 2.0`, both schedules give the same
+        `earliestStart`/`earliestFinish`/`onCriticalPath` sequence (compare
+        position by position, since the ids differ) and the same
+        `projectDurationDays`, `expectedDurationDays` and `durationStdDevDays`.
+      - `reordering the tree changes who is levelled first`: the same two
+        independent units in both orders, one worker. The first-listed one
+        starts at 0 in each case.
+      - `a group's children are prioritised in their own order`: one worker,
+        a group whose children are `leaf("z", …)` before `leaf("a", …)`. The
+        `z` leaf starts first.
+    Run the whole class. If an EXISTING test changes result, do not adjust
+    its expectation silently: check whether it relied on id order, and say so
+    in the test's comment when you update it.
+  - |
+    Update `src/domain/CLAUDE.md`, "Project schedule and critical path": in
+    the `teamFte`/resource-levelled paragraph, replace "the result is
+    deterministic (the topological order is sorted; …)" with: the levelling
+    priority is the TREE ORDER (depth-first position; groups' milestones take
+    the group's rank), so relabelling ids changes nothing and reordering items
+    can change a capacity-bound plan by design (task-211). Also mention that
+    the ready set must stay common stdlib (no `PriorityQueue`, JS).
+  - |
+    Build the domain and its consumers:
+      ./gradlew :domain:build
+      ./gradlew :frontend:check
+  - |
+    Check the backend still agrees (it schedules through the same domain, e.g.
+    exports):
+      ./gradlew :backend:implementation:test
+  - |
+    Final:
+      ./gradlew build
+
+validation:
+  - |
+    F=src/domain/core/src/main/kotlin/io/pythia/model/ProjectSchedule.kt
+    grep -q "treeIndex" "$F"
+    grep -q "rank" "$F"
+    # no id-sorted ready queue any more
+    ! grep -q "filterValues { it == 0 }.keys.sorted()" "$F"
+    ! grep -q "successors\[id\].orEmpty().sorted()" "$F"
+    ! grep -q "predecessors\[id\].orEmpty().sorted()" "$F"
+    # common code only
+    ! grep -qE "java\.util\.|PriorityQueue|TreeSet" "$F"
+    grep -q "logger.debug" "$F"
+  - |
+    T=src/domain/src/test/kotlin/io/pythia/model/ProjectScheduleTest.kt
+    grep -q "listed FIRST gets the worker first" "$T"
+    grep -q "relabelling logicalIds does not change the schedule" "$T"
+    grep -q "reordering the tree changes who is levelled first" "$T"
+    grep -q "children are prioritised in their own order" "$T"
+  - |
+    grep -q "task-211" src/domain/CLAUDE.md
+    grep -qi "tree order" src/domain/CLAUDE.md
+  - |
+    ./gradlew :domain:build
+  - |
+    ./gradlew :frontend:check
+  - |
+    ./gradlew build
+
+outputs:
+  - modified: src/domain/core/src/main/kotlin/io/pythia/model/ProjectSchedule.kt
+  - modified: src/domain/src/test/kotlin/io/pythia/model/ProjectScheduleTest.kt
+  - modified: src/domain/CLAUDE.md

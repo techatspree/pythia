@@ -1,0 +1,176 @@
+id: task-212
+phase: phase-14
+title: "Deterministic dev seed: fixed-seed ids in TestDataSeeder"
+depends_on: [task-200]
+description: |
+  Every fresh dev database should contain exactly the same test data, down to
+  the identifiers, so a screenshot, an export or a bug report made against
+  one fresh stack can be reproduced on any other. Today it cannot.
+  `TestDataSeeder` (`%dev` only) writes the same literals every time, but
+  every estimation node gets a random `logicalId`: the entity default
+  `var logicalId: UUID = UUID.randomUUID()` in `DraftEstimationNode`, which
+  the seeder never overrides. Every bucket gets `UUID.randomUUID()` in the
+  seeder's `bucket()` helper too.
+
+  This was found in task-181 (2026-10-15). Two fresh, untouched stacks gave
+  different schedule screenshots because the scheduler's levelling priority
+  followed the random `logicalId` order. task-211 removes that dependency from
+  the SCHEDULER, which is the product fix. This task makes the FIXTURE itself
+  identical. Both are needed: task-211 for every real estimate, and this
+  task for everything else that shows or exports an id. Examples are the
+  Excel export's logicalId column, the Mermaid export, the REST payloads and
+  the undo-history entries that a reproducible bug report or e2e trace
+  quotes.
+
+  ## Design
+
+  - **One fixed seed, one generator per seeding run.** A small class
+    `SeededIds` in `io.pythia.testdata` wraps `java.util.Random(seed)` (JVM
+    only, which is fine because the backend is JVM; deliberately NOT
+    `SecureRandom`, which cannot be seeded reproducibly) and hands out
+    UUIDs: `fun next(): UUID`. It builds them from two `nextLong()`s, then
+    sets the RFC 4122 version-4 and IETF-variant bits, so they are
+    well-formed v4 UUIDs, indistinguishable in shape from real ones. The seed
+    is a named constant, `const val FIXTURE_SEED = 42L`, in the same file,
+    with a comment: changing it changes every seeded id, which is allowed
+    but makes all previously captured ids stale.
+  - **Fresh at the start of every seeding run.** `TestDataSeeder` holds a
+    `private var ids = SeededIds()` and reassigns `ids = SeededIds()` as the
+    first statement after the `projectRepository.count() > 0L` early return
+    in `seed()`. Any future re-seed (for example a reset that re-runs
+    `seed`) therefore starts from the same state again instead of continuing
+    the sequence.
+  - **Every id the seeder controls comes from it:** `logicalId` in the four
+    node builders (`fixedLeaf`, `timeRelativeLeaf`, `group`, `bucketedLeaf`)
+    and `id` in `bucket()`. These five are the only places the seeder
+    creates nodes or buckets (measured 2026-10-15). If an implementer adds a
+    builder later, it takes its id from `ids` as well. The KDoc says so.
+    The sequence is deterministic because the seeder is straight-line code:
+    the same calls in the same order, with Kotlin evaluating `listOf(…)`
+    arguments left to right.
+  - **Out of scope, deliberately:** database primary keys that Hibernate
+    generates (`@GeneratedValue(strategy = GenerationType.UUID)` on projects,
+    estimations, versions, dependency rows, users …). They identify rows,
+    not content, and appear only in URLs. Making them deterministic would
+    mean changing ENTITY id generation, which is production code, for a
+    dev fixture. Also out of scope: the session that
+    `capture-screenshots.mjs` creates through the REST API, and anything a
+    user creates afterwards (normal `randomUUID()`). Collisions with seeded
+    ids are not a practical concern: a v4 UUID has 122 random bits whichever
+    generator drew them.
+  - **The seeder stays dev-only** (`@IfBuildProfile("dev")`). `SeededIds` is
+    a plain class with no CDI annotation, so it compiles into the jar but is
+    only ever instantiated by the seeder. A comment states that it must never
+    be used for production ids.
+  - **No change to the seeded CONTENT.** Same projects, estimates, phases,
+    edges and owners; only the identifiers become fixed. Note that the
+    seeder builds the Webshop `draft2` from its own nodes, not as a copy of
+    version 1, so its `logicalId`s do not match version 1's. That was true
+    before and stays true. Changing it would change what the version
+    comparison shows, which is a separate decision.
+
+  ## Logging
+
+  Extend the existing `Log.info("Seeded dev fixture: …")` line in `seed()`
+  with the seed and the number of ids drawn, e.g. `…, idSeed=42, ids=87`, so
+  a log shows at a glance that the fixture is the deterministic one.
+  `SeededIds` exposes a read-only `drawn: Int` counter for that.
+
+steps:
+  - |
+    Create `src/backend/implementation/src/main/kotlin/io/pythia/testdata/SeededIds.kt`:
+    `const val FIXTURE_SEED = 42L` and
+    `class SeededIds(seed: Long = FIXTURE_SEED)` with a private
+    `java.util.Random(seed)`, `fun next(): UUID` (two `nextLong()`s, then
+    version-4 and IETF-variant bits set, as in the description) and
+    `val drawn: Int` (private set). Add a KDoc explaining why it exists
+    (task-181/task-212), that it is for the dev fixture only, and why not
+    `SecureRandom`.
+  - |
+    In `src/backend/implementation/src/main/kotlin/io/pythia/testdata/TestDataSeeder.kt`:
+      - add `private var ids = SeededIds()`;
+      - in `seed()`, right after the `if (projectRepository.count() > 0L) return`,
+        reassign `ids = SeededIds()`;
+      - in `fixedLeaf`, `timeRelativeLeaf`, `group` and `bucketedLeaf`, set
+        `logicalId = ids.next()` inside the `apply { … }`;
+      - in `bucket()`, replace `this.id = UUID.randomUUID()` with
+        `this.id = ids.next()`;
+      - extend the final `Log.info` line with `idSeed=$FIXTURE_SEED, ids=${ids.drawn}`;
+      - add a paragraph to the class KDoc: the fixture is deterministic
+        including `logicalId`s and bucket ids (task-212); every builder takes
+        its id from `ids`; Hibernate-generated primary keys are not covered,
+        and why.
+    Remove the `java.util.UUID` import only if nothing else in the file uses it.
+  - |
+    Unit test `src/backend/implementation/src/test/kotlin/io/pythia/testdata/SeededIdsTest.kt`
+    (plain JUnit 5, no `@QuarkusTest`, since the class needs no container):
+      - two `SeededIds()` produce the same first 50 UUIDs;
+      - `SeededIds(1L)` and `SeededIds(2L)` differ in their first UUID;
+      - every produced UUID has `version() == 4` and `variant() == 2`;
+      - 10 000 draws contain no duplicate;
+      - `drawn` counts the calls.
+  - |
+    Prove it end to end on two FRESH dev stacks, since `TestDataSeeder` only
+    runs in `%dev`. Start `./scripts/dev.sh` (nothing else running against
+    it), then save the seeded ids:
+      H='Authorization: Dev dev-admin'
+      snap() {
+        for p in $(curl -s -H "$H" localhost:8090/api/projects | jq -r '.[].id'); do
+          for e in $(curl -s -H "$H" localhost:8090/api/projects/$p | jq -r '.estimations[]?.id'); do
+            for v in $(curl -s -H "$H" localhost:8090/api/estimations/$e/versions | jq -r '.[].versionNumber') draft; do
+              curl -s -H "$H" localhost:8090/api/estimations/$e/versions/$v \
+                | jq -c '[.. | objects | select(has("logicalId")) | .logicalId]' 2>/dev/null
+            done
+          done
+        done
+      }
+      snap > /tmp/seed-ids-1.txt
+    (Projects are listed by name order, not id, so the loop order is stable;
+    if `/api/projects` turns out to sort differently, sort by `.name` first.)
+    Stop the stack with SIGTERM (never `pkill` the JVMs), start it again,
+    run `snap > /tmp/seed-ids-2.txt`, and compare with `cmp`. They must be
+    identical, and non-empty. Then stop the stack with SIGTERM and confirm no
+    Dev Services PostgreSQL container is left on 5432.
+  - |
+    Document it in `docs/development.md` → "### dev — Local with PostgreSQL
+    via Dev Services": one or two sentences saying that the seeded fixture
+    is identical on every fresh start, `logicalId`s and bucket ids included
+    (fixed seed in `SeededIds`, task-212), while database primary keys are
+    not.
+  - |
+    Run the backend tests, then the full build:
+      ./gradlew :backend:implementation:test
+      ./gradlew build
+
+validation:
+  - |
+    F=src/backend/implementation/src/main/kotlin/io/pythia/testdata/SeededIds.kt
+    test -f "$F"
+    grep -q "const val FIXTURE_SEED" "$F"
+    grep -q "java.util.Random" "$F"
+    ! grep -q "SecureRandom" "$F"
+  - |
+    S=src/backend/implementation/src/main/kotlin/io/pythia/testdata/TestDataSeeder.kt
+    # every builder and bucket() draws from the seeded generator
+    test "$(grep -c 'ids.next()' "$S")" -ge 5
+    # no random id left in the seeder
+    ! grep -q "UUID.randomUUID()" "$S"
+    grep -q "ids = SeededIds()" "$S"
+    grep -q "idSeed=" "$S"
+    grep -q "task-212" "$S"
+  - |
+    test -f src/backend/implementation/src/test/kotlin/io/pythia/testdata/SeededIdsTest.kt
+    ./gradlew :backend:implementation:test --tests "io.pythia.testdata.SeededIdsTest"
+  - |
+    # From the end-to-end step: two fresh stacks seeded identical logicalIds.
+    test -s /tmp/seed-ids-1.txt && cmp /tmp/seed-ids-1.txt /tmp/seed-ids-2.txt
+  - |
+    grep -q "task-212" docs/development.md
+  - |
+    ./gradlew build
+
+outputs:
+  - created: src/backend/implementation/src/main/kotlin/io/pythia/testdata/SeededIds.kt
+  - modified: src/backend/implementation/src/main/kotlin/io/pythia/testdata/TestDataSeeder.kt
+  - created: src/backend/implementation/src/test/kotlin/io/pythia/testdata/SeededIdsTest.kt
+  - modified: docs/development.md
