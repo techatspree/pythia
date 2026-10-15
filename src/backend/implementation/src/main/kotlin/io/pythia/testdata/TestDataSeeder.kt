@@ -31,7 +31,6 @@ import jakarta.enterprise.context.ApplicationScoped
 import jakarta.enterprise.event.Observes
 import jakarta.persistence.EntityManager
 import jakarta.transaction.Transactional
-import java.util.UUID
 
 // This dev-only seeder is a wall of illustrative demo data — effort estimates,
 // prices, durations, week counts. Those literals ARE the data; extracting each
@@ -65,6 +64,16 @@ import java.util.UUID
  * is on the draft at that moment; otherwise every submitted version would have
  * an empty graph. Do not "tidy away" these graphs — three features depend on
  * them for their demo.
+ *
+ * DETERMINISTIC IDS (task-212) — every fresh dev database is identical, node
+ * `logicalId`s and bucket ids included: `seed()` creates ONE [SeededIds] per
+ * run and passes it explicitly to every builder that creates a node or a
+ * bucket, which draws its id from it. Never keep it in a field, or a second
+ * run would continue the sequence instead of repeating it; a new builder takes
+ * `ids` too. Database primary keys (`@GeneratedValue` on projects,
+ * estimations, versions, edges, users) are NOT covered: they identify rows,
+ * not content, appear only in URLs, and fixing them would mean changing
+ * production entity id generation for a dev fixture.
  */
 @IfBuildProfile("dev")
 class TestDataSeeder(
@@ -102,6 +111,7 @@ class TestDataSeeder(
     @Transactional
     fun seed(@Observes @Priority(1) event: StartupEvent) {
         if (projectRepository.count() > 0L) return
+        val ids = SeededIds()
         // Each seeder reports the edges it added, because counting at the end
         // would UNDERCOUNT: `submitDraft` moves a draft's edges onto the
         // submitted version and deletes the draft, so most of them are no
@@ -110,14 +120,18 @@ class TestDataSeeder(
         // Deliberately NOT tacked onto seedDataPlatform's own log: that
         // estimation is the one left without a graph.
         val colleagues = seedColleagues()
-        val edges = seedWebshop(colleagues.getValue(SeededUsers.ANNA_BECKER.subjectId)) +
-            seedMobileApp(devUser("dev-estimator")) +
-            seedDataPlatform(devUser("dev-admin"))
+        val edges = seedWebshop(ids, colleagues.getValue(SeededUsers.ANNA_BECKER.subjectId)) +
+            seedMobileApp(ids, devUser("dev-estimator")) +
+            seedDataPlatform(ids, devUser("dev-admin"))
         seedIntranetRelaunch()
-        Log.info("Seeded dev fixture: schedule edges=$edges, colleagues=${colleagues.size}")
+        Log.info(
+            "Seeded dev fixture: schedule edges=$edges, colleagues=${colleagues.size}, " +
+                "idSeed=$FIXTURE_SEED, ids=${ids.drawn}"
+        )
     }
 
     private fun fixedLeaf(
+        ids: SeededIds,
         version: DraftEstimationVersion,
         description: String,
         min: Double,
@@ -125,6 +139,7 @@ class TestDataSeeder(
         max: Double,
         phase: DraftProjectPhase?
     ) = DraftFixedItemNode().apply {
+        logicalId = ids.next()
         this.version = version
         this.description = description
         this.minEffort = min
@@ -134,6 +149,7 @@ class TestDataSeeder(
     }
 
     private fun timeRelativeLeaf(
+        ids: SeededIds,
         version: DraftEstimationVersion,
         description: String,
         unit: String,
@@ -142,6 +158,7 @@ class TestDataSeeder(
         max: Double,
         phase: DraftProjectPhase?
     ) = DraftTimeRelativeItemNode().apply {
+        logicalId = ids.next()
         this.version = version
         this.description = description
         this.unit = unit
@@ -152,11 +169,13 @@ class TestDataSeeder(
     }
 
     private fun group(
+        ids: SeededIds,
         version: DraftEstimationVersion,
         title: String,
         children: List<DraftEstimationNode>
     ): DraftGroupNode {
         val groupNode = DraftGroupNode().apply {
+            logicalId = ids.next()
             this.version = version
             this.title = title
         }
@@ -189,15 +208,16 @@ class TestDataSeeder(
         version.roots.addAll(roots)
     }
 
-    private fun bucket(estimation: Estimation, position: Int, label: String) =
+    private fun bucket(ids: SeededIds, estimation: Estimation, position: Int, label: String) =
         EstimationBucket().apply {
-            this.id = UUID.randomUUID()
+            this.id = ids.next()
             this.estimation = estimation
             this.position = position
             this.label = label
         }
 
     private fun bucketedLeaf(
+        ids: SeededIds,
         version: DraftEstimationVersion,
         description: String,
         bucket: EstimationBucket,
@@ -208,6 +228,7 @@ class TestDataSeeder(
         phase: DraftProjectPhase? = null,
         assumptions: String? = null
     ) = DraftBucketedItemNode().apply {
+        logicalId = ids.next()
         this.version = version
         this.description = description
         this.bucket = bucket
@@ -226,7 +247,7 @@ class TestDataSeeder(
         version.roots.addAll(leaves)
     }
 
-    private fun seedWebshop(owner: User): Int {
+    private fun seedWebshop(ids: SeededIds, owner: User): Int {
         val project = projectService.create(
             name = SeededProjects.WEBSHOP,
             description = "Komplette Neuentwicklung der E-Commerce-Plattform",
@@ -276,43 +297,43 @@ class TestDataSeeder(
         draft1.phases.addAll(listOf(phaseKO, phaseUM, phaseAB))
 
         val v1u01 = group(
-            draft1, "U01: Konzeption", listOf(
-                fixedLeaf(draft1, "Anforderungsworkshop & Kickoff", 1.0, 2.0, 3.0, phaseKO),
-                fixedLeaf(draft1, "Systemarchitektur & Tech-Stack-Entscheidung", 2.0, 3.0, 5.0, phaseKO),
-                fixedLeaf(draft1, "Datenbankdesign & ER-Modell", 1.0, 2.0, 4.0, phaseKO),
-                timeRelativeLeaf(draft1, "Projektbegleitung", "h/Woche", 2.0, 4.0, 8.0, phaseKO)
+            ids, draft1, "U01: Konzeption", listOf(
+                fixedLeaf(ids, draft1, "Anforderungsworkshop & Kickoff", 1.0, 2.0, 3.0, phaseKO),
+                fixedLeaf(ids, draft1, "Systemarchitektur & Tech-Stack-Entscheidung", 2.0, 3.0, 5.0, phaseKO),
+                fixedLeaf(ids, draft1, "Datenbankdesign & ER-Modell", 1.0, 2.0, 4.0, phaseKO),
+                timeRelativeLeaf(ids, draft1, "Projektbegleitung", "h/Woche", 2.0, 4.0, 8.0, phaseKO)
             )
         )
 
         val v1u02 = group(
-            draft1, "U02: Frontend Redesign", listOf(
-                fixedLeaf(draft1, "Produktlisting & Suchfunktion", 3.0, 5.0, 8.0, phaseUM),
-                fixedLeaf(draft1, "Warenkorb & Checkout-Prozess", 5.0, 8.0, 12.0, phaseUM),
-                fixedLeaf(draft1, "Benutzerkonto & Login", 2.0, 4.0, 6.0, phaseUM),
-                fixedLeaf(draft1, "Responsive Design & Mobile Optimierung", 2.0, 3.0, 5.0, phaseUM),
-                timeRelativeLeaf(draft1, "UX-Begleitung", "h/Woche", 4.0, 5.0, 16.0, phaseKO)
+            ids, draft1, "U02: Frontend Redesign", listOf(
+                fixedLeaf(ids, draft1, "Produktlisting & Suchfunktion", 3.0, 5.0, 8.0, phaseUM),
+                fixedLeaf(ids, draft1, "Warenkorb & Checkout-Prozess", 5.0, 8.0, 12.0, phaseUM),
+                fixedLeaf(ids, draft1, "Benutzerkonto & Login", 2.0, 4.0, 6.0, phaseUM),
+                fixedLeaf(ids, draft1, "Responsive Design & Mobile Optimierung", 2.0, 3.0, 5.0, phaseUM),
+                timeRelativeLeaf(ids, draft1, "UX-Begleitung", "h/Woche", 4.0, 5.0, 16.0, phaseKO)
             )
         )
 
         val v1u03 = group(
-            draft1, "U03: Backend & Datenbank", listOf(
-                fixedLeaf(draft1, "REST API Endpoints (CRUD)", 4.0, 6.0, 9.0, phaseUM),
+            ids, draft1, "U03: Backend & Datenbank", listOf(
+                fixedLeaf(ids, draft1, "REST API Endpoints (CRUD)", 4.0, 6.0, 9.0, phaseUM),
                 group(
-                    draft1, "Authentifizierung", listOf(
-                        fixedLeaf(draft1, "Login & Session-Verwaltung", 2.0, 3.0, 5.0, phaseUM),
-                        fixedLeaf(draft1, "OAuth2-Anbindung (Google, GitHub)", 2.0, 3.0, 5.0, phaseUM)
+                    ids, draft1, "Authentifizierung", listOf(
+                        fixedLeaf(ids, draft1, "Login & Session-Verwaltung", 2.0, 3.0, 5.0, phaseUM),
+                        fixedLeaf(ids, draft1, "OAuth2-Anbindung (Google, GitHub)", 2.0, 3.0, 5.0, phaseUM)
                     )
                 ),
-                fixedLeaf(draft1, "Datenbankmigrationen & Seeding", 1.0, 2.0, 3.0, phaseUM),
-                fixedLeaf(draft1, "Payment-Integration (Stripe)", 3.0, 5.0, 8.0, phaseUM)
+                fixedLeaf(ids, draft1, "Datenbankmigrationen & Seeding", 1.0, 2.0, 3.0, phaseUM),
+                fixedLeaf(ids, draft1, "Payment-Integration (Stripe)", 3.0, 5.0, 8.0, phaseUM)
             )
         )
 
         val v1u04 = group(
-            draft1, "U04: Abnahme & Go-live", listOf(
-                fixedLeaf(draft1, "Integrationstests & E2E-Tests", 2.0, 3.0, 5.0, phaseAB),
-                fixedLeaf(draft1, "User Acceptance Testing (UAT)", 1.0, 2.0, 3.0, phaseAB),
-                fixedLeaf(draft1, "Go-live, Deployment & Monitoring-Setup", 1.0, 2.0, 3.0, phaseAB)
+            ids, draft1, "U04: Abnahme & Go-live", listOf(
+                fixedLeaf(ids, draft1, "Integrationstests & E2E-Tests", 2.0, 3.0, 5.0, phaseAB),
+                fixedLeaf(ids, draft1, "User Acceptance Testing (UAT)", 1.0, 2.0, 3.0, phaseAB),
+                fixedLeaf(ids, draft1, "Go-live, Deployment & Monitoring-Setup", 1.0, 2.0, 3.0, phaseAB)
             )
         )
 
@@ -410,53 +431,53 @@ class TestDataSeeder(
         draft2.phases.addAll(listOf(phase2KO, phase2UM, phase2AB))
 
         val v2u01 = group(
-            draft2, "U01: Konzeption", listOf(
-                fixedLeaf(draft2, "Anforderungsworkshop & Kickoff", 1.0, 2.0, 4.0, phase2KO),
-                fixedLeaf(draft2, "Systemarchitektur & Tech-Stack-Entscheidung", 3.0, 4.0, 6.0, phase2KO),
-                fixedLeaf(draft2, "Datenbankdesign & ER-Modell", 1.0, 2.0, 3.0, phase2KO),
-                fixedLeaf(draft2, "UX-Konzept & Wireframes", 3.0, 5.0, 8.0, phase2KO),
-                timeRelativeLeaf(draft2, "Projektbegleitung", "h/Woche", 2.0, 4.0, 8.0, phase2KO)
+            ids, draft2, "U01: Konzeption", listOf(
+                fixedLeaf(ids, draft2, "Anforderungsworkshop & Kickoff", 1.0, 2.0, 4.0, phase2KO),
+                fixedLeaf(ids, draft2, "Systemarchitektur & Tech-Stack-Entscheidung", 3.0, 4.0, 6.0, phase2KO),
+                fixedLeaf(ids, draft2, "Datenbankdesign & ER-Modell", 1.0, 2.0, 3.0, phase2KO),
+                fixedLeaf(ids, draft2, "UX-Konzept & Wireframes", 3.0, 5.0, 8.0, phase2KO),
+                timeRelativeLeaf(ids, draft2, "Projektbegleitung", "h/Woche", 2.0, 4.0, 8.0, phase2KO)
             )
         )
 
         val v2u02 = group(
-            draft2, "U02: Frontend Redesign", listOf(
-                fixedLeaf(draft2, "Produktlisting & Suchfunktion", 3.0, 5.0, 7.0, phase2UM),
-                fixedLeaf(draft2, "Warenkorb & Checkout-Prozess", 5.0, 8.0, 13.0, phase2UM),
-                fixedLeaf(draft2, "Benutzerkonto & Login (OAuth2)", 2.0, 4.0, 6.0, phase2UM),
-                fixedLeaf(draft2, "Produkt-Detailseite & Bildergalerie", 1.0, 2.0, 4.0, phase2UM)
+            ids, draft2, "U02: Frontend Redesign", listOf(
+                fixedLeaf(ids, draft2, "Produktlisting & Suchfunktion", 3.0, 5.0, 7.0, phase2UM),
+                fixedLeaf(ids, draft2, "Warenkorb & Checkout-Prozess", 5.0, 8.0, 13.0, phase2UM),
+                fixedLeaf(ids, draft2, "Benutzerkonto & Login (OAuth2)", 2.0, 4.0, 6.0, phase2UM),
+                fixedLeaf(ids, draft2, "Produkt-Detailseite & Bildergalerie", 1.0, 2.0, 4.0, phase2UM)
             )
         )
 
         val v2u03 = group(
-            draft2, "U03: Backend & Datenbank", listOf(
-                fixedLeaf(draft2, "REST API Endpoints (CRUD)", 4.0, 6.0, 9.0, phase2UM),
-                fixedLeaf(draft2, "Authentifizierung & Autorisierung", 2.0, 3.0, 5.0, phase2UM),
-                fixedLeaf(draft2, "Datenbankmigrationen & Seeding", 1.0, 2.0, 3.0, phase2UM),
+            ids, draft2, "U03: Backend & Datenbank", listOf(
+                fixedLeaf(ids, draft2, "REST API Endpoints (CRUD)", 4.0, 6.0, 9.0, phase2UM),
+                fixedLeaf(ids, draft2, "Authentifizierung & Autorisierung", 2.0, 3.0, 5.0, phase2UM),
+                fixedLeaf(ids, draft2, "Datenbankmigrationen & Seeding", 1.0, 2.0, 3.0, phase2UM),
                 group(
-                    draft2, "Bezahlung", listOf(
-                        fixedLeaf(draft2, "Stripe-Integration", 2.0, 4.0, 6.0, phase2UM),
-                        fixedLeaf(draft2, "Sepa-Lastschrift", 1.0, 2.0, 4.0, phase2UM)
+                    ids, draft2, "Bezahlung", listOf(
+                        fixedLeaf(ids, draft2, "Stripe-Integration", 2.0, 4.0, 6.0, phase2UM),
+                        fixedLeaf(ids, draft2, "Sepa-Lastschrift", 1.0, 2.0, 4.0, phase2UM)
                     )
                 ),
-                fixedLeaf(draft2, "E-Mail-Benachrichtigungen (Bestellung/Versand)", 1.0, 2.0, 4.0, phase2UM)
+                fixedLeaf(ids, draft2, "E-Mail-Benachrichtigungen (Bestellung/Versand)", 1.0, 2.0, 4.0, phase2UM)
             )
         )
 
         val v2u04 = group(
-            draft2, "U04: Abnahme & Go-live", listOf(
-                fixedLeaf(draft2, "Integrationstests & E2E-Tests", 2.0, 3.0, 5.0, phase2AB),
-                fixedLeaf(draft2, "User Acceptance Testing (UAT)", 2.0, 3.0, 4.0, phase2AB),
-                fixedLeaf(draft2, "Go-live, Deployment & Monitoring-Setup", 1.0, 2.0, 3.0, phase2AB)
+            ids, draft2, "U04: Abnahme & Go-live", listOf(
+                fixedLeaf(ids, draft2, "Integrationstests & E2E-Tests", 2.0, 3.0, 5.0, phase2AB),
+                fixedLeaf(ids, draft2, "User Acceptance Testing (UAT)", 2.0, 3.0, 4.0, phase2AB),
+                fixedLeaf(ids, draft2, "Go-live, Deployment & Monitoring-Setup", 1.0, 2.0, 3.0, phase2AB)
             )
         )
 
         val v2u05 = group(
-            draft2, "U05: Noch zu schätzen", listOf(
-                fixedLeaf(draft2, "Wunschlisten & Merkzettel", 0.0, 0.0, 0.0, phase2UM),
-                fixedLeaf(draft2, "Produktbewertungen & Rezensionen", 0.0, 0.0, 0.0, phase2UM),
-                fixedLeaf(draft2, "Gutschein- & Rabattcode-System", 0.0, 0.0, 0.0, phase2UM),
-                fixedLeaf(draft2, "Mehrsprachigkeit (i18n)", 0.0, 0.0, 0.0, phase2KO)
+            ids, draft2, "U05: Noch zu schätzen", listOf(
+                fixedLeaf(ids, draft2, "Wunschlisten & Merkzettel", 0.0, 0.0, 0.0, phase2UM),
+                fixedLeaf(ids, draft2, "Produktbewertungen & Rezensionen", 0.0, 0.0, 0.0, phase2UM),
+                fixedLeaf(ids, draft2, "Gutschein- & Rabattcode-System", 0.0, 0.0, 0.0, phase2UM),
+                fixedLeaf(ids, draft2, "Mehrsprachigkeit (i18n)", 0.0, 0.0, 0.0, phase2KO)
             )
         )
 
@@ -499,7 +520,7 @@ class TestDataSeeder(
         return draft1Edges + draft2Edges
     }
 
-    private fun seedMobileApp(owner: User): Int {
+    private fun seedMobileApp(ids: SeededIds, owner: User): Int {
         val project = projectService.create(
             name = SeededProjects.MOBILE_APP,
             description = "Native iOS/Android-App für Kunden-Self-Service",
@@ -555,42 +576,42 @@ class TestDataSeeder(
         draft.phases.addAll(listOf(phaseKD, phaseS1, phaseS2, phaseAS))
 
         val m01 = group(
-            draft, "M01: Konzeption & UX", listOf(
-                fixedLeaf(draft, "UX Research & Nutzerinterviews", 2.0, 3.0, 5.0, phaseKD),
-                fixedLeaf(draft, "UI-Design & Designsystem", 5.0, 8.0, 12.0, phaseKD),
-                fixedLeaf(draft, "App-Architektur & Projektsetup", 2.0, 3.0, 4.0, phaseKD)
+            ids, draft, "M01: Konzeption & UX", listOf(
+                fixedLeaf(ids, draft, "UX Research & Nutzerinterviews", 2.0, 3.0, 5.0, phaseKD),
+                fixedLeaf(ids, draft, "UI-Design & Designsystem", 5.0, 8.0, 12.0, phaseKD),
+                fixedLeaf(ids, draft, "App-Architektur & Projektsetup", 2.0, 3.0, 4.0, phaseKD)
             )
         )
 
         val m02 = group(
-            draft, "M02: App Features", listOf(
-                fixedLeaf(draft, "Authentifizierung (Biometrie, PIN)", 3.0, 5.0, 8.0, phaseS1),
-                fixedLeaf(draft, "Dashboard & Kontoübersicht", 3.0, 5.0, 8.0, phaseS1),
-                fixedLeaf(draft, "Push-Benachrichtigungen", 2.0, 3.0, 5.0, phaseS1),
-                fixedLeaf(draft, "Transaktionshistorie & Filter", 3.0, 5.0, 7.0, phaseS2),
-                fixedLeaf(draft, "Profil & Einstellungen", 2.0, 3.0, 4.0, phaseS2),
+            ids, draft, "M02: App Features", listOf(
+                fixedLeaf(ids, draft, "Authentifizierung (Biometrie, PIN)", 3.0, 5.0, 8.0, phaseS1),
+                fixedLeaf(ids, draft, "Dashboard & Kontoübersicht", 3.0, 5.0, 8.0, phaseS1),
+                fixedLeaf(ids, draft, "Push-Benachrichtigungen", 2.0, 3.0, 5.0, phaseS1),
+                fixedLeaf(ids, draft, "Transaktionshistorie & Filter", 3.0, 5.0, 7.0, phaseS2),
+                fixedLeaf(ids, draft, "Profil & Einstellungen", 2.0, 3.0, 4.0, phaseS2),
                 group(
-                    draft, "Offline-Modus", listOf(
-                        fixedLeaf(draft, "Datensynchronisation", 3.0, 5.0, 8.0, phaseS2),
-                        fixedLeaf(draft, "Konfliktauflösung", 2.0, 3.0, 5.0, phaseS2)
+                    ids, draft, "Offline-Modus", listOf(
+                        fixedLeaf(ids, draft, "Datensynchronisation", 3.0, 5.0, 8.0, phaseS2),
+                        fixedLeaf(ids, draft, "Konfliktauflösung", 2.0, 3.0, 5.0, phaseS2)
                     )
                 )
             )
         )
 
         val m03 = group(
-            draft, "M03: Backend & API", listOf(
-                fixedLeaf(draft, "REST API Design & Dokumentation", 2.0, 3.0, 4.0, phaseS1),
-                fixedLeaf(draft, "Auth & JWT-Token-Service", 2.0, 3.0, 5.0, phaseS1),
-                fixedLeaf(draft, "Daten-API & Business Logic", 4.0, 6.0, 9.0, phaseS2)
+            ids, draft, "M03: Backend & API", listOf(
+                fixedLeaf(ids, draft, "REST API Design & Dokumentation", 2.0, 3.0, 4.0, phaseS1),
+                fixedLeaf(ids, draft, "Auth & JWT-Token-Service", 2.0, 3.0, 5.0, phaseS1),
+                fixedLeaf(ids, draft, "Daten-API & Business Logic", 4.0, 6.0, 9.0, phaseS2)
             )
         )
 
         val m04 = group(
-            draft, "M04: Release & QA", listOf(
-                fixedLeaf(draft, "App Store Einreichung (iOS & Android)", 2.0, 3.0, 5.0, phaseAS),
-                fixedLeaf(draft, "Regression-Tests & Bugfixing", 3.0, 4.0, 6.0, phaseAS),
-                fixedLeaf(draft, "Beta-Test & Feedback-Implementierung", 2.0, 3.0, 5.0, phaseAS)
+            ids, draft, "M04: Release & QA", listOf(
+                fixedLeaf(ids, draft, "App Store Einreichung (iOS & Android)", 2.0, 3.0, 5.0, phaseAS),
+                fixedLeaf(ids, draft, "Regression-Tests & Bugfixing", 3.0, 4.0, 6.0, phaseAS),
+                fixedLeaf(ids, draft, "Beta-Test & Feedback-Implementierung", 2.0, 3.0, 5.0, phaseAS)
             )
         )
 
@@ -648,7 +669,7 @@ class TestDataSeeder(
         ))
     }
 
-    private fun seedDataPlatform(owner: User): Int {
+    private fun seedDataPlatform(ids: SeededIds, owner: User): Int {
         val project = projectService.create(
             name = SeededProjects.DATA_PLATFORM,
             description = "Migration der Datenplattform auf ein Lakehouse",
@@ -662,9 +683,9 @@ class TestDataSeeder(
             method = EstimationMethod.BUCKET_SAMPLED_PERT
         )
 
-        val bucketS = bucket(estimation, 0, "S")
-        val bucketM = bucket(estimation, 1, "M")
-        val bucketL = bucket(estimation, 2, "L")
+        val bucketS = bucket(ids, estimation, 0, "S")
+        val bucketM = bucket(ids, estimation, 1, "M")
+        val bucketL = bucket(ids, estimation, 2, "L")
         estimation.buckets.addAll(listOf(bucketS, bucketM, bucketL))
 
         val draft = DraftEstimationVersion().apply {
@@ -712,40 +733,40 @@ class TestDataSeeder(
         addRootLeaves(
             draft, listOf(
                 group(
-                    draft, "Ingest", listOf(
+                    ids, draft, "Ingest", listOf(
                         bucketedLeaf(
-                            draft, "Ingest connector A", bucketS,
+                            ids, draft, "Ingest connector A", bucketS,
                             isSample = true, min = 1.0, exp = 2.0, max = 3.0,
                             phase = phaseKO,
                             assumptions = "Quellsystem liefert CSV über SFTP"
                         ),
                         bucketedLeaf(
-                            draft, "Ingest connector B", bucketS,
+                            ids, draft, "Ingest connector B", bucketS,
                             isSample = false, phase = phaseKO
                         )
                     )
                 ),
                 group(
-                    draft, "Transform", listOf(
+                    ids, draft, "Transform", listOf(
                         bucketedLeaf(
-                            draft, "Transform pipeline X", bucketM,
+                            ids, draft, "Transform pipeline X", bucketM,
                             isSample = true, min = 3.0, exp = 5.0, max = 8.0,
                             phase = phaseUM,
                             assumptions = "Bestehende Mappings werden übernommen"
                         ),
                         bucketedLeaf(
-                            draft, "Transform pipeline Y", bucketM,
+                            ids, draft, "Transform pipeline Y", bucketM,
                             isSample = false, phase = phaseUM
                         )
                     )
                 ),
                 bucketedLeaf(
-                    draft, "Reporting dashboard", bucketL,
+                    ids, draft, "Reporting dashboard", bucketL,
                     isSample = true, min = 5.0, exp = 8.0, max = 13.0,
                     phase = phaseAB,
                     assumptions = "Maximal zehn Kennzahlen im ersten Wurf"
                 ),
-                bucketedLeaf(draft, "Data catalog", bucketL, isSample = false, phase = phaseAB)
+                bucketedLeaf(ids, draft, "Data catalog", bucketL, isSample = false, phase = phaseAB)
             )
         )
 

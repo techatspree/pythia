@@ -1257,9 +1257,9 @@
       "notes": "Schedule levelling uses the tree order as priority instead of random logicalId order"
     },
     "task-212": {
-      "status": "pending",
-      "started_at": null,
-      "completed_at": null,
+      "status": "done",
+      "started_at": "2026-10-15T11:28:27+00:00",
+      "completed_at": "2026-10-15T11:33:22+00:00",
       "notes": "Seed the dev test-data generator with a fixed number so every fresh dev database is identical"
     },
     "task-213": {
