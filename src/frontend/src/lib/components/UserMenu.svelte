@@ -64,8 +64,7 @@
 		class="text-sm border rounded px-1 py-0.5 bg-white text-ink-body"
 		data-testid="language-select"
 		aria-label={$_('language.label')}
-		value={$locale ?? 'de'}
-		onchange={(e) => changeLanguage(e.currentTarget.value)}
+		bind:value={() => $locale ?? 'de', (v) => void changeLanguage(v)}
 	>
 		<option value="de">{$_('language.de')}</option>
 		<option value="en">{$_('language.en')}</option>

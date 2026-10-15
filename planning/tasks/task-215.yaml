@@ -1,0 +1,154 @@
+id: task-215
+phase: phase-14
+title: "e2e coverage for the four undriven editor selects"
+depends_on: [task-187]
+description: |
+  On 2026-10-15 all nine in-cell selects of the editors were converted from a
+  one-way `value={…}` + `onchange` to Svelte 5 function bindings
+  (`bind:value={() => get, (v) => set}`), because IntelliJ's HTML inspection
+  flagged `value` on `<select>`. Five of the nine are driven by e2e specs (the
+  language select, and the bucket editor's type / bucket / phase selects). The
+  other FOUR are driven by NO spec at all. The conversion was checked once by a
+  throwaway script, which proved each one changes the model and survives the
+  autosave, but nothing guards them against the next regression:
+
+  | component | select | what it sets |
+  |---|---|---|
+  | `EstimationGrid.svelte` (PERT grid) | leaf type, "Fix" ↔ "h/Woche" | `node.type`, and `node.unit` = `'h/Woche'` / `null` |
+  | `EstimationGrid.svelte` | leaf phase | `node.phaseAbbreviation` (`''` → `null`) |
+  | `PhasesPanel.svelte` | phase duration mode (`phase-duration-mode`) | `setMode(i, 'EXPLICIT' / 'AUTOMATIC')` |
+  | `AdditionalCostsPanel.svelte` | cost phase, in BOTH the one-time and the recurring table | `updatePhase(i, v)` (`''` → `null`) |
+
+  Measured: `grep -rn "phase-duration-mode" src/frontend/e2e` finds nothing;
+  no spec calls `selectOption` on any of the four.
+
+  ## Target
+
+  One self-contained spec, `src/frontend/e2e/editor-selects.test.ts`, that
+  changes each of the four selects through the UI and proves the change
+  reached the BACKEND, by reading the draft back through the REST API. Reading
+  back through the API is the stronger proof: a select can show the new value
+  while the model or the autosave payload is wrong, and that is exactly the
+  class of defect a binding change risks.
+
+  ## Decisions
+
+  - **Self-contained** (see `.claude/commands/implement-task.md`, e2e rule):
+    the spec creates its own project, PERT estimation and draft via the API
+    (phases KO 3 W. / UM 12 W., one group with one FIXED leaf, one ONE_TIME
+    and one RECURRING additional cost) and depends on no seeded data.
+  - **Handles are new dotted testids** (`<screen>.<element>`, never renaming
+    an existing flat one):
+      - `grid.leaf-type`, `grid.leaf-phase`: the two selects in a PERT leaf
+        row (rows are already addressable as `row-<path>`);
+      - `additional-costs.phase`: the cost phase select, in both tables;
+      - `panel.phases.toggle`, `panel.additional-costs.toggle`: the two
+        collapsible panel headers, which today have no handle at all, so a
+        spec could only open them by their translated title (ESLint-banned);
+      - `phase-duration-mode` stays as it is (existing flat testid).
+    No other markup changes. No GUI change, so no wireframes.
+  - **Page Objects** (`src/frontend/e2e/pages/`, exported from the barrel):
+    extend `EstimationGrid` (leaf type / phase by row path); new
+    `PhasesPanel` and `AdditionalCostsPanel` classes (open, set by row
+    index). Specs never touch selectors directly.
+  - **The round trip is the assertion:** after each change, wait for the
+    autosave (`editor.saved`), then `GET …/versions/draft` and assert the
+    persisted field. For the grid type, also assert the UNIT, both ways:
+    `'h/Woche'` after "Fix" → "h/Woche", `null` after switching back, since
+    the setter sets two fields and a regression could drop one.
+  - **No mount write-back:** a function binding on a `<select>` writes back
+    when its getter returns `undefined`. Pin that it does not: open the
+    editor on the seeded draft, change nothing, and assert that no
+    `PUT …/versions/draft` is sent within the autosave debounce.
+  - Runs in both languages, like every spec (`E2E_LANG=en`, then `de`).
+
+steps:
+  - |
+    Testids, markup only:
+      - `src/frontend/src/lib/components/EstimationGrid.svelte`: add
+        `data-testid="grid.leaf-type"` to the type select and
+        `data-testid="grid.leaf-phase"` to the phase select;
+      - `src/frontend/src/lib/components/AdditionalCostsPanel.svelte`: add
+        `data-testid="additional-costs.phase"` to BOTH phase selects, and
+        `data-testid="panel.additional-costs.toggle"` to the header button;
+      - `src/frontend/src/lib/components/PhasesPanel.svelte`: add
+        `data-testid="panel.phases.toggle"` to the header button.
+  - |
+    Page Objects:
+      - `src/frontend/e2e/pages/EstimationGrid.ts`: `leafTypeSelect(path)`,
+        `leafPhaseSelect(path)`, `setLeafType(path, 'FIXED' | 'TIME_RELATIVE')`,
+        `setLeafPhase(path, abbreviation)`, scoped to `row(path)`;
+      - new `src/frontend/e2e/pages/PhasesPanel.ts`: `open()` (clicks
+        `panel.phases.toggle` unless the mode selects are already visible),
+        `durationModeSelect(index)`, `setDurationMode(index, 'EXPLICIT' | 'AUTOMATIC')`;
+      - new `src/frontend/e2e/pages/AdditionalCostsPanel.ts`: `open()`,
+        `phaseSelect(index)` (nth `additional-costs.phase` in DOM order:
+        one-time rows first, then recurring), `setPhase(index, abbreviation)`;
+      - export both new classes from `src/frontend/e2e/pages/index.ts`.
+  - |
+    Spec `src/frontend/e2e/editor-selects.test.ts`, Page Objects only (the
+    ESLint e2e gate fails on translated literals). A `seedDraft(request)`
+    helper creates project + PERT estimation + draft via the API as described
+    and returns the ids; a `readDraft(request, estimationId)` helper GETs
+    `…/versions/draft`. Tests:
+      1. the grid type: "Fix" → "h/Woche" persists `type: 'TIME_RELATIVE'`
+         and `unit: 'h/Woche'`; switching back persists `type: 'FIXED'` and
+         `unit: null`;
+      2. the grid phase: selecting `UM` persists `phaseAbbreviation: 'UM'`,
+         selecting the empty option persists `null`;
+      3. the phase mode: `AUTOMATIC` on KO persists `durationMode: 'AUTOMATIC'`;
+      4. the cost phase: `KO` on the one-time cost and `UM` on the recurring
+         cost persist on the right costs (match by description);
+      5. opening the editor and changing nothing sends no draft PUT
+         (`page.waitForRequest` with a timeout longer than the autosave
+         debounce, expected to time out).
+    Keep each test inside the 30-second budget: one seed per test, at most
+    one reload.
+  - |
+    Run, against a running `./scripts/dev.sh` (check first that no other
+    stack already holds :8090 / :5173 / :5432, or the run silently uses it):
+      cd src/frontend && E2E_LANG=en npx playwright test e2e/editor-selects.test.ts
+      cd src/frontend && E2E_LANG=de npx playwright test e2e/editor-selects.test.ts
+    plus the specs touching the same components, to prove the testids broke
+    nothing: `e2e/tree-table.test.ts`, `e2e/summary-panel.test.ts`,
+    `e2e/smoke.test.ts`.
+  - |
+    Build:
+      ./gradlew :frontend:check
+      ./gradlew build
+
+validation:
+  - |
+    F=src/frontend/src/lib/components
+    grep -q 'data-testid="grid.leaf-type"' $F/EstimationGrid.svelte
+    grep -q 'data-testid="grid.leaf-phase"' $F/EstimationGrid.svelte
+    test "$(grep -c 'data-testid="additional-costs.phase"' $F/AdditionalCostsPanel.svelte)" -eq 2
+    grep -q 'data-testid="panel.additional-costs.toggle"' $F/AdditionalCostsPanel.svelte
+    grep -q 'data-testid="panel.phases.toggle"' $F/PhasesPanel.svelte
+  - |
+    test -f src/frontend/e2e/pages/PhasesPanel.ts
+    test -f src/frontend/e2e/pages/AdditionalCostsPanel.ts
+    grep -q "PhasesPanel" src/frontend/e2e/pages/index.ts
+    grep -q "AdditionalCostsPanel" src/frontend/e2e/pages/index.ts
+    grep -q "setLeafType" src/frontend/e2e/pages/EstimationGrid.ts
+  - |
+    S=src/frontend/e2e/editor-selects.test.ts
+    test -f "$S"
+    grep -q "from './pages'" "$S"
+    grep -q "versions/draft" "$S"
+    # self-contained: seeds its own estimation, uses no seeded project
+    ! grep -qE "Webshop|Mobile App|Data Platform|WS-2026|DP-2026|MA-2026" "$S"
+  - |
+    ./gradlew :frontend:check
+  - |
+    ./gradlew build
+
+outputs:
+  - modified: src/frontend/src/lib/components/EstimationGrid.svelte
+  - modified: src/frontend/src/lib/components/AdditionalCostsPanel.svelte
+  - modified: src/frontend/src/lib/components/PhasesPanel.svelte
+  - modified: src/frontend/e2e/pages/EstimationGrid.ts
+  - created: src/frontend/e2e/pages/PhasesPanel.ts
+  - created: src/frontend/e2e/pages/AdditionalCostsPanel.ts
+  - modified: src/frontend/e2e/pages/index.ts
+  - created: src/frontend/e2e/editor-selects.test.ts

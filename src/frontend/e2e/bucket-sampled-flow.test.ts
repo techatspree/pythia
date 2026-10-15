@@ -205,10 +205,10 @@ test('a non-sample leaf inherits the average of its bucket', async ({ page, requ
 	// Move half the leaves into bucket B. The row <select> has no accessible
 	// name, but a LEAF row contains no descendant rows, so scoping by row id
 	// makes it unambiguous.
-	// `.first()` is the BUCKET select: since task-186 a leaf row also carries a
-	// phase select whenever the version has phases (this fixture has none).
-	await page.locator(`${row(leaf3)} select`).first().selectOption(bucketB);
-	await page.locator(`${row(leaf4)} select`).first().selectOption(bucketB);
+	// Addressed by testid, not position: a leaf row carries a type select
+	// (task-187) and, with phases, a phase select (task-186) beside it.
+	await page.locator(`${row(leaf3)} [data-testid="bucket.leaf-bucket"]`).selectOption(bucketB);
+	await page.locator(`${row(leaf4)} [data-testid="bucket.leaf-bucket"]`).selectOption(bucketB);
 
 	// One sample per bucket. The three-point inputs render only once `isSample`
 	// is set, so the checkbox has to come first.
@@ -364,9 +364,9 @@ test('a bucketed leaf takes an assumption and a phase, and keeps both', async ({
 
 	await openHierarchyView(page, url);
 
-	// Column order is description, bucket, sample, phase, … — so the phase
-	// select is the SECOND one in the row, the bucket picker the first.
-	const phaseSelect = page.locator(`${row(leafId)} select`).nth(1);
+	// By testid: the row's selects are type, bucket and phase (task-187), and
+	// their position is not what this test is about.
+	const phaseSelect = page.locator(`${row(leafId)} [data-testid="bucket.leaf-phase"]`);
 	const assumptions = page.locator(`${row(leafId)} input[type="text"]`).last();
 
 	await phaseSelect.selectOption('UM');
@@ -377,7 +377,7 @@ test('a bucketed leaf takes an assumption and a phase, and keeps both', async ({
 	await new BucketEditor(page).expectSaved();
 	await openHierarchyView(page, url);
 
-	await expect(page.locator(`${row(leafId)} select`).nth(1)).toHaveValue('UM');
+	await expect(page.locator(`${row(leafId)} [data-testid="bucket.leaf-phase"]`)).toHaveValue('UM');
 	await expect(page.locator(`${row(leafId)} input[type="text"]`).last()).toHaveValue(
 		'Quellsystem liefert CSV'
 	);
@@ -388,7 +388,7 @@ test('a bucketed leaf takes an assumption and a phase, and keeps both', async ({
 	// in the DOM (`invisible`, not `display:none`) and a value assertion needs no
 	// visibility — so the leaf is addressable without expanding anything.
 	await page.getByTestId('bucket-view-toggle-bucket').click();
-	await expect(page.locator(`${row(leafId)} select`).nth(1)).toHaveValue('UM');
+	await expect(page.locator(`${row(leafId)} [data-testid="bucket.leaf-phase"]`)).toHaveValue('UM');
 	await expect(page.locator(`${row(leafId)} input[type="text"]`).last()).toHaveValue(
 		'Quellsystem liefert CSV'
 	);

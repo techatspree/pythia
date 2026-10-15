@@ -8,6 +8,8 @@ import io.pythia.domain.draft.DraftFixedItemNode
 import io.pythia.domain.draft.DraftGroupNode
 import io.pythia.domain.draft.DraftTimeRelativeItemNode
 import io.pythia.StandardMethods
+import io.pythia.domain.submitted.SubmittedProjectPhase
+import io.pythia.domain.submitted.SubmittedTimeRelativeItemNode
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNotNull
 import org.junit.jupiter.api.Assertions.assertNull
@@ -137,5 +139,54 @@ class ExcelImporterTreeTest {
         // must not fabricate a triple for it.
         assertNull(nonSample.minEffort)
         assertNull(nonSample.expectedEffort)
+    }
+
+    // task-187: accompanying work in a bucket workbook. Before, the bucket export
+    // wrote five empty cells for it and the import read the PERT columns 1..3,
+    // which in a bucket sheet hold Bucket / Is Sample / Optimistic — so its
+    // effort was lost both ways.
+    @Test
+    fun `accompanying work survives a bucket workbook round trip`() {
+        val bucketA = EstimationBucket().apply { id = UUID.randomUUID(); label = "Frontend"; position = 0 }
+        val bucketB = EstimationBucket().apply { id = UUID.randomUUID(); label = "Backend"; position = 1 }
+        val source = TreeFixtures.bucketed(bucketA, bucketB)
+        val umsetzung = SubmittedProjectPhase().apply {
+            name = "Umsetzung"; abbreviation = "UM"; durationWeeks = 12.0; version = source
+        }
+        source.phases.add(umsetzung)
+        val accompanying = SubmittedTimeRelativeItemNode().apply {
+            logicalId = UUID.randomUUID()
+            description = "Projektbegleitung"
+            unit = "h/Woche"
+            minEffort = 0.5; expectedEffort = 1.0; maxEffort = 2.0
+            phaseAbbreviation = "UM"
+            mean = 13.0; variance = 0.3; offerPT = 13.0
+            position = 1
+            version = source
+        }
+        source.roots.add(accompanying)
+
+        val xlsx = ByteArrayOutputStream()
+        exporter.export(source, EstimationMethod.BUCKET_SAMPLED_PERT, listOf(bucketA, bucketB), xlsx)
+
+        val target = Estimation().apply { method = EstimationMethod.BUCKET_SAMPLED_PERT }
+        val draft = importer.import(ByteArrayInputStream(xlsx.toByteArray()), target, versionNumber = 1)
+
+        assertEquals(2, draft.roots.size)
+        val imported = draft.roots[1]
+        assertTrue(imported is DraftTimeRelativeItemNode, "accompanying work must stay TIME_RELATIVE")
+        imported as DraftTimeRelativeItemNode
+        assertEquals("Projektbegleitung", imported.description)
+        assertEquals("h/Woche", imported.unit)
+        assertEquals(0.5, imported.minEffort)
+        assertEquals(1.0, imported.expectedEffort)
+        assertEquals(2.0, imported.maxEffort)
+        assertEquals("UM", imported.phase?.abbreviation)
+        assertEquals(accompanying.logicalId, imported.logicalId)
+
+        // The bucketed leaves beside it are untouched by the new column reading.
+        val sample = (draft.roots[0] as DraftGroupNode).children[0] as DraftBucketedItemNode
+        assertEquals(1.0, sample.minEffort)
+        assertEquals(3.0, sample.maxEffort)
     }
 }

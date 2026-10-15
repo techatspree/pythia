@@ -1107,9 +1107,9 @@
       "notes": "Bucket estimation UI drops fields the model still carries (assumptions, and whatever else the PERT editor shows) — audit and restore — Done in 3a47d2d (completed_at backdated to that commit; status was set 2026-10-15). Split out: task-187 (TIME_RELATIVE leaf in the bucket editor). The bucket-editor.png recapture this task asked for was not committed; task-181 recaptures it."
     },
     "task-187": {
-      "status": "pending",
-      "started_at": null,
-      "completed_at": null,
+      "status": "done",
+      "started_at": "2026-10-15T12:37:51+00:00",
+      "completed_at": "2026-10-15T13:03:49+00:00",
       "notes": "Bucket editor renders a TIME_RELATIVE leaf as if it were bucketed (bucket select, no unit, no type) — split from task-186's audit"
     },
     "task-188": {
@@ -1273,6 +1273,12 @@
       "started_at": null,
       "completed_at": null,
       "notes": "task.sh pending silently erases a task's notes — keep them, and make the script testable"
+    },
+    "task-215": {
+      "status": "pending",
+      "started_at": null,
+      "completed_at": null,
+      "notes": "e2e coverage for the four editor selects no spec drives: PERT grid type and phase, phase duration mode, additional-cost phase"
     }
   }
 }

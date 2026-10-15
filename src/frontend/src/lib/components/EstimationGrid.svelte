@@ -316,12 +316,13 @@
 		{#if editable}
 			<select
 				class="w-full bg-transparent text-xs focus:outline-none focus:ring-1 focus:ring-brand-green/40 rounded px-1 py-0.5"
-				value={node.type}
-				onchange={(e) => {
-					const v = e.currentTarget.value;
-					node.type = v === 'TIME_RELATIVE' ? 'TIME_RELATIVE' : 'FIXED';
-					node.unit = v === 'TIME_RELATIVE' ? 'h/Woche' : null;
-				}}
+				bind:value={
+					() => node.type,
+					(v) => {
+						node.type = v === 'TIME_RELATIVE' ? 'TIME_RELATIVE' : 'FIXED';
+						node.unit = v === 'TIME_RELATIVE' ? 'h/Woche' : null;
+					}
+				}
 			>
 				<option value="FIXED">{$_('grid.typeFixed')}</option>
 				<option value="TIME_RELATIVE">h/Woche</option>
@@ -339,10 +340,10 @@
 		{#if editable && phases.length > 0}
 			<select
 				class="w-full bg-transparent text-sm focus:outline-none focus:ring-1 focus:ring-brand-green/40 rounded px-1 py-0.5"
-				value={node.phaseAbbreviation ?? ''}
-				onchange={(e) => {
-					node.phaseAbbreviation = e.currentTarget.value === '' ? null : e.currentTarget.value;
-				}}
+				bind:value={
+					() => node.phaseAbbreviation ?? '',
+					(v) => (node.phaseAbbreviation = v === '' ? null : v)
+				}
 			>
 				<option value="">{$_('grid.phaseNone')}</option>
 				{#each phases as p (p.abbreviation)}

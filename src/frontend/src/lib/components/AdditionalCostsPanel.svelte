@@ -143,8 +143,7 @@
 										{#if editable}
 											<select
 												class="w-full bg-transparent focus:outline-none focus:ring-1 focus:ring-brand-green/40 rounded px-1 py-0.5"
-												value={cost.phaseAbbreviation ?? ''}
-												onchange={(e) => updatePhase(i, e.currentTarget.value)}
+												bind:value={() => cost.phaseAbbreviation ?? '', (v) => updatePhase(i, v)}
 											>
 												<option value="">—</option>
 												{#each phases as p (p.abbreviation)}
@@ -243,8 +242,7 @@
 										{#if editable}
 											<select
 												class="w-full bg-transparent focus:outline-none focus:ring-1 focus:ring-brand-green/40 rounded px-1 py-0.5"
-												value={cost.phaseAbbreviation ?? ''}
-												onchange={(e) => updatePhase(i, e.currentTarget.value)}
+												bind:value={() => cost.phaseAbbreviation ?? '', (v) => updatePhase(i, v)}
 											>
 												<option value="">—</option>
 												{#each phases as p (p.abbreviation)}

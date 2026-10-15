@@ -4,6 +4,7 @@ import io.pythia.method.EstimationMethod
 import io.pythia.method.EstimationMethodRegistry
 import io.pythia.model.CalculationParameters
 import io.pythia.model.EstimationGroup
+import io.pythia.model.EstimationItem
 import io.pythia.model.EstimationVersion
 import io.pythia.model.leaves
 import org.junit.jupiter.api.Assertions.assertEquals
@@ -63,6 +64,34 @@ class BucketMethodModuleTest {
         val item = sample("b1", 1.0, 2.0, 3.0)
         assertEquals(module.exportColumnHeaders().size, module.exportRow(item).size)
         assertEquals(module.exportColumnHeaders().size, module.exportRow(nonSample("b1")).size)
+    }
+
+    /**
+     * A leaf the bucket method does not own. The real one is PERT's
+     * TimeRelativeEstimationItem, which this module cannot see (task-143), so a
+     * minimal stand-in carries just the triple.
+     */
+    private class ForeignItem(min: Double, exp: Double, max: Double) :
+        EstimationItem(description = "foreign", minEffort = min, expectedEffort = exp, maxEffort = max) {
+        override fun withCalculationParameters(params: CalculationParameters): EstimationItem = this
+        override val method: EstimationMethod = EstimationMethod.THREE_POINT_PERT
+        override val nodeTypeLabel: String = "TIME_RELATIVE"
+        override val isScheduled: Boolean = false
+    }
+
+    @Test
+    fun `a leaf the method does not own exports its triple in the sample columns`() {
+        // task-187: this used to be five empty cells, so accompanying work in a
+        // bucket estimation lost its effort on export.
+        assertEquals(listOf("", "", "0.5", "1.0", "2.0"), module.exportRow(ForeignItem(0.5, 1.0, 2.0)))
+    }
+
+    @Test
+    fun `effortColumnOffsets point at a sample row's triple`() {
+        val row = module.exportRow(sample("b1", 1.0, 2.0, 3.0))
+        assertEquals(listOf("1.0", "2.0", "3.0"), module.effortColumnOffsets.map { row[it] })
+        val headers = module.exportColumnHeaders()
+        assertEquals(listOf("Optimistic", "Likely", "Pessimistic"), module.effortColumnOffsets.map { headers[it] })
     }
 
     @Test

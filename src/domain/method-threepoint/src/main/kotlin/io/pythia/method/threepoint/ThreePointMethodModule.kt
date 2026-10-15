@@ -27,6 +27,8 @@ class ThreePointMethodModule : EstimationMethodModule {
     // PERT method-specific input columns: the three-point estimates.
     override fun exportColumnHeaders(): List<String> = listOf("Min", "Expected", "Max")
 
+    override val effortColumnOffsets: List<Int> = listOf(0, 1, 2)
+
     override fun exportRow(item: EstimationItem): List<String> = listOf(
         item.minEffort.toString(),
         item.expectedEffort.toString(),

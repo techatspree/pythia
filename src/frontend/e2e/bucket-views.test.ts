@@ -311,7 +311,7 @@ test('a leaf can be dropped into a still-collapsed bucket', async ({ page, reque
 	// captures its drop zones at drag start, so a zone appearing mid-drag is
 	// never a valid target. The zone is therefore always rendered.
 	await expandBucket(page, b1);
-	const select = page.locator(`${row(leafC)} select`).first();
+	const select = page.locator(`${row(leafC)} [data-testid="bucket.leaf-bucket"]`);
 	await expect(select).toHaveValue(b1);
 
 	const zone = page.locator(`${row(`bucket:${b2}`)} > [aria-label="Children"]`);
@@ -343,7 +343,7 @@ test('dragging a leaf between buckets re-buckets it and autosaves', async ({ pag
 	await expandBucket(page, b1);
 	await expandBucket(page, b2);
 
-	const select = page.locator(`${row(leafC)} select`).first();
+	const select = page.locator(`${row(leafC)} [data-testid="bucket.leaf-bucket"]`);
 	await expect(select).toHaveValue(b1);
 
 	const savePut = page.waitForRequest(
@@ -409,7 +409,7 @@ test('a leaf can be dragged into an EMPTY bucket', async ({ page, request }) => 
 	await openDraft(page, estimationId);
 	await expandBucket(page, b1);
 
-	const select = page.locator(`${row(leafC)} select`).first();
+	const select = page.locator(`${row(leafC)} [data-testid="bucket.leaf-bucket"]`);
 	await expect(select).toHaveValue(b1);
 
 	// An empty zone collapses to 0px, and TreeTable detects drops by CURSOR
@@ -450,7 +450,7 @@ test('dropping into the unassigned row is ignored (a null bucket cannot be saved
 	await openDraft(page, estimationId);
 	await expandBucket(page, b1);
 
-	const select = page.locator(`${row(leafC)} select`).first();
+	const select = page.locator(`${row(leafC)} [data-testid="bucket.leaf-bucket"]`);
 	await expect(select).toHaveValue(b1);
 
 	// The unassigned row is a rescue source only: the backend rejects a BUCKETED

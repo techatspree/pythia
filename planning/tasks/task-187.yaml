@@ -1,7 +1,7 @@
 id: task-187
 phase: phase-15
 title: "Accompanying work (h/Woche) in bucket estimations"
-depends_on: [task-186, task-198]
+depends_on: [task-186, task-198, task-212]
 description: |
   Registered during task-186's audit (status entry only; this file was written
   2026-10-15 from that note and task-186's description): "Bucket editor renders
@@ -84,7 +84,7 @@ description: |
     `DraftUpdateApplier` already builds `DraftTimeRelativeItemNode` for any
     method.
   - **Seed:** the Data Platform draft (bucket + sampled) gains one
-    accompanying leaf, `timeRelativeLeaf(draft, "Projektbegleitung", "h/Woche",
+    accompanying leaf, `timeRelativeLeaf(ids, draft, "Projektbegleitung", "h/Woche",
     0.5, 1.0, 2.0, phaseUM)`, as the LAST root, so the editor, the bucket
     view, the e2e suite and the bucket-editor screenshot all show the case.
     It adds PERT(0.5, 1, 2) × 12 weeks = 13.00 to the estimation's mean.
@@ -196,7 +196,12 @@ steps:
     the importer for leaves the module does not own (a `TIME_RELATIVE` row,
     task-187). Implement it as `listOf(0, 1, 2)` in
     `ThreePointMethodModule` and `listOf(2, 3, 4)` in `BucketMethodModule`.
-    Common stdlib only. No `super.<computed property>` anywhere (Kotlin/JS
+    Give the interface NO default value: a future method must decide its own
+    offsets, not silently inherit PERT's. So also implement it in the
+    test-only `FakeModule` in
+    `src/domain/core/src/test/kotlin/io/pythia/method/EstimationMethodRegistryTest.kt`
+    (`override val effortColumnOffsets = listOf(0, 1, 2)`), or the core test
+    source set no longer compiles. Common stdlib only. No `super.<computed property>` anywhere (Kotlin/JS
     recursion, root CLAUDE.md).
   - |
     In `src/domain/method-bucketsampled/src/main/kotlin/io/pythia/method/bucketsampled/BucketMethodModule.kt`,
@@ -220,17 +225,18 @@ steps:
     1..3. Update the column comment block above the loop. Log at DEBUG per
     imported TIME_RELATIVE row (`Log.debugf("Imported TIME_RELATIVE row '%s' for %s", label, module.method)`).
   - |
-    Backend tests: in `ExcelExporterTreeTest`/`ExcelImporterTreeTest` (or a
-    new `ExcelBucketTimeRelativeRoundTripTest` in the same package if the
-    existing classes are PERT-only), export a bucket estimation containing a
+    Backend test in `src/backend/implementation/src/test/kotlin/io/pythia/service/ExcelImporterTreeTest.kt`
+    (it already holds the bucket round-trip tests): export a bucket estimation containing a
     TIME_RELATIVE leaf (0.5/1.0/2.0, unit h/Woche, phase UM) and import it
     back: type, unit, triple, phase and logicalId survive. Keep a PERT
     round-trip assertion green (the PERT offsets are what columns 1..3 were).
   - |
     Seed: in `src/backend/implementation/src/main/kotlin/io/pythia/testdata/TestDataSeeder.kt`
     `seedDataPlatform`, append
-    `timeRelativeLeaf(draft, "Projektbegleitung", "h/Woche", 0.5, 1.0, 2.0, phaseUM)`
-    as the last element of the `addRootLeaves` list, and extend the class
+    `timeRelativeLeaf(ids, draft, "Projektbegleitung", "h/Woche", 0.5, 1.0, 2.0, phaseUM)`
+    as the last element of the `addRootLeaves` list. Every builder takes the
+    seeding run's `SeededIds` first (task-212); being the last node seeded,
+    it only appends to the id sequence, so no existing seeded id changes. Then and extend the class
     KDoc's Data platform bullet with one sentence on it (task-187).
   - |
     Frontend, `src/frontend/src/lib/methods/bucketSampled/EditorModule.svelte`,
@@ -282,13 +288,23 @@ steps:
       - switch it back to Bucket: it gets the first bucket and leaves the
         accompanying row;
       - with no bucket defined, the "Bucket" option is disabled (assert via
-        the option's `disabled` attribute on `bucket.leaf-type`).
+        the option's `disabled` attribute on `bucket.leaf-type`). Seed this
+        case through the API (`PUT …/versions/draft`, as the spec's own
+        helpers do): a draft with NO buckets and one `TIME_RELATIVE` leaf.
+        Do not reach it via "add item" with zero buckets: that creates a
+        BUCKETED leaf without a bucket, which the autosave rejects (400), so
+        the test would hit an ErrorBanner before its assertion.
     Run it in both languages: `E2E_LANG=en` and `E2E_LANG=de`, plus the
     existing bucket specs (`bucket-*.test.ts`) to prove nothing regressed.
   - |
     Docs: `src/frontend/CLAUDE.md` gets no rule change. Add one sentence to
     `src/domain/CLAUDE.md` where the method SPI is described:
-    `effortColumnOffsets` and why the importer needs it (task-187).
+    `effortColumnOffsets` and why the importer needs it (task-187). And in
+    `src/backend/CLAUDE.md` → "REST API surface", in the xlsx round-trip
+    paragraph ("The xlsx round trip works for every method (task-182)"): a
+    `TIME_RELATIVE` row's effort is written into the method's own triple
+    columns and read back through `module.effortColumnOffsets`, so the
+    importer still learns no method's shape (task-187).
   - |
     Build, test, and finish:
       ./gradlew :domain:build
@@ -308,7 +324,7 @@ validation:
     ! grep -q "node.minEffort = row.cellNumericValue(1)" "$I"
     grep -q 'Log.debugf("Imported TIME_RELATIVE' "$I"
   - |
-    sed -n '/private fun seedDataPlatform/,$p' src/backend/implementation/src/main/kotlin/io/pythia/testdata/TestDataSeeder.kt | grep -q 'timeRelativeLeaf(draft, "Projektbegleitung"'
+    sed -n '/private fun seedDataPlatform/,$p' src/backend/implementation/src/main/kotlin/io/pythia/testdata/TestDataSeeder.kt | grep -q 'timeRelativeLeaf(ids, draft, "Projektbegleitung"'
   - |
     E=src/frontend/src/lib/methods/bucketSampled/EditorModule.svelte
     grep -q "key: 'type'" "$E"
@@ -346,6 +362,8 @@ validation:
     grep -q "setLeafType" src/frontend/e2e/pages/BucketEditor.ts
   - |
     grep -q "task-187" src/domain/CLAUDE.md
+    grep -q "task-187" src/backend/CLAUDE.md
+    grep -q "effortColumnOffsets" src/domain/core/src/test/kotlin/io/pythia/method/EstimationMethodRegistryTest.kt
   - |
     ./gradlew :domain:build
   - |
@@ -360,6 +378,7 @@ outputs:
   - modified: src/domain/method-threepoint/src/main/kotlin/io/pythia/method/threepoint/ThreePointMethodModule.kt
   - modified: src/domain/method-bucketsampled/src/main/kotlin/io/pythia/method/bucketsampled/BucketMethodModule.kt
   - modified: src/domain/method-bucketsampled/src/test/kotlin/io/pythia/method/bucketsampled/BucketMethodModuleTest.kt
+  - modified: src/domain/core/src/test/kotlin/io/pythia/method/EstimationMethodRegistryTest.kt
   - created: src/domain/src/test/kotlin/io/pythia/method/BucketVersionWithTimeRelativeTest.kt
   - modified: src/backend/implementation/src/main/kotlin/io/pythia/service/ExcelImporter.kt
   - modified: src/backend/implementation/src/test/kotlin/io/pythia/service/ExcelImporterTreeTest.kt
@@ -370,3 +389,4 @@ outputs:
   - modified: src/frontend/e2e/pages/BucketEditor.ts
   - created: src/frontend/e2e/bucket-accompanying.test.ts
   - modified: src/domain/CLAUDE.md
+  - modified: src/backend/CLAUDE.md

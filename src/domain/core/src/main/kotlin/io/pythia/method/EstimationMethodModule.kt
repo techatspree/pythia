@@ -48,6 +48,15 @@ interface EstimationMethodModule {
     fun exportColumnHeaders(): List<String>
 
     /**
+     * Where optimistic, likely and pessimistic sit within [exportColumnHeaders]'s
+     * cells, as offsets. The importer reads a leaf this module does not own — a
+     * `TIME_RELATIVE` row (task-187) — through these, so it still learns no
+     * method's column shape. Deliberately no default: a method decides its own
+     * offsets rather than silently inheriting another's.
+     */
+    val effortColumnOffsets: List<Int>
+
+    /**
      * The inverse of [exportRow] (task-182): rebuild a leaf from the
      * method-specific cells of an exported row, so a workbook this application
      * wrote can be read back without the importer learning any method's shape.

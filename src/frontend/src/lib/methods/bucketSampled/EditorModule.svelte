@@ -154,6 +154,27 @@
 		roots = [...roots, makeBucketedLeaf()];
 	}
 
+	// A leaf's kind (task-187): a bucketed item, or accompanying work in h/Woche
+	// whose effort the domain scales by its phase's length. Switching keeps the
+	// effort triple and changes only what differs. The backend rejects a
+	// BUCKETED leaf without a bucket (400), which is why the type select disables
+	// "Bucket" while no bucket exists. The unit is the stored DATA value the
+	// backend and Excel carry; only its select label is translated.
+	function setLeafType(node: Leaf, next: 'BUCKETED' | 'TIME_RELATIVE') {
+		if (node.type === next) return;
+		const from = node.type;
+		node.type = next;
+		node.isSample = false;
+		if (next === 'TIME_RELATIVE') {
+			node.unit = 'h/Woche';
+			node.bucketId = null;
+		} else {
+			node.unit = null;
+			node.bucketId = buckets[0]?.id ?? null;
+		}
+		log.debug(`Bucket editor: leaf ${node.logicalId} type ${from} → ${next}`);
+	}
+
 	// Root-level group (task-150). Without this the hierarchy view was a dead
 	// end: `hierarchyActions` renders `+ Gruppe` / `+ Element` only on a GROUP
 	// row, so a flat draft could never grow its first group. Empty title (the
@@ -218,6 +239,9 @@
 	// Touching this forces the rebuild that snaps the row back.
 	let projectionNonce = $state(0);
 
+	const ACCOMPANYING_ROW_ID = 'bucket:accompanying';
+	const accompanying = $derived(leaves.filter((l) => l.type === 'TIME_RELATIVE'));
+
 	const bucketRows = $derived.by<BucketViewNode[]>(() => {
 		void projectionNonce;
 		return [
@@ -226,14 +250,30 @@
 				logicalId: `bucket:${b.id}`,
 				bucketId: b.id,
 				label: b.label,
-				children: leaves.filter((l) => l.bucketId === b.id)
+				children: leaves.filter((l) => l.type === 'BUCKETED' && l.bucketId === b.id)
 			})),
+			// Accompanying work has no bucket by nature (task-187), so it gets its
+			// own row rather than landing in the rescue row for broken leaves. Only
+			// shown when there is some, so estimations without it look unchanged.
+			...(accompanying.length > 0
+				? [
+						{
+							__bucketRow: true as const,
+							logicalId: ACCOMPANYING_ROW_ID,
+							bucketId: null,
+							label: $_('bucket.accompanying'),
+							children: accompanying
+						}
+					]
+				: []),
 			{
 				__bucketRow: true as const,
 				logicalId: 'bucket:unassigned',
 				bucketId: null,
 				label: $_('bucket.unassigned'),
-				children: leaves.filter((l) => l.bucketId == null || !bucketIds.has(l.bucketId))
+				children: leaves.filter(
+					(l) => l.type !== 'TIME_RELATIVE' && (l.bucketId == null || !bucketIds.has(l.bucketId))
+				)
 			}
 		];
 	});
@@ -275,7 +315,9 @@
 		const target = row.bucketId;
 		// The unassigned row is a rescue SOURCE, not a drop target: the backend
 		// rejects a BUCKETED leaf with a null bucketId (400), so accepting the drop
-		// would only produce a failing autosave.
+		// would only produce a failing autosave. The accompanying-work row has no
+		// bucket either and is not a target: changing a leaf's KIND is the type
+		// select's job, never a drop's (task-187).
 		if (target == null) {
 			projectionNonce++;
 			return;
@@ -284,7 +326,8 @@
 		for (const child of e.newChildren) {
 			if (isBucketRow(child)) continue;
 			const leaf = leaves.find((l) => l.logicalId === child.logicalId);
-			if (leaf == null || leaf.bucketId === target) continue;
+			// Accompanying work never moves into a bucket by drag (task-187).
+			if (leaf == null || leaf.type === 'TIME_RELATIVE' || leaf.bucketId === target) continue;
 			leaf.bucketId = target;
 			changed++;
 			log.debug(`Bucket view: leaf ${leaf.logicalId} reassigned to bucket ${target}`);
@@ -304,12 +347,15 @@
 	// and `assumptions` were missing here while the model, the database and the
 	// Excel export all carried them, so a bucket estimation could not be given a
 	// Paket at all and its assumptions were visible only in the exported file.
-	// The remaining difference to the PERT grid is deliberate: `type` (FIXED ↔
-	// TIME_RELATIVE) has no meaning for a bucketed leaf, and `pert` is replaced
-	// by `mean`, which for a non-sample is its bucket's average rather than a
-	// triple. Keep the two lists diffed when either gains a column.
+	// `type` arrived with task-187: a bucket estimation holds two leaf kinds,
+	// bucketed items and accompanying work (h/Woche), mirroring the PERT grid's
+	// FIXED ↔ TIME_RELATIVE select. The remaining difference is deliberate:
+	// `pert` is replaced by `mean`, which for a non-sample is its bucket's
+	// average rather than a triple. Keep the two lists diffed when either gains
+	// a column.
 	const columnMeta = [
 		{ key: 'description', header: $_('bucket.colDescription'), width: '1fr' },
+		{ key: 'type', header: $_('bucket.colType'), width: '6rem' },
 		{ key: 'bucket', header: $_('bucket.colBucket'), width: '8rem' },
 		{ key: 'sample', header: $_('bucket.colSample'), width: '5rem', align: 'center' as const },
 		{ key: 'phase', header: $_('bucket.colPhase'), width: '6rem' },
@@ -379,13 +425,35 @@
 	{/if}
 {/snippet}
 
-{#snippet leafBucket(node: Leaf)}
+{#snippet leafType(node: Leaf)}
 	{#if editable}
 		<select
 			class="w-full bg-transparent text-sm focus:outline-none focus:ring-1 focus:ring-brand-green/40 rounded px-1 py-0.5"
+			data-testid="bucket.leaf-type"
+			bind:value={
+				() => node.type,
+				(v) => setLeafType(node, v === 'TIME_RELATIVE' ? 'TIME_RELATIVE' : 'BUCKETED')
+			}
+		>
+			<option value="BUCKETED" disabled={buckets.length === 0}>{$_('bucket.typeBucketed')}</option>
+			<option value="TIME_RELATIVE">{$_('bucket.typeTimeRelative')}</option>
+		</select>
+	{:else}
+		<span class="px-1 text-sm text-ink-muted"
+			>{node.type === 'TIME_RELATIVE' ? $_('bucket.typeTimeRelative') : $_('bucket.typeBucketed')}</span
+		>
+	{/if}
+{/snippet}
+
+{#snippet leafBucket(node: Leaf)}
+	{#if node.type === 'TIME_RELATIVE'}
+		<span class="text-ink-faint">—</span>
+	{:else if editable}
+		<select
+			class="w-full bg-transparent text-sm focus:outline-none focus:ring-1 focus:ring-brand-green/40 rounded px-1 py-0.5"
+			data-testid="bucket.leaf-bucket"
 			class:text-red-500={node.bucketId != null && !bucketIds.has(node.bucketId)}
-			value={node.bucketId ?? ''}
-			onchange={(e) => (node.bucketId = e.currentTarget.value === '' ? null : e.currentTarget.value)}
+			bind:value={() => node.bucketId ?? '', (v) => (node.bucketId = v === '' ? null : v)}
 		>
 			<option value="">{$_('bucket.bucketNone')}</option>
 			{#each buckets as b (b.id)}
@@ -403,9 +471,11 @@
 	{#if editable && phases.length > 0}
 		<select
 			class="w-full bg-transparent text-sm focus:outline-none focus:ring-1 focus:ring-brand-green/40 rounded px-1 py-0.5"
-			value={node.phaseAbbreviation ?? ''}
-			onchange={(e) =>
-				(node.phaseAbbreviation = e.currentTarget.value === '' ? null : e.currentTarget.value)}
+			data-testid="bucket.leaf-phase"
+			bind:value={
+				() => node.phaseAbbreviation ?? '',
+				(v) => (node.phaseAbbreviation = v === '' ? null : v)
+			}
 		>
 			<option value="">{$_('bucket.phaseNone')}</option>
 			{#each phases as p (p.abbreviation)}
@@ -432,29 +502,43 @@
 {/snippet}
 
 {#snippet leafSample(node: Leaf)}
+	{#if node.type === 'TIME_RELATIVE'}
+		<span class="text-ink-faint">—</span>
+	{:else}
+		<input
+			type="checkbox"
+			class="accent-brand-green"
+			checked={node.isSample ?? false}
+			disabled={!editable}
+			aria-label={$_('bucket.sampleAria')}
+			onchange={(e) => (node.isSample = e.currentTarget.checked)}
+		/>
+	{/if}
+{/snippet}
+
+{#snippet effortInput(node: Leaf, field: 'minEffort' | 'expectedEffort' | 'maxEffort')}
 	<input
-		type="checkbox"
-		class="accent-brand-green"
-		checked={node.isSample ?? false}
-		disabled={!editable}
-		aria-label={$_('bucket.sampleAria')}
-		onchange={(e) => (node.isSample = e.currentTarget.checked)}
+		type="number"
+		step="0.1"
+		min="0"
+		class="w-full text-right bg-transparent focus:outline-none focus:bg-brand-green/5 focus:ring-1 focus:ring-brand-green/40 rounded px-1 py-0.5"
+		value={node[field] ?? ''}
+		oninput={(e) => (node[field] = e.currentTarget.value === '' ? null : parseFloat(e.currentTarget.value))}
 	/>
 {/snippet}
 
+<!-- A sample shows its triple; so does accompanying work (h/Woche), always
+     (task-187). A non-sample's numbers derive from its bucket: "—". -->
 {#snippet leafNumber(node: Leaf, field: 'minEffort' | 'expectedEffort' | 'maxEffort')}
-	{#if node.isSample}
-		{#if editable}
-			<input
-				type="number"
-				step="0.1"
-				min="0"
-				class="w-full text-right bg-transparent focus:outline-none focus:bg-brand-green/5 focus:ring-1 focus:ring-brand-green/40 rounded px-1 py-0.5"
-				value={node[field] ?? ''}
-				oninput={(e) => (node[field] = e.currentTarget.value === '' ? null : parseFloat(e.currentTarget.value))}
-			/>
-		{:else}
+	{#if node.isSample || node.type === 'TIME_RELATIVE'}
+		{#if !editable}
 			<span class="tabular-nums">{node[field] ?? ''}</span>
+		{:else if node.type === 'TIME_RELATIVE' && field === 'minEffort'}
+			<!-- The e2e handle for editing accompanying work; `contents` keeps the
+			     input itself the grid item. -->
+			<span class="contents" data-testid="bucket.leaf-optimistic">{@render effortInput(node, field)}</span>
+		{:else}
+			{@render effortInput(node, field)}
 		{/if}
 	{:else}
 		<span class="text-ink-faint">—</span>
@@ -472,6 +556,16 @@
 
 {#snippet aggregate(calc: CalcEntry | undefined, field: 'mean' | 'offerPT' | 'cost' | 'offerPrice', frac: number)}
 	<span class="text-ink-muted tabular-nums">{calc != null ? num(calc[field], frac) : '—'}</span>
+{/snippet}
+
+<!-- Accompanying work without a phase computes to 0 (its effort is × phase
+     weeks), so say why instead of showing a bare zero — as the PERT grid does. -->
+{#snippet leafOfferPT(node: Leaf)}
+	{#if node.type === 'TIME_RELATIVE' && !node.phaseAbbreviation}
+		<span class="text-amber-500 text-xs" data-testid="bucket.needs-phase">{$_('grid.needsPhase')}</span>
+	{:else}
+		{@render aggregate(calcMap.get(node.logicalId), 'offerPT', 2)}
+	{/if}
 {/snippet}
 
 <!-- ── Hierarchy-view cells ─────────────────────────────────────────────── -->
@@ -497,6 +591,9 @@
 	{/if}
 {/snippet}
 
+{#snippet hType(node: Node)}
+	{#if node.type !== 'GROUP'}{@render leafType(node)}{/if}
+{/snippet}
 {#snippet hBucket(node: Node)}
 	{#if node.type !== 'GROUP'}{@render leafBucket(node)}{/if}
 {/snippet}
@@ -544,7 +641,11 @@
 	{#if !isBucketRow(node)}{@render criticalDot(node.logicalId)}{/if}
 {/snippet}
 {#snippet hOfferPT(node: Node)}
-	{@render aggregate(calcMap.get(node.logicalId), 'offerPT', 2)}
+	{#if node.type === 'GROUP'}
+		{@render aggregate(calcMap.get(node.logicalId), 'offerPT', 2)}
+	{:else}
+		{@render leafOfferPT(node)}
+	{/if}
 {/snippet}
 {#snippet hCost(node: Node)}
 	{@render aggregate(calcMap.get(node.logicalId), 'cost', 0)}
@@ -557,7 +658,11 @@
 
 {#snippet bDescription(node: BucketViewNode)}
 	{#if isBucketRow(node)}
-		<span class="font-semibold text-ink-body">{node.label}</span>
+		{#if node.logicalId === ACCOMPANYING_ROW_ID}
+			<span class="font-semibold text-ink-body" data-testid="bucket.row.accompanying">{node.label}</span>
+		{:else}
+			<span class="font-semibold text-ink-body">{node.label}</span>
+		{/if}
 		<span class="ml-2 text-xs font-normal text-ink-faint">
 			{$_('grid.childCount', { values: { count: node.children.length } })}
 		</span>
@@ -566,6 +671,9 @@
 	{/if}
 {/snippet}
 
+{#snippet bType(node: BucketViewNode)}
+	{#if !isBucketRow(node)}{@render leafType(node)}{/if}
+{/snippet}
 {#snippet bBucket(node: BucketViewNode)}
 	{#if !isBucketRow(node)}{@render leafBucket(node)}{/if}
 {/snippet}
@@ -591,11 +699,11 @@
 	{#if !isBucketRow(node)}{@render leafMean(node)}{/if}
 {/snippet}
 {#snippet bOfferPT(node: BucketViewNode)}
-	{@render aggregate(
-		isBucketRow(node) ? bucketTotals(node) : calcMap.get(node.logicalId),
-		'offerPT',
-		2
-	)}
+	{#if isBucketRow(node)}
+		{@render aggregate(bucketTotals(node), 'offerPT', 2)}
+	{:else}
+		{@render leafOfferPT(node)}
+	{/if}
 {/snippet}
 {#snippet bCost(node: BucketViewNode)}
 	{@render aggregate(isBucketRow(node) ? bucketTotals(node) : calcMap.get(node.logicalId), 'cost', 0)}
@@ -702,6 +810,7 @@
 			bind:roots
 			columns={columnsFor<Node>({
 				description: hDescription,
+				type: hType,
 				bucket: hBucket,
 				sample: hSample,
 				phase: hPhase,
@@ -753,6 +862,7 @@
 			roots={bucketRows}
 			columns={columnsFor<BucketViewNode>({
 				description: bDescription,
+				type: bType,
 				bucket: bBucket,
 				sample: bSample,
 				phase: bPhase,

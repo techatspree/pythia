@@ -2,21 +2,12 @@ package io.pythia.service
 
 import io.pythia.domain.AdditionalCostType
 import io.pythia.domain.Estimation
-import io.pythia.domain.draft.DraftAdditionalCost
-import io.pythia.domain.draft.DraftEffortDriver
-import io.pythia.domain.draft.DraftEstimationNode
 import io.pythia.domain.EstimationBucket
-import io.pythia.domain.draft.DraftBucketedItemNode
-import io.pythia.domain.draft.DraftEstimationVersion
-import io.pythia.method.EstimationMethod
+import io.pythia.domain.draft.*
 import io.pythia.method.EstimationMethodModule
 import io.pythia.method.EstimationMethodRegistry
 import io.pythia.method.bucketsampled.BucketedEstimationItem
 import io.pythia.model.EstimationItem
-import io.pythia.domain.draft.DraftFixedItemNode
-import io.pythia.domain.draft.DraftGroupNode
-import io.pythia.domain.draft.DraftProjectPhase
-import io.pythia.domain.draft.DraftTimeRelativeItemNode
 import io.quarkus.logging.Log
 import jakarta.enterprise.context.ApplicationScoped
 import org.apache.poi.ss.usermodel.Row
@@ -24,7 +15,7 @@ import org.apache.poi.ss.usermodel.Sheet
 import org.apache.poi.xssf.usermodel.XSSFRow
 import org.apache.poi.xssf.usermodel.XSSFWorkbook
 import java.io.InputStream
-import java.util.UUID
+import java.util.*
 
 // The integer literals here are POI spreadsheet column indices — the physical
 // layout of the imported sheet (MagicNumber). Robust spreadsheet parsing is
@@ -172,7 +163,9 @@ class ExcelImporter {
         val shift = methodColumns - PERT_METHOD_COLUMNS
         // The exporter writes one row per node in tree order. We read:
         //   col 0  — indented title/description
-        //   col 1..3, 14, 15 — leaf effort/phase/assumptions (unchanged)
+        //   col 1..methodColumns — the method's own cells; a TIME_RELATIVE row's
+        //            triple sits at the module's effortColumnOffsets (task-187)
+        //   col 14, 15 — phase/assumptions (shifted like everything after)
         //   col 16 — "Node type" (GROUP / FIXED / TIME_RELATIVE)
         //   col 17 — "Logical ID" (UUID, preserves identity across round-trips)
         //   col 18 — "Unit" (TIME_RELATIVE only)
@@ -203,9 +196,13 @@ class ExcelImporter {
                 // The effort triple is set by leafNode() for a FIXED row, which
                 // takes it from the method module rather than from fixed columns.
                 if (nodeType == "TIME_RELATIVE") {
-                    node.minEffort = row.cellNumericValue(1)
-                    node.expectedEffort = row.cellNumericValue(2)
-                    node.maxEffort = row.cellNumericValue(3)
+                    // Not the PERT columns 1..3: in a bucket workbook those hold
+                    // Bucket / Is Sample / Optimistic. The module says where (task-187).
+                    val (min, exp, max) = module.effortColumnOffsets.map { METHOD_FIRST_COLUMN + it }
+                    node.minEffort = row.cellNumericValue(min)
+                    node.expectedEffort = row.cellNumericValue(exp)
+                    node.maxEffort = row.cellNumericValue(max)
+                    Log.debugf("Imported TIME_RELATIVE row '%s' for %s", label, module.method)
                 }
                 node.assumptions = row.cellStringValue(15 + shift)
                 row.cellStringValue(14 + shift)?.let { abbr ->

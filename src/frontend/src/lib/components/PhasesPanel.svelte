@@ -189,9 +189,10 @@
 									<select
 										class="bg-transparent text-sm focus:outline-none focus:ring-1 focus:ring-brand-green/40 rounded px-1 py-0.5"
 										data-testid="phase-duration-mode"
-										value={item.durationMode ?? 'EXPLICIT'}
-										onchange={(e) =>
-											setMode(i, e.currentTarget.value === 'AUTOMATIC' ? 'AUTOMATIC' : 'EXPLICIT')}
+										bind:value={
+											() => item.durationMode ?? 'EXPLICIT',
+											(v) => setMode(i, v === 'AUTOMATIC' ? 'AUTOMATIC' : 'EXPLICIT')
+										}
 									>
 										<option value="EXPLICIT">{$_('panel.phases.modeExplicit')}</option>
 										<option value="AUTOMATIC">{$_('panel.phases.modeAutomatic')}</option>

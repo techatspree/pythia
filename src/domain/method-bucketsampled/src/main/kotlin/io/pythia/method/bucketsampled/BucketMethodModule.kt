@@ -53,8 +53,16 @@ class BucketMethodModule : EstimationMethodModule {
     override fun exportColumnHeaders(): List<String> =
         listOf("Bucket", "Is Sample", "Optimistic", "Likely", "Pessimistic")
 
+    // Optimistic, Likely, Pessimistic: the triple fills the columns after Bucket / Is Sample.
+    override val effortColumnOffsets: List<Int> = (OPTIMISTIC_COLUMN until EXPORT_COLUMNS).toList()
+
     override fun exportRow(item: EstimationItem): List<String> {
-        val bucketed = item as? BucketedEstimationItem ?: return listOf("", "", "", "", "")
+        // A leaf this method does not own — accompanying work (task-187) — keeps
+        // its triple in the same columns a sample uses, so the sheet reads
+        // naturally and the importer finds it via effortColumnOffsets.
+        val bucketed = item as? BucketedEstimationItem ?: return listOf(
+            "", "", item.minEffort.toString(), item.expectedEffort.toString(), item.maxEffort.toString()
+        )
         return if (bucketed.isSample) {
             listOf(
                 bucketed.bucketId,
@@ -93,5 +101,6 @@ class BucketMethodModule : EstimationMethodModule {
 
     private companion object {
         const val EXPORT_COLUMNS = 5
+        const val OPTIMISTIC_COLUMN = 2
     }
 }

@@ -58,7 +58,9 @@ import jakarta.transaction.Transactional
  *    makespan is the sum: the opposite behaviour to the diamond.
  *  - Data platform (bucket+sampled) — NO graph. Its roots are bucketed leaves
  *    and the bucket editor draws no net plan, so it also keeps the empty-graph
- *    state represented in the fixture.
+ *    state represented in the fixture. Its last root is accompanying work
+ *    (`Projektbegleitung`, h/Woche in Umsetzung), so the bucket editor's
+ *    TIME_RELATIVE row and "Begleitende Leistungen" have seeded data (task-187).
  *
  * Edges go on a draft BEFORE `submitDraft`, because `snapshotDraft` copies what
  * is on the draft at that moment; otherwise every submitted version would have
@@ -766,7 +768,8 @@ class TestDataSeeder(
                     phase = phaseAB,
                     assumptions = "Maximal zehn Kennzahlen im ersten Wurf"
                 ),
-                bucketedLeaf(ids, draft, "Data catalog", bucketL, isSample = false, phase = phaseAB)
+                bucketedLeaf(ids, draft, "Data catalog", bucketL, isSample = false, phase = phaseAB),
+                timeRelativeLeaf(ids, draft, "Projektbegleitung", "h/Woche", 0.5, 1.0, 2.0, phaseUM)
             )
         )
 

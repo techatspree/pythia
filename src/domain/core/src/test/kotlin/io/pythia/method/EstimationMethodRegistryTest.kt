@@ -25,6 +25,8 @@ class EstimationMethodRegistryTest {
 
         override fun exportColumnHeaders(): List<String> = emptyList()
 
+        override val effortColumnOffsets: List<Int> = listOf(0, 1, 2)
+
         override fun importRow(cells: List<String>): EstimationItem? = null
     }
 

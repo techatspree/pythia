@@ -39,6 +39,60 @@ export class BucketEditor {
 		return row.getByTestId('bucket.add-item').first();
 	}
 
+	// ── Leaf kind: bucketed item or accompanying work (task-187) ────────────
+	// A leaf is addressed by its logicalId, which a spec seeds as test DATA;
+	// TreeTable's `tt-row-<id>` is the only per-row handle it emits.
+
+	leafRow(leafId: string): Locator {
+		return this.page.getByTestId(`tt-row-${leafId}`);
+	}
+
+	leafTypeSelect(leafId: string): Locator {
+		return this.leafRow(leafId).getByTestId('bucket.leaf-type');
+	}
+
+	leafBucketSelect(leafId: string): Locator {
+		return this.leafRow(leafId).getByTestId('bucket.leaf-bucket');
+	}
+
+	leafPhaseSelect(leafId: string): Locator {
+		return this.leafRow(leafId).getByTestId('bucket.leaf-phase');
+	}
+
+	async setLeafType(leafId: string, type: 'BUCKETED' | 'TIME_RELATIVE'): Promise<void> {
+		await this.leafTypeSelect(leafId).selectOption(type);
+	}
+
+	async expectLeafType(leafId: string, type: 'BUCKETED' | 'TIME_RELATIVE'): Promise<void> {
+		await expect(this.leafTypeSelect(leafId)).toHaveValue(type);
+	}
+
+	/** Accompanying work's optimistic input; only a TIME_RELATIVE row has it. */
+	timeRelativeOptimistic(leafId: string): Locator {
+		return this.leafRow(leafId).getByTestId('bucket.leaf-optimistic').locator('input');
+	}
+
+	async fillTimeRelativeOptimistic(leafId: string, value: string): Promise<void> {
+		await this.timeRelativeOptimistic(leafId).fill(value);
+	}
+
+	async expectNeedsPhase(leafId: string): Promise<void> {
+		await expect(this.leafRow(leafId).getByTestId('bucket.needs-phase')).toBeVisible();
+	}
+
+	async expectNoNeedsPhase(leafId: string): Promise<void> {
+		await expect(this.leafRow(leafId).getByTestId('bucket.needs-phase')).toHaveCount(0);
+	}
+
+	/** The bucket view's "Begleitende Leistungen" row. */
+	get accompanyingRow(): Locator {
+		return this.page.getByTestId('bucket.row.accompanying');
+	}
+
+	async expectAccompanyingRow(): Promise<void> {
+		await expect(this.accompanyingRow).toBeVisible();
+	}
+
 	async expectSaved(): Promise<void> {
 		await expect(this.page.getByTestId('editor.saved')).toBeVisible();
 	}
