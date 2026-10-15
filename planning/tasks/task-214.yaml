@@ -1,0 +1,93 @@
+id: task-214
+phase: phase-14
+title: "task.sh pending keeps notes; task.sh becomes testable"
+depends_on: []
+description: |
+  `./scripts/task.sh pending <id>` resets a task to pending and also sets
+  `.notes = ""`, so it silently ERASES the task's notes. Notes are the only
+  record of a task that has no YAML yet, and they carry completion remarks
+  such as "split out task-NNN". This happened on 2026-10-15: resetting
+  task-181 wiped its notes, and they had to be rewritten by hand from
+  memory. Nothing about "back to pending" implies "forget what this task
+  is".
+
+  Target: `pending` changes only `status`, `started_at` and `completed_at`.
+  The notes stay. The other commands already leave the notes alone: `start`
+  and `done` never touch them, and `add` sets them only for a NEW entry.
+
+  The script has no tests and always writes the real
+  `planning/status.json`, so the fix could only be verified by mutating real
+  planning data. To make it testable, the status file path can be overridden
+  by an environment variable, `TASK_STATUS_FILE`, defaulting to the current
+  `planning/status.json`. A small test script exercises every command
+  against a temporary copy.
+
+  Deliberately unchanged: the command set, the output messages, the id
+  scheme of `add`, and the refusal of `start`/`done` on a done task.
+  `pending` stays allowed from any status. There is no `--clear-notes`
+  option; nobody has needed one.
+
+steps:
+  - |
+    In `scripts/task.sh`:
+      - `STATUS_FILE="${TASK_STATUS_FILE:-$PROJECT_ROOT/planning/status.json}"`,
+        with a one-line comment that the override exists for
+        `scripts/task.test.sh`;
+      - in the `pending` branch, drop `| .tasks[…].notes = ""` from the jq
+        filter;
+      - add `TASK_STATUS_FILE` to `usage()` as an "Environment:" line.
+    While there, pass `TASK_ID`/`NOW` to jq via `--arg` instead of
+    interpolating them into the filter string, as `add` already does. That
+    removes a quoting hazard and keeps the four branches consistent.
+  - |
+    Create `scripts/task.test.sh` (bash, executable, `set -euo pipefail`,
+    shellcheck-clean). It copies a small fixture status file into a
+    `mktemp -d` directory, runs `TASK_STATUS_FILE=<copy> scripts/task.sh …`,
+    and asserts with jq:
+      - `pending` on a done task with notes → status `pending`, both
+        timestamps `null`, notes UNCHANGED;
+      - `start` sets `in_progress` and `started_at`; `done` sets `done` and
+        `completed_at`; `done` on a done task exits non-zero;
+      - `add "x"` returns the next id and stores the notes;
+      - the real `planning/status.json` is byte-identical before and after
+        the test (compare a `shasum`).
+    It prints one line per check and exits non-zero on the first failure.
+    The fixture lives in `scripts/fixtures/task-status.json` (3 tasks: done
+    with notes, pending, in_progress).
+  - |
+    Run it, and shellcheck both scripts:
+      ./scripts/task.test.sh
+      shellcheck scripts/task.sh scripts/task.test.sh
+  - |
+    Mention the test in `docs/development.md` wherever the planning scripts
+    are described (or, if there is no such place, under "Building" in one
+    line), and in the root `CLAUDE.md` "Planning system" section, one
+    sentence: `pending` keeps the notes (task-214).
+  - |
+    Full build as a safety net:
+      ./gradlew build
+
+validation:
+  - |
+    ! grep -q 'notes = ""' scripts/task.sh
+    grep -q 'TASK_STATUS_FILE' scripts/task.sh
+  - |
+    test -x scripts/task.test.sh
+    test -f scripts/fixtures/task-status.json
+    ./scripts/task.test.sh
+  - |
+    # the real status file is not touched by the test
+    before=$(shasum planning/status.json); ./scripts/task.test.sh > /dev/null; test "$before" = "$(shasum planning/status.json)"
+  - |
+    shellcheck scripts/task.sh scripts/task.test.sh
+  - |
+    grep -q "task-214" CLAUDE.md
+  - |
+    ./gradlew build
+
+outputs:
+  - modified: scripts/task.sh
+  - created: scripts/task.test.sh
+  - created: scripts/fixtures/task-status.json
+  - modified: docs/development.md
+  - modified: CLAUDE.md

@@ -1,0 +1,122 @@
+id: task-213
+phase: phase-5
+title: "Decide the unit of accompanying work (h/Woche vs PT)"
+depends_on: []
+description: |
+  Accompanying work (`TimeRelativeEstimationItem`, the `TIME_RELATIVE` leaf)
+  is entered in **"h/Woche"**: the unit is the item's default
+  (`unit: String = "h/Woche"`), the label in the PERT grid's type select, and
+  `ExcelGermanLabels.HOURS_PER_WEEK_UNIT`. Its effort is computed as
+  (task-042):
+
+      mean     = PERT(min, likely, max) × phase.durationWeeks
+      variance = PERT-variance(min, max) × durationWeeks²
+
+  and that `mean` is then summed with every other leaf's mean **as person-days
+  (PT)**. It feeds risk surcharge, driver surcharge, offer-PT, cost (× daily
+  rate) and offer price. **Nothing converts hours to person-days.** So either
+  the formula is off by the hours-per-day factor, or the unit label is
+  wrong and users are really entering PT per week.
+
+  Found 2026-10-15 while writing task-187. The task-042 spec says: "the
+  inputs are effort-per-time-unit (e.g. h/Woche); the actual total effort is
+  effortPerUnit × phase.durationWeeks". So the formula is as specified, and
+  the unit question was apparently never settled.
+
+  ## Why it matters
+
+  The seeded Webshop draft's "Projektbegleitung" is 2 / 4 / 8 h/Woche in
+  Konzeption (4 weeks). Computed today: PERT 4.33 × 4 = **17.33 PT**. Read as
+  hours with 8 h/day it would be **2.17 PT**. That is a factor of 8 in every
+  estimate with accompanying work, compounded by risk surcharge, cost and
+  price. If the label is right and the formula wrong, every offer containing
+  such an item is overpriced.
+
+  The codebase already uses 8 h/day elsewhere: `MerlinImporter` converts
+  Merlin work "assuming 8 h/day, 5 d/week" (comment at
+  `MerlinImporter.kt:99`), and `WORKING_DAYS_PER_WEEK = 5.0` is the domain's
+  one conversion constant (`src/domain/CLAUDE.md`, task-177).
+
+  ## The decision is the USER's, not the implementer's
+
+  This task does NOT change code. It collects the evidence, puts the options
+  to the user, and records the decision. It then writes the implementation
+  task for the chosen option, as a complete task YAML via the `/add-task`
+  protocol: never only a `status.json` entry (task-187 was once lost that
+  way).
+
+  Options to put to the user (refine them with what the investigation finds):
+    1. **The label is wrong; inputs are PT per week.** Rename the unit (e.g.
+       "PT/Woche") in the default, the PERT and bucket type selects, Excel, and
+       the seed. Existing data keeps its numbers. No recalculation.
+    2. **The formula is wrong; inputs are hours per week.** Divide by an
+       hours-per-day factor in `TimeRelativeEstimationItem.mean` and
+       `variance` (the variance by its square). Introduce ONE domain constant
+       next to `WORKING_DAYS_PER_WEEK`, or a per-version parameter. Every
+       existing estimate with accompanying work changes its numbers, including
+       SUBMITTED versions when they are recalculated. That needs an explicit
+       answer: recompute, freeze, or migrate.
+    3. **Honour the `unit` field.** Support both "h/Woche" and "PT/Woche" per
+       item, converting only the former. This is the most flexible option
+       and the largest change (UI select, Excel, import defaults).
+
+steps:
+  - |
+    Collect the evidence, read-only:
+      - every place the unit string appears (`grep -rn "h/Woche"` across
+        `src/`, excluding `build/` and `node_modules/`) and whether any of
+        them converts;
+      - the domain formula (`TimeRelativeEstimationItem.mean`/`variance`)
+        and its tests (`TimeRelativeEstimationItemTest`), which assert the
+        current behaviour (e.g. TR 2/4/6 × 4 weeks → mean 16.0 summed with a
+        fixed 4.0 PT);
+      - the Excel exporter/importer, whose sheets a customer reads, and
+        what they label the column;
+      - the task history (`planning/tasks/task-042.yaml`, `task-043.yaml`,
+        `task-177.yaml`) for any statement about the intended unit;
+      - `MerlinImporter`'s hours-per-day assumption.
+  - |
+    Quantify the impact on a fresh dev seed (`./scripts/dev.sh`; read-only
+    GETs, as in task-181): for each seeded estimation, the sum of
+    TIME_RELATIVE means and the share of the total offer effort it makes up,
+    today and under option 2 with 8 h/day. Put the numbers in a small table.
+  - |
+    Present the findings and the three options (refined) to the user with
+    `AskUserQuestion`, one question, with your recommendation first and
+    marked. State per option what changes for EXISTING estimates. Do not
+    choose for the user, and do not proceed without an answer.
+  - |
+    Record the decision in `src/domain/CLAUDE.md`, in a short new paragraph
+    "**Unit of accompanying work (task-213)**" near the task-177 paragraph
+    on accompanying work: what the inputs mean, whether and where they are
+    converted, and the reason.
+  - |
+    Write the implementation task for the chosen option with the full
+    `/add-task` protocol (`./scripts/task.sh add …`, then the YAML under
+    `planning/tasks/`, with steps, validation and outputs, wireframes if the
+    UI label changes, and both i18n catalogs if a label is translated). It
+    must name how existing (draft and submitted) estimates are treated. It
+    depends on task-187 if it touches the bucket editor's type select.
+  - |
+    No code changed, so the build is only a safety net:
+      ./gradlew build
+
+validation:
+  - |
+    grep -q "task-213" src/domain/CLAUDE.md
+    grep -qi "unit of accompanying work" src/domain/CLAUDE.md
+  - |
+    # the follow-up implementation task exists as a FILE, not only as a status entry
+    N=$(jq -r '[.tasks | keys[] | capture("task-(?<n>[0-9]+)").n | tonumber] | max' planning/status.json)
+    F=$(printf "planning/tasks/task-%03d.yaml" "$N")
+    test -f "$F" && grep -q "task-213" "$F"
+  - |
+    # no production code touched by this task
+    test -z "$(git status --porcelain -- src/ | grep -v 'src/domain/CLAUDE.md')" || { git status --porcelain -- src/; echo "check that these changes are not from task-213"; }
+  - |
+    ./gradlew build
+
+outputs:
+  - modified: src/domain/CLAUDE.md
+  - created: planning/tasks/<follow-up task id>.yaml
+  - modified: planning/status.json

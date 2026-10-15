@@ -1261,6 +1261,18 @@
       "started_at": null,
       "completed_at": null,
       "notes": "Seed the dev test-data generator with a fixed number so every fresh dev database is identical"
+    },
+    "task-213": {
+      "status": "pending",
+      "started_at": null,
+      "completed_at": null,
+      "notes": "Accompanying work: h/Woche inputs are summed as person-days without conversion — investigate, decide with the user, write the fix task"
+    },
+    "task-214": {
+      "status": "pending",
+      "started_at": null,
+      "completed_at": null,
+      "notes": "task.sh pending silently erases a task's notes — keep them, and make the script testable"
     }
   }
 }

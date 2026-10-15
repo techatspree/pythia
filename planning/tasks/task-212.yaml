@@ -24,30 +24,40 @@ description: |
 
   ## Design
 
-  - **One fixed seed, one generator per seeding run.** A small class
-    `SeededIds` in `io.pythia.testdata` wraps `java.util.Random(seed)` (JVM
-    only, which is fine because the backend is JVM; deliberately NOT
-    `SecureRandom`, which cannot be seeded reproducibly) and hands out
-    UUIDs: `fun next(): UUID`. It builds them from two `nextLong()`s, then
-    sets the RFC 4122 version-4 and IETF-variant bits, so they are
-    well-formed v4 UUIDs, indistinguishable in shape from real ones. The seed
+  - **One id source, as an object.** A small plain class `SeededIds` in
+    `io.pythia.testdata` owns a `java.util.Random(seed)` and hands out ids:
+    `fun next(): UUID`. It is a plain class with no CDI, so it is
+    unit-testable without Quarkus. It uses `java.util.Random`, not
+    `SecureRandom`, because only a seeded `Random` is reproducible. The seed
     is a named constant, `const val FIXTURE_SEED = 42L`, in the same file,
-    with a comment: changing it changes every seeded id, which is allowed
-    but makes all previously captured ids stale.
-  - **Fresh at the start of every seeding run.** `TestDataSeeder` holds a
-    `private var ids = SeededIds()` and reassigns `ids = SeededIds()` as the
-    first statement after the `projectRepository.count() > 0L` early return
-    in `seed()`. Any future re-seed (for example a reset that re-runs
-    `seed`) therefore starts from the same state again instead of continuing
-    the sequence.
-  - **Every id the seeder controls comes from it:** `logicalId` in the four
-    node builders (`fixedLeaf`, `timeRelativeLeaf`, `group`, `bucketedLeaf`)
-    and `id` in `bucket()`. These five are the only places the seeder
-    creates nodes or buckets (measured 2026-10-15). If an implementer adds a
-    builder later, it takes its id from `ids` as well. The KDoc says so.
-    The sequence is deterministic because the seeder is straight-line code:
-    the same calls in the same order, with Kotlin evaluating `listOf(…)`
-    arguments left to right.
+    with a comment: changing it changes every seeded id, which is allowed but
+    makes all previously captured ids stale.
+  - **UUIDs via `UUID.nameUUIDFromBytes`.** `next()` draws 16 bytes with
+    `random.nextBytes(…)` and returns `UUID.nameUUIDFromBytes(bytes)`. The
+    JDK sets the version (3) and IETF-variant bits itself, so the code has
+    no hand-written bit masks. Masks would be detekt `MagicNumber` findings
+    (`config/detekt/detekt.yml` ignores only -1, 0, 1, 2, 6, 10, 100), and
+    `0x8000000000000000L` does not even compile as a Kotlin `Long`. Version 3
+    rather than 4 is irrelevant for a `logicalId` or a bucket id.
+  - **Passed explicitly, never held in a field.** `seed()` creates
+    `val ids = SeededIds()` as a LOCAL and passes it as a parameter to
+    `seedWebshop`, `seedMobileApp`, `seedDataPlatform` and to every builder
+    that creates an entity with an id: `fixedLeaf`, `timeRelativeLeaf`,
+    `group`, `bucketedLeaf` and `bucket()` (the only five places the seeder
+    creates nodes or buckets, measured 2026-10-15). This means:
+      - every seeding run starts from the same state, by construction, with
+        no mutable field to reset;
+      - the compiler enforces it: a builder that creates an entity without
+        `ids` in its signature stands out in review, and a call site that
+        forgets it does not compile. If task-187 (which adds a
+        `timeRelativeLeaf` call to `seedDataPlatform`) lands first or later,
+        its call simply passes `ids` too;
+      - a future second seeder gets its OWN `SeededIds` (with its own seed
+        if it wants one), so seeders never share a sequence and their ids
+        never depend on the order CDI runs them in.
+  - **Deterministic order.** The seeder is straight-line code: the same calls
+    in the same order, with Kotlin evaluating `listOf(…)` arguments left to
+    right, so the same seed always gives the same id to the same entity.
   - **Out of scope, deliberately:** database primary keys that Hibernate
     generates (`@GeneratedValue(strategy = GenerationType.UUID)` on projects,
     estimations, versions, dependency rows, users …). They identify rows,
@@ -56,12 +66,11 @@ description: |
     dev fixture. Also out of scope: the session that
     `capture-screenshots.mjs` creates through the REST API, and anything a
     user creates afterwards (normal `randomUUID()`). Collisions with seeded
-    ids are not a practical concern: a v4 UUID has 122 random bits whichever
-    generator drew them.
-  - **The seeder stays dev-only** (`@IfBuildProfile("dev")`). `SeededIds` is
-    a plain class with no CDI annotation, so it compiles into the jar but is
-    only ever instantiated by the seeder. A comment states that it must never
-    be used for production ids.
+    ids are not a practical concern, since the 16 drawn bytes are hashed
+    into a 122-bit id space.
+  - **The seeder stays dev-only** (`@IfBuildProfile("dev")`). `SeededIds`
+    compiles into the jar but is only ever instantiated by the seeder. A
+    KDoc line states that it must never be used for production ids.
   - **No change to the seeded CONTENT.** Same projects, estimates, phases,
     edges and owners; only the identifiers become fixed. Note that the
     seeder builds the Webshop `draft2` from its own nodes, not as a copy of
@@ -81,56 +90,69 @@ steps:
     Create `src/backend/implementation/src/main/kotlin/io/pythia/testdata/SeededIds.kt`:
     `const val FIXTURE_SEED = 42L` and
     `class SeededIds(seed: Long = FIXTURE_SEED)` with a private
-    `java.util.Random(seed)`, `fun next(): UUID` (two `nextLong()`s, then
-    version-4 and IETF-variant bits set, as in the description) and
-    `val drawn: Int` (private set). Add a KDoc explaining why it exists
-    (task-181/task-212), that it is for the dev fixture only, and why not
-    `SecureRandom`.
+    `java.util.Random(seed)`, `fun next(): UUID` (draw `ByteArray(16)` via
+    `nextBytes`, return `UUID.nameUUIDFromBytes(it)`, increment `drawn`) and
+    `var drawn: Int = 0; private set`. Name the byte count as a
+    `private const val UUID_BYTES = 16` so detekt's `MagicNumber` stays
+    quiet. Write a KDoc covering why it exists (task-181/task-212), that it is
+    for the dev fixture only, why `Random` and not `SecureRandom`, and why
+    `nameUUIDFromBytes`.
   - |
     In `src/backend/implementation/src/main/kotlin/io/pythia/testdata/TestDataSeeder.kt`:
-      - add `private var ids = SeededIds()`;
       - in `seed()`, right after the `if (projectRepository.count() > 0L) return`,
-        reassign `ids = SeededIds()`;
-      - in `fixedLeaf`, `timeRelativeLeaf`, `group` and `bucketedLeaf`, set
-        `logicalId = ids.next()` inside the `apply { … }`;
-      - in `bucket()`, replace `this.id = UUID.randomUUID()` with
-        `this.id = ids.next()`;
+        add `val ids = SeededIds()`, and pass it to `seedWebshop`,
+        `seedMobileApp` and `seedDataPlatform` (new first parameter
+        `ids: SeededIds`). `seedIntranetRelaunch` creates no node or bucket
+        and stays unchanged;
+      - give `fixedLeaf`, `timeRelativeLeaf`, `group`, `bucketedLeaf` and
+        `bucket()` a first parameter `ids: SeededIds`. Inside the node
+        builders' `apply { … }` set `logicalId = ids.next()`; in `bucket()`
+        replace `this.id = UUID.randomUUID()` with `this.id = ids.next()`.
+        Update every call site;
       - extend the final `Log.info` line with `idSeed=$FIXTURE_SEED, ids=${ids.drawn}`;
       - add a paragraph to the class KDoc: the fixture is deterministic
-        including `logicalId`s and bucket ids (task-212); every builder takes
-        its id from `ids`; Hibernate-generated primary keys are not covered,
+        including `logicalId`s and bucket ids (task-212); `ids` is created
+        once per seeding run and passed explicitly to every builder, never
+        stored in a field; Hibernate-generated primary keys are not covered,
         and why.
-    Remove the `java.util.UUID` import only if nothing else in the file uses it.
+    Remove the `java.util.UUID` import only if nothing else in the file uses
+    it. The class must not gain a `SeededIds` property.
   - |
     Unit test `src/backend/implementation/src/test/kotlin/io/pythia/testdata/SeededIdsTest.kt`
     (plain JUnit 5, no `@QuarkusTest`, since the class needs no container):
       - two `SeededIds()` produce the same first 50 UUIDs;
       - `SeededIds(1L)` and `SeededIds(2L)` differ in their first UUID;
-      - every produced UUID has `version() == 4` and `variant() == 2`;
+      - every produced UUID has `version() == 3` and `variant() == 2`;
       - 10 000 draws contain no duplicate;
       - `drawn` counts the calls.
   - |
     Prove it end to end on two FRESH dev stacks, since `TestDataSeeder` only
-    runs in `%dev`. Start `./scripts/dev.sh` (nothing else running against
-    it), then save the seeded ids:
+    runs in `%dev`. The snapshot records each node's `logicalId` AND its
+    `bucketId` (`EstimationNodeDto` carries both; `bucketId` is null outside
+    the bucket estimation), so it proves both halves of the claim. The
+    snapshot is written to the root `build/` (gitignored) and must not
+    depend on the API's row order: `GET /api/projects` comes
+    from `projectRepository.listAll()` with no `ORDER BY`. So sort projects
+    by name and estimations by offer, and take the submitted version numbers
+    plus `draft` (the version list contains the draft too):
       H='Authorization: Dev dev-admin'
       snap() {
-        for p in $(curl -s -H "$H" localhost:8090/api/projects | jq -r '.[].id'); do
-          for e in $(curl -s -H "$H" localhost:8090/api/projects/$p | jq -r '.estimations[]?.id'); do
-            for v in $(curl -s -H "$H" localhost:8090/api/estimations/$e/versions | jq -r '.[].versionNumber') draft; do
+        for p in $(curl -s -H "$H" localhost:8090/api/projects | jq -r 'sort_by(.name)[].id'); do
+          for e in $(curl -s -H "$H" localhost:8090/api/projects/$p | jq -r '.estimations // [] | sort_by(.offer)[].id'); do
+            vs=$(curl -s -H "$H" localhost:8090/api/estimations/$e/versions | jq -r '[.[] | select(.isDraft | not) | .versionNumber] | sort[]')
+            for v in $vs draft; do
               curl -s -H "$H" localhost:8090/api/estimations/$e/versions/$v \
-                | jq -c '[.. | objects | select(has("logicalId")) | .logicalId]' 2>/dev/null
+                | jq -c '[.. | objects | select(has("logicalId")) | [.logicalId, .bucketId]]' 2>/dev/null || echo '[]'
             done
           done
         done
       }
-      snap > /tmp/seed-ids-1.txt
-    (Projects are listed by name order, not id, so the loop order is stable;
-    if `/api/projects` turns out to sort differently, sort by `.name` first.)
-    Stop the stack with SIGTERM (never `pkill` the JVMs), start it again,
-    run `snap > /tmp/seed-ids-2.txt`, and compare with `cmp`. They must be
-    identical, and non-empty. Then stop the stack with SIGTERM and confirm no
-    Dev Services PostgreSQL container is left on 5432.
+      mkdir -p build/seed-ids && snap > build/seed-ids/run-1.txt
+    (`EstimationVersionSummaryDto.isDraft` marks the draft, which is
+    fetched once, via `draft`.) Stop the stack with SIGTERM (never
+    `pkill` the JVMs), start it again, `snap > build/seed-ids/run-2.txt`,
+    and compare. Then stop the stack with SIGTERM and confirm no Dev
+    Services PostgreSQL container is left on 5432.
   - |
     Document it in `docs/development.md` → "### dev — Local with PostgreSQL
     via Dev Services": one or two sentences saying that the seeded fixture
@@ -148,24 +170,36 @@ validation:
     test -f "$F"
     grep -q "const val FIXTURE_SEED" "$F"
     grep -q "java.util.Random" "$F"
+    grep -q "nameUUIDFromBytes" "$F"
     ! grep -q "SecureRandom" "$F"
   - |
     S=src/backend/implementation/src/main/kotlin/io/pythia/testdata/TestDataSeeder.kt
-    # every builder and bucket() draws from the seeded generator
+    # one generator per run, a local, passed down
+    grep -q "val ids = SeededIds()" "$S"
+    # ...and never a class-level field (members are indented 4 spaces, locals 8)
+    ! grep -qE "^    (private )?va[rl] ids\b" "$S"
+    test "$(grep -c 'ids: SeededIds' "$S")" -ge 8
     test "$(grep -c 'ids.next()' "$S")" -ge 5
     # no random id left in the seeder
     ! grep -q "UUID.randomUUID()" "$S"
-    grep -q "ids = SeededIds()" "$S"
     grep -q "idSeed=" "$S"
     grep -q "task-212" "$S"
   - |
     test -f src/backend/implementation/src/test/kotlin/io/pythia/testdata/SeededIdsTest.kt
     ./gradlew :backend:implementation:test --tests "io.pythia.testdata.SeededIdsTest"
   - |
-    # From the end-to-end step: two fresh stacks seeded identical logicalIds.
-    test -s /tmp/seed-ids-1.txt && cmp /tmp/seed-ids-1.txt /tmp/seed-ids-2.txt
+    # From the end-to-end step: two fresh stacks seeded identical, non-empty logicalIds and bucketIds.
+    A=build/seed-ids/run-1.txt; B=build/seed-ids/run-2.txt
+    test -s "$A" && test -s "$B"
+    jq -se 'map(length) | add > 0' "$A"
+    # the bucket estimation's ids are in it, not only nulls
+    jq -se '[.[][] | .[1] | select(. != null)] | length > 0' "$A"
+    cmp "$A" "$B"
   - |
     grep -q "task-212" docs/development.md
+  - |
+    ./gradlew :backend:implementation:detekt
+    ! grep -q "testdata/SeededIds.kt" src/backend/implementation/build/reports/detekt/detekt.xml
   - |
     ./gradlew build
 
