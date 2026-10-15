@@ -1275,9 +1275,9 @@
       "notes": "task.sh pending silently erases a task's notes — keep them, and make the script testable"
     },
     "task-215": {
-      "status": "pending",
-      "started_at": null,
-      "completed_at": null,
+      "status": "done",
+      "started_at": "2026-10-15T16:04:17+00:00",
+      "completed_at": "2026-10-15T16:13:53+00:00",
       "notes": "e2e coverage for the four editor selects no spec drives: PERT grid type and phase, phase duration mode, additional-cost phase"
     }
   }

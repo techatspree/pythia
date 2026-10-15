@@ -700,7 +700,11 @@
 {/snippet}
 {#snippet bOfferPT(node: BucketViewNode)}
 	{#if isBucketRow(node)}
-		{@render aggregate(bucketTotals(node), 'offerPT', 2)}
+		<!-- The handle e2e reads a bucket's total by; a column index shifted with
+		     every added column (task-170, task-186, task-187). -->
+		<span class="contents" data-testid="bucket.row-offer-pt"
+			>{@render aggregate(bucketTotals(node), 'offerPT', 2)}</span
+		>
 	{:else}
 		{@render leafOfferPT(node)}
 	{/if}

@@ -316,6 +316,7 @@
 		{#if editable}
 			<select
 				class="w-full bg-transparent text-xs focus:outline-none focus:ring-1 focus:ring-brand-green/40 rounded px-1 py-0.5"
+				data-testid="grid.leaf-type"
 				bind:value={
 					() => node.type,
 					(v) => {
@@ -340,6 +341,7 @@
 		{#if editable && phases.length > 0}
 			<select
 				class="w-full bg-transparent text-sm focus:outline-none focus:ring-1 focus:ring-brand-green/40 rounded px-1 py-0.5"
+				data-testid="grid.leaf-phase"
 				bind:value={
 					() => node.phaseAbbreviation ?? '',
 					(v) => (node.phaseAbbreviation = v === '' ? null : v)

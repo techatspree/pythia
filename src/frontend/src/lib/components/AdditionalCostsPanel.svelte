@@ -75,6 +75,7 @@
 <div class="border rounded-lg overflow-hidden mb-4">
 	<button
 		class="w-full flex items-center justify-between px-4 py-2 bg-brand-green/10 text-brand-green text-xs font-semibold uppercase tracking-wide hover:bg-brand-green/20"
+		data-testid="panel.additional-costs.toggle"
 		onclick={() => (open = !open)}
 	>
 		<span>{$_('panel.additionalCosts.title')}</span>
@@ -143,6 +144,7 @@
 										{#if editable}
 											<select
 												class="w-full bg-transparent focus:outline-none focus:ring-1 focus:ring-brand-green/40 rounded px-1 py-0.5"
+												data-testid="additional-costs.phase"
 												bind:value={() => cost.phaseAbbreviation ?? '', (v) => updatePhase(i, v)}
 											>
 												<option value="">—</option>
@@ -242,6 +244,7 @@
 										{#if editable}
 											<select
 												class="w-full bg-transparent focus:outline-none focus:ring-1 focus:ring-brand-green/40 rounded px-1 py-0.5"
+												data-testid="additional-costs.phase"
 												bind:value={() => cost.phaseAbbreviation ?? '', (v) => updatePhase(i, v)}
 											>
 												<option value="">—</option>

@@ -29,4 +29,23 @@ export class EstimationGrid {
 	addChildItemIn(row: Locator): Locator {
 		return row.getByTestId('grid.add-item').first();
 	}
+
+	// ── A leaf row's two selects (task-215), scoped to the row's path ──────────
+
+	leafTypeSelect(path: string): Locator {
+		return this.row(path).getByTestId('grid.leaf-type');
+	}
+
+	leafPhaseSelect(path: string): Locator {
+		return this.row(path).getByTestId('grid.leaf-phase');
+	}
+
+	async setLeafType(path: string, type: 'FIXED' | 'TIME_RELATIVE'): Promise<void> {
+		await this.leafTypeSelect(path).selectOption(type);
+	}
+
+	/** `''` selects the "no phase" option. */
+	async setLeafPhase(path: string, abbreviation: string): Promise<void> {
+		await this.leafPhaseSelect(path).selectOption(abbreviation);
+	}
 }

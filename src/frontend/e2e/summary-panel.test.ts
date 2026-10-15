@@ -167,19 +167,6 @@ async function readNumber(page: Page, testId: string): Promise<number> {
 	return parseNumber(await page.getByTestId(testId).innerText());
 }
 
-/**
- * The text of one column cell of a TreeTable row. Cells carry no key of their
- * own, so they are addressed positionally: the row's first child is the grid,
- * whose children are the drag handle (editable rows only) followed by one div
- * per column in `columns` order.
- */
-async function cellText(page: Page, rowId: string, columnIndex: number): Promise<string> {
-	const nth = columnIndex + 2; // 1-based, and the drag handle occupies slot 1
-	return page
-		.locator(`[data-testid="tt-row-${rowId}"] > div:first-child > div:nth-child(${nth})`)
-		.innerText();
-}
-
 function collectPageErrors(page: Page): string[] {
 	const errors: string[] = [];
 	page.on('pageerror', (e) => errors.push(e.message));
@@ -243,16 +230,19 @@ test('summary panel shows a bucket estimation total matching the bucket rows', a
 
 	// …and it equals the sum of what the bucket rows themselves display. Bucket
 	// rows stay visible while collapsed (task-134), so no expansion is needed.
-	// Column 10 of the bucket view's columns is offerPT — it was 7 until task-170
-	// inserted the critical-path column after `mean`, and 8 until task-186 added
-	// the phase and assumptions columns (after `sample` and after `criticalPath`
-	// respectively). This index is positional (see `cellText`), so it shifts
-	// whenever a column is added to its left.
-	const OFFER_PT_COLUMN = 10;
+	// Read by testid, not column position: the index shifted three times
+	// (task-170, task-186, task-187) as columns were added to its left.
+	const bucketOfferPT = async (rowId: string) =>
+		parseNumber(
+			await page
+				.locator(`[data-testid="tt-row-${rowId}"] [data-testid="bucket.row-offer-pt"]`)
+				.first()
+				.innerText()
+		);
 	const bucketSum =
-		parseNumber(await cellText(page, `bucket:${b1}`, OFFER_PT_COLUMN)) +
-		parseNumber(await cellText(page, `bucket:${b2}`, OFFER_PT_COLUMN)) +
-		parseNumber(await cellText(page, 'bucket:unassigned', OFFER_PT_COLUMN));
+		(await bucketOfferPT(`bucket:${b1}`)) +
+		(await bucketOfferPT(`bucket:${b2}`)) +
+		(await bucketOfferPT('bucket:unassigned'));
 	expect(bucketSum).toBeCloseTo(panelOfferPT, 1);
 
 	expect(errors).toEqual([]);

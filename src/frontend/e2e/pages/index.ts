@@ -1,3 +1,4 @@
+export { AdditionalCostsPanel } from './AdditionalCostsPanel';
 export { BucketEditor } from './BucketEditor';
 export { ChangeOwnerDialog } from './ChangeOwnerDialog';
 export { CreateEstimationDialog } from './CreateEstimationDialog';
@@ -7,6 +8,7 @@ export { ErrorBanner } from './ErrorBanner';
 export { EstimationGrid } from './EstimationGrid';
 export { ImportExportMenu } from './ImportExportMenu';
 export { MerlinStructureDialog } from './MerlinStructureDialog';
+export { PhasesPanel } from './PhasesPanel';
 export { ProjectDetailPage } from './ProjectDetailPage';
 export { ProjectsListPage } from './ProjectsListPage';
 export { ReplaceDraftDialog } from './ReplaceDraftDialog';

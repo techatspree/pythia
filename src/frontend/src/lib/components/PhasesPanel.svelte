@@ -104,6 +104,7 @@
 <div class="border rounded-lg overflow-hidden mb-4">
 	<button
 		class="w-full flex items-center justify-between px-4 py-2 bg-brand-green/10 text-brand-green text-xs font-semibold uppercase tracking-wide hover:bg-brand-green/20"
+		data-testid="panel.phases.toggle"
 		onclick={() => (open = !open)}
 	>
 		<span>{$_('panel.phases.title')}</span>
