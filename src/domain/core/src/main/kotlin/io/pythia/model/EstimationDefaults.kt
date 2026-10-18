@@ -25,4 +25,11 @@ object EstimationDefaults {
 
     /** Sales surcharge as a fraction of the offer total. */
     const val SALES_SURCHARGE = 0.1
+
+    /**
+     * Hours of one working day: accompanying work is entered in hours per
+     * week and divided by this to become person-days (task-213). The default
+     * of the per-installation setting.
+     */
+    const val HOURS_PER_DAY = 8.0
 }

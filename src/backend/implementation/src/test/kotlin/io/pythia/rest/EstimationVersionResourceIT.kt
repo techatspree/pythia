@@ -560,8 +560,10 @@ class EstimationVersionResourceIT {
             .`when`().put("/api/estimations/$estimationId/versions/draft")
             .then()
             .statusCode(200)
-            // PERT(1,2,3) = 2.0, * 4 weeks = 8.0
-            .body("roots[0].children[0].offerPT", equalTo(8.0f))
+            // PERT(1,2,3) = 2.0 h/week, * 4 weeks = 8 h, / 8 h per working day = 1.0 PT
+            // (task-213; before it the 8 hours were counted as 8 person-days)
+            .body("roots[0].children[0].offerPT", equalTo(1.0f))
+            .body("hoursPerDay", equalTo(8.0f))
             .body("roots[0].children[0].unit", equalTo("h/Woche"))
             .body("roots[0].children[0].type", equalTo("TIME_RELATIVE"))
     }

@@ -78,6 +78,12 @@ export interface ApiVersionResponse {
 	phases: ApiPhase[];
 	roots: ApiEstimationNode[];
 	additionalCosts: ApiAdditionalCost[];
+	/**
+	 * Hours of a working day the version is calculated with (task-213): the
+	 * tenant setting for a draft, the stored value for a submitted version,
+	 * null for one submitted before the conversion existed.
+	 */
+	hoursPerDay: number | null;
 }
 
 export interface ApiVersionSummary {

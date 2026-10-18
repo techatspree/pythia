@@ -28,6 +28,10 @@ data class EstimationVersion(
     val dailyRate: Double = EstimationDefaults.DAILY_RATE,
     val stdDevFactor: Double = EstimationDefaults.STD_DEV_FACTOR,
     val salesSurcharge: Double = EstimationDefaults.SALES_SURCHARGE,
+    // Hours of a working day (task-213): a calculation INPUT like dailyRate,
+    // but per installation rather than per version — the caller supplies the
+    // tenant setting. Accompanying work's hours are divided by it.
+    val hoursPerDay: Double = EstimationDefaults.HOURS_PER_DAY,
     val effortDrivers: List<EffortDriver> = emptyList(),
     val phases: List<ProjectPhase> = emptyList(),
     val additionalCosts: List<AdditionalCost> = emptyList(),
@@ -40,13 +44,18 @@ data class EstimationVersion(
     fun calculate(): EstimationVersion {
         val totalDriverFactor = effortDrivers.sumOf { it.factor }
 
+        // The risk factor is computed from the leaves' mean/variance BEFORE the
+        // full parameters exist, so the leaves must already know hoursPerDay:
+        // accompanying work's mean is hours ÷ hoursPerDay (task-213). Core cannot
+        // see that leaf type (task-143), so every leaf is stamped with it first.
         val leaves = roots.flatMap { it.leaves().toList() }
+            .map { it.withCalculationParameters(CalculationParameters(hoursPerDay = hoursPerDay)) }
 
         val totalVariance = leaves.sumOf { it.variance }
         val totalMean = leaves.sumOf { it.mean }
         val riskFactor = PertCalculation.riskFactor(totalMean, totalVariance, stdDevFactor)
 
-        val params = CalculationParameters(riskFactor, totalDriverFactor, dailyRate, salesSurcharge)
+        val params = CalculationParameters(riskFactor, totalDriverFactor, dailyRate, salesSurcharge, hoursPerDay)
 
         // Dispatch through the estimation method's batch hook so bucket+sampled
         // leaves get per-bucket context. A version has exactly one method, and
@@ -62,7 +71,9 @@ data class EstimationVersion(
         val newRoots = roots.map { substituteCalculated(it, calculatedLeaves) }
         val newTotalEffort = newRoots.sumOf { it.offerPT }
 
-        logger.debug { "calculate(): ${leaves.size} leaves, method=$method, totalEffort=$newTotalEffort" }
+        logger.debug {
+            "calculate(): ${leaves.size} leaves, method=$method, hoursPerDay=$hoursPerDay, totalEffort=$newTotalEffort"
+        }
 
         return copy(roots = newRoots, totalEffort = newTotalEffort)
     }

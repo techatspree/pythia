@@ -83,7 +83,7 @@ class EstimationVersionService(
         submittedRepository.findByEstimationIdAndVersionNumber(estimationId, versionNumber)
 
     fun calculateDraft(draft: DraftEstimationVersion): EstimationVersion =
-        draftVersionMapper.toDomain(draft).calculate()
+        draftVersionMapper.toDomain(draft, systemSettingsService.hoursPerDay()).calculate()
 
     @Transactional
     fun createDraft(estimationId: UUID): DraftEstimationVersion {
@@ -300,7 +300,7 @@ class EstimationVersionService(
     }
 
     fun snapshotDraft(draft: DraftEstimationVersion): SubmittedEstimationVersion {
-        val calculated = draftVersionMapper.toDomain(draft).calculate()
+        val calculated = draftVersionMapper.toDomain(draft, systemSettingsService.hoursPerDay()).calculate()
 
         val submitted = SubmittedEstimationVersion().apply {
             this.estimation = draft.estimation
@@ -314,6 +314,9 @@ class EstimationVersionService(
         submitted.dailyRate = draft.dailyRate
         submitted.stdDevFactor = draft.stdDevFactor
         submitted.salesSurcharge = draft.salesSurcharge
+        // The basis the snapshot was calculated with (task-213), so a later
+        // change of the tenant setting is explainable rather than a mystery.
+        submitted.hoursPerDay = calculated.hoursPerDay
 
         // Schedule inputs (task-156). A snapshot without them renders an empty
         // Gantt where the draft rendered a full one.

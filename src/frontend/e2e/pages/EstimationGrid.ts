@@ -48,4 +48,9 @@ export class EstimationGrid {
 	async setLeafPhase(path: string, abbreviation: string): Promise<void> {
 		await this.leafPhaseSelect(path).selectOption(abbreviation);
 	}
+
+	/** A row's values shown in HOURS — accompanying work's effort cells (task-213). */
+	hourValues(path: string): Locator {
+		return this.row(path).locator('[data-unit="hours"]');
+	}
 }

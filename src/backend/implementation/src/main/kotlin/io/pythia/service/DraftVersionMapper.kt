@@ -18,16 +18,26 @@ import io.pythia.model.EstimationGroup
 import io.pythia.model.EstimationNode
 import io.pythia.model.EstimationVersion
 import io.pythia.model.ProjectPhase
+import io.pythia.model.EstimationDefaults
 import jakarta.enterprise.context.ApplicationScoped
 
 @ApplicationScoped
 class DraftVersionMapper {
 
-    fun toDomain(draft: DraftEstimationVersion): EstimationVersion {
+    // `hoursPerDay` is the tenant setting (task-213), passed in rather than
+    // injected so the mapper stays a pure function. The callers that CALCULATE
+    // (EstimationVersionService: the draft read and the submit snapshot) pass
+    // the setting; the ones that only diff inputs (undo, sessions) may leave
+    // the default, since hoursPerDay changes no input.
+    fun toDomain(
+        draft: DraftEstimationVersion,
+        hoursPerDay: Double = EstimationDefaults.HOURS_PER_DAY
+    ): EstimationVersion {
         val phaseMap = draft.phases.associate { it.abbreviation to it.toDomain() }
         return EstimationVersion(
             versionNumber = draft.versionNumber,
             notes = draft.notes ?: "",
+            hoursPerDay = hoursPerDay,
             dailyRate = draft.dailyRate,
             stdDevFactor = draft.stdDevFactor,
             salesSurcharge = draft.salesSurcharge,

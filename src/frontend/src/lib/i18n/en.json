@@ -64,7 +64,8 @@
       "useDefaults": "Use defaults",
       "dailyRate": "Daily rate (€/PD)",
       "stdDevFactor": "Std-deviation factor",
-      "salesSurcharge": "Sales surcharge"
+      "salesSurcharge": "Sales surcharge",
+      "hoursPerDay": "Hours per working day"
     },
     "effortDrivers": {
       "title": "Effort Drivers",
@@ -120,7 +121,9 @@
     "additionalRecurring": "Additional costs, recurring (EUR)",
     "salesSurcharge": "Sales surcharge (EUR)",
     "totalOfferPrice": "Total offer price (EUR)",
-    "recurringWithoutPhase": "{count, plural, one {# recurring additional cost has} other {# recurring additional costs have}} no phase and therefore {count, plural, one {counts} other {count}} as 0 EUR in the total."
+    "recurringWithoutPhase": "{count, plural, one {# recurring additional cost has} other {# recurring additional costs have}} no phase and therefore {count, plural, one {counts} other {count}} as 0 EUR in the total.",
+    "hoursPerDay": "Accompanying work: hours ÷ {hours} h per working day",
+    "hoursPerDayLegacy": "Accompanying work: calculated before the conversion – hours count as person-days here"
   },
   "schedule": {
     "title": "Schedule",
@@ -205,7 +208,8 @@
     "actionDeleteRow": "Delete row",
     "ariaRootNodes": "Estimation root nodes",
     "ariaChildrenOf": "Children of {title}",
-    "ariaChildren": "Children"
+    "ariaChildren": "Children",
+    "hoursPerWeekTitle": "Hours per week – converted to person-days at {hours} h per working day"
   },
   "method": {
     "popover": {
@@ -562,7 +566,13 @@
       "cssRemove": "Remove stylesheet",
       "cssRemoved": "Stylesheet removed.",
       "cssUploaded": "Stylesheet saved. Reloading the page.",
-      "loading": "Loading settings…"
+      "loading": "Loading settings…",
+      "hoursSection": "Working time",
+      "hoursHint": "Used to convert accompanying work (h/week) into person-days: hours ÷ hours per working day.",
+      "hoursLabel": "Hours per working day",
+      "hoursSave": "Save working time",
+      "hoursSaved": "Working time saved.",
+      "hoursInvalid": "Please enter a number greater than 0 and at most 24."
     }
   }
 }

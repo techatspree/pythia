@@ -49,13 +49,19 @@ data class TimeRelativeEstimationItem(
     // the override instead of the parent getter, causing infinite recursion
     // (RangeError: Maximum call stack size exceeded) in the browser. JVM is
     // unaffected. Inline the parent's PERT formula directly.
+    //
+    // The inputs are HOURS per week (task-213): hours × weeks, divided by the
+    // hours of a working day, is person-days. The variance scales with the
+    // square of the same factor, like the weeks.
     override val mean: Double
-        get() = PertCalculation.mean(minEffort, expectedEffort, maxEffort) * (phase?.durationWeeks ?: 0.0)
+        get() = PertCalculation.mean(minEffort, expectedEffort, maxEffort) * (phase?.durationWeeks ?: 0.0) /
+            calculationParameters.hoursPerDay
 
     override val variance: Double
         get() {
             val d = phase?.durationWeeks ?: 0.0
-            return PertCalculation.variance(minEffort, maxEffort) * d * d
+            val h = calculationParameters.hoursPerDay
+            return PertCalculation.variance(minEffort, maxEffort) * d * d / (h * h)
         }
 
     override val method: EstimationMethod = EstimationMethod.THREE_POINT_PERT

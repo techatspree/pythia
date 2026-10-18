@@ -24,6 +24,19 @@ class SystemSettingsService(
 
     fun standardDrivers(): List<SystemEffortDriver> = driverRepository.findAllOrdered()
 
+    /** Hours of a working day: the divisor for accompanying work's hours (task-213). */
+    fun hoursPerDay(): Double = settingsRepository.get().hoursPerDay
+
+    @Transactional
+    fun updateHoursPerDay(hoursPerDay: Double) {
+        if (!(hoursPerDay > 0.0 && hoursPerDay <= MAX_HOURS_PER_DAY)) {
+            Log.warn("Rejected hours per day $hoursPerDay: must be > 0 and <= $MAX_HOURS_PER_DAY")
+            throw badRequest("Hours per working day must be greater than 0 and at most $MAX_HOURS_PER_DAY")
+        }
+        settingsRepository.get().hoursPerDay = hoursPerDay
+        Log.info("Hours per working day set to $hoursPerDay")
+    }
+
     @Transactional
     fun updateDisplayName(name: String?) {
         val normalised = name?.trim()?.takeIf { it.isNotEmpty() }
@@ -80,6 +93,7 @@ class SystemSettingsService(
     private fun badRequest(msg: String) = WebApplicationException(msg, Response.Status.BAD_REQUEST)
 
     companion object {
+        const val MAX_HOURS_PER_DAY = 24.0
         const val MAX_CSS_KB = 256
         const val BYTES_PER_KB = 1024
         const val MAX_CSS_BYTES = MAX_CSS_KB * BYTES_PER_KB

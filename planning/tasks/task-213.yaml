@@ -1,122 +1,555 @@
 id: task-213
-phase: phase-5
-title: "Decide the unit of accompanying work (h/Woche vs PT)"
-depends_on: []
+phase: phase-20
+title: "Accompanying work in hours: convert to PT, per-tenant setting"
+depends_on: [task-187, task-215]
 description: |
-  Accompanying work (`TimeRelativeEstimationItem`, the `TIME_RELATIVE` leaf)
-  is entered in **"h/Woche"**: the unit is the item's default
-  (`unit: String = "h/Woche"`), the label in the PERT grid's type select, and
-  `ExcelGermanLabels.HOURS_PER_WEEK_UNIT`. Its effort is computed as
+  Accompanying work (`TimeRelativeEstimationItem`, a `TIME_RELATIVE` leaf) is
+  entered in **hours per week**: the unit is "h/Woche" in the item's default,
+  in both editors' type selects and in Excel. Its effort was computed as
   (task-042):
 
       mean     = PERT(min, likely, max) × phase.durationWeeks
       variance = PERT-variance(min, max) × durationWeeks²
 
-  and that `mean` is then summed with every other leaf's mean **as person-days
-  (PT)**. It feeds risk surcharge, driver surcharge, offer-PT, cost (× daily
-  rate) and offer price. **Nothing converts hours to person-days.** So either
-  the formula is off by the hours-per-day factor, or the unit label is
-  wrong and users are really entering PT per week.
+  and that mean was summed with every other leaf as **person-days (PT)**,
+  feeding risk surcharge, driver surcharge, offer-PT, cost and price. Nothing
+  converted hours to days, so every estimate with accompanying work counted
+  hours as days: the seeded Webshop draft's "Projektbegleitung" (2 / 4 / 8
+  h/Woche, phase KO of 4 weeks) contributed 17.33 PT instead of 2.17 PT, a
+  factor of 8.
 
-  Found 2026-10-15 while writing task-187. The task-042 spec says: "the
-  inputs are effort-per-time-unit (e.g. h/Woche); the actual total effort is
-  effortPerUnit × phase.durationWeeks". So the formula is as specified, and
-  the unit question was apparently never settled.
+  ## Decision (2026-10-15)
 
-  ## Why it matters
+  The inputs ARE hours. Hours become person-days by DIVIDING by the hours of a
+  working day. That number is a **per-installation (tenant) setting**,
+  editable by an administrator in the system settings (task-146), default 8.
+  The editors make the unit visible: values in hours are shown in *italics*,
+  values in person-days in the normal font.
 
-  The seeded Webshop draft's "Projektbegleitung" is 2 / 4 / 8 h/Woche in
-  Konzeption (4 weeks). Computed today: PERT 4.33 × 4 = **17.33 PT**. Read as
-  hours with 8 h/day it would be **2.17 PT**. That is a factor of 8 in every
-  estimate with accompanying work, compounded by risk surcharge, cost and
-  price. If the label is right and the formula wrong, every offer containing
-  such an item is overpriced.
+  ## The formula
 
-  The codebase already uses 8 h/day elsewhere: `MerlinImporter` converts
-  Merlin work "assuming 8 h/day, 5 d/week" (comment at
-  `MerlinImporter.kt:99`), and `WORKING_DAYS_PER_WEEK = 5.0` is the domain's
-  one conversion constant (`src/domain/CLAUDE.md`, task-177).
+      mean     = PERT(min, likely, max) × durationWeeks / hoursPerDay
+      variance = PERT-variance(min, max) × durationWeeks² / hoursPerDay²
 
-  ## The decision is the USER's, not the implementer's
+  Variance scales with the SQUARE of the factor, like the weeks. Everything
+  downstream (risk factor, driver surcharge, offer-PT, cost, price, totals,
+  the summary panel, Excel/CSV/Merlin exports) follows automatically, because
+  it all reads the leaf's `mean`/`variance`. Accompanying work stays out of
+  the schedule (task-177), so schedules and phase windows do not change.
 
-  This task does NOT change code. It collects the evidence, puts the options
-  to the user, and records the decision. It then writes the implementation
-  task for the chosen option, as a complete task YAML via the `/add-task`
-  protocol: never only a `status.json` entry (task-187 was once lost that
-  way).
+  ## Where hoursPerDay lives (domain, single source of truth)
 
-  Options to put to the user (refine them with what the investigation finds):
-    1. **The label is wrong; inputs are PT per week.** Rename the unit (e.g.
-       "PT/Woche") in the default, the PERT and bucket type selects, Excel, and
-       the seed. Existing data keeps its numbers. No recalculation.
-    2. **The formula is wrong; inputs are hours per week.** Divide by an
-       hours-per-day factor in `TimeRelativeEstimationItem.mean` and
-       `variance` (the variance by its square). Introduce ONE domain constant
-       next to `WORKING_DAYS_PER_WEEK`, or a per-version parameter. Every
-       existing estimate with accompanying work changes its numbers, including
-       SUBMITTED versions when they are recalculated. That needs an explicit
-       answer: recompute, freeze, or migrate.
-    3. **Honour the `unit` field.** Support both "h/Woche" and "PT/Woche" per
-       item, converting only the former. This is the most flexible option
-       and the largest change (UI select, Excel, import defaults).
+  - `EstimationDefaults.HOURS_PER_DAY = 8.0` (the existing `@JsExport` object,
+    beside `DAILY_RATE` etc.).
+  - `CalculationParameters` gains `val hoursPerDay: Double = EstimationDefaults.HOURS_PER_DAY`.
+    `TimeRelativeEstimationItem.mean`/`variance` divide by
+    `calculationParameters.hoursPerDay`.
+  - `EstimationVersion` gains `val hoursPerDay: Double = EstimationDefaults.HOURS_PER_DAY`,
+    a calculation INPUT like `dailyRate`, supplied by the caller from the
+    tenant setting. It is not stored per version (see "Out of scope").
+  - **The trap in `calculate()`:** it sums the leaves' `mean` and `variance`
+    into the risk factor BEFORE it stamps `CalculationParameters` on them, and
+    `:domain:core` cannot see `TimeRelativeEstimationItem` (task-143). So the
+    leaves must already carry the version's `hoursPerDay` when they are
+    summed: first map each leaf through
+    `withCalculationParameters(CalculationParameters(hoursPerDay = hoursPerDay))`,
+    compute totals and risk factor from those, then build the full
+    `CalculationParameters(riskFactor, totalDriverFactor, dailyRate, salesSurcharge, hoursPerDay)`
+    as now. A test with `hoursPerDay = 6.0` must prove that the risk factor
+    and the totals use 6 throughout, not the default.
+  - Kotlin/JS: `CalculationParameters` and `EstimationDefaults` are exported,
+    so `domain.d.mts` gains the field and the constant. `DomainFactory.createVersion`
+    takes a trailing, defaulted `hoursPerDay` AFTER `roots`: `adapter.ts` calls
+    it positionally, and inserting it earlier shifts every later argument
+    (the task-186 lesson). In `TimeRelativeEstimationItem`, do NOT use
+    `super.mean` / `super.variance`: inline the formula (Kotlin/JS recursion,
+    root CLAUDE.md, and the existing comment in that file).
+
+  ## The tenant setting (backend)
+
+  - `V21__hours_per_day.sql`: `ALTER TABLE system_settings ADD COLUMN
+    hours_per_day DOUBLE PRECISION NOT NULL DEFAULT 8` with
+    `CHECK (hours_per_day > 0 AND hours_per_day <= 24)`. Mirror column AND
+    check on the `SystemSettings` entity (it already uses
+    `@Table(check = [...])`), per the V15/V18 parity rule: `%dev`/`%test`
+    build the schema from Hibernate.
+  - `SystemSettingsDto` gains `hoursPerDay: Double`; `GET /api/system` stays
+    `@PermitAll` (public branding endpoint; the number is not sensitive).
+  - **New endpoint** `PUT /api/system/hours-per-day`, body
+    `{ "hoursPerDay": 7.5 }` → `204`; `@RolesAllowed("ADMIN")`; `400` when not
+    in (0, 24]. It is a sub-resource like `/effort-drivers`, deliberately NOT a
+    field of the existing `PUT /api/system`: there a null `displayName` means
+    "clear the name", so a hours-only PUT would wipe the name. `Log.info` with
+    the admin's subject id and the new value.
+  - `DraftVersionMapper.toDomain` (the single place the backend builds a
+    domain `EstimationVersion`) sets `hoursPerDay` from the setting, so the
+    draft read, its calculation and `submitDraft`'s snapshot all use it.
+  - **Startup order (the trap):** `TestDataSeeder` observes `StartupEvent` at
+    `@Priority(1)` and submits drafts, which now READS the setting via
+    `SystemSettingsRepository.get()`. `SystemSettingsBootstrap` (which creates
+    the singleton row in `%dev`/`%test`, where Flyway is off) observes the
+    same event WITHOUT `@Priority`, so it runs AFTER the seeder, and `get()`
+    fails with "system_settings row 1 is missing". Give its observer
+    `@Priority(Interceptor.Priority.PLATFORM_BEFORE)`, with a comment pointing
+    at the seeder, as `MethodRegistryBootstrap` documents for the same trap.
+
+  ## The frontend
+
+  - `$lib/stores/system.svelte.ts`: `hoursPerDay` getter, falling back to
+    `EstimationDefaults.HOURS_PER_DAY` until loaded.
+  - `adapter.ts` `computeEstimation` passes it to `createVersion`; every caller
+    hands in `system.hoursPerDay` reactively, so a change on the admin page
+    recalculates open drafts on their next render.
+  - Admin page `routes/admin/system/+page.svelte`: a "Arbeitszeit" section
+    with the number field and its own save button, as wireframed.
+  - Italics: in the PERT grid (`EstimationGrid.svelte`) and the bucket editor
+    (`methods/bucketSampled/EditorModule.svelte`), a TIME_RELATIVE row's
+    Optimistic / Likely / Pessimistic inputs, and in the PERT grid also its
+    "PERT" cell (computed from the raw inputs, so also hours per week), get
+    `italic` plus `data-unit="hours"` and a `title` tooltip that explains the
+    unit. Everything in person-days (Mittelwert, Angebots-PT, Kosten, …) stays
+    normal. A FIXED or BUCKETED row is unchanged.
+
+  ## Existing data
+
+  - **Drafts** are recalculated on every read, so every draft with
+    accompanying work shows the corrected (smaller) effort and price from the
+    moment this ships. That is the point of the fix; it is called out in the
+    docs.
+  - **Submitted versions** store their calculated values and are never
+    recomputed on read, so they keep the numbers they were submitted with.
+    Changing hours-per-day later likewise affects drafts only.
+  - The seed keeps its values; they were always meant as hours.
+
+  ## Recording hours-per-day on submitted versions (decided 2026-10-15)
+
+  A submitted version records the hours-per-day it was calculated with, so a
+  later change of the setting can be explained rather than looking like a
+  re-estimate:
+
+  - `V21` also adds `submitted_estimation_versions.hours_per_day DOUBLE
+    PRECISION` **NULL**, with `CHECK (hours_per_day IS NULL OR (hours_per_day > 0
+    AND hours_per_day <= 24))` (mirrored on `SubmittedEstimationVersion` per
+    the parity rule). **Existing rows stay NULL**: they were calculated BEFORE
+    this task, with hours counted as person-days, so stamping 8 on them would
+    be false. NULL means "calculated before the conversion".
+  - `EstimationVersionService.snapshotDraft` copies the value the snapshot was
+    calculated with (the tenant setting at submit time).
+  - `EstimationVersionDto` gains `hoursPerDay: Double?`: for a draft the
+    current tenant setting, for a submitted version the stored value (NULL for
+    legacy versions).
+  - **Comparison**: `VersionComparisonService.compareParameters` adds
+    `hoursPerDay` to its fixed list, so a difference appears as an ordinary
+    row in the compare page's existing parameter table, labelled
+    `panel.parameters.hoursPerDay` (the page maps `pc.name` onto that key and
+    already renders a null side as "—"). When one side is the live draft, the
+    transient version the service compares must carry the current setting.
+  - **Summary panel**: one line stating the basis, for drafts and submitted
+    versions alike, shown only when the version contains accompanying work
+    (as wireframed).
+  - **Excel export**: the "Parameter" sheet gains a row
+    `ExcelGermanLabels.Parameters.HOURS_PER_DAY = "Stunden pro Arbeitstag"`
+    with the version's value, left out for a legacy NULL. The importer needs
+    NO change: `ExcelImporter.importParameters` already ignores unknown
+    parameter rows (`else -> Log.debug(…)`), and an imported draft is a draft,
+    so it follows the tenant setting like every other draft. A test pins that.
+  - Continuing an estimate (`cloneFromSubmitted` → a new draft) recalculates
+    with the CURRENT setting. If that differs from the submitted version's,
+    the new draft's accompanying effort differs from the version it was
+    cloned from; the summary line and the comparison now make that visible.
+
+  ## Out of scope
+
+  A per-estimation override, and recalculating submitted versions.
+
+  ## Wireframes
+
+  ### Systemeinstellungen (ADMIN): new section "Arbeitszeit"
+
+      … (Name der Organisation, unchanged) …
+      +--------------------------------------------------------------------+
+      | Arbeitszeit                                                        |
+      | Wird verwendet, um begleitende Leistungen (h/Woche) in             |
+      | Personentage umzurechnen: Stunden ÷ Stunden pro Arbeitstag.        |
+      | Stunden pro Arbeitstag                                             |
+      | [ 8        ]                                                       |
+      | [ Arbeitszeit speichern ]                                          |
+      +--------------------------------------------------------------------+
+      … (Standard-Aufwandstreiber, Eigenes Stylesheet, unchanged) …
+
+    - Section placed directly after "Name der Organisation", same markup
+      pattern (`<section class="mb-8 border rounded-lg p-4 bg-white">`,
+      heading, hint, label, input, `Button`).
+    - Heading `admin.system.hoursSection` ("Arbeitszeit" / "Working time"),
+      hint `admin.system.hoursHint`, label `admin.system.hoursLabel`, button
+      `admin.system.hoursSave`.
+    - Input: `type="number"`, `step="0.25"`, `min="0.25"`, `max="24"`,
+      `id="system-hours-per-day"`, `data-testid="system.hours-per-day"`.
+      Button `data-testid="system.save-hours-per-day"`.
+    - On success: the existing `system-notice` shows `admin.system.hoursSaved`,
+      and `system.apply(...)` refreshes the store so open editors recalculate.
+      Out of range: the save is not sent, the existing `ErrorBanner` shows
+      `admin.system.hoursInvalid`. A backend `400` lands in the same banner
+      via `assertOk`.
+    - Only ADMIN reaches this page (`RequiredRole role="ADMIN"`, unchanged).
+
+  ### PERT editor: accompanying-work row (hours in italics)
+
+      | Beschreibung          | Typ         | Phase  | Optim. | Erwartet | Pessim. | PERT   | … | Angebots-PT |
+      |-----------------------+-------------+--------+--------+----------+---------+--------+---+-------------|
+      |   Projektbegleitung   | [h/Woche v] | [KO v] |  /2/   |   /4/    |   /8/   | /4,33/ | … |        2,94 |
+      |   Systemarchitektur   | [ Fix    v] | [KO v] |   2    |    3     |    5    |  3,17  | … |        4,30 |
+
+    - `/x/` marks italics. The TIME_RELATIVE row's three inputs and its PERT
+      cell carry `class="… italic"`, `data-unit="hours"` and
+      `title={$_('grid.hoursPerWeekTitle', { values: { hours: system.hoursPerDay } })}`.
+      The FIXED row is unchanged.
+    - Angebots-PT 2,94 = 4,33 h × 4 weeks ÷ 8 = 2,17 PT, plus the version's
+      risk surcharge. Illustrative; the domain computes it.
+    - Read-only (submitted) versions: the same italics on the read-only spans.
+
+  ### Bucket editor: accompanying-work row (hours in italics)
+
+      |   Projektbegleitung   | [h/Woche v] |  —  |  —  | [UM v] | /0,5/ | /1,0/ | /2,0/ | 1,63 | … |
+
+    - Same treatment as the PERT grid for the three effort cells (`italic`,
+      `data-unit="hours"`, the same `title`). Mittelwert 1,63 = 1,08 h × 12
+      weeks ÷ 8 is in PT and stays normal.
+
+  ### Summary panel: conversion basis (version with accompanying work)
+
+      +-------------------------------------------------------------------------------+
+      | GESAMTÜBERSICHT                                                     7 Positionen |
+      | … (rows unchanged) …                                                           |
+      | Begleitende Leistungen: Stunden ÷ 8 Std. pro Arbeitstag                        |
+      +-------------------------------------------------------------------------------+
+
+    - New line at the bottom of `EstimationSummaryPanel`, `text-xs text-ink-muted`,
+      `data-testid="version-summary.hours-per-day"`, text
+      `summary.hoursPerDay` with `{hours}` formatted via `$lib/format.ts`.
+    - Draft: the current tenant setting (`system.hoursPerDay`). Submitted: the
+      version's stored `hoursPerDay`.
+    - Hidden when the version has no TIME_RELATIVE leaf; the route passes a
+      `hasAccompanyingWork` flag derived from its roots (no math, a type check).
+
+  ### Summary panel: submitted before the conversion (legacy, NULL)
+
+      | Begleitende Leistungen: vor der Umrechnung berechnet – Stunden zählen hier als Personentage |
+
+    - Same element and testid, text `summary.hoursPerDayLegacy`, shown for a
+      submitted version whose `hoursPerDay` is null and which has
+      accompanying work.
+
+  ### Version comparison: hours-per-day differs
+
+      | Parameter                | Version 1 | Entwurf |
+      |--------------------------+-----------+---------|
+      | Stunden pro Arbeitstag   | 8         | 7.5     |
+
+    - No new component: a row of the EXISTING parameter-changes table
+      (`compare/+page.svelte`), labelled by the new key
+      `panel.parameters.hoursPerDay`. A legacy NULL side shows "—", as the
+      table already does for null values.
+
+  ### i18n keys (both catalogs, key for key)
+
+  | key | de | en |
+  |---|---|---|
+  | `admin.system.hoursSection` | Arbeitszeit | Working time |
+  | `admin.system.hoursHint` | Wird verwendet, um begleitende Leistungen (h/Woche) in Personentage umzurechnen: Stunden ÷ Stunden pro Arbeitstag. | Used to convert accompanying work (h/week) into person-days: hours ÷ hours per working day. |
+  | `admin.system.hoursLabel` | Stunden pro Arbeitstag | Hours per working day |
+  | `admin.system.hoursSave` | Arbeitszeit speichern | Save working time |
+  | `admin.system.hoursSaved` | Arbeitszeit gespeichert. | Working time saved. |
+  | `admin.system.hoursInvalid` | Bitte eine Zahl größer als 0 und höchstens 24 eingeben. | Please enter a number greater than 0 and at most 24. |
+  | `grid.hoursPerWeekTitle` | Stunden pro Woche – umgerechnet in Personentage mit {hours} Std. pro Arbeitstag | Hours per week – converted to person-days at {hours} h per working day |
+  | `summary.hoursPerDay` | Begleitende Leistungen: Stunden ÷ {hours} Std. pro Arbeitstag | Accompanying work: hours ÷ {hours} h per working day |
+  | `summary.hoursPerDayLegacy` | Begleitende Leistungen: vor der Umrechnung berechnet – Stunden zählen hier als Personentage | Accompanying work: calculated before the conversion – hours count as person-days here |
+  | `panel.parameters.hoursPerDay` | Stunden pro Arbeitstag | Hours per working day |
 
 steps:
   - |
-    Collect the evidence, read-only:
-      - every place the unit string appears (`grep -rn "h/Woche"` across
-        `src/`, excluding `build/` and `node_modules/`) and whether any of
-        them converts;
-      - the domain formula (`TimeRelativeEstimationItem.mean`/`variance`)
-        and its tests (`TimeRelativeEstimationItemTest`), which assert the
-        current behaviour (e.g. TR 2/4/6 × 4 weeks → mean 16.0 summed with a
-        fixed 4.0 PT);
-      - the Excel exporter/importer, whose sheets a customer reads, and
-        what they label the column;
-      - the task history (`planning/tasks/task-042.yaml`, `task-043.yaml`,
-        `task-177.yaml`) for any statement about the intended unit;
-      - `MerlinImporter`'s hours-per-day assumption.
+    Domain (`src/domain/core/src/main/kotlin/io/pythia/model/`):
+      - `EstimationDefaults`: `const val HOURS_PER_DAY = 8.0` with a KDoc line;
+      - `CalculationParameters`: add `val hoursPerDay: Double = EstimationDefaults.HOURS_PER_DAY`;
+      - `EstimationVersion`: add `val hoursPerDay: Double = EstimationDefaults.HOURS_PER_DAY`
+        after `salesSurcharge`, and in `calculate()` pre-stamp the leaves as
+        described under "Where hoursPerDay lives" before computing totals and
+        the risk factor; pass `hoursPerDay` into the final `CalculationParameters`.
+        Extend the existing `logger.debug` in `calculate()` with `hoursPerDay`.
   - |
-    Quantify the impact on a fresh dev seed (`./scripts/dev.sh`; read-only
-    GETs, as in task-181): for each seeded estimation, the sum of
-    TIME_RELATIVE means and the share of the total offer effort it makes up,
-    today and under option 2 with 8 h/day. Put the numbers in a small table.
+    `src/domain/method-threepoint/src/main/kotlin/io/pythia/method/threepoint/TimeRelativeEstimationItem.kt`:
+    divide `mean` by `calculationParameters.hoursPerDay` and `variance` by its
+    square, inlined (no `super.*`), and update the KDoc: inputs are hours per
+    week (task-213).
   - |
-    Present the findings and the three options (refined) to the user with
-    `AskUserQuestion`, one question, with your recommendation first and
-    marked. State per option what changes for EXISTING estimates. Do not
-    choose for the user, and do not proceed without an answer.
+    `src/domain/src/main/kotlin/io/pythia/DomainFactory.kt` `createVersion`:
+    trailing `hoursPerDay: Double = EstimationDefaults.HOURS_PER_DAY` after
+    `roots`, passed into `EstimationVersion`.
   - |
-    Record the decision in `src/domain/CLAUDE.md`, in a short new paragraph
-    "**Unit of accompanying work (task-213)**" near the task-177 paragraph
-    on accompanying work: what the inputs mean, whether and where they are
-    converted, and the reason.
+    Domain tests:
+      - `TimeRelativeEstimationItemTest` (`src/domain/method-threepoint/src/test/kotlin/io/pythia/model/`):
+        its expectations asserted hours as PT (e.g. 2/4/6 × 4 weeks = 16.0);
+        divide them by 8 and say so in a comment (task-213). Add: with
+        `CalculationParameters(hoursPerDay = 6.0)` the mean is 16 / 6;
+      - `src/domain/src/test/kotlin/io/pythia/model/EstimationVersionHoursPerDayTest.kt`
+        (aggregator, it needs both methods): a version with one FIXED and one
+        TIME_RELATIVE leaf computed at `hoursPerDay = 8.0` and `6.0`; the TR
+        mean, the version's total mean and the risk factor all reflect the
+        given value (compare against hand-computed numbers);
+      - `BucketVersionWithTimeRelativeTest` (task-187): 13.0 → 13.0 / 8 = 1.625;
+      - then `./gradlew :domain:build`.
   - |
-    Write the implementation task for the chosen option with the full
-    `/add-task` protocol (`./scripts/task.sh add …`, then the YAML under
-    `planning/tasks/`, with steps, validation and outputs, wireframes if the
-    UI label changes, and both i18n catalogs if a label is translated). It
-    must name how existing (draft and submitted) estimates are treated. It
-    depends on task-187 if it touches the bucket editor's type select.
+    Backend:
+      - `src/backend/implementation/src/main/resources/db/migration/V21__hours_per_day.sql`
+        as described;
+      - `SystemSettings` entity: `hoursPerDay` column + the check in
+        `@Table(check = [...])`;
+      - `SystemSettingsService`: `hoursPerDay()` getter and
+        `updateHoursPerDay(value)` (validates (0, 24], else `BadRequestException`),
+        `Log.info` on update;
+      - `SystemSettingsDtos.kt`: `hoursPerDay` on `SystemSettingsDto`, new
+        `SystemSettingsHoursPerDayDto(val hoursPerDay: Double)`;
+      - `SystemSettingsResource`: `PUT /api/system/hours-per-day` (ADMIN,
+        `204`/`400`/`403`, OpenAPI annotations like the sibling endpoints),
+        `toDto()` includes `hoursPerDay`;
+      - `DraftVersionMapper.toDomain`: set `hoursPerDay` from the service;
+      - `SystemSettingsBootstrap.onStart`: `@Priority(Interceptor.Priority.PLATFORM_BEFORE)`
+        plus a comment, so the row exists before `TestDataSeeder` (priority 1)
+        submits its drafts (see "Startup order");
+      - Recording (see "Recording hours-per-day on submitted versions"): the
+        nullable `submitted_estimation_versions.hours_per_day` column in the
+        same `V21` (plus entity field and check on `SubmittedEstimationVersion`);
+        `snapshotDraft` copies the value; `EstimationVersionDto.hoursPerDay`
+        (draft: current setting, submitted: stored); `hoursPerDay` in
+        `VersionComparisonService.compareParameters` (the live-draft side
+        carries the current setting); the Excel "Parameter" row
+        `HOURS_PER_DAY` in `ExcelGermanLabels.Parameters` + `ExcelExporter`
+        (omitted when null); `ExcelImporter` unchanged (it already ignores
+        unknown parameter rows).
   - |
-    No code changed, so the build is only a safety net:
+    Backend tests: extend the system-settings resource test (or add
+    `SystemSettingsHoursPerDayIT`): GET returns 8 by default; ADMIN PUT 7.5 →
+    204 and GET returns 7.5; 0, -1 and 25 → 400; ESTIMATOR → 403. A service or
+    resource test proves a draft with one TIME_RELATIVE leaf is calculated
+    with the stored value. Recording: submitting a draft at 7.5 stores 7.5 on
+    the submitted version; changing the setting afterwards leaves that
+    version's `hoursPerDay` AND its stored numbers unchanged; a comparison of
+    two versions with different values reports a `hoursPerDay` parameter
+    change; an Excel export carries the row and re-importing it does not fail
+    and does not set anything from it. Update existing tests that asserted hours as PT
+    (`DraftVersionMapperTest`, `EstimationVersionResourceIT`, the Excel/CSV
+    tree tests, `DraftSnapshotRoundTripIT`, wherever a TIME_RELATIVE mean or
+    offer-PT is asserted), each with a one-line comment (task-213). Then
+    `./gradlew :backend:implementation:test`. The OpenAPI document changes
+    (new endpoint, new DTO field), so `./gradlew build` regenerates
+    `openapi.json` and `schema.d.ts`; commit them with the change.
+  - |
+    Frontend:
+      - `$lib/stores/system.svelte.ts`: `hoursPerDay` getter (fallback
+        `EstimationDefaults.getInstance().HOURS_PER_DAY`);
+      - `$lib/adapter.ts`: `computeEstimation(…)` takes `hoursPerDay` and
+        passes it as `createVersion`'s trailing argument; update every caller
+        to pass `system.hoursPerDay` (reactively);
+      - the system-settings API helper next to `updateSystemSettings`:
+        `updateHoursPerDay(value)` via `apiFetch` + `assertOk`;
+      - `routes/admin/system/+page.svelte`: the "Arbeitszeit" section as
+        wireframed, client-side range check, `log.error` + `ErrorBanner` on
+        failure;
+      - `EstimationGrid.svelte` and `methods/bucketSampled/EditorModule.svelte`:
+        italics, `data-unit="hours"` and the `title` on a TIME_RELATIVE row's
+        hour values, as wireframed;
+      - `EstimationSummaryPanel.svelte`: the conversion-basis line, both
+        states, as wireframed; the version-editor route passes `hoursPerDay`
+        (draft: `system.hoursPerDay`, submitted: the version DTO's value) and
+        `hasAccompanyingWork`;
+      - all ten i18n keys from the table into `de.json` and `en.json`.
+    No bare `console.*`; number formatting only via `$lib/format.ts`.
+  - |
+    Prove the startup order on a FRESH dev stack: check that :8090 / :5173 /
+    :5432 are free (otherwise stop — another stack is running, and it is not
+    yours to stop), start `./scripts/dev.sh`, and confirm its log contains
+    "Seeded dev fixture" and no "system_settings row" error. Keep this stack
+    for the e2e step; stop only the `dev.sh` you started.
+  - |
+    e2e, self-contained (`src/frontend/e2e/hours-per-day.test.ts`, Page
+    Objects only; extend `e2e/pages/` with a `SystemSettingsPage` class if
+    none exists, exported from the barrel):
+      - seed a PERT draft via the API with `stdDevFactor: 0`, one phase of 2
+        weeks and one TIME_RELATIVE leaf 8/8/8 h/Woche in it, so offer-PT is
+        exactly 2 × 8 / hoursPerDay;
+      - at the default, `version-summary.offerPT` reads 2,00;
+      - as ADMIN set 6 on the system page; reopen the draft;
+        `version-summary.offerPT` reads 2,67 (separator-agnostic, see
+        `parseNumber`);
+      - the leaf's effort inputs carry `data-unit="hours"`; a FIXED leaf's do not;
+      - an out-of-range value (0) shows the error banner and changes nothing;
+      - recording: with the default 8, submit the draft; set 6; the SUBMITTED
+        version's `version-summary.hours-per-day` still states 8 and its
+        `version-summary.offerPT` is unchanged, while a new draft cloned from
+        it states 6; the comparison of the submitted version with that draft
+        lists the hours-per-day parameter change;
+      - **restore 8 in `afterEach`**, even on failure: the setting is global,
+        and parallel specs on the same backend must not see 6. Say in the
+        spec's header comment that other spec FILES run in parallel while it
+        holds 6, so a future spec asserting accompanying-work numbers knows
+        why it could flake (tests within this file run one after another:
+        Playwright's `fullyParallel` is off).
+    Run it in both languages, plus `e2e/system-settings.test.ts`,
+    `e2e/editor-selects.test.ts` and `e2e/bucket-accompanying.test.ts`. Before
+    starting the stack check that :8090 / :5173 / :5432 are free, and stop only
+    the `dev.sh` you started.
+  - |
+    Screenshots: the estimation-editor and bucket-editor totals change (less
+    accompanying effort). Recapture by the documented procedure
+    (`docs/development.md` → `gen:screenshots`) and check that only those two
+    shots differ and why.
+  - |
+    Docs:
+      - `src/domain/CLAUDE.md`, beside the task-177 paragraph on accompanying
+        work: inputs are hours per week, converted by `hoursPerDay`, which is
+        a calculation input from the tenant setting (default 8); the
+        pre-stamping in `calculate()` and why;
+      - `src/backend/CLAUDE.md` → "System settings": the `hours_per_day`
+        column, its check, the separate `PUT /api/system/hours-per-day` and
+        why it is separate; and the recording on submitted versions (nullable,
+        NULL = calculated before the conversion, why existing rows are not
+        back-filled, the comparison and Excel handling); and next to the
+        row-bootstrap explanation, that `SystemSettingsBootstrap` must run
+        before `TestDataSeeder` now that submitting reads the setting;
+      - `src/frontend/CLAUDE.md`: hours are shown in italics with
+        `data-unit="hours"`, PT in the normal font;
+      - `docs/scheduling.md` "Accompanying work" (or the user docs that
+        mention h/Woche): the effort is hours ÷ hours per working day.
+  - |
+    Final:
+      ./gradlew :domain:build
+      ./gradlew :backend:implementation:test
+      ./gradlew :frontend:check
       ./gradlew build
 
 validation:
   - |
+    grep -q "HOURS_PER_DAY" src/domain/core/src/main/kotlin/io/pythia/model/EstimationDefaults.kt
+    grep -q "hoursPerDay" src/domain/core/src/main/kotlin/io/pythia/model/CalculationParameters.kt
+    grep -q "hoursPerDay" src/domain/core/src/main/kotlin/io/pythia/model/EstimationVersion.kt
+    grep -q "hoursPerDay" src/domain/method-threepoint/src/main/kotlin/io/pythia/method/threepoint/TimeRelativeEstimationItem.kt
+    ! grep -vE '^\s*(\*|//)' src/domain/method-threepoint/src/main/kotlin/io/pythia/method/threepoint/TimeRelativeEstimationItem.kt | grep -qE "super\.(mean|variance)"
+    grep -A14 "fun createVersion" src/domain/src/main/kotlin/io/pythia/DomainFactory.kt | grep -q "hoursPerDay"
+    test -f src/domain/src/test/kotlin/io/pythia/model/EstimationVersionHoursPerDayTest.kt
+  - |
+    test -f src/backend/implementation/src/main/resources/db/migration/V21__hours_per_day.sql
+    grep -q "hours_per_day" src/backend/implementation/src/main/kotlin/io/pythia/domain/system/SystemSettings.kt
+    grep -q "hours-per-day" src/backend/implementation/src/main/kotlin/io/pythia/rest/SystemSettingsResource.kt
+    grep -q "hoursPerDay" src/backend/implementation/src/main/kotlin/io/pythia/service/DraftVersionMapper.kt
+    python3 -c "import json;d=json.load(open('src/frontend/src/lib/api/openapi.json'));s=d['components']['schemas'];assert '/api/system/hours-per-day' in d['paths'];assert 'hoursPerDay' in s['SystemSettingsDto']['properties'];assert 'hoursPerDay' in s['EstimationVersionDto']['properties']"
+    grep -q "hours_per_day" src/backend/implementation/src/main/kotlin/io/pythia/domain/submitted/SubmittedEstimationVersion.kt
+    grep -q "submitted_estimation_versions" src/backend/implementation/src/main/resources/db/migration/V21__hours_per_day.sql
+    grep -q '"hoursPerDay"' src/backend/implementation/src/main/kotlin/io/pythia/service/VersionComparisonService.kt
+    grep -q "HOURS_PER_DAY" src/backend/implementation/src/main/kotlin/io/pythia/service/ExcelGermanLabels.kt
+    grep -q "PLATFORM_BEFORE" src/backend/implementation/src/main/kotlin/io/pythia/service/SystemSettingsBootstrap.kt
+  - |
+    F=src/frontend/src
+    grep -q 'data-testid="system.hours-per-day"' $F/routes/admin/system/+page.svelte
+    grep -q 'data-testid="system.save-hours-per-day"' $F/routes/admin/system/+page.svelte
+    # data-unit is set conditionally on the row type (one input serves both kinds)
+    grep -q "data-unit={isHours(node) ? 'hours' : undefined}" $F/lib/components/EstimationGrid.svelte
+    grep -q "data-unit={isHours(node) ? 'hours' : undefined}" $F/lib/methods/bucketSampled/EditorModule.svelte
+    grep -q "hoursPerDay" $F/lib/stores/system.svelte.ts
+    grep -q "hoursPerDay" $F/lib/adapter.ts
+    ! grep -q "console\." $F/routes/admin/system/+page.svelte
+    grep -q 'data-testid="version-summary.hours-per-day"' $F/lib/components/EstimationSummaryPanel.svelte
+  - |
+    python3 - <<'PY'
+    import json, pathlib, sys
+    cats = {p.stem: json.loads(p.read_text())
+            for p in pathlib.Path('src/frontend/src/lib/i18n').glob('*.json')}
+    def flat(o, p=''):
+        s = set()
+        for k, v in o.items():
+            n = f'{p}.{k}' if p else k
+            s |= flat(v, n) if isinstance(v, dict) else {n}
+        return s
+    keys = {l: flat(d) for l, d in cats.items()}
+    ref = set().union(*keys.values())
+    bad = {l: sorted(ref - k) for l, k in keys.items() if ref - k}
+    need = {'admin.system.hoursSection', 'admin.system.hoursHint', 'admin.system.hoursLabel',
+            'admin.system.hoursSave', 'admin.system.hoursSaved', 'admin.system.hoursInvalid',
+            'grid.hoursPerWeekTitle', 'summary.hoursPerDay', 'summary.hoursPerDayLegacy',
+            'panel.parameters.hoursPerDay'}
+    missing = {l: sorted(need - k) for l, k in keys.items() if need - k}
+    def get(cat, key):
+        for part in key.split('.'):
+            if not isinstance(cat, dict) or part not in cat:
+                return None
+            cat = cat[part]
+        return cat
+    same = sorted(k for k in need if get(cats['de'], k) is not None and get(cats['de'], k) == get(cats['en'], k))
+    print('parity:', bad or 'ok', '| new:', missing or 'ok', '| untranslated:', same or 'none')
+    sys.exit(1 if (bad or missing or same) else 0)
+    PY
+  - |
+    test -f src/frontend/e2e/hours-per-day.test.ts
+    grep -q "from './pages'" src/frontend/e2e/hours-per-day.test.ts
+    grep -q "afterEach" src/frontend/e2e/hours-per-day.test.ts
+  - |
     grep -q "task-213" src/domain/CLAUDE.md
-    grep -qi "unit of accompanying work" src/domain/CLAUDE.md
+    grep -q "task-213" src/backend/CLAUDE.md
+    grep -q "task-213" src/frontend/CLAUDE.md
   - |
-    # the follow-up implementation task exists as a FILE, not only as a status entry
-    N=$(jq -r '[.tasks | keys[] | capture("task-(?<n>[0-9]+)").n | tonumber] | max' planning/status.json)
-    F=$(printf "planning/tasks/task-%03d.yaml" "$N")
-    test -f "$F" && grep -q "task-213" "$F"
+    ./gradlew :domain:build
   - |
-    # no production code touched by this task
-    test -z "$(git status --porcelain -- src/ | grep -v 'src/domain/CLAUDE.md')" || { git status --porcelain -- src/; echo "check that these changes are not from task-213"; }
+    ./gradlew :backend:implementation:test
+  - |
+    ./gradlew :frontend:check
   - |
     ./gradlew build
 
 outputs:
+  - modified: src/domain/core/src/main/kotlin/io/pythia/model/EstimationDefaults.kt
+  - modified: src/domain/core/src/main/kotlin/io/pythia/model/CalculationParameters.kt
+  - modified: src/domain/core/src/main/kotlin/io/pythia/model/EstimationVersion.kt
+  - modified: src/domain/method-threepoint/src/main/kotlin/io/pythia/method/threepoint/TimeRelativeEstimationItem.kt
+  - modified: src/domain/src/main/kotlin/io/pythia/DomainFactory.kt
+  - modified: src/domain/method-threepoint/src/test/kotlin/io/pythia/model/TimeRelativeEstimationItemTest.kt
+  - created: src/domain/src/test/kotlin/io/pythia/model/EstimationVersionHoursPerDayTest.kt
+  - modified: src/domain/src/test/kotlin/io/pythia/method/BucketVersionWithTimeRelativeTest.kt
+  - created: src/backend/implementation/src/main/resources/db/migration/V21__hours_per_day.sql
+  - modified: src/backend/implementation/src/main/kotlin/io/pythia/domain/system/SystemSettings.kt
+  - modified: src/backend/implementation/src/main/kotlin/io/pythia/service/SystemSettingsService.kt
+  - modified: src/backend/implementation/src/main/kotlin/io/pythia/rest/dto/SystemSettingsDtos.kt
+  - modified: src/backend/implementation/src/main/kotlin/io/pythia/rest/SystemSettingsResource.kt
+  - modified: src/backend/implementation/src/main/kotlin/io/pythia/service/DraftVersionMapper.kt
+  - modified: src/backend/implementation/src/main/kotlin/io/pythia/domain/submitted/SubmittedEstimationVersion.kt
+  - modified: src/backend/implementation/src/main/kotlin/io/pythia/service/EstimationVersionService.kt
+  - modified: src/backend/implementation/src/main/kotlin/io/pythia/rest/dto/EstimationVersionMapper.kt
+  - modified: src/backend/implementation/src/main/kotlin/io/pythia/service/VersionComparisonService.kt
+  - modified: src/backend/implementation/src/main/kotlin/io/pythia/service/ExcelGermanLabels.kt
+  - modified: src/backend/implementation/src/main/kotlin/io/pythia/service/ExcelExporter.kt
+  - modified: src/backend/implementation/src/main/kotlin/io/pythia/service/SystemSettingsBootstrap.kt
+  - created: src/backend/implementation/src/test/kotlin/io/pythia/rest/SystemSettingsHoursPerDayIT.kt
+  # each only where it asserts a TIME_RELATIVE mean / offer-PT (hours counted as PT before task-213):
+  - modified: src/backend/implementation/src/test/kotlin/io/pythia/service/DraftVersionMapperTest.kt
+  - modified: src/backend/implementation/src/test/kotlin/io/pythia/rest/EstimationVersionResourceIT.kt
+  - modified: src/backend/implementation/src/test/kotlin/io/pythia/service/ExcelExporterTreeTest.kt
+  - modified: src/backend/implementation/src/test/kotlin/io/pythia/service/ExcelImporterTreeTest.kt
+  - modified: src/backend/implementation/src/test/kotlin/io/pythia/service/CsvExporterTreeTest.kt
+  - modified: src/backend/implementation/src/test/kotlin/io/pythia/service/DraftSnapshotRoundTripIT.kt
+  - modified: src/frontend/src/lib/api/openapi.json
+  - modified: src/frontend/src/lib/api/schema.d.ts
+  - modified: src/frontend/src/lib/stores/system.svelte.ts
+  - modified: src/frontend/src/lib/adapter.ts
+  - modified: src/frontend/src/routes/admin/system/+page.svelte
+  - modified: src/frontend/src/lib/components/EstimationSummaryPanel.svelte
+  - modified: src/frontend/src/routes/estimations/[id]/versions/[versionNumber]/+page.svelte
+  - modified: src/frontend/src/lib/components/EstimationGrid.svelte
+  - modified: src/frontend/src/lib/methods/bucketSampled/EditorModule.svelte
+  - modified: src/frontend/src/lib/i18n/de.json
+  - modified: src/frontend/src/lib/i18n/en.json
+  - created: src/frontend/e2e/hours-per-day.test.ts
+  - modified: src/frontend/e2e/pages/index.ts
+  - modified: docs/images/estimation-editor.png
+  - modified: docs/images/bucket-editor.png
   - modified: src/domain/CLAUDE.md
-  - created: planning/tasks/<follow-up task id>.yaml
-  - modified: planning/status.json
+  - modified: src/backend/CLAUDE.md
+  - modified: src/frontend/CLAUDE.md
+  - modified: docs/scheduling.md

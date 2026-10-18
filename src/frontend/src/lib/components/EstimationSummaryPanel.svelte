@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { _, locale } from 'svelte-i18n';
-	import { formatFixed, DEFAULT_LOCALE } from '$lib/format';
+	import { formatFixed, formatNumber, DEFAULT_LOCALE } from '$lib/format';
 	import { ZERO_TOTALS, type EstimationTotalsView } from '$lib/adapter';
 
 	// The summed figures of the WHOLE estimation, shown at the top of the version
@@ -8,7 +8,17 @@
 	// aggregates only per bucket, and had no overall number at all. Every value
 	// here is computed by the domain reducer (EstimationVersion.totals()); this
 	// component only formats.
-	let { totals = ZERO_TOTALS }: { totals?: EstimationTotalsView } = $props();
+	let {
+		totals = ZERO_TOTALS,
+		hasAccompanyingWork = false,
+		hoursPerDay = null
+	}: {
+		totals?: EstimationTotalsView;
+		/** Shows the conversion line only when there is accompanying work to convert (task-213). */
+		hasAccompanyingWork?: boolean;
+		/** The basis this version was calculated with; null = submitted before the conversion. */
+		hoursPerDay?: number | null;
+	} = $props();
 
 	const num = (v: number, frac: number) => formatFixed(v, $locale ?? DEFAULT_LOCALE, frac);
 
@@ -104,6 +114,18 @@
 			</div>
 		</div>
 	</div>
+
+	{#if hasAccompanyingWork}
+		<!-- task-213: which hours per working day turned accompanying work's hours
+		     into person-days, so a changed setting is visible rather than a mystery. -->
+		<p class="px-4 pb-3 -mt-1 text-xs text-ink-muted" data-testid="version-summary.hours-per-day">
+			{hoursPerDay != null
+				? $_('summary.hoursPerDay', {
+						values: { hours: formatNumber(hoursPerDay, $locale ?? DEFAULT_LOCALE) }
+					})
+				: $_('summary.hoursPerDayLegacy')}
+		</p>
+	{/if}
 
 	{#if totals.recurringWithoutPhase > 0}
 		<p class="px-4 pb-3 -mt-1 text-sm text-amber-700" data-testid="version-summary.warning">

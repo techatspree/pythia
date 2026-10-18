@@ -57,6 +57,13 @@ the length of the phase it belongs to. Scheduling it would make the plan depend
 on a number that is itself derived from the plan. Excluding it keeps the net
 plan solvable; the Gantt still shows the work, drawn across its whole phase.
 
+Its effort is entered in **hours per week** and converted to person-days with
+the installation's hours per working day (default 8, set by an administrator
+under *System → Arbeitszeit*): hours per week × weeks ÷ hours per day (task-213).
+The editors show such hour values in *italics*; values in person-days use the
+normal font. A submitted version keeps the hours per day it was calculated with,
+so changing the setting later changes drafts only.
+
 ## A team is a number of workers
 
 Team size is a headcount, not a divisor. The scheduler turns it into worker

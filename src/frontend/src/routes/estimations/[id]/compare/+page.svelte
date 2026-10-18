@@ -147,7 +147,11 @@
 					</thead>
 					<tbody>
 						{#each comparison.parameterChanges as pc (pc.name)}
-							<tr class="border-t bg-yellow-50">
+							<tr
+								class="border-t bg-yellow-50"
+								data-testid="compare.parameter-change"
+								data-name={pc.name}
+							>
 								<!-- The backend sends the FIXED field name (task-138), so it
 								     maps onto the same i18n label the editor panel uses. -->
 								<td class="px-3 py-2 font-medium">{$_(`panel.parameters.${pc.name}`)}</td>

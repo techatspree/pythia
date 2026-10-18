@@ -3,6 +3,7 @@ package io.pythia.rest
 import io.pythia.auth.CurrentUserProvider
 import io.pythia.rest.dto.EffortDriverDto
 import io.pythia.rest.dto.SystemSettingsDto
+import io.pythia.rest.dto.SystemSettingsHoursPerDayDto
 import io.pythia.rest.dto.SystemSettingsUpdateDto
 import io.pythia.service.SystemSettingsService
 import io.quarkus.logging.Log
@@ -136,13 +137,28 @@ class SystemSettingsResource(
         return Response.ok(driverDtos()).build()
     }
 
+    @PUT
+    @Path("/hours-per-day")
+    @Consumes(MediaType.APPLICATION_JSON)
+    @RolesAllowed("ADMIN")
+    @Operation(summary = "Admin: set the hours of a working day (converts accompanying work's hours to person-days)")
+    @APIResponse(responseCode = "204", description = "Stored")
+    @APIResponse(responseCode = "400", description = "Not greater than 0 and at most 24")
+    @APIResponse(responseCode = "403", description = "Not an administrator")
+    fun updateHoursPerDay(body: SystemSettingsHoursPerDayDto): Response {
+        Log.info("Hours per working day set to ${body.hoursPerDay} by ${currentUserProvider.get().subjectId}")
+        systemSettingsService.updateHoursPerDay(body.hoursPerDay)
+        return Response.noContent().build()
+    }
+
     private fun toDto(): SystemSettingsDto {
         val s = systemSettingsService.settings()
         return SystemSettingsDto(
             displayName = s.displayName,
             hasCustomCss = s.customCss != null,
             customCssFilename = s.customCssFilename,
-            customCssUpdatedAt = s.customCssUpdatedAt?.toString()
+            customCssUpdatedAt = s.customCssUpdatedAt?.toString(),
+            hoursPerDay = s.hoursPerDay
         )
     }
 

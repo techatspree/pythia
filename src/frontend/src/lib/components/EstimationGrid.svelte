@@ -1,7 +1,7 @@
 <script lang="ts">
 	import Button from '$lib/ui/Button.svelte';
 	import { _, locale } from 'svelte-i18n';
-	import { formatFixed, DEFAULT_LOCALE } from '$lib/format';
+	import { formatFixed, formatNumber, DEFAULT_LOCALE } from '$lib/format';
 	import TreeTable from './treetable/TreeTable.svelte';
 	import type { TreeColumn, TreeNodeContext } from './treetable/types';
 
@@ -15,6 +15,7 @@
 		type CalcEntry
 	} from '$lib/estimationNodes';
 	import { ZERO_TOTALS, type EstimationTotalsView } from '$lib/adapter';
+	import { EstimationDefaults } from '$lib/domain/domain.mjs';
 
 	// A module-level constant, not an inline `new Set()` default: a fresh set per
 	// render would be a new prop identity every time.
@@ -26,7 +27,8 @@
 		calcMap = new Map<string, CalcEntry>(),
 		phases = [],
 		totals = ZERO_TOTALS,
-		criticalPath = EMPTY_CRITICAL_PATH
+		criticalPath = EMPTY_CRITICAL_PATH,
+		hoursPerDay = EstimationDefaults.getInstance().HOURS_PER_DAY
 	}: {
 		roots?: Node[];
 		editable: boolean;
@@ -34,7 +36,19 @@
 		phases?: any[];
 		totals?: EstimationTotalsView;
 		criticalPath?: ReadonlySet<string>;
+		/** Hours of a working day this version is calculated with (task-213); only for the tooltip. */
+		hoursPerDay?: number;
 	} = $props();
+
+	// Accompanying work is entered in HOURS per week (task-213): its effort
+	// inputs and its PERT cell are hours, shown in italics with data-unit="hours"
+	// and a tooltip; everything in person-days keeps the normal font.
+	const isHours = (n: Node) => n.type === 'TIME_RELATIVE';
+	const hoursTitle = $derived(
+		$_('grid.hoursPerWeekTitle', {
+			values: { hours: formatNumber(hoursPerDay, $locale ?? DEFAULT_LOCALE) }
+		})
+	);
 
 	function pert(o: number | null, m: number | null, p: number | null): number {
 		return ((o ?? 0) + 4 * (m ?? 0) + (p ?? 0)) / 6;
@@ -366,6 +380,9 @@
 				step="0.1"
 				min="0"
 				class="w-full text-right bg-transparent focus:outline-none focus:bg-brand-green/5 focus:ring-1 focus:ring-brand-green/40 rounded px-1 py-0.5"
+				class:italic={isHours(node)}
+				data-unit={isHours(node) ? 'hours' : undefined}
+				title={isHours(node) ? hoursTitle : undefined}
 				value={node.minEffort ?? ''}
 				data-cell="{pathKey(ctx.path)}-1"
 				onkeydown={(e) => onKeyDown(e, ctx.path, 1)}
@@ -375,7 +392,12 @@
 				}}
 			/>
 		{:else}
-			<span class="tabular-nums">{node.minEffort ?? ''}</span>
+			<span
+				class="tabular-nums"
+				class:italic={isHours(node)}
+				data-unit={isHours(node) ? 'hours' : undefined}
+				title={isHours(node) ? hoursTitle : undefined}>{node.minEffort ?? ''}</span
+			>
 		{/if}
 	{/if}
 {/snippet}
@@ -388,6 +410,9 @@
 				step="0.1"
 				min="0"
 				class="w-full text-right bg-transparent focus:outline-none focus:bg-brand-green/5 focus:ring-1 focus:ring-brand-green/40 rounded px-1 py-0.5"
+				class:italic={isHours(node)}
+				data-unit={isHours(node) ? 'hours' : undefined}
+				title={isHours(node) ? hoursTitle : undefined}
 				value={node.expectedEffort ?? ''}
 				data-cell="{pathKey(ctx.path)}-2"
 				onkeydown={(e) => onKeyDown(e, ctx.path, 2)}
@@ -397,7 +422,12 @@
 				}}
 			/>
 		{:else}
-			<span class="tabular-nums">{node.expectedEffort ?? ''}</span>
+			<span
+				class="tabular-nums"
+				class:italic={isHours(node)}
+				data-unit={isHours(node) ? 'hours' : undefined}
+				title={isHours(node) ? hoursTitle : undefined}>{node.expectedEffort ?? ''}</span
+			>
 		{/if}
 	{/if}
 {/snippet}
@@ -410,6 +440,9 @@
 				step="0.1"
 				min="0"
 				class="w-full text-right bg-transparent focus:outline-none focus:bg-brand-green/5 focus:ring-1 focus:ring-brand-green/40 rounded px-1 py-0.5"
+				class:italic={isHours(node)}
+				data-unit={isHours(node) ? 'hours' : undefined}
+				title={isHours(node) ? hoursTitle : undefined}
 				value={node.maxEffort ?? ''}
 				data-cell="{pathKey(ctx.path)}-3"
 				onkeydown={(e) => onKeyDown(e, ctx.path, 3)}
@@ -419,14 +452,24 @@
 				}}
 			/>
 		{:else}
-			<span class="tabular-nums">{node.maxEffort ?? ''}</span>
+			<span
+				class="tabular-nums"
+				class:italic={isHours(node)}
+				data-unit={isHours(node) ? 'hours' : undefined}
+				title={isHours(node) ? hoursTitle : undefined}>{node.maxEffort ?? ''}</span
+			>
 		{/if}
 	{/if}
 {/snippet}
 
 {#snippet pertCell(node: Node, _ctx: TreeNodeContext<Node>)}
 	{#if node.type !== 'GROUP'}
-		<span class="text-brand-green tabular-nums">
+		<span
+			class="text-brand-green tabular-nums"
+			class:italic={isHours(node)}
+			data-unit={isHours(node) ? 'hours' : undefined}
+			title={isHours(node) ? hoursTitle : undefined}
+		>
 			{num(pert(node.minEffort, node.expectedEffort, node.maxEffort), 2)}
 		</span>
 	{/if}

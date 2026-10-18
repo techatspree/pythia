@@ -1,5 +1,6 @@
 package io.pythia.domain.system
 
+import io.pythia.model.EstimationDefaults
 import jakarta.persistence.CheckConstraint
 import jakarta.persistence.Column
 import jakarta.persistence.Entity
@@ -23,7 +24,13 @@ import java.time.Instant
 @Entity
 @Table(
     name = "system_settings",
-    check = [CheckConstraint(name = "ck_system_settings_singleton", constraint = "id = 1")]
+    check = [
+        CheckConstraint(name = "ck_system_settings_singleton", constraint = "id = 1"),
+        CheckConstraint(
+            name = "ck_system_settings_hours_per_day",
+            constraint = "hours_per_day > 0 AND hours_per_day <= 24"
+        )
+    ]
 )
 class SystemSettings {
 
@@ -50,6 +57,11 @@ class SystemSettings {
 
     @Column(name = "updated_at")
     var updatedAt: Instant? = null
+
+    // Hours of a working day (task-213): accompanying work's hours per week are
+    // divided by this to become person-days. Mirrored from V21, CHECK included.
+    @Column(name = "hours_per_day", nullable = false)
+    var hoursPerDay: Double = EstimationDefaults.HOURS_PER_DAY
 
     @PrePersist
     fun onPrePersist() {

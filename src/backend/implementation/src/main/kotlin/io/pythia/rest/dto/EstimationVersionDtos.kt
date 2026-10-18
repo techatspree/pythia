@@ -31,7 +31,11 @@ data class EstimationVersionDto(
     // Schedule inputs (task-156). The frontend feeds these straight back into
     // the domain's scheduleVersion(version, dependencies, teamFte).
     val teamFte: Double,
-    val dependencies: List<ScheduleDependencyDto>
+    val dependencies: List<ScheduleDependencyDto>,
+    // Hours of a working day the version is calculated with (task-213): for a
+    // draft the current tenant setting, for a submitted version the stored one.
+    // NULL only for a version submitted before the conversion existed.
+    val hoursPerDay: Double?
 )
 
 /** One finish-to-start edge between two ROOT nodes, by `logicalId`. */

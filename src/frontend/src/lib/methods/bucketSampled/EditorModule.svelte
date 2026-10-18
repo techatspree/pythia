@@ -2,7 +2,8 @@
 	import Button from '$lib/ui/Button.svelte';
 	import type { Snippet } from 'svelte';
 	import { _, locale } from 'svelte-i18n';
-	import { formatFixed, DEFAULT_LOCALE } from '$lib/format';
+	import { formatFixed, formatNumber, DEFAULT_LOCALE } from '$lib/format';
+	import { EstimationDefaults } from '$lib/domain/domain.mjs';
 	import TreeTable from '$lib/components/treetable/TreeTable.svelte';
 	import type {
 		ChildrenChangeEvent,
@@ -71,6 +72,7 @@
 		totals: _totals = undefined,
 		criticalPath = EMPTY_CRITICAL_PATH,
 		phaseWindows = [],
+		hoursPerDay = EstimationDefaults.getInstance().HOURS_PER_DAY,
 		editable
 	}: {
 		roots: Node[];
@@ -86,8 +88,20 @@
 		criticalPath?: ReadonlySet<string>;
 		/** Phase spans from the levelled plan (task-177). */
 		phaseWindows?: { abbreviation: string; scheduledLeafCount: number; durationWeeks: number }[];
+		/** Hours of a working day this version is calculated with (task-213); only for the tooltip. */
+		hoursPerDay?: number;
 		editable: boolean;
 	} = $props();
+
+	// Accompanying work is entered in HOURS per week (task-213): its effort cells
+	// are shown in italics with data-unit="hours" and a tooltip; values in
+	// person-days keep the normal font.
+	const isHours = (n: Leaf) => n.type === 'TIME_RELATIVE';
+	const hoursTitle = $derived(
+		$_('grid.hoursPerWeekTitle', {
+			values: { hours: formatNumber(hoursPerDay, $locale ?? DEFAULT_LOCALE) }
+		})
+	);
 
 	$effect(() => {
 		log.debug('Bucket+sampled editor module mounted');
@@ -522,6 +536,9 @@
 		step="0.1"
 		min="0"
 		class="w-full text-right bg-transparent focus:outline-none focus:bg-brand-green/5 focus:ring-1 focus:ring-brand-green/40 rounded px-1 py-0.5"
+		class:italic={isHours(node)}
+		data-unit={isHours(node) ? 'hours' : undefined}
+		title={isHours(node) ? hoursTitle : undefined}
 		value={node[field] ?? ''}
 		oninput={(e) => (node[field] = e.currentTarget.value === '' ? null : parseFloat(e.currentTarget.value))}
 	/>
@@ -532,7 +549,12 @@
 {#snippet leafNumber(node: Leaf, field: 'minEffort' | 'expectedEffort' | 'maxEffort')}
 	{#if node.isSample || node.type === 'TIME_RELATIVE'}
 		{#if !editable}
-			<span class="tabular-nums">{node[field] ?? ''}</span>
+			<span
+				class="tabular-nums"
+				class:italic={isHours(node)}
+				data-unit={isHours(node) ? 'hours' : undefined}
+				title={isHours(node) ? hoursTitle : undefined}>{node[field] ?? ''}</span
+			>
 		{:else if node.type === 'TIME_RELATIVE' && field === 'minEffort'}
 			<!-- The e2e handle for editing accompanying work; `contents` keeps the
 			     input itself the grid item. -->

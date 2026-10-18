@@ -110,3 +110,8 @@ export function labelsByLogicalId(roots: Node[]): Map<string, string> {
 	walk(roots);
 	return out;
 }
+
+/** True when any leaf in the tree has this type — e.g. accompanying work (task-213). */
+export function hasLeafOfType(roots: Node[], type: Leaf['type']): boolean {
+	return roots.some((n) => (n.type === 'GROUP' ? hasLeafOfType(n.children, type) : n.type === type));
+}

@@ -8,6 +8,7 @@
 	import {
 		getSystemSettings,
 		updateSystemSettings,
+		updateHoursPerDay,
 		getStandardDrivers,
 		replaceStandardDrivers,
 		uploadSystemCss,
@@ -22,6 +23,9 @@
 	// name, the standard effort-driver template, and the custom stylesheet.
 	let settings = $state<SystemSettingsDto | null>(null);
 	let displayName = $state('');
+	// Hours of a working day (task-213). Bound to a number input, which yields
+	// null while the field is empty.
+	let hoursPerDay = $state<number | null>(null);
 	let drivers = $state<EffortDriverDto[]>([]);
 	let bannerMessage = $state<string | null>(null);
 	let notice = $state<string | null>(null);
@@ -33,6 +37,7 @@
 		try {
 			settings = await getSystemSettings();
 			displayName = settings.displayName ?? '';
+			hoursPerDay = settings.hoursPerDay;
 			drivers = await getStandardDrivers();
 		} catch (e: unknown) {
 			log.error('admin/system: load failed', e);
@@ -52,6 +57,26 @@
 			notice = $_('admin.system.nameSaved');
 		} catch (e: unknown) {
 			log.error('admin/system: saving the display name failed', e);
+			bannerMessage = e instanceof Error ? e.message : String(e);
+		}
+	}
+
+	// The backend enforces (0, 24] as well (400); checking here only spares the
+	// round trip and gives the translated message.
+	async function saveHoursPerDay() {
+		notice = null;
+		if (hoursPerDay == null || !(hoursPerDay > 0 && hoursPerDay <= 24)) {
+			bannerMessage = $_('admin.system.hoursInvalid');
+			return;
+		}
+		try {
+			await updateHoursPerDay(hoursPerDay);
+			settings = await getSystemSettings();
+			system.apply(settings);
+			notice = $_('admin.system.hoursSaved');
+			log.info('admin/system: hours per working day saved', { hoursPerDay });
+		} catch (e: unknown) {
+			log.error('admin/system: saving the hours per working day failed', e);
 			bannerMessage = e instanceof Error ? e.message : String(e);
 		}
 	}
@@ -155,6 +180,29 @@
 				
 				>
 					{$_('admin.system.nameSave')}
+				</Button>
+			</div>
+		</section>
+
+		<section class="mb-8 border rounded-lg p-4 bg-white">
+			<h2 class="text-lg font-semibold mb-1">{$_('admin.system.hoursSection')}</h2>
+			<p class="text-sm text-ink-muted mb-3">{$_('admin.system.hoursHint')}</p>
+			<label class="block text-sm mb-1" for="system-hours-per-day"
+				>{$_('admin.system.hoursLabel')}</label
+			>
+			<input
+				id="system-hours-per-day"
+				data-testid="system.hours-per-day"
+				type="number"
+				step="0.25"
+				min="0.25"
+				max="24"
+				bind:value={hoursPerDay}
+				class="border rounded px-2 py-1 w-32 mb-3"
+			/>
+			<div>
+				<Button data-testid="system.save-hours-per-day" onclick={saveHoursPerDay}>
+					{$_('admin.system.hoursSave')}
 				</Button>
 			</div>
 		</section>

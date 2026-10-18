@@ -11,10 +11,11 @@
 	import ErrorBanner from '$lib/components/ErrorBanner.svelte';
 	import UndoHistoryPanel, { relativeTime } from '$lib/components/UndoHistoryPanel.svelte';
 	import UndoConflictDialog from '$lib/components/UndoConflictDialog.svelte';
-	import { computeEstimation, ZERO_TOTALS } from '$lib/adapter.js';
+	import { calculationHoursPerDay, computeEstimation, ZERO_TOTALS } from '$lib/adapter.js';
+	import { system } from '$lib/stores/system.svelte';
 	import type { ScheduleEdge } from '$lib/adapter.js';
 	import EstimationSummaryPanel from '$lib/components/EstimationSummaryPanel.svelte';
-	import { normalizeRoots, type CalcEntry } from '$lib/estimationNodes';
+	import { hasLeafOfType, normalizeRoots, type CalcEntry } from '$lib/estimationNodes';
 	import { log } from '$lib/log';
 	import type { ApiVersionResponse, ApiAdditionalCost } from '$lib/api/types.js';
 	import type { components } from '$lib/api/schema';
@@ -145,6 +146,10 @@
 	// One domain round-trip per edit: the version is built and calculated once,
 	// and both the per-node calc map and the whole-estimation totals are read off
 	// that single result.
+	// task-213: which hours per working day this version is calculated with.
+	const hoursPerDay = $derived(calculationHoursPerDay(versionData, system.hoursPerDay));
+	const hasAccompanyingWork = $derived(hasLeafOfType(currentRoots, 'TIME_RELATIVE'));
+
 	const estimation = $derived.by(() => {
 		try {
 			return computeEstimation(
@@ -152,7 +157,8 @@
 				{
 					dailyRate: currentDailyRate,
 					stdDevFactor: currentStdDevFactor,
-					salesSurcharge: currentSalesSurcharge
+					salesSurcharge: currentSalesSurcharge,
+					hoursPerDay
 				},
 				currentDrivers,
 				currentPhases,
@@ -484,7 +490,11 @@
 			<p class="mb-4 text-sm text-ink-muted italic">{versionData.notes}</p>
 		{/if}
 
-		<EstimationSummaryPanel {totals} />
+		<EstimationSummaryPanel
+			{totals}
+			{hasAccompanyingWork}
+			hoursPerDay={versionData.isDraft ? system.hoursPerDay : versionData.hoursPerDay}
+		/>
 
 		<!-- Schedule (task-157). The two figures below are DIFFERENT
 		     measurements and are deliberately not merged into one range: the
@@ -582,6 +592,7 @@
 				{totals}
 				{criticalPath}
 				phaseWindows={schedule?.phaseWindows ?? []}
+				{hoursPerDay}
 				editable={versionData.isDraft}
 			/>
 		{:else}

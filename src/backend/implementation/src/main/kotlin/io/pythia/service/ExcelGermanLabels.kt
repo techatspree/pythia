@@ -88,6 +88,11 @@ object ExcelGermanLabels {
         const val DAILY_RATE = "Tagessatz"
         const val STD_DEV_FACTOR = "Standardabweichungsfaktor"
         const val SALES_SURCHARGE = "Vertriebszuschlag"
+
+        // task-213: the basis that turned accompanying work's hours into
+        // person-days. Export-only; the importer ignores it (an imported draft
+        // follows the tenant setting).
+        const val HOURS_PER_DAY = "Stunden pro Arbeitstag"
     }
 
     /** Vocabulary of the Aufwandstreiber sheet — the summary end marker plus column headers. */

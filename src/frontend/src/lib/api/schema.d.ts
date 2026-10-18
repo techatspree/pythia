@@ -2882,6 +2882,65 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/system/hours-per-day": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Admin: set the hours of a working day (converts accompanying work's hours to person-days) */
+        put: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["SystemSettingsHoursPerDayDto"];
+                };
+            };
+            responses: {
+                /** @description Stored */
+                204: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Not greater than 0 and at most 24 */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Not Authorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Not an administrator */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/users": {
         parameters: {
             query?: never;
@@ -3198,6 +3257,8 @@ export interface components {
             /** Format: double */
             teamFte: number;
             dependencies: components["schemas"]["ScheduleDependencyDto"][];
+            /** Format: double */
+            hoursPerDay: number | null;
         };
         EstimationVersionSummaryDto: {
             /** Format: int32 */
@@ -3370,6 +3431,12 @@ export interface components {
             hasCustomCss: boolean;
             customCssFilename: string | null;
             customCssUpdatedAt: string | null;
+            /** Format: double */
+            hoursPerDay: number;
+        };
+        SystemSettingsHoursPerDayDto: {
+            /** Format: double */
+            hoursPerDay: number;
         };
         SystemSettingsUpdateDto: {
             displayName?: string | null;

@@ -5,7 +5,9 @@ import io.pythia.repository.SystemSettingsRepository
 import io.quarkus.logging.Log
 import io.quarkus.runtime.StartupEvent
 import jakarta.enterprise.context.ApplicationScoped
+import jakarta.annotation.Priority
 import jakarta.enterprise.event.Observes
+import jakarta.interceptor.Interceptor
 import jakarta.transaction.Transactional
 
 // Guarantees the singleton system_settings row exists, in EVERY profile
@@ -24,7 +26,12 @@ class SystemSettingsBootstrap(
 
     @Transactional
     @Suppress("UnusedParameter")
-    fun onStart(@Observes event: StartupEvent) {
+    // `@Priority` is REQUIRED since task-213: TestDataSeeder observes the same
+    // StartupEvent at `@Priority(1)` and submits drafts, and submitting now READS
+    // the hours per working day from this row. Without a lower number this ran
+    // AFTER the seeder and the dev backend failed to boot with "system_settings
+    // row 1 is missing" — the same trap MethodRegistryBootstrap documents.
+    fun onStart(@Observes @Priority(Interceptor.Priority.PLATFORM_BEFORE) event: StartupEvent) {
         if (settingsRepository.findById(SystemSettings.SINGLETON_ID) == null) {
             settingsRepository.persist(SystemSettings())
             Log.info("Created the singleton system_settings row (schema had none)")

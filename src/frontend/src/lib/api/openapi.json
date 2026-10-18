@@ -711,7 +711,7 @@
       },
       "EstimationVersionDto" : {
         "type" : "object",
-        "required" : [ "versionNumber", "isDraft", "totalEffort", "notes", "createdAt", "submittedAt", "dailyRate", "stdDevFactor", "salesSurcharge", "effortDrivers", "phases", "roots", "additionalCosts", "teamFte", "dependencies" ],
+        "required" : [ "versionNumber", "isDraft", "totalEffort", "notes", "createdAt", "submittedAt", "dailyRate", "stdDevFactor", "salesSurcharge", "effortDrivers", "phases", "roots", "additionalCosts", "teamFte", "dependencies", "hoursPerDay" ],
         "properties" : {
           "versionNumber" : {
             "type" : "integer",
@@ -786,6 +786,10 @@
             "items" : {
               "$ref" : "#/components/schemas/ScheduleDependencyDto"
             }
+          },
+          "hoursPerDay" : {
+            "type" : [ "number", "null" ],
+            "format" : "double"
           }
         }
       },
@@ -1305,7 +1309,7 @@
       },
       "SystemSettingsDto" : {
         "type" : "object",
-        "required" : [ "displayName", "hasCustomCss", "customCssFilename", "customCssUpdatedAt" ],
+        "required" : [ "displayName", "hasCustomCss", "customCssFilename", "customCssUpdatedAt", "hoursPerDay" ],
         "properties" : {
           "displayName" : {
             "type" : [ "string", "null" ]
@@ -1318,6 +1322,20 @@
           },
           "customCssUpdatedAt" : {
             "type" : [ "string", "null" ]
+          },
+          "hoursPerDay" : {
+            "type" : "number",
+            "format" : "double"
+          }
+        }
+      },
+      "SystemSettingsHoursPerDayDto" : {
+        "type" : "object",
+        "required" : [ "hoursPerDay" ],
+        "properties" : {
+          "hoursPerDay" : {
+            "type" : "number",
+            "format" : "double"
           }
         }
       },
@@ -3517,6 +3535,39 @@
         },
         "security" : [ {
           "SecurityScheme" : [ "VIEWER" ]
+        } ]
+      }
+    },
+    "/api/system/hours-per-day" : {
+      "put" : {
+        "summary" : "Admin: set the hours of a working day (converts accompanying work's hours to person-days)",
+        "tags" : [ "System" ],
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/SystemSettingsHoursPerDayDto"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "204" : {
+            "description" : "Stored"
+          },
+          "400" : {
+            "description" : "Not greater than 0 and at most 24"
+          },
+          "403" : {
+            "description" : "Not an administrator"
+          },
+          "401" : {
+            "description" : "Not Authorized"
+          }
+        },
+        "security" : [ {
+          "SecurityScheme" : [ "ADMIN" ]
         } ]
       }
     },

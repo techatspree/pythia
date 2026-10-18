@@ -42,7 +42,8 @@ fun SubmittedEstimationVersion.toDto() = EstimationVersionDto(
     roots = roots.map { it.toDto() },
     additionalCosts = additionalCosts.map { it.toDto() },
     teamFte = teamFte,
-    dependencies = scheduleDependencies.map { it.toDto() }
+    dependencies = scheduleDependencies.map { it.toDto() },
+    hoursPerDay = hoursPerDay
 )
 
 fun SubmittedScheduleDependency.toDto() = ScheduleDependencyDto(
@@ -72,7 +73,8 @@ fun DraftEstimationVersion.toDto(calculated: EstimationVersion): EstimationVersi
         roots = roots.map { it.toDtoWithCalc(calcMap) },
         additionalCosts = additionalCosts.map { it.toDto() },
         teamFte = teamFte,
-        dependencies = scheduleDependencies.map { it.toDto() }
+        dependencies = scheduleDependencies.map { it.toDto() },
+        hoursPerDay = calculated.hoursPerDay
     )
 }
 

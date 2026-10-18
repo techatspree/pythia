@@ -11,7 +11,8 @@
 	import ErrorBanner from '$lib/components/ErrorBanner.svelte';
 	import DependencyEditor from '$lib/components/schedule/DependencyEditor.svelte';
 	import GanttChart from '$lib/components/schedule/GanttChart.svelte';
-	import { computeEstimation, type ScheduleEdge } from '$lib/adapter.js';
+	import { calculationHoursPerDay, computeEstimation, type ScheduleEdge } from '$lib/adapter.js';
+	import { system } from '$lib/stores/system.svelte';
 	import { normalizeRoots, labelsByLogicalId, type Node } from '$lib/estimationNodes';
 	import type { ApiVersionResponse } from '$lib/api/types.js';
 
@@ -86,6 +87,10 @@
 	 * a hand-rolled traversal here would disagree with the thing that decides.
 	 * One extra build+calculate per DROP is fine; a drop is human-paced.
 	 */
+	// task-213: the same hours-per-day rule as the version editor, so the risk
+	// factor — and with it every duration — matches what the editor shows.
+	const hoursPerDay = $derived(calculationHoursPerDay(versionData, system.hoursPerDay));
+
 	function cycleCheck(candidate: ScheduleEdge[]): string[] | null {
 		try {
 			const probe = computeEstimation(
@@ -93,7 +98,8 @@
 				{
 					dailyRate: currentDailyRate,
 					stdDevFactor: currentStdDevFactor,
-					salesSurcharge: currentSalesSurcharge
+					salesSurcharge: currentSalesSurcharge,
+					hoursPerDay
 				},
 				currentDrivers,
 				currentPhases,
@@ -120,7 +126,8 @@
 				{
 					dailyRate: currentDailyRate,
 					stdDevFactor: currentStdDevFactor,
-					salesSurcharge: currentSalesSurcharge
+					salesSurcharge: currentSalesSurcharge,
+					hoursPerDay
 				},
 				currentDrivers,
 				currentPhases,

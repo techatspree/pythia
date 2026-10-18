@@ -189,4 +189,34 @@ class ExcelImporterTreeTest {
         assertEquals(1.0, sample.minEffort)
         assertEquals(3.0, sample.maxEffort)
     }
+
+    // task-213: the "Parameter" sheet records the hours per working day the
+    // version was calculated with, and leaves the row out for a version
+    // submitted before the conversion (NULL). The importer ignores the row:
+    // an imported draft follows the tenant setting like every other draft.
+    @Test
+    fun `the parameter sheet records hours per day, omits a legacy null, and import ignores it`() {
+        fun parameterRows(source: io.pythia.domain.submitted.SubmittedEstimationVersion): Map<String, Double> {
+            val xlsx = ByteArrayOutputStream()
+            exporter.export(source, EstimationMethod.THREE_POINT_PERT, emptyList(), xlsx)
+            val sheet = org.apache.poi.xssf.usermodel.XSSFWorkbook(ByteArrayInputStream(xlsx.toByteArray()))
+                .getSheet(ExcelGermanLabels.Sheets.PARAMETERS)
+            return (1..sheet.lastRowNum).mapNotNull { sheet.getRow(it) }
+                .associate { it.getCell(0).stringCellValue to it.getCell(1).numericCellValue }
+        }
+
+        val legacy = TreeFixtures.threeLevel()
+        assertNull(legacy.hoursPerDay)
+        assertTrue(ExcelGermanLabels.Parameters.HOURS_PER_DAY !in parameterRows(legacy))
+
+        val recorded = TreeFixtures.threeLevel().apply { hoursPerDay = 7.5 }
+        assertEquals(7.5, parameterRows(recorded)[ExcelGermanLabels.Parameters.HOURS_PER_DAY])
+
+        val xlsx = ByteArrayOutputStream()
+        exporter.export(recorded, EstimationMethod.THREE_POINT_PERT, emptyList(), xlsx)
+        val draft = importer.import(ByteArrayInputStream(xlsx.toByteArray()), Estimation(), versionNumber = 1)
+        // The three real parameters still import; the hours row changes nothing.
+        assertEquals(recorded.dailyRate, draft.dailyRate)
+        assertEquals(1, draft.roots.size)
+    }
 }

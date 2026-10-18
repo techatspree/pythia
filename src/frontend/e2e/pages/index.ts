@@ -1,6 +1,7 @@
 export { AdditionalCostsPanel } from './AdditionalCostsPanel';
 export { BucketEditor } from './BucketEditor';
 export { ChangeOwnerDialog } from './ChangeOwnerDialog';
+export { ComparePage } from './ComparePage';
 export { CreateEstimationDialog } from './CreateEstimationDialog';
 export { CreateProjectDialog } from './CreateProjectDialog';
 export { DevLoginDialog } from './DevLoginDialog';
@@ -14,6 +15,7 @@ export { ProjectsListPage } from './ProjectsListPage';
 export { ReplaceDraftDialog } from './ReplaceDraftDialog';
 export { SessionRoomPage } from './SessionRoomPage';
 export { SessionSetupPage } from './SessionSetupPage';
+export { SystemSettingsPage } from './SystemSettingsPage';
 export { TreeTable } from './TreeTable';
 export { UndoConflictDialog } from './UndoConflictDialog';
 export { UndoHistoryPanel } from './UndoHistoryPanel';

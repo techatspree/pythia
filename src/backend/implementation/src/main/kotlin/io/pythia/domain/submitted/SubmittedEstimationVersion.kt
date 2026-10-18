@@ -3,6 +3,7 @@ package io.pythia.domain.submitted
 import io.pythia.model.EstimationDefaults
 import io.pythia.domain.Estimation
 import jakarta.persistence.CascadeType
+import jakarta.persistence.CheckConstraint
 import jakarta.persistence.Column
 import jakarta.persistence.Entity
 import jakarta.persistence.FetchType
@@ -22,7 +23,13 @@ import java.util.UUID
 @Entity
 @Table(
     name = "submitted_estimation_versions",
-    uniqueConstraints = [UniqueConstraint(columnNames = ["estimation_id", "version_number"])]
+    uniqueConstraints = [UniqueConstraint(columnNames = ["estimation_id", "version_number"])],
+    check = [
+        CheckConstraint(
+            name = "ck_submitted_versions_hours_per_day",
+            constraint = "hours_per_day IS NULL OR (hours_per_day > 0 AND hours_per_day <= 24)"
+        )
+    ]
 )
 class SubmittedEstimationVersion {
 
@@ -64,6 +71,12 @@ class SubmittedEstimationVersion {
     // different Gantt than the draft it came from.
     @Column(name = "team_fte", nullable = false)
     var teamFte: Double = 1.0
+
+    // The hours per working day this snapshot was calculated with (task-213).
+    // NULL for a version submitted BEFORE the conversion existed: its numbers
+    // counted hours as person-days, so no value would be true. Mirrored from V21.
+    @Column(name = "hours_per_day")
+    var hoursPerDay: Double? = null
 
     @OneToMany(mappedBy = "version", cascade = [CascadeType.ALL], orphanRemoval = true)
     var scheduleDependencies: MutableList<SubmittedScheduleDependency> = mutableListOf()

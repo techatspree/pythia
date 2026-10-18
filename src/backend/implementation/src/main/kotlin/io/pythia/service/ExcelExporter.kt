@@ -279,12 +279,15 @@ class ExcelExporter {
         headerRow.createCell(1).setCellValue(ExcelGermanLabels.Parameters.VALUE)
         headerRow.createCell(2).setCellValue(ExcelGermanLabels.Parameters.COMMENT)
 
-        // Three fixed rows — the parameters are typed fields, not user-named
-        // rows, so the sheet shape no longer depends on what a user typed.
-        listOf(
+        // Fixed rows — the parameters are typed fields, not user-named rows, so
+        // the sheet shape no longer depends on what a user typed. The hours per
+        // working day (task-213) is left out for a version submitted before the
+        // conversion existed, which has none.
+        listOfNotNull(
             ExcelGermanLabels.Parameters.DAILY_RATE to version.dailyRate,
             ExcelGermanLabels.Parameters.STD_DEV_FACTOR to version.stdDevFactor,
-            ExcelGermanLabels.Parameters.SALES_SURCHARGE to version.salesSurcharge
+            ExcelGermanLabels.Parameters.SALES_SURCHARGE to version.salesSurcharge,
+            version.hoursPerDay?.let { ExcelGermanLabels.Parameters.HOURS_PER_DAY to it }
         ).forEachIndexed { idx, (label, value) ->
             val row = sheet.createRow(idx + 1)
             row.createCell(0).setCellValue(label)

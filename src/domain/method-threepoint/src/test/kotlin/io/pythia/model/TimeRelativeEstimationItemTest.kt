@@ -32,16 +32,20 @@ class TimeRelativeEstimationItemTest {
     private fun fixedItem(min: Double = 2.0, exp: Double = 4.0, max: Double = 6.0) =
         FixedEstimationItem(_description = "Test", _minEffort = min, _expectedEffort = exp, _maxEffort = max)
 
+    // The inputs are HOURS per week (task-213): until then these tests asserted
+    // hours × weeks as person-days (16.0). Now that is divided by the hours of a
+    // working day, 8 by default.
+
     @Test
-    fun `mean scales by durationWeeks`() {
-        // PERT(2,4,6) = (2 + 16 + 6)/6 = 4.0, × 4 weeks = 16.0
-        assertEquals(16.0, trItem().mean, delta)
+    fun `mean scales by durationWeeks and converts hours to person-days`() {
+        // PERT(2,4,6) = (2 + 16 + 6)/6 = 4.0 h/week, × 4 weeks = 16 h, ÷ 8 h/day = 2.0 PT
+        assertEquals(2.0, trItem().mean, delta)
     }
 
     @Test
-    fun `variance scales by durationWeeks squared`() {
-        // PertCalc.variance(2,6) = ((6-2)/6)² = (4/9), × 16 = 64/9
-        val expected = PertCalculation.variance(2.0, 6.0) * 16.0
+    fun `variance scales by durationWeeks squared and hoursPerDay squared`() {
+        // PertCalc.variance(2,6) = ((6-2)/6)² = (4/9), × 16 weeks² ÷ 64 (h/day)²
+        val expected = PertCalculation.variance(2.0, 6.0) * 16.0 / 64.0
         assertEquals(expected, trItem().variance, delta)
     }
 
@@ -50,7 +54,14 @@ class TimeRelativeEstimationItemTest {
         val params = CalculationParameters(riskFactor = 0.0, totalDriverFactor = 0.0, dailyRate = 800.0, salesSurcharge = 0.1)
         val item = trItem().withCalculationParameters(params)
         assertEquals(item.mean, item.offerPT, delta)
-        assertEquals(16.0, item.offerPT, delta)
+        assertEquals(2.0, item.offerPT, delta)
+    }
+
+    @Test
+    fun `the hours of a working day come from the calculation parameters`() {
+        val item = trItem().withCalculationParameters(CalculationParameters(hoursPerDay = 6.0))
+        assertEquals(16.0 / 6.0, item.mean, delta)
+        assertEquals(PertCalculation.variance(2.0, 6.0) * 16.0 / 36.0, item.variance, delta)
     }
 
     @Test
@@ -93,13 +104,13 @@ class TimeRelativeEstimationItemTest {
         val calcTr = items.first { it.description == "TR" }
         val calcFixed = items.first { it.description == "Fixed" }
 
-        // totalMean = 16.0 + 4.0 = 20.0
-        // totalVariance = (4/9)*16 + (4/9) = (4/9)*17
-        val totalMean = 20.0
-        val totalVariance = PertCalculation.variance(2.0, 6.0) * 16.0 + PertCalculation.variance(2.0, 6.0)
+        // TR: 16 h ÷ 8 h/day = 2.0 PT (task-213); totalMean = 2.0 + 4.0 = 6.0
+        // totalVariance = (4/9)*16/64 + (4/9)
+        val totalMean = 6.0
+        val totalVariance = PertCalculation.variance(2.0, 6.0) * 16.0 / 64.0 + PertCalculation.variance(2.0, 6.0)
         val riskFactor = PertCalculation.riskFactor(totalMean, totalVariance, 2.0)
 
-        assertEquals(16.0 * (1 + riskFactor), calcTr.offerPT, delta)
+        assertEquals(2.0 * (1 + riskFactor), calcTr.offerPT, delta)
         assertEquals(4.0 * (1 + riskFactor), calcFixed.offerPT, delta)
     }
 }

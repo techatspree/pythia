@@ -43,6 +43,21 @@ export interface EstimationTotalsView {
 	recurringWithoutPhase: number;
 }
 
+/**
+ * The hours of a working day a version is CALCULATED with in the browser
+ * (task-213). A draft follows the tenant setting. A submitted version keeps the
+ * value it was submitted with, so its numbers never change when the setting
+ * does. A version submitted before the conversion existed (null) counted hours
+ * as person-days; a divisor of 1 reproduces exactly its stored numbers.
+ */
+export function calculationHoursPerDay(
+	version: { isDraft: boolean; hoursPerDay: number | null } | null,
+	tenantHoursPerDay: number
+): number {
+	if (!version || version.isDraft) return tenantHoursPerDay;
+	return version.hoursPerDay ?? 1;
+}
+
 export const ZERO_TOTALS: EstimationTotalsView = {
 	leafCount: 0,
 	meanPT: 0,
@@ -180,7 +195,9 @@ export interface EstimationComputation {
  */
 export function computeEstimation(
 	roots: EditingNode[],
-	params: { dailyRate: number; stdDevFactor: number; salesSurcharge: number },
+	// hoursPerDay (task-213) divides accompanying work's hours into person-days;
+	// omitted, the domain default applies.
+	params: { dailyRate: number; stdDevFactor: number; salesSurcharge: number; hoursPerDay?: number },
 	drivers: EditingDriver[],
 	phases: EditingPhase[],
 	additionalCosts: EditingAdditionalCost[] = [],
@@ -274,7 +291,9 @@ export function computeEstimation(
 		effortDrivers,
 		Array.from(phaseByAbbr.values()),
 		costs,
-		domainRoots
+		domainRoots,
+		// Trailing, like the factory parameter it fills (task-213).
+		params.hoursPerDay
 	);
 	const calculated = version.calculate();
 

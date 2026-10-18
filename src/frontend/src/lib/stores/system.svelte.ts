@@ -1,4 +1,5 @@
 import { getSystemSettings, type SystemSettingsDto } from '$lib/api/system';
+import { EstimationDefaults } from '$lib/domain/domain.mjs';
 import { log } from '$lib/log';
 
 // The installation's settings, loaded once at startup (task-146).
@@ -13,6 +14,14 @@ class SystemStore {
 	get displayName(): string | null {
 		const name = this.settings?.displayName?.trim();
 		return name ? name : null;
+	}
+
+	/**
+	 * Hours of a working day: accompanying work's hours are divided by it to
+	 * become person-days (task-213). The domain default until the settings load.
+	 */
+	get hoursPerDay(): number {
+		return this.settings?.hoursPerDay ?? EstimationDefaults.getInstance().HOURS_PER_DAY;
 	}
 
 	async load(): Promise<void> {

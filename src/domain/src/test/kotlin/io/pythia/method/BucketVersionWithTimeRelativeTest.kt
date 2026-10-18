@@ -53,8 +53,9 @@ class BucketVersionWithTimeRelativeTest {
 
         val leaves = version.roots.flatMap { it.leaves().toList() }
         val accompanying = leaves.filterIsInstance<TimeRelativeEstimationItem>().single()
-        // PERT(0.5, 1.0, 2.0) = 1.0833… per week, × 12 weeks.
-        assertEquals(13.0, accompanying.mean, delta)
+        // PERT(0.5, 1.0, 2.0) = 1.0833… hours per week, × 12 weeks = 13 h,
+        // ÷ 8 h per working day = 1.625 PT (task-213; it was 13.0 = hours as PT).
+        assertEquals(13.0 / 8.0, accompanying.mean, delta)
 
         // The non-sample still inherits its bucket's sample mean.
         val nonSample = leaves.filterIsInstance<BucketedEstimationItem>().single { !it.isSample }
@@ -62,6 +63,6 @@ class BucketVersionWithTimeRelativeTest {
 
         // And the version total is the sum of all three leaves.
         assertEquals(leaves.sumOf { it.mean }, version.roots.sumOf { it.mean }, delta)
-        assertEquals(17.0, version.roots.sumOf { it.mean }, delta)
+        assertEquals(2.0 + 2.0 + 13.0 / 8.0, version.roots.sumOf { it.mean }, delta)
     }
 }

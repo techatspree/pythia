@@ -10,7 +10,18 @@ data class SystemSettingsDto(
     val displayName: String?,
     val hasCustomCss: Boolean,
     val customCssFilename: String?,
-    val customCssUpdatedAt: String?
+    val customCssUpdatedAt: String?,
+    /** Hours of a working day: divides accompanying work's hours into person-days (task-213). */
+    val hoursPerDay: Double
+)
+
+/**
+ * Body of `PUT /api/system/hours-per-day` (task-213). Its own endpoint, not a
+ * field of `SystemSettingsUpdateDto`: there a null `displayName` means "clear
+ * the name", so an hours-only PUT would wipe it.
+ */
+data class SystemSettingsHoursPerDayDto(
+    val hoursPerDay: Double
 )
 
 data class SystemSettingsUpdateDto(

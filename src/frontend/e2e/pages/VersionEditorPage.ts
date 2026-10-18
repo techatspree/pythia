@@ -16,4 +16,20 @@ export class VersionEditorPage {
 	cell(coordinate: string): Locator {
 		return this.page.locator(`[data-cell="${coordinate}"]`);
 	}
+
+	/** A SUBMITTED version (no `?draft=true`). */
+	async gotoSubmitted(estimationId: string, versionNumber: number): Promise<void> {
+		await this.page.goto(`/estimations/${estimationId}/versions/${versionNumber}`);
+		await this.page.waitForLoadState('networkidle');
+	}
+
+	/** The summary panel's offer-PT figure, as rendered (parse with `parseNumber`). */
+	get summaryOfferPT(): Locator {
+		return this.page.getByTestId('version-summary.offerPT');
+	}
+
+	/** The summary panel's conversion-basis line (task-213). */
+	get summaryHoursPerDay(): Locator {
+		return this.page.getByTestId('version-summary.hours-per-day');
+	}
 }

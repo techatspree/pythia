@@ -27,6 +27,16 @@ export async function updateSystemSettings(displayName: string | null): Promise<
 	await assertOk(res, 'Failed to save the system settings');
 }
 
+/** Admin: hours of a working day (task-213). Its own endpoint — see the backend DTO. */
+export async function updateHoursPerDay(hoursPerDay: number): Promise<void> {
+	const res = await apiFetch(`${BASE}/hours-per-day`, {
+		method: 'PUT',
+		headers: { 'Content-Type': 'application/json' },
+		body: JSON.stringify({ hoursPerDay })
+	});
+	await assertOk(res, 'Failed to save the hours per working day');
+}
+
 export async function getStandardDrivers(): Promise<EffortDriverDto[]> {
 	const res = await apiFetch(`${BASE}/effort-drivers`);
 	await assertOk(res, 'Failed to load the standard effort drivers');

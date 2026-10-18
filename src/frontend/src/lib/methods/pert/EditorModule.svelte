@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { EstimationDefaults } from '$lib/domain/domain.mjs';
 	import EstimationGrid from '$lib/components/EstimationGrid.svelte';
 	import ParametersPanel from '$lib/components/ParametersPanel.svelte';
 	import EffortDriversPanel from '$lib/components/EffortDriversPanel.svelte';
@@ -32,6 +33,7 @@
 		totals = ZERO_TOTALS,
 		criticalPath = EMPTY_CRITICAL_PATH,
 		phaseWindows = [],
+		hoursPerDay = EstimationDefaults.getInstance().HOURS_PER_DAY,
 		editable
 	}: {
 		roots: any[];
@@ -47,6 +49,8 @@
 		criticalPath?: ReadonlySet<string>;
 		/** Phase spans from the levelled plan (task-177). */
 		phaseWindows?: { abbreviation: string; scheduledLeafCount: number; durationWeeks: number }[];
+		/** Hours of a working day this version is calculated with (task-213). */
+		hoursPerDay?: number;
 		editable: boolean;
 	} = $props();
 </script>
@@ -59,4 +63,4 @@
 
 <AdditionalCostsPanel bind:costs={additionalCosts} {phases} {editable} />
 
-<EstimationGrid bind:roots {editable} {calcMap} {phases} {totals} {criticalPath} />
+<EstimationGrid bind:roots {editable} {calcMap} {phases} {totals} {criticalPath} {hoursPerDay} />

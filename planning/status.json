@@ -1263,10 +1263,10 @@
       "notes": "Seed the dev test-data generator with a fixed number so every fresh dev database is identical"
     },
     "task-213": {
-      "status": "pending",
-      "started_at": null,
-      "completed_at": null,
-      "notes": "Accompanying work: h/Woche inputs are summed as person-days without conversion — investigate, decide with the user, write the fix task"
+      "status": "done",
+      "started_at": "2026-10-15T17:18:59+00:00",
+      "completed_at": "2026-10-15T17:38:20+00:00",
+      "notes": "Accompanying work: h/Woche inputs are hours — divide by a per-tenant hours-per-day (default 8, admin-editable); hours shown in italics. Decided by the user 2026-10-15."
     },
     "task-214": {
       "status": "pending",

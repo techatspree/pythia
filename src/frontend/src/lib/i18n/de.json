@@ -64,7 +64,8 @@
       "useDefaults": "Standardwerte verwenden",
       "dailyRate": "Tagessatz (€/PT)",
       "stdDevFactor": "Standardabweichungsfaktor",
-      "salesSurcharge": "Vertriebszuschlag"
+      "salesSurcharge": "Vertriebszuschlag",
+      "hoursPerDay": "Stunden pro Arbeitstag"
     },
     "effortDrivers": {
       "title": "Aufwandstreiber",
@@ -120,7 +121,9 @@
     "additionalRecurring": "Zusatzkosten laufend (EUR)",
     "salesSurcharge": "Vertriebszuschlag (EUR)",
     "totalOfferPrice": "Angebotspreis gesamt (EUR)",
-    "recurringWithoutPhase": "{count, plural, one {# laufende Zusatzkosten-Position hat} other {# laufende Zusatzkosten-Positionen haben}} kein Paket und {count, plural, one {geht} other {gehen}} deshalb mit 0 EUR in die Summe ein."
+    "recurringWithoutPhase": "{count, plural, one {# laufende Zusatzkosten-Position hat} other {# laufende Zusatzkosten-Positionen haben}} kein Paket und {count, plural, one {geht} other {gehen}} deshalb mit 0 EUR in die Summe ein.",
+    "hoursPerDay": "Begleitende Leistungen: Stunden ÷ {hours} Std. pro Arbeitstag",
+    "hoursPerDayLegacy": "Begleitende Leistungen: vor der Umrechnung berechnet – Stunden zählen hier als Personentage"
   },
   "schedule": {
     "title": "Terminplan",
@@ -205,7 +208,8 @@
     "actionDeleteRow": "Zeile löschen",
     "ariaRootNodes": "Wurzelknoten der Schätzung",
     "ariaChildrenOf": "Unterelemente von {title}",
-    "ariaChildren": "Unterelemente"
+    "ariaChildren": "Unterelemente",
+    "hoursPerWeekTitle": "Stunden pro Woche – umgerechnet in Personentage mit {hours} Std. pro Arbeitstag"
   },
   "method": {
     "popover": {
@@ -562,7 +566,13 @@
       "cssRemove": "Stylesheet entfernen",
       "cssRemoved": "Stylesheet entfernt.",
       "cssUploaded": "Stylesheet gespeichert. Die Seite wird neu geladen.",
-      "loading": "Einstellungen werden geladen…"
+      "loading": "Einstellungen werden geladen…",
+      "hoursSection": "Arbeitszeit",
+      "hoursHint": "Wird verwendet, um begleitende Leistungen (h/Woche) in Personentage umzurechnen: Stunden ÷ Stunden pro Arbeitstag.",
+      "hoursLabel": "Stunden pro Arbeitstag",
+      "hoursSave": "Arbeitszeit speichern",
+      "hoursSaved": "Arbeitszeit gespeichert.",
+      "hoursInvalid": "Bitte eine Zahl größer als 0 und höchstens 24 eingeben."
     }
   }
 }

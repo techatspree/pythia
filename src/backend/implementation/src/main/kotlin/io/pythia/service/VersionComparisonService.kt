@@ -104,7 +104,11 @@ class VersionComparisonService {
         val pairs = listOf(
             Triple("dailyRate", versionA.dailyRate, versionB.dailyRate),
             Triple("stdDevFactor", versionA.stdDevFactor, versionB.stdDevFactor),
-            Triple("salesSurcharge", versionA.salesSurcharge, versionB.salesSurcharge)
+            Triple("salesSurcharge", versionA.salesSurcharge, versionB.salesSurcharge),
+            // The hours of a working day the two were calculated with (task-213).
+            // A difference changes every accompanying-work number, so it must show
+            // here rather than look like a re-estimate. NULL = before the conversion.
+            Triple("hoursPerDay", versionA.hoursPerDay, versionB.hoursPerDay)
         )
         return pairs.mapNotNull { (name, oldVal, newVal) ->
             if (oldVal != newVal) ParameterChangeDto(name, oldVal, newVal, "MODIFIED") else null

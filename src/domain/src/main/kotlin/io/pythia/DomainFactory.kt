@@ -142,7 +142,10 @@ fun createVersion(
     effortDrivers: Array<EffortDriver> = emptyArray(),
     phases: Array<ProjectPhase> = emptyArray(),
     additionalCosts: Array<AdditionalCost> = emptyArray(),
-    roots: Array<EstimationNode> = emptyArray()
+    roots: Array<EstimationNode> = emptyArray(),
+    // TRAILING on purpose (task-213): adapter.ts calls this factory positionally,
+    // so a parameter inserted earlier would shift every argument after it.
+    hoursPerDay: Double = EstimationDefaults.HOURS_PER_DAY
 ): EstimationVersion {
     ensureMethodsInstalled()
     return EstimationVersion(
@@ -152,6 +155,7 @@ fun createVersion(
         dailyRate = dailyRate,
         stdDevFactor = stdDevFactor,
         salesSurcharge = salesSurcharge,
+        hoursPerDay = hoursPerDay,
         effortDrivers = effortDrivers.toList(),
         phases = phases.toList(),
         additionalCosts = additionalCosts.toList(),
