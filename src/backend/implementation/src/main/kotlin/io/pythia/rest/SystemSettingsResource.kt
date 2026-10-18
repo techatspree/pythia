@@ -52,7 +52,7 @@ class SystemSettingsResource(
         responseCode = "200",
         content = [Content(schema = Schema(implementation = SystemSettingsDto::class))]
     )
-    fun get(): Response = Response.ok(toDto()).build()
+    fun getSystemSettings(): Response = Response.ok(toDto()).build()
 
     @PUT
     @Consumes(MediaType.APPLICATION_JSON)
@@ -60,7 +60,7 @@ class SystemSettingsResource(
     @Operation(summary = "Admin: set the installation's display name")
     @APIResponse(responseCode = "204", description = "Stored")
     @APIResponse(responseCode = "403", description = "Not an administrator")
-    fun update(body: SystemSettingsUpdateDto): Response {
+    fun updateSystemSettings(body: SystemSettingsUpdateDto): Response {
         Log.info("System settings updated by ${currentUserProvider.get().subjectId}")
         systemSettingsService.updateDisplayName(body.displayName)
         return Response.noContent().build()
@@ -73,7 +73,7 @@ class SystemSettingsResource(
     @Operation(summary = "The installation's custom stylesheet, if any")
     @APIResponse(responseCode = "200", description = "The stylesheet")
     @APIResponse(responseCode = "404", description = "No custom stylesheet is configured")
-    fun css(): Response {
+    fun getSystemCss(): Response {
         val css = systemSettingsService.settings().customCss
             ?: return Response.status(Response.Status.NOT_FOUND).build()
         // The browser pulls this in as an ordinary <link> stylesheet, so without
@@ -91,7 +91,7 @@ class SystemSettingsResource(
     @APIResponse(responseCode = "204", description = "Stored")
     @APIResponse(responseCode = "400", description = "The upload is empty or larger than 256 KB")
     @APIResponse(responseCode = "403", description = "Not an administrator")
-    fun uploadCss(@RestForm("file") file: FileUpload): Response {
+    fun uploadSystemCss(@RestForm("file") file: FileUpload): Response {
         Log.info("Custom CSS uploaded by ${currentUserProvider.get().subjectId}")
         systemSettingsService.storeCss(file.fileName(), file.uploadedFile().toFile().readText(Charsets.UTF_8))
         return Response.noContent().build()
@@ -103,7 +103,7 @@ class SystemSettingsResource(
     @Operation(summary = "Admin: remove the custom stylesheet")
     @APIResponse(responseCode = "204", description = "Removed")
     @APIResponse(responseCode = "403", description = "Not an administrator")
-    fun deleteCss(): Response {
+    fun deleteSystemCss(): Response {
         Log.info("Custom CSS removed by ${currentUserProvider.get().subjectId}")
         systemSettingsService.clearCss()
         return Response.noContent().build()
@@ -118,7 +118,7 @@ class SystemSettingsResource(
         responseCode = "200",
         content = [Content(schema = Schema(implementation = EffortDriverDto::class, type = SchemaType.ARRAY))]
     )
-    fun effortDrivers(): Response = Response.ok(driverDtos()).build()
+    fun getSystemEffortDrivers(): Response = Response.ok(driverDtos()).build()
 
     @PUT
     @Path("/effort-drivers")
@@ -131,7 +131,7 @@ class SystemSettingsResource(
         content = [Content(schema = Schema(implementation = EffortDriverDto::class, type = SchemaType.ARRAY))]
     )
     @APIResponse(responseCode = "403", description = "Not an administrator")
-    fun replaceEffortDrivers(body: List<EffortDriverDto>): Response {
+    fun replaceSystemEffortDrivers(body: List<EffortDriverDto>): Response {
         Log.info("Standard effort drivers replaced by ${currentUserProvider.get().subjectId} (n=${body.size})")
         systemSettingsService.replaceStandardDrivers(body)
         return Response.ok(driverDtos()).build()

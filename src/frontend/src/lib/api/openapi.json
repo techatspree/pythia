@@ -1510,6 +1510,7 @@
     "/api/admin/ping" : {
       "get" : {
         "summary" : "Admin-only canary that proves role enforcement",
+        "operationId" : "adminPing",
         "tags" : [ "Admin" ],
         "responses" : {
           "200" : {
@@ -1537,6 +1538,7 @@
     "/api/auth/me" : {
       "get" : {
         "summary" : "The current authenticated user",
+        "operationId" : "getCurrentUser",
         "tags" : [ "Auth" ],
         "parameters" : [ {
           "name" : "Accept-Language",
@@ -1566,6 +1568,7 @@
     "/api/auth/me/language" : {
       "put" : {
         "summary" : "Update the current user's language preference",
+        "operationId" : "updateCurrentUserLanguage",
         "tags" : [ "Auth" ],
         "requestBody" : {
           "content" : {
@@ -1593,6 +1596,7 @@
     "/api/estimations/{estimationId}/versions" : {
       "get" : {
         "summary" : "List versions (live draft first, then submitted snapshots)",
+        "operationId" : "listVersions",
         "tags" : [ "Estimation versions" ],
         "parameters" : [ {
           "name" : "estimationId",
@@ -1632,6 +1636,7 @@
       },
       "post" : {
         "summary" : "Create a draft version (cloned from the latest submitted, if any)",
+        "operationId" : "createDraft",
         "tags" : [ "Estimation versions" ],
         "parameters" : [ {
           "name" : "estimationId",
@@ -1673,6 +1678,7 @@
     "/api/estimations/{estimationId}/versions/draft" : {
       "put" : {
         "summary" : "Replace the draft's collections wholesale and record the mutation",
+        "operationId" : "updateDraft",
         "tags" : [ "Estimation versions" ],
         "parameters" : [ {
           "name" : "estimationId",
@@ -1722,6 +1728,7 @@
       },
       "get" : {
         "summary" : "Get the draft with on-the-fly calculated values",
+        "operationId" : "getDraft",
         "tags" : [ "Estimation versions" ],
         "parameters" : [ {
           "name" : "estimationId",
@@ -1758,6 +1765,7 @@
       },
       "delete" : {
         "summary" : "Delete the draft version",
+        "operationId" : "deleteDraft",
         "tags" : [ "Estimation versions" ],
         "parameters" : [ {
           "name" : "estimationId",
@@ -1789,6 +1797,7 @@
     "/api/estimations/{estimationId}/versions/draft/history" : {
       "get" : {
         "summary" : "The draft's mutation log (active and undone, ordered by sequence)",
+        "operationId" : "draftHistory",
         "tags" : [ "Estimation versions" ],
         "parameters" : [ {
           "name" : "estimationId",
@@ -1830,6 +1839,7 @@
     "/api/estimations/{estimationId}/versions/draft/redo" : {
       "post" : {
         "summary" : "Redo this user's last undone draft mutation",
+        "operationId" : "redoDraft",
         "tags" : [ "Estimation versions" ],
         "parameters" : [ {
           "name" : "estimationId",
@@ -1878,6 +1888,7 @@
     "/api/estimations/{estimationId}/versions/draft/submit" : {
       "post" : {
         "summary" : "Snapshot the draft into an immutable submitted version",
+        "operationId" : "submitDraft",
         "tags" : [ "Estimation versions" ],
         "parameters" : [ {
           "name" : "estimationId",
@@ -1916,6 +1927,7 @@
     "/api/estimations/{estimationId}/versions/draft/undo" : {
       "post" : {
         "summary" : "Undo this user's last draft mutation",
+        "operationId" : "undoDraft",
         "tags" : [ "Estimation versions" ],
         "parameters" : [ {
           "name" : "estimationId",
@@ -1964,6 +1976,7 @@
     "/api/estimations/{estimationId}/versions/import/merlin" : {
       "post" : {
         "summary" : "Import a Merlin project WBS as a new draft version (method-aware: tree for THREE_POINT_PERT, flattened bucketed leaves for BUCKET_SAMPLED_PERT)",
+        "operationId" : "importMerlin",
         "tags" : [ "Estimation versions" ],
         "parameters" : [ {
           "name" : "estimationId",
@@ -2025,6 +2038,7 @@
     "/api/estimations/{estimationId}/versions/import/xlsx" : {
       "post" : {
         "summary" : "Import an Excel workbook exported by this application as a new draft version (method-aware: the workbook must come from an estimation using the same method)",
+        "operationId" : "importXlsx",
         "tags" : [ "Estimation versions" ],
         "parameters" : [ {
           "name" : "estimationId",
@@ -2089,6 +2103,7 @@
     "/api/estimations/{estimationId}/versions/{versionA}/compare/{versionB}" : {
       "get" : {
         "summary" : "Diff two versions (use \"draft\" for the live draft)",
+        "operationId" : "compareVersions",
         "tags" : [ "Estimation versions" ],
         "parameters" : [ {
           "name" : "estimationId",
@@ -2141,6 +2156,7 @@
     "/api/estimations/{estimationId}/versions/{versionNumber}" : {
       "get" : {
         "summary" : "Read a submitted version (stored calculated values)",
+        "operationId" : "getSubmittedVersion",
         "tags" : [ "Estimation versions" ],
         "parameters" : [ {
           "name" : "estimationId",
@@ -2187,6 +2203,7 @@
     "/api/estimations/{estimationId}/versions/{versionNumber}/export" : {
       "get" : {
         "summary" : "Export a version as xlsx (octet-stream) or csv",
+        "operationId" : "exportVersion",
         "tags" : [ "Estimation versions" ],
         "parameters" : [ {
           "name" : "estimationId",
@@ -2240,6 +2257,7 @@
     "/api/estimations/{estimationId}/versions/{versionNumber}/export/merlin" : {
       "post" : {
         "summary" : "Write this version's calculated offerPT back into a COPY of an uploaded Merlin project and return it. Refuses with 409 when the document's WBS drifted from the estimation, unless overwriteStructure=true.",
+        "operationId" : "exportMerlin",
         "tags" : [ "Estimation versions" ],
         "parameters" : [ {
           "name" : "estimationId",
@@ -2319,6 +2337,7 @@
     "/api/estimations/{id}" : {
       "get" : {
         "summary" : "Get an estimation with its live draft total effort",
+        "operationId" : "getEstimation",
         "tags" : [ "Estimations" ],
         "parameters" : [ {
           "name" : "id",
@@ -2357,6 +2376,7 @@
     "/api/ping" : {
       "get" : {
         "summary" : "Unauthenticated liveness heartbeat",
+        "operationId" : "ping",
         "tags" : [ "Health" ],
         "responses" : {
           "200" : {
@@ -2373,6 +2393,7 @@
     "/api/projects" : {
       "get" : {
         "summary" : "List projects, optionally filtered by status and/or to the current user's own (owner=me)",
+        "operationId" : "listProjects",
         "tags" : [ "Projects" ],
         "parameters" : [ {
           "name" : "owner",
@@ -2423,6 +2444,7 @@
       },
       "post" : {
         "summary" : "Create a new project",
+        "operationId" : "createProject",
         "tags" : [ "Projects" ],
         "requestBody" : {
           "content" : {
@@ -2463,6 +2485,7 @@
     "/api/projects/{id}" : {
       "put" : {
         "summary" : "Update a project's metadata",
+        "operationId" : "updateProject",
         "tags" : [ "Projects" ],
         "parameters" : [ {
           "name" : "id",
@@ -2512,6 +2535,7 @@
       },
       "get" : {
         "summary" : "Get a single project with its estimations",
+        "operationId" : "getProject",
         "tags" : [ "Projects" ],
         "parameters" : [ {
           "name" : "id",
@@ -2550,6 +2574,7 @@
     "/api/projects/{id}/archive" : {
       "post" : {
         "summary" : "Archive a project",
+        "operationId" : "archiveProject",
         "tags" : [ "Projects" ],
         "parameters" : [ {
           "name" : "id",
@@ -2588,6 +2613,7 @@
     "/api/projects/{id}/estimations" : {
       "post" : {
         "summary" : "Create an estimation under a project",
+        "operationId" : "createEstimation",
         "tags" : [ "Projects" ],
         "parameters" : [ {
           "name" : "id",
@@ -2639,6 +2665,7 @@
     "/api/projects/{id}/owner" : {
       "put" : {
         "summary" : "Transfer the project to another owner (current owner or ADMIN only)",
+        "operationId" : "changeOwner",
         "tags" : [ "Projects" ],
         "parameters" : [ {
           "name" : "id",
@@ -2690,6 +2717,7 @@
     "/api/sessions" : {
       "get" : {
         "summary" : "List sessions — of one estimation when estimationId is given, otherwise all joinable (CREATED/RUNNING) sessions",
+        "operationId" : "listSessions",
         "tags" : [ "Estimation sessions" ],
         "parameters" : [ {
           "description" : "Filter to one estimation; omit for all joinable sessions",
@@ -2731,6 +2759,7 @@
       },
       "post" : {
         "summary" : "Create a session (the current user becomes the moderator)",
+        "operationId" : "createSession",
         "tags" : [ "Estimation sessions" ],
         "requestBody" : {
           "content" : {
@@ -2771,6 +2800,7 @@
     "/api/sessions/{id}" : {
       "get" : {
         "summary" : "Read a session (blind items expose only a vote count)",
+        "operationId" : "getSession",
         "tags" : [ "Estimation sessions" ],
         "parameters" : [ {
           "name" : "id",
@@ -2809,6 +2839,7 @@
     "/api/sessions/{id}/agree" : {
       "post" : {
         "summary" : "Estimator: mark agreement on the current item",
+        "operationId" : "agreeSessionItem",
         "tags" : [ "Estimation sessions" ],
         "parameters" : [ {
           "name" : "id",
@@ -2847,6 +2878,7 @@
     "/api/sessions/{id}/cancel" : {
       "post" : {
         "summary" : "Moderator: cancel the session",
+        "operationId" : "cancelSession",
         "tags" : [ "Estimation sessions" ],
         "parameters" : [ {
           "name" : "id",
@@ -2882,6 +2914,7 @@
     "/api/sessions/{id}/end-early" : {
       "post" : {
         "summary" : "Moderator: end the session before its last item, keeping the results so far",
+        "operationId" : "endSessionEarly",
         "tags" : [ "Estimation sessions" ],
         "parameters" : [ {
           "name" : "id",
@@ -2923,6 +2956,7 @@
     "/api/sessions/{id}/items/current/finalize" : {
       "post" : {
         "summary" : "Moderator: finalize the current item (writes back to the draft) and advance",
+        "operationId" : "finalizeSessionItem",
         "tags" : [ "Estimation sessions" ],
         "parameters" : [ {
           "name" : "id",
@@ -2961,6 +2995,7 @@
     "/api/sessions/{id}/items/current/notes" : {
       "put" : {
         "summary" : "Moderator: set the current item's discussion notes",
+        "operationId" : "updateSessionItemNotes",
         "tags" : [ "Estimation sessions" ],
         "parameters" : [ {
           "name" : "id",
@@ -3009,6 +3044,7 @@
     "/api/sessions/{id}/items/current/phase2" : {
       "post" : {
         "summary" : "Moderator: reveal — advance the current item to PHASE2",
+        "operationId" : "revealSessionItem",
         "tags" : [ "Estimation sessions" ],
         "parameters" : [ {
           "name" : "id",
@@ -3047,6 +3083,7 @@
     "/api/sessions/{id}/join" : {
       "post" : {
         "summary" : "Join the current user as an ESTIMATOR participant (idempotent)",
+        "operationId" : "joinSession",
         "tags" : [ "Estimation sessions" ],
         "parameters" : [ {
           "name" : "id",
@@ -3085,6 +3122,7 @@
     "/api/sessions/{id}/resume" : {
       "post" : {
         "summary" : "Moderator: resume a paused session (SUSPENDED → RUNNING)",
+        "operationId" : "resumeSession",
         "tags" : [ "Estimation sessions" ],
         "parameters" : [ {
           "name" : "id",
@@ -3126,6 +3164,7 @@
     "/api/sessions/{id}/start" : {
       "post" : {
         "summary" : "Moderator: start the session (CREATED → RUNNING)",
+        "operationId" : "startSession",
         "tags" : [ "Estimation sessions" ],
         "parameters" : [ {
           "name" : "id",
@@ -3164,6 +3203,7 @@
     "/api/sessions/{id}/suspend" : {
       "post" : {
         "summary" : "Moderator: pause the session (RUNNING → SUSPENDED), keeping all progress",
+        "operationId" : "suspendSession",
         "tags" : [ "Estimation sessions" ],
         "parameters" : [ {
           "name" : "id",
@@ -3205,6 +3245,7 @@
     "/api/sessions/{id}/votes" : {
       "post" : {
         "summary" : "Estimator: upsert a vote for the current item + current phase",
+        "operationId" : "voteSessionItem",
         "tags" : [ "Estimation sessions" ],
         "parameters" : [ {
           "name" : "id",
@@ -3256,6 +3297,7 @@
     "/api/sessions/{id}/votes/bucket" : {
       "post" : {
         "summary" : "Estimator: upsert a BUCKET vote for the current item + current phase",
+        "operationId" : "voteSessionItemBucket",
         "tags" : [ "Estimation sessions" ],
         "parameters" : [ {
           "name" : "id",
@@ -3307,6 +3349,7 @@
     "/api/sessions/{id}/ws-ticket" : {
       "post" : {
         "summary" : "Issue a short-lived single-use WebSocket handshake ticket for the current participant",
+        "operationId" : "createSessionWsTicket",
         "tags" : [ "Estimation sessions" ],
         "parameters" : [ {
           "name" : "id",
@@ -3345,6 +3388,7 @@
     "/api/system" : {
       "put" : {
         "summary" : "Admin: set the installation's display name",
+        "operationId" : "updateSystemSettings",
         "tags" : [ "System" ],
         "requestBody" : {
           "content" : {
@@ -3376,6 +3420,7 @@
       },
       "get" : {
         "summary" : "Read the installation's settings (unauthenticated: the login screen needs them)",
+        "operationId" : "getSystemSettings",
         "tags" : [ "System" ],
         "responses" : {
           "200" : {
@@ -3394,6 +3439,7 @@
     "/api/system/css" : {
       "put" : {
         "summary" : "Admin: upload a stylesheet that overrides the standard GUI styling",
+        "operationId" : "uploadSystemCss",
         "tags" : [ "System" ],
         "requestBody" : {
           "content" : {
@@ -3430,8 +3476,25 @@
           "SecurityScheme" : [ "ADMIN" ]
         } ]
       },
+      "get" : {
+        "summary" : "The installation's custom stylesheet, if any",
+        "operationId" : "getSystemCss",
+        "tags" : [ "System" ],
+        "responses" : {
+          "200" : {
+            "description" : "The stylesheet",
+            "content" : {
+              "text/css" : { }
+            }
+          },
+          "404" : {
+            "description" : "No custom stylesheet is configured"
+          }
+        }
+      },
       "delete" : {
         "summary" : "Admin: remove the custom stylesheet",
+        "operationId" : "deleteSystemCss",
         "tags" : [ "System" ],
         "responses" : {
           "204" : {
@@ -3447,26 +3510,12 @@
         "security" : [ {
           "SecurityScheme" : [ "ADMIN" ]
         } ]
-      },
-      "get" : {
-        "summary" : "The installation's custom stylesheet, if any",
-        "tags" : [ "System" ],
-        "responses" : {
-          "200" : {
-            "description" : "The stylesheet",
-            "content" : {
-              "text/css" : { }
-            }
-          },
-          "404" : {
-            "description" : "No custom stylesheet is configured"
-          }
-        }
       }
     },
     "/api/system/effort-drivers" : {
       "put" : {
         "summary" : "Admin: replace the standard effort drivers wholesale",
+        "operationId" : "replaceSystemEffortDrivers",
         "tags" : [ "System" ],
         "requestBody" : {
           "content" : {
@@ -3511,6 +3560,7 @@
       },
       "get" : {
         "summary" : "The installation's standard effort drivers",
+        "operationId" : "getSystemEffortDrivers",
         "tags" : [ "System" ],
         "responses" : {
           "200" : {
@@ -3541,6 +3591,7 @@
     "/api/system/hours-per-day" : {
       "put" : {
         "summary" : "Admin: set the hours of a working day (converts accompanying work's hours to person-days)",
+        "operationId" : "updateHoursPerDay",
         "tags" : [ "System" ],
         "requestBody" : {
           "content" : {
@@ -3574,6 +3625,7 @@
     "/api/users" : {
       "get" : {
         "summary" : "List all provisioned users, sorted by display name",
+        "operationId" : "listUsers",
         "tags" : [ "Users" ],
         "responses" : {
           "200" : {

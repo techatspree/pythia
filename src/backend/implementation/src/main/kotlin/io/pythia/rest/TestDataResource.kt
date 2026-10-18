@@ -38,7 +38,7 @@ class TestDataResource(
 
     @DELETE
     @Transactional
-    fun reset(): Map<String, Long> {
+    fun resetTestData(): Map<String, Long> {
         try {
             // Sessions FIRST. `EstimationSession` holds a plain @ManyToOne to
             // estimation with `nullable = false` and NO cascade from that side,

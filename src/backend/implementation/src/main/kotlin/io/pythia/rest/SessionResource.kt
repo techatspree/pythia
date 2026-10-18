@@ -55,7 +55,7 @@ class SessionResource(
     @APIResponse(responseCode = "200", content = [Content(schema = Schema(implementation = WsTicketDto::class))])
     @APIResponse(responseCode = "403", description = "Not a participant of the session")
     @APIResponse(responseCode = "404", description = "Session not found")
-    fun wsTicket(@PathParam("id") id: UUID): Response {
+    fun createSessionWsTicket(@PathParam("id") id: UUID): Response {
         val subjectId = currentUserProvider.get().subjectId
         sessionService.assertParticipant(id, subjectId)
         val ticket = ticketStore.issue(id, subjectId)
@@ -73,7 +73,7 @@ class SessionResource(
     )
     @APIResponse(responseCode = "400", description = "A logicalId is not a draft leaf, or the estimation has no draft")
     @APIResponse(responseCode = "403", description = "Not an ESTIMATOR")
-    fun create(body: CreateSessionRequest): Response {
+    fun createSession(body: CreateSessionRequest): Response {
         val user = currentUserProvider.get()
         val dto = sessionService.createSession(
             body.estimationId, body.title, body.itemLogicalIds, user.subjectId, user.displayName,
@@ -90,7 +90,7 @@ class SessionResource(
         content = [Content(schema = Schema(implementation = SessionDto::class))]
     )
     @APIResponse(responseCode = "404", description = "Session not found")
-    fun get(@PathParam("id") id: UUID): Response =
+    fun getSession(@PathParam("id") id: UUID): Response =
         Response.ok(sessionService.getSession(id)).build()
 
     @GET
@@ -102,7 +102,7 @@ class SessionResource(
         responseCode = "200",
         content = [Content(schema = Schema(type = SchemaType.ARRAY, implementation = SessionDto::class))]
     )
-    fun list(
+    fun listSessions(
         @Parameter(required = false, description = "Filter to one estimation; omit for all joinable sessions")
         @QueryParam("estimationId") estimationId: UUID?
     ): Response {
@@ -119,7 +119,7 @@ class SessionResource(
     @Operation(summary = "Join the current user as an ESTIMATOR participant (idempotent)")
     @APIResponse(responseCode = "200", content = [Content(schema = Schema(implementation = SessionDto::class))])
     @APIResponse(responseCode = "404", description = "Session not found")
-    fun join(@PathParam("id") id: UUID): Response {
+    fun joinSession(@PathParam("id") id: UUID): Response {
         val user = currentUserProvider.get()
         return Response.ok(sessionService.join(id, user.subjectId, user.displayName)).build()
     }
@@ -130,7 +130,7 @@ class SessionResource(
     @APIResponse(responseCode = "200", content = [Content(schema = Schema(implementation = SessionDto::class))])
     @APIResponse(responseCode = "403", description = "Not the moderator")
     @APIResponse(responseCode = "409", description = "Session is not in CREATED")
-    fun start(@PathParam("id") id: UUID): Response =
+    fun startSession(@PathParam("id") id: UUID): Response =
         Response.ok(sessionService.start(id, currentUserProvider.get().subjectId)).build()
 
     @PUT
@@ -139,7 +139,7 @@ class SessionResource(
     @Operation(summary = "Moderator: set the current item's discussion notes")
     @APIResponse(responseCode = "200", content = [Content(schema = Schema(implementation = SessionDto::class))])
     @APIResponse(responseCode = "403", description = "Not the moderator")
-    fun notes(@PathParam("id") id: UUID, body: NotesRequest): Response =
+    fun updateSessionItemNotes(@PathParam("id") id: UUID, body: NotesRequest): Response =
         Response.ok(sessionService.updateCurrentNotes(id, currentUserProvider.get().subjectId, body.notes)).build()
 
     @POST
@@ -148,7 +148,7 @@ class SessionResource(
     @APIResponse(responseCode = "200", content = [Content(schema = Schema(implementation = SessionDto::class))])
     @APIResponse(responseCode = "403", description = "Not the moderator")
     @APIResponse(responseCode = "409", description = "Current item is not in PHASE1")
-    fun reveal(@PathParam("id") id: UUID): Response =
+    fun revealSessionItem(@PathParam("id") id: UUID): Response =
         Response.ok(sessionService.revealPhase2(id, currentUserProvider.get().subjectId)).build()
 
     @POST
@@ -157,7 +157,7 @@ class SessionResource(
     @APIResponse(responseCode = "200", content = [Content(schema = Schema(implementation = SessionDto::class))])
     @APIResponse(responseCode = "403", description = "Not the moderator")
     @APIResponse(responseCode = "409", description = "Current item is not in PHASE2, or has no votes")
-    fun finalize(@PathParam("id") id: UUID): Response {
+    fun finalizeSessionItem(@PathParam("id") id: UUID): Response {
         val user = currentUserService.ensureUser(currentUserProvider.get())
         return Response.ok(sessionService.finalizeCurrent(id, user)).build()
     }
@@ -168,7 +168,7 @@ class SessionResource(
     @Operation(summary = "Estimator: upsert a vote for the current item + current phase")
     @APIResponse(responseCode = "200", content = [Content(schema = Schema(implementation = SessionDto::class))])
     @APIResponse(responseCode = "409", description = "Not a participant, session not RUNNING, or no current item")
-    fun vote(@PathParam("id") id: UUID, body: VoteRequest): Response {
+    fun voteSessionItem(@PathParam("id") id: UUID, body: VoteRequest): Response {
         val dto = sessionService.submitVote(
             id, currentUserProvider.get().subjectId, body.minEffort, body.expectedEffort, body.maxEffort
         )
@@ -185,7 +185,7 @@ class SessionResource(
         description = "Not a participant, session not RUNNING, no current item, " +
             "the estimation is not bucket+sampled, or the bucket is not one of its buckets"
     )
-    fun voteBucket(@PathParam("id") id: UUID, body: BucketVoteRequest): Response {
+    fun voteSessionItemBucket(@PathParam("id") id: UUID, body: BucketVoteRequest): Response {
         val dto = sessionService.submitBucketVote(
             id, currentUserProvider.get().subjectId,
             body.bucketId, body.isSample, body.minEffort, body.expectedEffort, body.maxEffort
@@ -198,7 +198,7 @@ class SessionResource(
     @Operation(summary = "Estimator: mark agreement on the current item")
     @APIResponse(responseCode = "200", content = [Content(schema = Schema(implementation = SessionDto::class))])
     @APIResponse(responseCode = "409", description = "Not a participant")
-    fun agree(@PathParam("id") id: UUID): Response =
+    fun agreeSessionItem(@PathParam("id") id: UUID): Response =
         Response.ok(sessionService.agree(id, currentUserProvider.get().subjectId)).build()
 
     @POST
@@ -206,7 +206,7 @@ class SessionResource(
     @Operation(summary = "Moderator: cancel the session")
     @APIResponse(responseCode = "200", content = [Content(schema = Schema(implementation = SessionDto::class))])
     @APIResponse(responseCode = "403", description = "Not the moderator")
-    fun cancel(@PathParam("id") id: UUID): Response =
+    fun cancelSession(@PathParam("id") id: UUID): Response =
         Response.ok(sessionService.cancel(id, currentUserProvider.get().subjectId)).build()
 
     @POST
@@ -216,7 +216,7 @@ class SessionResource(
     @APIResponse(responseCode = "403", description = "Not the moderator")
     @APIResponse(responseCode = "404", description = "Session not found")
     @APIResponse(responseCode = "409", description = "Session is not in a state that allows this transition")
-    fun suspend(@PathParam("id") id: UUID): Response =
+    fun suspendSession(@PathParam("id") id: UUID): Response =
         Response.ok(sessionService.suspend(id, currentUserProvider.get().subjectId)).build()
 
     @POST
@@ -226,7 +226,7 @@ class SessionResource(
     @APIResponse(responseCode = "403", description = "Not the moderator")
     @APIResponse(responseCode = "404", description = "Session not found")
     @APIResponse(responseCode = "409", description = "Session is not in a state that allows this transition")
-    fun resume(@PathParam("id") id: UUID): Response =
+    fun resumeSession(@PathParam("id") id: UUID): Response =
         Response.ok(sessionService.resume(id, currentUserProvider.get().subjectId)).build()
 
     @POST
@@ -236,6 +236,6 @@ class SessionResource(
     @APIResponse(responseCode = "403", description = "Not the moderator")
     @APIResponse(responseCode = "404", description = "Session not found")
     @APIResponse(responseCode = "409", description = "Session is not in a state that allows this transition")
-    fun endEarly(@PathParam("id") id: UUID): Response =
+    fun endSessionEarly(@PathParam("id") id: UUID): Response =
         Response.ok(sessionService.endEarly(id, currentUserProvider.get().subjectId)).build()
 }

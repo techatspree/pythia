@@ -53,7 +53,7 @@ class MeResource(
         content = [Content(schema = Schema(implementation = CurrentUserDto::class))]
     )
     @APIResponse(responseCode = "401", description = "No user is populated for the request")
-    fun me(@HeaderParam(HttpHeaders.ACCEPT_LANGUAGE) acceptLanguage: String?): Response {
+    fun getCurrentUser(@HeaderParam(HttpHeaders.ACCEPT_LANGUAGE) acceptLanguage: String?): Response {
         val u = currentUserProvider.current
             ?: return Response.status(Response.Status.UNAUTHORIZED).build()
         // ensureUser seeds language from Accept-Language on first sighting only;
@@ -79,7 +79,7 @@ class MeResource(
     @APIResponse(responseCode = "204", description = "Language preference updated")
     @APIResponse(responseCode = "400", description = "Unsupported language code")
     @APIResponse(responseCode = "401", description = "No user is populated for the request")
-    fun updateLanguage(body: LanguageUpdateDto): Response {
+    fun updateCurrentUserLanguage(body: LanguageUpdateDto): Response {
         val u = currentUserProvider.current
             ?: return Response.status(Response.Status.UNAUTHORIZED).build()
         val language = fromCode(body.language)

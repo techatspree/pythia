@@ -26,7 +26,7 @@ class AdminPingResource(
     @Operation(summary = "Admin-only canary that proves role enforcement")
     @APIResponse(responseCode = "200", description = "Pong with the caller's subject id")
     @APIResponse(responseCode = "403", description = "Caller lacks the ADMIN role")
-    fun ping(): PingDto = PingDto(
+    fun adminPing(): PingDto = PingDto(
         message = "pong",
         user = currentUserProvider.get().subjectId
     )
