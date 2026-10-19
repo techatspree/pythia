@@ -74,7 +74,8 @@ project(":frontend").tasks.matching { it.name == "build" }.configureEach { depen
 tasks.register("staticAnalysis") {
     group = "verification"
     description = "Runs all static analysis: detekt over the Kotlin modules " +
-        "plus svelte-check and ESLint over the frontend. No tests, no Docker."
+        "plus svelte-check and ESLint over the frontend, and Redocly over the " +
+        "OpenAPI document. No tests, no Docker."
     dependsOn(
         // Every domain module, not just the aggregator: since task-143 most of
         // the Kotlin lives in :domain:core and the two method modules, so
@@ -88,6 +89,8 @@ tasks.register("staticAnalysis") {
         ":frontend:npmLintReport",
         // Unlike the two above, this one FAILS on findings (task-149).
         ":frontend:checkDesignTokens",
+        // Blocking as well: the OpenAPI document, Redocly recommended-strict (task-204).
+        ":frontend:lintOpenApi",
         // Consolidated HTML + merged SARIF over all of the above.
         ":frontend:sarifHtmlReport"
     )

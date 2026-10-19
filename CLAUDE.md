@@ -38,7 +38,8 @@ Standard Gradle invocations apply (`./gradlew build`, `:domain:build`, `:backend
 
 ```
 ./gradlew staticAnalysis                   # ALL static analysis: detekt + frontend svelte-check & ESLint
-                                           #   (informational, no Docker); also writes a consolidated
+                                           #   (informational, no Docker) + Redocly over the OpenAPI
+                                           #   document (BLOCKING, task-204); also writes a consolidated
                                            #   build/reports/static-analysis/static-analysis.html
 cd src/frontend && npm run test:e2e        # Playwright
 ./scripts/dev.sh                           # PostgreSQL (Dev Services) backend + Vite frontend, one command

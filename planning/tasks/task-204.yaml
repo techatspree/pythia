@@ -13,9 +13,16 @@ description: |
 
   ## Decisions
 
-  1. **Ruleset `recommended`**, not `minimal`. `recommended` is what
-     surfaced the security finding as an error. On today's document (after
-     tasks 201–203) it leaves exactly two findings, which this task resolves:
+  1. **Ruleset `recommended-strict`**, not `minimal` and not plain
+     `recommended`. `recommended` is the right rule SET, but most of its rules
+     are WARNINGS, and `redocly lint` exits 0 on warnings — measured with the
+     pinned 2.64.1: the three findings below print "valid 🎉, 3 warnings",
+     exit 0. A gate on `recommended` would therefore block only error-class
+     rules such as `security-defined`, and a new endpoint without a 4xx
+     response would pass. `recommended-strict` is the same rules with every
+     warning raised to an error (measured: the same three findings, exit 1).
+     On today's document (after tasks 201–203) it reports exactly two kinds of
+     finding, which this task resolves:
        * `info-license` (1): the API is Apache-2.0 (task-145), so declare it:
          `quarkus.smallrye-openapi.info-license-name=Apache-2.0` and
          `quarkus.smallrye-openapi.info-license-url=https://www.apache.org/licenses/LICENSE-2.0`.
@@ -44,17 +51,32 @@ description: |
      dependencies. If the audit flags the new tree at `high`, stop and
      report; do not add an audit exception.
   5. **Telemetry off.** Redocly CLI sends anonymous usage telemetry by
-     default. The gate must set `REDOCLY_TELEMETRY=off`, and also
+     default. Set `REDOCLY_TELEMETRY=off`, and also
      `REDOCLY_SUPPRESS_UPDATE_NOTICE=true` so a release announcement cannot
-     clutter the log, in the npm script itself (`cross-env` is NOT a
-     dependency here, so set them in the Gradle `NpmTask`'s `environment`),
-     so that local runs and CI behave identically. Verify no telemetry
+     clutter the log, in BOTH places: as a POSIX env prefix in the npm script
+     (the existing scripts already assume a POSIX shell — `lint:report` uses
+     `&&`/`||`; `cross-env` is not a dependency), so a direct
+     `npm run lint:openapi` is covered too, AND in the Gradle `NpmTask`'s
+     `environment`, so the gate does not depend on the script being edited
+     correctly. Local runs and CI then behave identically. Verify no telemetry
      request is made: run once with network inspection or `--verbose`, or
      check the CLI's documented behaviour for the pinned version.
   6. **Config lives in `src/frontend/redocly.yaml`**, beside the document it
      lints and the npm script that runs it:
-       extends: [recommended]
-     plus nothing else unless a rule is justified in a comment.
+       extends: [recommended-strict]
+     plus nothing else unless a rule is justified in a comment. The ignore file
+     must sit in the same directory (`src/frontend`, the directory the script
+     runs from). Generate it ONCE with `--generate-ignore-file`, then add the
+     comments by hand, and put a header comment in it saying that re-running
+     `--generate-ignore-file` overwrites the file and drops those comments.
+
+  **Deviation found during implementation:** the config is
+  `src/frontend/redocly-lint.yaml`, passed with `--config`, NOT
+  `redocly.yaml`. openapi-typescript (`gen:api`) validates through Redocly's
+  core and auto-discovers `redocly.yaml` in `src/frontend`, but not the ignore
+  file — under the default name the strict rules failed code generation on the
+  two accepted exceptions. With the own name `gen:api` keeps its default checks
+  and the lint still finds the ignore file beside the config.
 
   ## Out of scope
 
@@ -73,9 +95,9 @@ steps:
     `npm audit` step.
   - |
     Add `@redocly/cli` as an exact-pinned devDependency (`npm install -D -E
-    @redocly/cli@<current>`), add `src/frontend/redocly.yaml` (decision 6),
-    and the script
-      "lint:openapi": "redocly lint src/lib/api/openapi.json"
+    @redocly/cli@2.64.1`, the version tasks 201–203 measured with), add
+    `src/frontend/redocly.yaml` (decision 6), and the script
+      "lint:openapi": "REDOCLY_TELEMETRY=off REDOCLY_SUPPRESS_UPDATE_NOTICE=true redocly lint src/lib/api/openapi.json"
     Then run `npm audit --audit-level=high` in `src/frontend` and report the
     result (decision 4).
   - |
@@ -86,21 +108,32 @@ steps:
     Register `lintOpenApi` in `src/frontend/build.gradle.kts` after the
     `lintE2e` pattern, with `dependsOn(tasks.npmInstall, syncBackendOpenapi)`
     and the telemetry environment (decision 5), plus a comment explaining
-    why it blocks. Add it to `check` and to `staticAnalysis` in the root
-    `build.gradle.kts`.
+    why it blocks. Declare `inputs` (the synced `openapi.json`, `redocly.yaml`,
+    the ignore file) and an output marker so Gradle can skip it when nothing
+    changed — or, if that proves awkward, say in a comment why it always runs
+    (as `checkDesignTokens` does). Add it to `check` and to `staticAnalysis` in
+    the root `build.gradle.kts`, and update that task's `description` string to
+    mention the OpenAPI lint.
   - |
-    PROVE it blocks: temporarily remove the `security` annotation from one
-    endpoint (or add an operation without a 4xx response), run
-    `./gradlew :frontend:lintOpenApi`, and see it FAIL naming the rule. Then
-    revert.
+    PROVE it blocks, with BOTH rule classes, each followed by a revert:
+      * error-class: remove the `@SecurityRequirements` from `PingResource`
+        → `security-defined`;
+      * warning-class (the one plain `recommended` would let through): remove
+        the license properties, or delete one ignore entry → `info-license` /
+        `operation-4xx-response`.
+    Each time `./gradlew :frontend:lintOpenApi` must FAIL naming the rule.
   - |
     Docs:
       * root `CLAUDE.md`, the `staticAnalysis` line in "Build & run": it now
         also lints the OpenAPI document (blocking);
+      * `docs/development.md` (~line 124, the "`./gradlew staticAnalysis` is the
+        single goal that runs every static-analysis…" section): add the
+        OpenAPI lint as a blocking gate beside `checkDesignTokens`;
       * `src/backend/CLAUDE.md`, the OpenAPI section: the document is linted by
-        Redocly's `recommended` ruleset; a new endpoint must declare
-        security, an `operationId` (via its method name, task-201) and its 4xx
-        responses, or the build fails; exceptions go in the ignore file with a
+        Redocly's `recommended-strict` ruleset, which makes EVERY rule
+        blocking; a new endpoint must declare security, an `operationId` (via
+        its method name, task-201) and its 4xx responses, or the build fails; a
+        public read that cannot return a 4xx needs an ignore entry with its
         reason.
   - |
     ./gradlew :frontend:check, then ./gradlew build, then ./gradlew staticAnalysis.
@@ -108,12 +141,16 @@ steps:
 validation:
   - |
     F=src/frontend
-    test -f $F/redocly.yaml
-    grep -q "recommended" $F/redocly.yaml
+    test -f $F/redocly-lint.yaml
+    grep -q "recommended-strict" $F/redocly-lint.yaml
+    test -f $F/.redocly.lint-ignore.yaml
+    test "$(grep -c '^ *#' $F/.redocly.lint-ignore.yaml)" -ge 3
+    jq -e '.scripts["lint:openapi"] | test("REDOCLY_TELEMETRY=off")' $F/package.json
     jq -e '.devDependencies["@redocly/cli"] | test("^[0-9]")' $F/package.json
     jq -e '.scripts["lint:openapi"]' $F/package.json
   - |
     grep -q 'register<NpmTask>("lintOpenApi")' src/frontend/build.gradle.kts
+    test ! -f src/frontend/redocly.yaml
     grep -q "REDOCLY_TELEMETRY" src/frontend/build.gradle.kts
     grep -q "lintOpenApi" build.gradle.kts
   - |
@@ -123,6 +160,7 @@ validation:
   - |
     grep -qi "redocly" CLAUDE.md
     grep -qi "redocly" src/backend/CLAUDE.md
+    grep -qi "redocly\|lintOpenApi" docs/development.md
   - |
     ./gradlew :frontend:check
   - |
@@ -133,12 +171,13 @@ validation:
 outputs:
   - modified: src/frontend/package.json
   - modified: src/frontend/package-lock.json
-  - created: src/frontend/redocly.yaml
+  - created: src/frontend/redocly-lint.yaml
   - created: src/frontend/.redocly.lint-ignore.yaml
   - modified: src/frontend/build.gradle.kts
   - modified: build.gradle.kts
   - modified: src/backend/implementation/src/main/resources/application.properties
   - modified: src/frontend/src/lib/api/openapi.json
-  - modified: src/frontend/src/lib/api/schema.d.ts
+  - "modified only if regenerated differently (expected unchanged — openapi-typescript does not emit info.license): src/frontend/src/lib/api/schema.d.ts"
   - modified: CLAUDE.md
+  - modified: docs/development.md
   - modified: src/backend/CLAUDE.md

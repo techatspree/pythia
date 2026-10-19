@@ -1,0 +1,15 @@
+# Redocly lint exceptions for the OpenAPI document (task-204). Every entry says
+# WHY; a rule is never switched off globally in redocly.yaml, so every other
+# operation keeps proving it.
+#
+# Hand-maintained: `redocly lint --generate-ignore-file` OVERWRITES this file and
+# drops these comments. Add an entry by hand instead.
+src/lib/api/openapi.json:
+  operation-4xx-response:
+    # GET /api/ping — the @PermitAll liveness heartbeat (task-136). It takes no
+    # input and needs no login, so no 4xx can occur; inventing one would make
+    # the document lie.
+    - '#/paths/~1api~1ping/get/responses'
+    # GET /api/system — the @PermitAll branding read the login screen needs
+    # before any account exists (task-146). Same: no input, no login, no 4xx.
+    - '#/paths/~1api~1system/get/responses'

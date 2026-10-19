@@ -1209,9 +1209,9 @@
       "notes": "Replace the auto-generated localhost:8080 OpenAPI servers block with a relative server URL (Redocly no-server-example.com)"
     },
     "task-204": {
-      "status": "pending",
-      "started_at": null,
-      "completed_at": null,
+      "status": "done",
+      "started_at": "2026-10-19T07:59:56+00:00",
+      "completed_at": "2026-10-19T08:06:16+00:00",
       "notes": "Add Redocly (recommended ruleset) as a blocking OpenAPI lint gate in check and staticAnalysis"
     },
     "task-205": {

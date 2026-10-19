@@ -1,0 +1,16 @@
+# Redocly lint config for the generated OpenAPI document (task-204), run by
+# `npm run lint:openapi` and the blocking `:frontend:lintOpenApi` gate.
+#
+# `recommended-strict`, not `recommended`: they are the same rules, but most of
+# `recommended`'s are warnings and `redocly lint` exits 0 on warnings, so a gate
+# on it would let a new endpoint without a 4xx response through. Strict raises
+# every warning to an error. Exceptions go in `.redocly.lint-ignore.yaml`, each
+# with its reason — never by switching a rule off here.
+#
+# Deliberately NOT named `redocly.yaml`: openapi-typescript (`gen:api`) validates
+# through Redocly's core and auto-discovers `redocly.yaml` in this directory, but
+# not the ignore file — so under the default name the strict rules failed code
+# generation on the two accepted exceptions. The lint passes `--config` instead,
+# and `gen:api` keeps its own default checks.
+extends:
+  - recommended-strict

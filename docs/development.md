@@ -146,6 +146,23 @@ the translated-label ban would otherwise decay unnoticed. A follow-up task can
 flip the remaining gates to enforcing once the existing backlog has been
 triaged.
 
+**The OpenAPI document is linted, and that gate blocks** (task-204).
+`:frontend:lintOpenApi` (part of `:frontend:check` and `staticAnalysis`) runs
+Redocly CLI — an exact-pinned devDependency, so the verdict cannot change
+without a commit — over `src/frontend/src/lib/api/openapi.json` right after
+`syncBackendOpenapi`, i.e. the same file the client is generated from. The
+ruleset is `recommended-strict` (`src/frontend/redocly-lint.yaml`): plain
+`recommended` reports most rules as warnings, and Redocly exits 0 on warnings.
+The baseline is zero; the two accepted exceptions (public reads that cannot
+return a 4xx) are listed with their reasons in
+`src/frontend/.redocly.lint-ignore.yaml`, which is hand-maintained —
+`--generate-ignore-file` would overwrite it and drop the reasons. The config is
+deliberately not called `redocly.yaml`: openapi-typescript auto-discovers that
+name for `gen:api` but ignores the ignore file. Telemetry and the update notice
+are switched off (`REDOCLY_TELEMETRY=off`, `REDOCLY_SUPPRESS_UPDATE_NOTICE=true`)
+in both the npm script and the Gradle task. Redocly has no SARIF output, so it is
+not part of the consolidated report.
+
 ### Tools and report locations
 
 | Layer              | Tool   | Task                  | Reports                                                       |

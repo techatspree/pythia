@@ -241,8 +241,33 @@ val lintE2e = tasks.register<NpmTask>("lintE2e") {
     args.set(listOf("run", "lint:e2e"))
 }
 
+// OpenAPI lint gate (task-204). BLOCKING with a zero baseline, like lintE2e and
+// checkDesignTokens: the drift gate proves the committed document equals what
+// the backend generates, this proves what it generates is any good — every
+// operation declares an operationId, its security and its 4xx responses.
+// Redocly's `recommended-strict` (redocly-lint.yaml) makes every rule an error;
+// accepted exceptions live, with their reasons, in .redocly.lint-ignore.yaml.
+// It lints the SAME file the client is generated from, after the sync, so it
+// never checks a stale copy. Telemetry and the update notice are off here as
+// well as in the npm script, so the gate does not depend on that script.
+val lintOpenApi = tasks.register<NpmTask>("lintOpenApi") {
+    description = "Lints the generated OpenAPI document with Redocly (blocking)."
+    dependsOn(tasks.npmInstall, syncBackendOpenapi)
+    args.set(listOf("run", "lint:openapi"))
+    environment.set(
+        mapOf("REDOCLY_TELEMETRY" to "off", "REDOCLY_SUPPRESS_UPDATE_NOTICE" to "true")
+    )
+    inputs.file("src/lib/api/openapi.json")
+    inputs.file("redocly-lint.yaml")
+    inputs.file(".redocly.lint-ignore.yaml")
+    inputs.file("package-lock.json")
+    val marker = layout.buildDirectory.file("lint-openapi/ok")
+    outputs.file(marker)
+    doLast { marker.get().asFile.writeText("ok\n") }
+}
+
 tasks.named("check") {
-    dependsOn(npmCheck, npmLintReport, checkDesignTokens, lintE2e, testSbomFinalize)
+    dependsOn(npmCheck, npmLintReport, checkDesignTokens, lintE2e, lintOpenApi, testSbomFinalize)
     if (openApiGate) dependsOn(verifyOpenApiSchemaCommitted)
 }
 
