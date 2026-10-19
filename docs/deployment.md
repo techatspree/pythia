@@ -448,6 +448,10 @@ and only then publishes it. A consumer can therefore only see a release whose
 images exist and passed the checks; a failed run leaves at most unreferenced
 images and a draft.
 
+GHCR occasionally answers a manifest PUT with a transient `500 UNKNOWN` (the
+first real publish, v1.0.1, hit it once). That run fails before the release
+exists, so re-running the failed `publish` job is the fix.
+
 The job uses the built-in `GITHUB_TOKEN` with `contents: write` and
 `packages: write` granted to that job alone, and no secret. It derives the
 owner from the repository it runs in, so it runs unchanged in a fork — which is

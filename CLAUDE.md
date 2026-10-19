@@ -107,6 +107,10 @@ Detail and rationale: `src/frontend/CLAUDE.md`. The bans themselves:
 
 `@JsExport`-ed classes need `@JsName("…")` on secondary constructors (Kotlin/JS rejects them otherwise). Two `data class` constructors whose value types erase to the same JVM signature (e.g. two `List<X>`) cause a platform declaration clash — differentiate by arity, not by type alone.
 
+### Kotlin/JS gotcha — `List<T>` parameters
+
+An `@JsExport` function taking a Kotlin `List<T>` (e.g. `VoteAggregation.aggregate(votes: List<EstimatorVote>)`) declares a `KtList<E>` parameter in `domain.d.mts`, but `KtList.fromJsArray` is not exported at runtime, so a plain JS array fails with an error like `votes.h is not a function`. Add a thin `Array<T>`-taking wrapper beside the `create*` factories in `src/domain/src/main/kotlin/io/pythia/DomainFactory.kt` (`aggregateVotes`, `scheduleVersion` are the pattern) that delegates with `.toList()`; the logic stays in the domain object.
+
 ### Logging
 
 One logging approach per module — use it; do not invent a second mechanism. Logging is observation only, never control flow; the business math stays the single source of truth. Each module's mechanics live in its own `CLAUDE.md`, which loads when you work there:
