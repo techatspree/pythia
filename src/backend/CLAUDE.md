@@ -82,7 +82,7 @@ The drift gate `:frontend:verifyOpenApiSchemaCommitted` (`git diff --exit-code -
 
 Auth endpoints (provider-agnostic, populated by whichever concrete module is active):
 
-- `GET  /api/auth/me` — current user as `CurrentUserDto` (subjectId, email, displayName, roles, providerName, **`language`**) or `401` when no user is populated for the request. `language` is the persisted `users.language` code (`de`/`en`), read off the provisioned `User` row (not the token principal).
+- `GET  /api/auth/me` — current user as `CurrentUserDto` (subjectId, email, displayName, roles, providerName, **`language`**) or `401` for an anonymous request — since task-202 that 401 comes from the class-level `@Authenticated` (any authenticated principal, no role required) with the structured `{message, status}` body; the method's own null check stays as defence in depth. `language` is the persisted `users.language` code (`de`/`en`), read off the provisioned `User` row (not the token principal).
 - `PUT  /api/auth/me/language` — body `{ "language": "de" | "en" }`; persists the current user's language preference and returns `204`. An unsupported code → `400`. The code is validated against the shared `SupportedLanguage` enum (`fromCode`); persistence goes through `CurrentUserService.updateLanguage` (logs INFO with the user id + new language).
 - `GET  /api/admin/ping` — `@RolesAllowed("ADMIN")` canary that returns `{message: "pong", user: <subjectId>}`. Used by `e2e/auth.test.ts` to prove role enforcement under the dev module; survives feature churn.
 

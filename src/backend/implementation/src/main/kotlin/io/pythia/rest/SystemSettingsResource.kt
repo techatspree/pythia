@@ -23,6 +23,7 @@ import org.eclipse.microprofile.openapi.annotations.enums.SchemaType
 import org.eclipse.microprofile.openapi.annotations.media.Content
 import org.eclipse.microprofile.openapi.annotations.media.Schema
 import org.eclipse.microprofile.openapi.annotations.responses.APIResponse
+import org.eclipse.microprofile.openapi.annotations.security.SecurityRequirements
 import org.eclipse.microprofile.openapi.annotations.tags.Tag
 import org.jboss.resteasy.reactive.RestForm
 import org.jboss.resteasy.reactive.multipart.FileUpload
@@ -47,6 +48,7 @@ class SystemSettingsResource(
     @GET
     @Produces(MediaType.APPLICATION_JSON)
     @PermitAll
+    @SecurityRequirements
     @Operation(summary = "Read the installation's settings (unauthenticated: the login screen needs them)")
     @APIResponse(
         responseCode = "200",
@@ -70,6 +72,7 @@ class SystemSettingsResource(
     @Path("/css")
     @Produces("text/css")
     @PermitAll
+    @SecurityRequirements
     @Operation(summary = "The installation's custom stylesheet, if any")
     @APIResponse(responseCode = "200", description = "The stylesheet")
     @APIResponse(responseCode = "404", description = "No custom stylesheet is configured")

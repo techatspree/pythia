@@ -1289,6 +1289,13 @@ export interface operations {
                 };
                 content?: never;
             };
+            /** @description Not Allowed */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
         };
     };
     updateCurrentUserLanguage: {
@@ -1320,6 +1327,13 @@ export interface operations {
             };
             /** @description No user is populated for the request */
             401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Not Allowed */
+            403: {
                 headers: {
                     [name: string]: unknown;
                 };

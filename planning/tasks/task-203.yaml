@@ -38,14 +38,20 @@ description: |
   exempts the root. If it does not, record the finding and pick the form
   Redocly accepts that still resolves to the same origin.
 
-  No endpoint, GUI or logging change.
+  No endpoint, GUI or logging change. The Playwright suite is therefore NOT
+  required: no DTO, auth or frontend behaviour changes, only the document's
+  `servers` block.
+
+  The old justification is written down twice — the root `CLAUDE.md` port
+  paragraph and `docs/development.md` (~line 414, "emitting 8080 so the
+  committed … openapi.json does not churn"). Both copies must go.
 
 steps:
   - |
     Read the OpenAPI block of
     `src/backend/implementation/src/main/resources/application.properties` and
     the port paragraph of the root `CLAUDE.md` (the "dev backend listens on
-    :8090" paragraph).
+    :8090" paragraph) and its counterpart in `docs/development.md` (~line 414).
   - |
     Set the server as decided, with a comment giving the reason (same origin
     everywhere; no dependency on the augmentation port). Rebuild with
@@ -54,23 +60,35 @@ steps:
     `localhost`/`0.0.0.0` entry left. Confirm the key is honoured rather than
     silently ignored (the task-198 lesson): the document must change.
   - |
-    Check Swagger UI still works against the dev stack: open
-    `http://localhost:8090/q/swagger-ui`, "Try it out" on `GET /api/ping`, and
-    confirm the request goes to `http://localhost:8090/api/ping`.
+    Check the dev profile serves the same block. Before starting the stack,
+    check that :8090, :5173 and :5432 are free (otherwise stop: another stack
+    is running and the check would hit it). Start `./scripts/dev.sh`, then:
+      curl -s 'http://localhost:8090/q/openapi?format=json' | jq -c .servers
+    must print `[{"url":"/"}]`. A relative `/` resolves against the origin the
+    document was fetched from, so Swagger UI's "Try it out" on `GET /api/ping`
+    goes to `http://localhost:8090/api/ping`; clicking through
+    `http://localhost:8090/q/swagger-ui` is an optional manual confirmation.
+    Afterwards stop only the `dev.sh` this task started (its parent process is
+    this session).
   - |
     Lint with Redocly and confirm `no-server-example.com`, `no-empty-servers`
     and `no-server-trailing-slash` are all absent:
-      npx -y @redocly/cli@latest lint --extends=recommended --format=summary src/frontend/src/lib/api/openapi.json
-    (set `REDOCLY_TELEMETRY=off` for the run; see task-204).
+      REDOCLY_TELEMETRY=off npx -y @redocly/cli@2.64.1 lint --extends=recommended --format=summary src/frontend/src/lib/api/openapi.json
+    Pinned like task-201/202, so a newer ruleset cannot change the result.
+    Other `recommended` findings are task-204's scope and may remain.
   - |
-    Update the root `CLAUDE.md` port paragraph: the OpenAPI `servers` block no
-    longer comes from the augmentation port, so drop that justification. KEEP
-    the rest: 8090 stays profile-scoped and 8080 stays free for the cluster
-    port-forward. Re-read the paragraph so it still explains why the setting
-    is profile-scoped.
+    Update the root `CLAUDE.md` port paragraph AND `docs/development.md`: the
+    OpenAPI `servers` block no longer comes from the augmentation port, so drop
+    that justification in both. KEEP the rest: 8090 stays profile-scoped and
+    8080 stays free for the cluster port-forward. Re-read both passages so they
+    still explain why the setting is profile-scoped.
   - |
-    ./gradlew build, and commit the regenerated `openapi.json` +
-    `schema.d.ts` (drift gate).
+    ./gradlew build regenerates `openapi.json` (and `schema.d.ts`, which is
+    expected to stay unchanged — openapi-typescript emits nothing from
+    `servers`). Leave the files in the working tree; do NOT commit (the user
+    commits). Say in the report that the CI drift gate
+    (`verifyOpenApiSchemaCommitted`) requires `openapi.json` to be committed
+    together with the property.
 
 validation:
   - |
@@ -81,11 +99,16 @@ validation:
     grep -q "smallrye-openapi.servers" src/backend/implementation/src/main/resources/application.properties
   - |
     ! grep -q "prod augmentation must keep emitting 8080" CLAUDE.md
+    ! grep -q "emitting 8080" docs/development.md
+    grep -q "port-forward svc/frontend 8080:80" CLAUDE.md
+  - |
+    ! REDOCLY_TELEMETRY=off npx -y @redocly/cli@2.64.1 lint --extends=recommended --format=summary src/frontend/src/lib/api/openapi.json 2>&1 | grep -E "no-server-example.com|no-empty-servers|no-server-trailing-slash"
   - |
     ./gradlew build
 
 outputs:
   - modified: src/backend/implementation/src/main/resources/application.properties
   - modified: src/frontend/src/lib/api/openapi.json
-  - modified: src/frontend/src/lib/api/schema.d.ts
+  - "modified only if regenerated differently (expected unchanged): src/frontend/src/lib/api/schema.d.ts"
   - modified: CLAUDE.md
+  - modified: docs/development.md

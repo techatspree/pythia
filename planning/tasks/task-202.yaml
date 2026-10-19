@@ -3,7 +3,7 @@ phase: phase-14
 title: "Declare OpenAPI security on every operation"
 depends_on: [task-201]
 description: |
-  Redocly reports `security-defined` for 5 of the 51 operations in the
+  Redocly reports `security-defined` for 5 of the 52 operations in the
   committed `src/frontend/src/lib/api/openapi.json`. It is a warning under
   `minimal` and an ERROR under `recommended`, the ruleset task-204 gates on.
   Every other operation carries a per-operation `security` requirement that
@@ -44,7 +44,13 @@ description: |
      If either does not produce the target shape, register an `OASFilter`
      (`mp.openapi.filter`) that sets it, keyed off the operations'
      annotations, NOT off a hardcoded path list. Use only one of the two
-     mechanisms.
+     mechanisms. Beware `security: [{}]` (one EMPTY requirement): it means
+     "authentication optional", not "public", and is what an empty
+     `@SecurityRequirementsSet` tends to produce. Only `[]` is right; the
+     validation compares against exactly `[]`, so do not loosen it.
+  4. **Generated 401/403 responses are acceptable.** Quarkus' automatic
+     security requirement may also add 401/403 responses to the two `/me`
+     operations. That is fine; keep the hand-written `@APIResponse(401)`.
 
   No new endpoint, service or GUI text, so logging, i18n and wireframes are
   not affected.
@@ -60,29 +66,49 @@ steps:
     Annotate the three `@PermitAll` reads so the document shows
     `"security": []` (decision 1/3). Check with:
       ./gradlew :backend:implementation:quarkusAppPartsBuild --rerun
-      jq '.paths["/api/ping"].get.security' src/backend/implementation/build/openapi/openapi.json
-    (or wherever the snapshot lands; see `src/backend/CLAUDE.md`). The result
-    must be `[]`, not `null`.
+      jq -c '.paths["/api/ping"].get.security' src/backend/implementation/target/openapi/openapi.json
+    (`target/openapi` is what augmentation writes; `build/openapi` is a later
+    snapshot and can be stale after this command alone). The result must be
+    `[]` — not `null`, and not `[{}]`.
   - |
     Add `@Authenticated` to `MeResource` (decision 2) and confirm both `/me`
     operations now document `[{"SecurityScheme": []}]`. Update any backend test
     or e2e spec that asserted the OLD anonymous response body (the status must
-    still be 401).
+    still be 401). Today `e2e/auth.test.ts` and `MeResourceLanguageIT` assert
+    only the status, so this is expected to change nothing — say so in the
+    report rather than inventing an edit.
   - |
-    Add to `EndpointAuthorizationIT` (or a new `OpenApiSecurityIT`, whichever
-    fits the existing file better) a test that fetches `/q/openapi?format=json`
-    and asserts that EVERY operation has a non-null `security`, and that the
-    three public paths carry exactly `[]`.
+    Add `src/backend/implementation/src/test/kotlin/io/pythia/rest/OpenApiSecurityIT.kt`
+    (`@QuarkusTest`, beside and in the style of `OpenApiOperationIdIT`): fetch
+    `/q/openapi?format=json` and assert that EVERY operation has a non-null
+    `security`, that the three public operations carry exactly `[]`, and that
+    both `/me` operations carry a `SecurityScheme` requirement with no roles.
+    Prove the test can fail: temporarily remove the annotation from
+    `PingResource`, confirm the test goes red, and restore it.
+    Run: `./gradlew :backend:implementation:test --tests '*OpenApiSecurityIT'`.
   - |
-    Docs: in `docs/authentication.md`, state that the three public reads are
-    documented with `security: []` and that `/api/auth/me` is `@Authenticated`
-    (any role). In `src/backend/CLAUDE.md`, update the `MeResource` sentence
-    ("keeps its own 401-on-anonymous check") to the new enforcement.
+    Docs: in `docs/authentication.md`, replace the sentence at line ~34
+    ("`MeResource` (`/api/auth/me`) keeps its own 401-on-anonymous check …")
+    with the new enforcement — `@Authenticated`, any authenticated principal,
+    no role required, which is what keeps it reachable for provisioning — and
+    state that the three public reads are documented with `security: []`.
+    In `src/backend/CLAUDE.md`, update the `GET /api/auth/me` bullet ("or `401`
+    when no user is populated for the request") to say the 401 now comes from
+    `@Authenticated` with the structured `{message, status}` body.
   - |
-    ./gradlew build, commit the regenerated `openapi.json` + `schema.d.ts`,
-    and run the Playwright suite (`E2E_LANG=en`, then `de`) against
-    `./scripts/dev.sh`, because auth behaviour changed. `auth-gate.test.ts` and
-    `auth.test.ts` exercise the anonymous path.
+    Re-run Redocly; `security-defined` must no longer appear:
+      npx -y @redocly/cli@2.64.1 lint --extends=minimal --format=summary src/frontend/src/lib/api/openapi.json
+  - |
+    ./gradlew build regenerates `openapi.json` + `schema.d.ts`. Leave both in
+    the working tree; do NOT commit (the user commits). Say in the report that
+    the CI drift gate (`verifyOpenApiSchemaCommitted`) requires them to be
+    committed together with the annotations.
+    Then run the Playwright suite (`E2E_LANG=en`, then `de`) against
+    `./scripts/dev.sh`, because auth behaviour changed (`auth-gate.test.ts` and
+    `auth.test.ts` exercise the anonymous path). Before starting the stack,
+    check that :8090, :5173 and :5432 are free (otherwise stop: another stack
+    is running, and the tests would silently run against it); afterwards stop
+    only the `dev.sh` this task started (its parent process is this session).
 
 validation:
   - |
@@ -96,6 +122,12 @@ validation:
     grep -q "@Authenticated" src/backend/implementation/src/main/kotlin/io/pythia/rest/MeResource.kt
   - |
     grep -q 'security: \[\]' docs/authentication.md
+    ! grep -q "keeps its own 401-on-anonymous check" docs/authentication.md
+  - |
+    test -f src/backend/implementation/src/test/kotlin/io/pythia/rest/OpenApiSecurityIT.kt
+    ./gradlew :backend:implementation:test --tests '*OpenApiSecurityIT'
+  - |
+    ! npx -y @redocly/cli@2.64.1 lint --extends=minimal --format=summary src/frontend/src/lib/api/openapi.json 2>&1 | grep -q security-defined
   - |
     ./gradlew :backend:implementation:test
   - |
@@ -109,7 +141,8 @@ outputs:
   - modified: src/backend/implementation/src/main/kotlin/io/pythia/rest/PingResource.kt
   - modified: src/backend/implementation/src/main/kotlin/io/pythia/rest/SystemSettingsResource.kt
   - modified: src/backend/implementation/src/main/kotlin/io/pythia/rest/MeResource.kt
-  - modified: src/backend/implementation/src/test/kotlin/io/pythia/rest/EndpointAuthorizationIT.kt
+  - created: src/backend/implementation/src/test/kotlin/io/pythia/rest/OpenApiSecurityIT.kt
+  - "only if decision 3's OASFilter fallback is needed — created: src/backend/implementation/src/main/kotlin/io/pythia/rest/<SecurityRequirementFilter>.kt, modified: src/backend/implementation/src/main/resources/application.properties"
   - modified: src/frontend/src/lib/api/openapi.json
   - modified: src/frontend/src/lib/api/schema.d.ts
   - modified: docs/authentication.md

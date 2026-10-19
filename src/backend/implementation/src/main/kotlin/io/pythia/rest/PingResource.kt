@@ -9,6 +9,7 @@ import jakarta.ws.rs.core.MediaType
 import jakarta.ws.rs.core.Response
 import org.eclipse.microprofile.openapi.annotations.Operation
 import org.eclipse.microprofile.openapi.annotations.responses.APIResponse
+import org.eclipse.microprofile.openapi.annotations.security.SecurityRequirements
 import org.eclipse.microprofile.openapi.annotations.tags.Tag
 
 // Unauthenticated liveness heartbeat (task-136). The frontend connection watchdog
@@ -24,6 +25,7 @@ class PingResource {
     @GET
     @Produces(MediaType.APPLICATION_JSON)
     @PermitAll
+    @SecurityRequirements
     @Operation(summary = "Unauthenticated liveness heartbeat")
     @APIResponse(responseCode = "200", description = "The backend is reachable")
     fun ping(): Response = Response.ok(mapOf("status" to "ok")).build()

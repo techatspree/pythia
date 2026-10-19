@@ -1561,8 +1561,14 @@
           },
           "401" : {
             "description" : "No user is populated for the request"
+          },
+          "403" : {
+            "description" : "Not Allowed"
           }
-        }
+        },
+        "security" : [ {
+          "SecurityScheme" : [ ]
+        } ]
       }
     },
     "/api/auth/me/language" : {
@@ -1589,8 +1595,14 @@
           },
           "401" : {
             "description" : "No user is populated for the request"
+          },
+          "403" : {
+            "description" : "Not Allowed"
           }
-        }
+        },
+        "security" : [ {
+          "SecurityScheme" : [ ]
+        } ]
       }
     },
     "/api/estimations/{estimationId}/versions" : {
@@ -2387,7 +2399,8 @@
               }
             }
           }
-        }
+        },
+        "security" : [ ]
       }
     },
     "/api/projects" : {
@@ -3433,7 +3446,8 @@
               }
             }
           }
-        }
+        },
+        "security" : [ ]
       }
     },
     "/api/system/css" : {
@@ -3490,7 +3504,8 @@
           "404" : {
             "description" : "No custom stylesheet is configured"
           }
-        }
+        },
+        "security" : [ ]
       },
       "delete" : {
         "summary" : "Admin: remove the custom stylesheet",
@@ -3659,10 +3674,6 @@
     "version" : "1.0.2-SNAPSHOT"
   },
   "servers" : [ {
-    "url" : "http://localhost:8080",
-    "description" : "Auto generated value"
-  }, {
-    "url" : "http://0.0.0.0:8080",
-    "description" : "Auto generated value"
+    "url" : "/"
   } ]
 }

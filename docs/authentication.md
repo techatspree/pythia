@@ -31,8 +31,18 @@ of a project becomes its owner. The backend computes this rule once
 
 An **anonymous** request → **401**; an authenticated request lacking the
 required role (e.g. a `VIEWER` attempting a write) → **403**. `MeResource`
-(`/api/auth/me`) keeps its own 401-on-anonymous check so it stays reachable
-by any authenticated principal (it provisions the `User` on first sighting).
+(`/api/auth/me`) is `@Authenticated` rather than `@RolesAllowed` (task-202):
+any authenticated principal reaches it, with or without a role, which it must
+because it provisions the `User` on first sighting. An anonymous request is
+rejected by Quarkus with the same structured `{message, status}` 401 body.
+
+The OpenAPI document states this per operation: role-gated ones carry the
+requirement `@RolesAllowed` implies, the two `/api/auth/me` operations a
+requirement with no roles, and the three public reads (`GET /api/ping`,
+`GET /api/system`, `GET /api/system/css`, all `@PermitAll`) are documented
+with `security: []` through an empty `@SecurityRequirements`. Note that
+`security: [{}]` would mean "authentication optional", not "public".
+`OpenApiSecurityIT` pins all three cases.
 The `EndpointAuthorizationIT` (backend) and `endpoint-authorization.test.ts`
 (Playwright, incl. a UI create that proves the frontend sends the header)
 guard this contract.

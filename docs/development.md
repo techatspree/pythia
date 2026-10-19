@@ -409,10 +409,11 @@ is deliberately left free for `kubectl -n estimation port-forward svc/frontend
 `0.0.0.0`), the loopback binding wins for `localhost`, and the Vite proxy plus
 the Playwright suite would then silently reach the **cluster** — which rejects
 `Authorization: Dev …` with a 401 while both stacks look healthy. Do not move it
-back. The setting is profile-scoped on purpose: the generated OpenAPI `servers`
-block comes from the augmentation-time port, and `prod` augmentation must keep
-emitting 8080 so the committed `src/frontend/src/lib/api/openapi.json` does not
-churn.
+back. The setting is profile-scoped on purpose: only the local dev run moves,
+while the container (`prod`, `dev-minikube`) keeps 8080, which the in-cluster
+ports (`k8s/base/backend/*`) expect. The OpenAPI document does not depend on the
+port: its `servers` block is a fixed relative `/` (task-203), so Swagger UI
+calls whatever origin served it.
 
 The SPA reads its auth coordinates from `/config.json` at boot (task-162), so
 `npm run dev` has a `predev` script that writes `src/frontend/static/config.json`

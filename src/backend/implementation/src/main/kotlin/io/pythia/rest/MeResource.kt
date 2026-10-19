@@ -5,6 +5,7 @@ import io.pythia.auth.Role
 import io.pythia.i18n.fromCode
 import io.pythia.service.CurrentUserService
 import io.pythia.service.preferredLanguage
+import io.quarkus.security.Authenticated
 import jakarta.enterprise.context.ApplicationScoped
 import jakarta.ws.rs.BadRequestException
 import jakarta.ws.rs.Consumes
@@ -37,6 +38,7 @@ data class LanguageUpdateDto(
 
 @ApplicationScoped
 @Path("/api/auth")
+@Authenticated
 @Tag(name = "Auth", description = "Current authenticated user")
 class MeResource(
     private val currentUserProvider: CurrentUserProvider,
