@@ -32,6 +32,11 @@ class ExcelImporterTreeTest {
     private val exporter = ExcelExporter()
     private val importer = ExcelImporter()
 
+    // This is also the round-trip guard for task-185's styling: the exporter now
+    // writes depth as CellStyle.indention instead of leading spaces, and the exact
+    // titles/descriptions asserted at each depth below fail on a stray space or a
+    // lost level. ExcelImporter keeps its trimStart() regardless — workbooks
+    // exported before task-185 still carry the spaces.
     @Test
     fun `export then re-import preserves tree shape AND logicalIds`() {
         val source = TreeFixtures.threeLevel()

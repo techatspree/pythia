@@ -60,8 +60,10 @@ class ExcelExporterTreeTest {
             val (expectedLevel, expectedType, expectedLabel) = expected
             assertEquals(expectedLevel, row.outlineLevel, "row $idx outline level")
             assertEquals(expectedType, row.getCell(16).stringCellValue, "row $idx node type")
+            // The value is the bare label; depth is Excel indentation (task-185).
             val label = row.getCell(0).stringCellValue
-            assertEquals("  ".repeat(expectedLevel) + expectedLabel, label, "row $idx column-0 label")
+            assertEquals(expectedLabel, label, "row $idx column-0 label")
+            assertEquals(expectedLevel, row.getCell(0).cellStyle.indention.toInt(), "row $idx column-0 indent")
         }
 
         // Group rows carry accumulated values in cols 5 (mean), 7 (variance),

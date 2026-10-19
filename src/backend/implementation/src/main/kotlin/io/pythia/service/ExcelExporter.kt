@@ -33,12 +33,18 @@ class ExcelExporter {
      */
     private class MethodLayout(val module: EstimationMethodModule, val shift: Int)
 
+    /** What every row of the structure plan is written with. */
+    private class PlanContext(val sheet: Sheet, val layout: MethodLayout, val styles: ExcelStyles)
+
     private companion object {
         /** Description sits at column 0; the method block starts right after it. */
         const val METHOD_FIRST_COLUMN = 1
 
         /** The column count the fixed trailing indices were written for. */
         const val PERT_METHOD_COLUMNS = 3
+
+        /** Excel's indent attribute ranges 0–15; a deeper tree keeps the maximum. */
+        const val MAX_INDENT = 15
     }
 
     fun export(
@@ -49,15 +55,19 @@ class ExcelExporter {
     ) {
         Log.info("Exporting estimation ${version.estimation?.id} version ${version.versionNumber} to Excel")
         val workbook = XSSFWorkbook()
+        // One style holder per export (task-185): styles belong to one workbook,
+        // and this exporter is shared across requests.
+        val styles = ExcelStyles(workbook)
 
-        writeProjectStructurePlan(workbook, version, method)
+        writeProjectStructurePlan(workbook, version, method, styles)
         // Only a bucket+sampled workbook gets the Eimer sheet: a PERT export must
         // keep exactly the sheets it has always had.
-        if (method == EstimationMethod.BUCKET_SAMPLED_PERT) writeBuckets(workbook, buckets)
-        writeAdditionalCosts(workbook, version)
-        writePhases(workbook, version)
-        writeParameters(workbook, version)
-        writeEffortDrivers(workbook, version)
+        if (method == EstimationMethod.BUCKET_SAMPLED_PERT) writeBuckets(workbook, buckets, styles)
+        writeAdditionalCosts(workbook, version, styles)
+        writePhases(workbook, version, styles)
+        writeParameters(workbook, version, styles)
+        writeEffortDrivers(workbook, version, styles)
+        Log.debug("Excel export built the styled workbook with ${workbook.numberOfSheets} sheet(s)")
 
         workbook.write(output)
         workbook.close()
@@ -74,7 +84,8 @@ class ExcelExporter {
     private fun writeProjectStructurePlan(
         workbook: XSSFWorkbook,
         version: SubmittedEstimationVersion,
-        method: EstimationMethod
+        method: EstimationMethod,
+        styles: ExcelStyles
     ) {
         val sheet = workbook.createSheet(ExcelGermanLabels.Sheets.PROJECT_STRUCTURE_PLAN)
 
@@ -101,41 +112,57 @@ class ExcelExporter {
             "Node type", "Logical ID", "Unit"
         )
         headers.forEachIndexed { idx, header -> headerRow.createCell(idx).setCellValue(header) }
+        styles.styleHeader(headerRow)
+        sheet.createFreezePane(0, 1)
 
         // Every column after the method block moves with the method's column
         // count (PERT 3, bucket+sampled 5). For PERT the shift is 0, so the sheet
         // this has always produced is unchanged.
         val layout = MethodLayout(module, methodColumns.size - PERT_METHOD_COLUMNS)
+        val context = PlanContext(sheet, layout, styles)
         var rowIdx = 1
         for (root in version.roots) {
-            rowIdx = writeNode(root, depth = 0, sheet = sheet, rowIdx = rowIdx, layout = layout)
+            rowIdx = writeNode(root, depth = 0, rowIdx = rowIdx, context = context)
         }
+
+        // Explicit widths in characters, never POI's auto-sizing, whose java.awt font
+        // metrics depend on the fonts installed in the container (task-185).
+        val shift = layout.shift
+        sheet.setColumnWidth(0, 52 * CHAR_WIDTH)
+        for (col in METHOD_FIRST_COLUMN..13 + shift) sheet.setColumnWidth(col, 13 * CHAR_WIDTH)
+        sheet.setColumnWidth(14 + shift, 10 * CHAR_WIDTH)
+        sheet.setColumnWidth(15 + shift, 45 * CHAR_WIDTH)
+        sheet.setColumnWidth(16 + shift, 13 * CHAR_WIDTH)
+        sheet.setColumnWidth(17 + shift, 38 * CHAR_WIDTH)
+        sheet.setColumnWidth(18 + shift, 10 * CHAR_WIDTH)
         Log.debug("Excel export wrote ${rowIdx - 1} row(s) for method $method")
     }
 
     private fun writeNode(
         node: SubmittedEstimationNode,
         depth: Int,
-        sheet: Sheet,
         rowIdx: Int,
-        layout: MethodLayout
+        context: PlanContext
     ): Int {
+        val (sheet, layout, styles) = Triple(context.sheet, context.layout, context.styles)
         val shift = layout.shift
         val row = sheet.createRow(rowIdx) as XSSFRow
         // XSSFRow only exposes getOutlineLevel() (reads from the underlying
         // CTRow). To set it, go through the CTRow proxy directly.
         row.ctRow.outlineLevel = depth.toShort()
-        val indent = "  ".repeat(depth)
+        // Depth is real Excel indentation, not leading spaces in the value
+        // (task-185); ExcelImporter takes depth from the outline level.
+        val label = styles.text(indent = minOf(depth, MAX_INDENT), group = node is SubmittedGroupNode)
         when (node) {
             is SubmittedGroupNode -> {
-                row.createCell(0).setCellValue(indent + (node.title ?: ""))
-                row.createCell(5 + shift).setCellValue(node.mean)
-                row.createCell(7 + shift).setCellValue(node.variance)
-                row.createCell(11 + shift).setCellValue(node.offerPT)
+                row.createCell(0).styled(label).setCellValue(node.title ?: "")
+                row.createCell(5 + shift).styled(styles.number(group = true)).setCellValue(node.mean)
+                row.createCell(7 + shift).styled(styles.number(group = true)).setCellValue(node.variance)
+                row.createCell(11 + shift).styled(styles.number(group = true)).setCellValue(node.offerPT)
                 row.createCell(16 + shift).setCellValue("GROUP")
             }
             else -> {
-                row.createCell(0).setCellValue(indent + (node.description ?: ""))
+                row.createCell(0).styled(label).setCellValue(node.description ?: "")
                 // The method's own cells, in the method's own shape (task-107).
                 // Written as NUMERIC wherever the value parses as a number:
                 // ExcelImporter reads these positions back with cellNumericValue(),
@@ -143,17 +170,24 @@ class ExcelExporter {
                 layout.module.exportRow(SubmittedItemMapper.toDomain(node)).forEachIndexed { i, value ->
                     val c = row.createCell(METHOD_FIRST_COLUMN + i)
                     val numeric = value.toDoubleOrNull()
-                    if (numeric != null) c.setCellValue(numeric) else c.setCellValue(value)
+                    // Only a cell that came out NUMERIC gets the number format:
+                    // the bucket block mixes text (label, sample flag) and numbers.
+                    if (numeric != null) {
+                        c.styled(styles.number(group = false)).setCellValue(numeric)
+                    } else {
+                        c.setCellValue(value)
+                    }
                 }
-                row.createCell(4 + shift).setCellValue(node.mean)
-                row.createCell(6 + shift).setCellValue(node.variance)
-                row.createCell(8 + shift).setCellValue(node.riskSurcharge)
-                row.createCell(9 + shift).setCellValue(node.driverSurcharge)
-                row.createCell(10 + shift).setCellValue(node.offerPT)
-                row.createCell(12 + shift).setCellValue(node.cost)
-                row.createCell(13 + shift).setCellValue(node.offerPrice)
+                val number = styles.number(group = false)
+                row.createCell(4 + shift).styled(number).setCellValue(node.mean)
+                row.createCell(6 + shift).styled(number).setCellValue(node.variance)
+                row.createCell(8 + shift).styled(number).setCellValue(node.riskSurcharge)
+                row.createCell(9 + shift).styled(number).setCellValue(node.driverSurcharge)
+                row.createCell(10 + shift).styled(number).setCellValue(node.offerPT)
+                row.createCell(12 + shift).styled(styles.money(group = false)).setCellValue(node.cost)
+                row.createCell(13 + shift).styled(styles.money(group = false)).setCellValue(node.offerPrice)
                 node.phaseAbbreviation?.let { row.createCell(14 + shift).setCellValue(it) }
-                node.assumptions?.let { row.createCell(15 + shift).setCellValue(it) }
+                node.assumptions?.let { row.createCell(15 + shift).styled(styles.wrappedText()).setCellValue(it) }
                 row.createCell(16 + shift).setCellValue(
                     if (node is SubmittedTimeRelativeItemNode) "TIME_RELATIVE" else "FIXED"
                 )
@@ -167,52 +201,59 @@ class ExcelExporter {
         var next = rowIdx + 1
         if (node is SubmittedGroupNode) {
             for (child in node.children) {
-                next = writeNode(child, depth + 1, sheet, next, layout)
+                next = writeNode(child, depth + 1, next, context)
             }
         }
         return next
     }
 
-    private fun writeAdditionalCosts(workbook: XSSFWorkbook, version: SubmittedEstimationVersion) {
+    // Two header bands under section titles, so no freeze pane here (task-185).
+    private fun writeAdditionalCosts(workbook: XSSFWorkbook, version: SubmittedEstimationVersion, styles: ExcelStyles) {
         val sheet = workbook.createSheet(ExcelGermanLabels.Sheets.ADDITIONAL_COSTS)
         var rowIdx = 0
 
         val oneTime = version.additionalCosts.filter { it.type == AdditionalCostType.ONE_TIME }
         val recurring = version.additionalCosts.filter { it.type == AdditionalCostType.RECURRING }
 
-        sheet.createRow(rowIdx++).createCell(0).setCellValue(ExcelGermanLabels.AdditionalCosts.ONE_TIME_SECTION)
+        sheet.createRow(rowIdx++).createCell(0).styled(styles.sectionTitle)
+            .setCellValue(ExcelGermanLabels.AdditionalCosts.ONE_TIME_SECTION)
         val otHeader = sheet.createRow(rowIdx++)
         otHeader.createCell(0).setCellValue(ExcelGermanLabels.AdditionalCosts.DESCRIPTION)
         otHeader.createCell(1).setCellValue(ExcelGermanLabels.AdditionalCosts.AMOUNT)
         otHeader.createCell(2).setCellValue(ExcelGermanLabels.AdditionalCosts.PACKAGE)
+        styles.styleHeader(otHeader)
 
         for (cost in oneTime) {
             val row = sheet.createRow(rowIdx++)
             row.createCell(0).setCellValue(cost.description)
-            row.createCell(1).setCellValue(cost.amount)
+            row.createCell(1).styled(styles.money(group = false)).setCellValue(cost.amount)
             cost.phaseAbbreviation?.let { row.createCell(2).setCellValue(it) }
         }
 
         rowIdx++
-        sheet.createRow(rowIdx++).createCell(0).setCellValue(ExcelGermanLabels.AdditionalCosts.RECURRING_SECTION)
+        sheet.createRow(rowIdx++).createCell(0).styled(styles.sectionTitle)
+            .setCellValue(ExcelGermanLabels.AdditionalCosts.RECURRING_SECTION)
         val rcHeader = sheet.createRow(rowIdx++)
         rcHeader.createCell(0).setCellValue(ExcelGermanLabels.AdditionalCosts.DESCRIPTION)
         rcHeader.createCell(1).setCellValue(ExcelGermanLabels.AdditionalCosts.AMOUNT_PER_WEEK)
         rcHeader.createCell(2).setCellValue(ExcelGermanLabels.AdditionalCosts.PACKAGE)
         rcHeader.createCell(3).setCellValue(ExcelGermanLabels.AdditionalCosts.TOTAL_COST)
+        styles.styleHeader(rcHeader)
 
         for (cost in recurring) {
             val row = sheet.createRow(rowIdx++)
             row.createCell(0).setCellValue(cost.description)
-            row.createCell(1).setCellValue(cost.amountPerWeek ?: cost.amount)
+            row.createCell(1).styled(styles.money(group = false)).setCellValue(cost.amountPerWeek ?: cost.amount)
             cost.phaseAbbreviation?.let { row.createCell(2).setCellValue(it) }
             val phase = version.phases.find { it.abbreviation == cost.phaseAbbreviation }
             val totalWeeks = phase?.durationWeeks ?: 0.0
-            row.createCell(3).setCellValue((cost.amountPerWeek ?: cost.amount) * totalWeeks)
+            row.createCell(3).styled(styles.money(group = false))
+                .setCellValue((cost.amountPerWeek ?: cost.amount) * totalWeeks)
         }
+        sheet.widths(40, 16, 10, 16)
     }
 
-    private fun writeBuckets(workbook: XSSFWorkbook, buckets: List<EstimationBucket>) {
+    private fun writeBuckets(workbook: XSSFWorkbook, buckets: List<EstimationBucket>, styles: ExcelStyles) {
         val sheet = workbook.createSheet(ExcelGermanLabels.Sheets.BUCKETS)
         val headerRow = sheet.createRow(0)
         listOf(
@@ -220,17 +261,20 @@ class ExcelExporter {
             ExcelGermanLabels.Buckets.POSITION,
             ExcelGermanLabels.Buckets.ID
         ).forEachIndexed { idx, h -> headerRow.createCell(idx).setCellValue(h) }
+        styles.styleHeader(headerRow)
+        sheet.createFreezePane(0, 1)
 
         buckets.sortedBy { it.position }.forEachIndexed { idx, bucket ->
             val row = sheet.createRow(idx + 1)
             row.createCell(0).setCellValue(bucket.label)
-            row.createCell(1).setCellValue(bucket.position.toDouble())
+            row.createCell(1).styled(styles.integer()).setCellValue(bucket.position.toDouble())
             row.createCell(2).setCellValue(bucket.id?.toString() ?: "")
         }
+        sheet.widths(32, 10, 38)
         Log.debug("Excel export wrote ${buckets.size} bucket(s)")
     }
 
-    private fun writePhases(workbook: XSSFWorkbook, version: SubmittedEstimationVersion) {
+    private fun writePhases(workbook: XSSFWorkbook, version: SubmittedEstimationVersion, styles: ExcelStyles) {
         val sheet = workbook.createSheet(ExcelGermanLabels.Sheets.PHASES)
         val headerRow = sheet.createRow(0)
         listOf(
@@ -243,6 +287,11 @@ class ExcelExporter {
             ExcelGermanLabels.Phases.ADDITIONAL_COST_RECURRING,
             ExcelGermanLabels.Phases.OFFER_PRICE_WITH_SALES_SURCHARGE
         ).forEachIndexed { idx, h -> headerRow.createCell(idx).setCellValue(h) }
+        // These headers carry deliberate newlines ("Laufzeit\nWochen"): the
+        // header style's wrapText is what renders them on two lines.
+        styles.styleHeader(headerRow)
+        sheet.createFreezePane(0, 1)
+        val money = styles.money(group = false)
 
         val salesSurcharge = version.salesSurcharge
         val dailyRate = version.dailyRate
@@ -252,7 +301,7 @@ class ExcelExporter {
             val row = sheet.createRow(idx + 1)
             row.createCell(0).setCellValue(phase.name)
             row.createCell(1).setCellValue(phase.abbreviation)
-            phase.durationWeeks?.let { row.createCell(2).setCellValue(it) }
+            phase.durationWeeks?.let { row.createCell(2).styled(styles.number(group = false)).setCellValue(it) }
 
             val phaseItems = allLeaves.filter { it.phaseAbbreviation == phase.abbreviation }
             val effortPT = phaseItems.sumOf { it.offerPT }
@@ -264,53 +313,64 @@ class ExcelExporter {
                 .filter { it.phaseAbbreviation == phase.abbreviation && it.type == AdditionalCostType.RECURRING }
                 .sumOf { (it.amountPerWeek ?: it.amount) * (phase.durationWeeks ?: 0.0) }
 
-            row.createCell(3).setCellValue(effortPT)
-            row.createCell(4).setCellValue(devCost)
-            row.createCell(5).setCellValue(oneTimeCosts)
-            row.createCell(6).setCellValue(recurringCosts)
-            row.createCell(7).setCellValue((devCost + oneTimeCosts + recurringCosts) * (1 + salesSurcharge))
+            row.createCell(3).styled(styles.number(group = false)).setCellValue(effortPT)
+            row.createCell(4).styled(money).setCellValue(devCost)
+            row.createCell(5).styled(money).setCellValue(oneTimeCosts)
+            row.createCell(6).styled(money).setCellValue(recurringCosts)
+            row.createCell(7).styled(money)
+                .setCellValue((devCost + oneTimeCosts + recurringCosts) * (1 + salesSurcharge))
         }
+        sheet.widths(28, 10, 12, 12, 18, 18, 18, 20)
     }
 
-    private fun writeParameters(workbook: XSSFWorkbook, version: SubmittedEstimationVersion) {
+    private fun writeParameters(workbook: XSSFWorkbook, version: SubmittedEstimationVersion, styles: ExcelStyles) {
         val sheet = workbook.createSheet(ExcelGermanLabels.Sheets.PARAMETERS)
         val headerRow = sheet.createRow(0)
         headerRow.createCell(0).setCellValue(ExcelGermanLabels.Parameters.NAME)
         headerRow.createCell(1).setCellValue(ExcelGermanLabels.Parameters.VALUE)
         headerRow.createCell(2).setCellValue(ExcelGermanLabels.Parameters.COMMENT)
+        styles.styleHeader(headerRow)
+        sheet.createFreezePane(0, 1)
 
         // Fixed rows — the parameters are typed fields, not user-named rows, so
         // the sheet shape no longer depends on what a user typed. The hours per
         // working day (task-213) is left out for a version submitted before the
         // conversion existed, which has none.
         listOfNotNull(
-            ExcelGermanLabels.Parameters.DAILY_RATE to version.dailyRate,
-            ExcelGermanLabels.Parameters.STD_DEV_FACTOR to version.stdDevFactor,
-            ExcelGermanLabels.Parameters.SALES_SURCHARGE to version.salesSurcharge,
-            version.hoursPerDay?.let { ExcelGermanLabels.Parameters.HOURS_PER_DAY to it }
-        ).forEachIndexed { idx, (label, value) ->
+            Triple(ExcelGermanLabels.Parameters.DAILY_RATE, version.dailyRate, styles.money(group = false)),
+            Triple(ExcelGermanLabels.Parameters.STD_DEV_FACTOR, version.stdDevFactor, styles.number(group = false)),
+            Triple(ExcelGermanLabels.Parameters.SALES_SURCHARGE, version.salesSurcharge, styles.percent()),
+            version.hoursPerDay?.let {
+                Triple(ExcelGermanLabels.Parameters.HOURS_PER_DAY, it, styles.number(group = false))
+            }
+        ).forEachIndexed { idx, (label, value, style) ->
             val row = sheet.createRow(idx + 1)
             row.createCell(0).setCellValue(label)
-            row.createCell(1).setCellValue(value)
+            row.createCell(1).styled(style).setCellValue(value)
         }
+        // The comment column has no cells yet, so only its width.
+        sheet.widths(32, 16, 40)
     }
 
-    private fun writeEffortDrivers(workbook: XSSFWorkbook, version: SubmittedEstimationVersion) {
+    private fun writeEffortDrivers(workbook: XSSFWorkbook, version: SubmittedEstimationVersion, styles: ExcelStyles) {
         val sheet = workbook.createSheet(ExcelGermanLabels.Sheets.EFFORT_DRIVERS)
         val headerRow = sheet.createRow(0)
         headerRow.createCell(0).setCellValue(ExcelGermanLabels.EffortDrivers.DESCRIPTION)
         headerRow.createCell(1).setCellValue(ExcelGermanLabels.EffortDrivers.FACTOR)
         headerRow.createCell(2).setCellValue(ExcelGermanLabels.EffortDrivers.ADDITIONAL_EFFORT)
         headerRow.createCell(3).setCellValue(ExcelGermanLabels.EffortDrivers.COMMENT)
+        styles.styleHeader(headerRow)
+        sheet.createFreezePane(0, 1)
 
         val totalMean = allLeaves(version).sumOf { it.mean }
 
         version.effortDrivers.forEachIndexed { idx, driver ->
             val row = sheet.createRow(idx + 1)
             row.createCell(0).setCellValue(driver.description)
-            row.createCell(1).setCellValue(driver.factor)
-            row.createCell(2).setCellValue(totalMean * driver.factor)
-            driver.comment?.let { row.createCell(3).setCellValue(it) }
+            row.createCell(1).styled(styles.percent()).setCellValue(driver.factor)
+            row.createCell(2).styled(styles.number(group = false)).setCellValue(totalMean * driver.factor)
+            driver.comment?.let { row.createCell(3).styled(styles.wrappedText()).setCellValue(it) }
         }
+        sheet.widths(40, 12, 16, 45)
     }
 }
