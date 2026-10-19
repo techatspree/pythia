@@ -179,3 +179,6 @@ implemented twice.
 ## Licence
 
 Licensed under the [Apache License 2.0](LICENSE).
+
+Copyright 2026 Pythia Contributors, the people listed in [CONTRIBUTORS](CONTRIBUTORS).
+To contribute, see [docs/development.md](docs/development.md#contributors).

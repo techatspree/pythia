@@ -37,6 +37,17 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v7
+        with:
+          # Full history for the contributors check below: a shallow clone sees
+          # one commit, and the script refuses to run on it rather than pass.
+          fetch-depth: 0
+
+      # NOTICE names the holder "Pythia Contributors"; CONTRIBUTORS defines who
+      # that is (task-209). Every commit author must be listed, so a PR from a
+      # new contributor adds its one line here. Runs only git, before any
+      # Gradle step. See docs/development.md → "Contributors".
+      - name: Contributors list is complete
+        run: ./scripts/check-contributors.sh
 
       # Verifies gradle/wrapper/gradle-wrapper.jar against Gradle's published
       # checksums before anything executes it — on a public repo that accepts

@@ -1239,9 +1239,9 @@
       "notes": "Review all shipped open-source components against the policy, meet attribution obligations, and replace incompatible ones"
     },
     "task-209": {
-      "status": "pending",
-      "started_at": null,
-      "completed_at": null,
+      "status": "done",
+      "started_at": "2026-10-19T09:11:12+00:00",
+      "completed_at": "2026-10-19T09:15:38+00:00",
       "notes": "Add an Apache-2.0-compliant contributors list (CONTRIBUTORS / NOTICE attribution) to the project"
     },
     "task-210": {

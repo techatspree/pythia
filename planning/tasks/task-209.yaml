@@ -116,8 +116,14 @@ steps:
          that does not match `^.+ <[^<>@ ]+@[^<>@ ]+>$` is a format error
          (exit 1, print the line).
       2. Collect authors: `git log --no-merges --use-mailmap
-         --format='%aN <%aE>'`, unique. Drop emails matching
-         `[bot]@users.noreply.github.com$` or equal to `noreply@github.com`.
+         --format='%aN <%aE>'`, unique. Drop emails ENDING IN the literal
+         text `[bot]@users.noreply.github.com`, or equal to
+         `noreply@github.com`. LITERAL, not a regex: in a regex `[bot]` is a
+         character class (one of b, o, t), so
+         `49699333+dependabot[bot]@users.noreply.github.com` — `]` before the
+         `@` — would NOT match and the first bot commit would fail the gate.
+         Use a shell `case` pattern (`*'[bot]@users.noreply.github.com'`),
+         `grep -F`, or an escaped `\[bot\]`.
       3. Fail (exit 1) if any remaining author's lower-cased email is not
          listed. Print "Not listed in CONTRIBUTORS:" followed by each missing
          `Name <email>` line, then a hint to add them. Otherwise print
@@ -148,8 +154,11 @@ steps:
       - `docs/development.md`: a new `## Contributors` section (place it
         after "Dependency vulnerabilities", before "Development Profiles")
         stating what the file is for, the line format, which email to use,
-        that AI co-authors and bots are not listed and why, and how to run
-        the check locally.
+        that AI co-authors and bots are not listed and why, how to run the
+        check locally, and its known limitation: only commit AUTHORS are
+        compared, so a human named only in a `Co-authored-by:` trailer
+        (GitHub adds those when squashing a multi-author PR) must be added
+        by hand.
       - `README.md` → `## Licence`: add "Copyright 2026 Pythia Contributors,
         the people listed in [CONTRIBUTORS](CONTRIBUTORS). To contribute, see
         [docs/development.md](docs/development.md#contributors)."
@@ -161,7 +170,9 @@ steps:
     Verify locally: `./scripts/check-contributors.sh` passes; it fails with
     an empty list (`./scripts/check-contributors.sh <(echo '# empty')`),
     naming `Torsten Fink <tnfink@users.noreply.github.com>`; `shellcheck
-    scripts/check-contributors.sh` is clean. Then run the full build:
+    scripts/check-contributors.sh` is clean. The real history has no bot
+    commit, so prove the bot filter in a throwaway repository (see the
+    validation). Then run the full build:
       ./gradlew build
 
 validation:
@@ -178,9 +189,37 @@ validation:
   - |
     shellcheck scripts/check-contributors.sh
   - |
-    grep -q 'check-contributors.sh' .github/workflows/ci.yaml && grep -q 'fetch-depth: 0' .github/workflows/ci.yaml
+    # The BUILD job's checkout has full history (release-tag already had
+    # fetch-depth: 0, so a file-wide grep would pass without any change).
+    sed -n '/^  build:/,/^  e2e:/p' .github/workflows/ci.yaml | grep -q 'fetch-depth: 0'
+    sed -n '/^  build:/,/^  e2e:/p' .github/workflows/ci.yaml | grep -q 'check-contributors.sh'
+  - |
+    # The bot filter, in a throwaway repository: a dependabot commit is
+    # ignored, an unlisted human is not.
+    S="$PWD/scripts/check-contributors.sh"; T=$(mktemp -d); cd "$T"
+    git init -q
+    git -c user.name='dependabot[bot]' -c user.email='49699333+dependabot[bot]@users.noreply.github.com' commit -q --allow-empty -m bot
+    git -c user.name='Ada Human' -c user.email='ada@example.org' commit -q --allow-empty -m human
+    printf '# test\nAda Human <ada@example.org>\n' > C
+    "$S" C
+    printf '# test\n' > C
+    ! "$S" C > out 2>&1 && grep -q 'ada@example.org' out && ! grep -q 'dependabot' out
+    cd - >/dev/null; rm -rf "$T"
   - |
     grep -q 'LICENSE NOTICE CONTRIBUTORS' scripts/release-bundle.sh
+  - |
+    # The real bundle carries it next to LICENSE and NOTICE. release-bundle.sh
+    # packages a COMMIT, and the file is not committed yet, so build a
+    # throwaway commit object from a temporary index: no ref, branch, index or
+    # working-tree change.
+    T=$(mktemp -d)
+    GIT_INDEX_FILE="$T/index" git read-tree HEAD
+    GIT_INDEX_FILE="$T/index" git add CONTRIBUTORS NOTICE scripts/release-bundle.sh
+    C=$(git commit-tree "$(GIT_INDEX_FILE="$T/index" git write-tree)" -p HEAD -m tmp)
+    D=sha256:$(printf '0%.0s' $(seq 64))
+    scripts/release-bundle.sh v0.0.0 ghcr.io/x/pythia "$D" "$D" "$T/out" "$C" >/dev/null
+    tar -tzf "$T/out/pythia-deploy-v0.0.0.tar.gz" | grep -qx 'pythia-deploy-v0.0.0/CONTRIBUTORS'
+    rm -rf "$T"
   - |
     grep -q 'CONTRIBUTORS' docs/deployment.md && grep -q '^## Contributors' docs/development.md
   - |

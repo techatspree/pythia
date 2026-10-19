@@ -1,0 +1,14 @@
+# Pythia Contributors
+#
+# "Pythia Contributors", the copyright holder named in NOTICE, are the people
+# listed in this file.
+#
+# Format: one person per line, `Name <email>`, sorted by name. The email is the
+# address the person's commits are authored under (for most contributors a
+# GitHub noreply address). Lines starting with `#` are comments.
+#
+# Add yourself in your first pull request. CI checks that every commit author is
+# listed, with scripts/check-contributors.sh; see docs/development.md,
+# "Contributors".
+
+Torsten Fink <tnfink@users.noreply.github.com>

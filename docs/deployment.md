@@ -77,7 +77,8 @@ repository.
 ```
 pythia-deploy-v1.2.0/
   release.env                 the release's identity, see below
-  LICENSE  NOTICE             Apache-2.0 requires NOTICE to travel along
+  LICENSE NOTICE CONTRIBUTORS Apache-2.0 requires NOTICE to travel
+                              along; CONTRIBUTORS defines its holder
   scripts/deploy.sh
   scripts/smoke.sh
   k8s/base/**

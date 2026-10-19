@@ -342,6 +342,45 @@ uses Mend.io data, while `npm audit` uses the GitHub Advisory Database, so
 the two lists differ. Kit's Mend-only "Insufficient Information" CVEs are an
 example. An IDE finding is worth a look even when CI is quiet.
 
+## Contributors
+
+`NOTICE` names Pythia's copyright holder as "Pythia Contributors". The
+`CONTRIBUTORS` file at the repository root defines who that is: the people
+listed in it (task-209). It is not an acknowledgements page and does not list
+third-party authors. It ships in the release bundle next to `LICENSE` and
+`NOTICE`, so `NOTICE` stays meaningful wherever it goes.
+
+**Add yourself in your first pull request**: one line, `Name <email>`, sorted by
+name. The email must be the one your commits are authored under — check with
+`git log --format='%aN <%aE>' -1`. With GitHub that is usually your noreply
+address (`<id>+<user>@users.noreply.github.com`). Do not add a company name or
+a corporate address.
+
+**CI checks it.** The `build` job runs `scripts/check-contributors.sh`, which
+fails when the author of any non-merge commit is not listed and prints the
+missing lines ready to paste. Run it locally the same way:
+
+```bash
+./scripts/check-contributors.sh
+```
+
+It needs the full history and refuses to run in a shallow clone (CI's checkout
+uses `fetch-depth: 0`). A `.mailmap`, should one ever be added, is honoured.
+
+**Not listed, deliberately:** bot accounts (`*[bot]@users.noreply.github.com`,
+`noreply@github.com`) and AI assistants named in `Co-Authored-By:` trailers.
+They are tools, not copyright holders. Merge commits are ignored: they carry no
+authored content.
+
+**Known limitation:** only commit **authors** are compared. A person named only
+in a `Co-authored-by:` trailer — GitHub adds those when it squashes a pull
+request with several authors — is not seen by the check and has to be added by
+hand. Someone who contributed without commits (design, review) may be listed by
+hand too; the check never flags a listed person.
+
+Whether a contribution's copyright belongs to the contributor or to their
+employer is a legal question this file does not answer. It lists people.
+
 ## Development Profiles
 
 ### Authentication per profile

@@ -12,7 +12,7 @@
 #   <git-ref>       the content to package; defaults to <version>
 #
 # The bundle is everything a deployment needs and nothing else: the manifests,
-# deploy.sh, smoke.sh, LICENSE/NOTICE, and release.env naming the release and
+# deploy.sh, smoke.sh, LICENSE/NOTICE/CONTRIBUTORS, and release.env naming the release and
 # pinning both images by digest. Its layout and release.env's keys are a public
 # contract, documented in docs/deployment.md ("What a release publishes").
 #
@@ -79,7 +79,7 @@ OUT="$(cd "$OUT" && pwd)"
 git -C "$ROOT" archive --format=tar.gz --prefix="$NAME/" \
     --add-virtual-file="$NAME/release.env:$ENV" \
     -o "$OUT/$NAME.tar.gz" \
-    "$COMMIT" -- LICENSE NOTICE scripts/deploy.sh scripts/smoke.sh \
+    "$COMMIT" -- LICENSE NOTICE CONTRIBUTORS scripts/deploy.sh scripts/smoke.sh \
     k8s/base k8s/overlays/staging k8s/overlays/production
 
 # sha256sum format, so `sha256sum -c` works from <out-dir>. macOS has only shasum.
