@@ -50,6 +50,8 @@ cd src/frontend && npm run test:e2e        # Playwright
                                            #   (CycloneDX; part of build; see docs/development.md, "The SBOM")
 ```
 
+**Dependency changes must pass `checkOssCompliance`** (task-207): `./gradlew build` checks every shipped component of the SBOM against `compliance/oss-policy.json` and FAILS on a forbidden, unknown or missing license. A justified exception goes into that file with a `reason` — never weaken the check; see `docs/oss-compliance.md`.
+
 The local **dev backend listens on :8090**, not Quarkus' default 8080 (`%dev.quarkus.http.port`, task-137). 8080 is deliberately left free for `kubectl -n estimation port-forward svc/frontend 8080:80`: both can bind simultaneously (the port-forward takes `127.0.0.1`, Quarkus `0.0.0.0`), the loopback binding wins for `localhost`, and the Vite proxy plus the Playwright suite then silently reach the CLUSTER — which rejects `Authorization: Dev …` with `401` while both stacks look healthy. Do NOT move it back to 8080. The setting is profile-scoped on purpose: only the local dev run moves, while the container (prod, dev-minikube) keeps 8080, which the in-cluster ports (`k8s/base/backend/*`) expect. The committed `src/frontend/src/lib/api/openapi.json` does not depend on the port at all — its `servers` block is a fixed relative `/` (task-203).
 
 All profiles use PostgreSQL 16 — there is no H2. Local dev (`dev` profile) and tests (`%test`) start a throwaway PostgreSQL container via Quarkus Dev Services, so **Docker must be running** for local backend runs and for the test suite; dev-minikube and prod use real PostgreSQL via Flyway migrations (`src/backend/implementation/src/main/resources/db/migration/V*.sql`).

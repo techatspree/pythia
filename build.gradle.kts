@@ -93,5 +93,8 @@ tasks.register("staticAnalysis") {
         ":frontend:lintOpenApi",
         // Consolidated HTML + merged SARIF over all of the above.
         ":frontend:sarifHtmlReport"
+        // Deliberately ABSENT: :frontend:checkOssCompliance (task-207). It reads the
+        // application SBOM, so it needs quarkusBuild and npmBuild — the whole
+        // application — and this task is a fast lint pass. It runs in `build`.
     )
 }

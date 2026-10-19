@@ -166,6 +166,7 @@ cd src/frontend && npm run test:e2e   # Playwright end-to-end suite
 - [Scheduling](docs/scheduling.md) — dependencies, the critical path, and the two durations a schedule reports
 - [Authentication](docs/authentication.md) — roles, and the pluggable auth modules
 - [Entra ID setup](docs/entra-setup.md) — wiring up Microsoft Entra ID for production
+- [Open-source compliance](docs/oss-compliance.md) — which third-party licenses may ship, and how the build checks it
 
 ## Built with
 

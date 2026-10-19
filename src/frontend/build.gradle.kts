@@ -261,13 +261,47 @@ val lintOpenApi = tasks.register<NpmTask>("lintOpenApi") {
     inputs.file("redocly-lint.yaml")
     inputs.file(".redocly.lint-ignore.yaml")
     inputs.file("package-lock.json")
-    val marker = layout.buildDirectory.file("lint-openapi/ok")
+    // Under the ROOT build/: src/frontend/build IS the SPA the image is made from,
+    // so a marker there would ship (and `vite build` would wipe it).
+    val marker = rootProject.layout.buildDirectory.file("lint-openapi/ok")
     outputs.file(marker)
     doLast { marker.get().asFile.writeText("ok\n") }
 }
 
+// Open-source compliance gate (task-207). BLOCKING, like checkDesignTokens: every
+// third-party component in the application SBOM (task-206) must carry a license
+// that compliance/oss-policy.json allows, or an exception there with a reason.
+// It reads the SBOM `build` already produces, so it cannot disagree with it. It
+// lives here only because the Node plugin does; it is not frontend-specific.
+// Deliberately NOT part of the root `staticAnalysis`: through :sbom it needs the
+// whole application built. docs/oss-compliance.md explains the policy.
+val checkOssCompliance = tasks.register<NodeTask>("checkOssCompliance") {
+    description = "Checks the application SBOM against compliance/oss-policy.json (blocking)."
+    dependsOn(tasks.npmInstall, ":sbom")
+    script.set(rootProject.file("scripts/check-oss-compliance.mjs"))
+    inputs.file(rootProject.file("scripts/check-oss-compliance.mjs"))
+    inputs.file(rootProject.file("compliance/oss-policy.json"))
+    inputs.file(rootProject.layout.buildDirectory.file("sbom/pythia.cdx.json"))
+    // ROOT build/, not src/frontend/build — that is the SPA, see lintOpenApi.
+    val marker = rootProject.layout.buildDirectory.file("check-oss-compliance/ok")
+    outputs.file(marker)
+    doLast { marker.get().asFile.writeText("ok\n") }
+}
+
+// Unit tests of the compliance checker, part of :frontend:check.
+val testOssCompliance = tasks.register<NodeTask>("testOssCompliance") {
+    description = "Runs the node --test suite of scripts/check-oss-compliance.mjs."
+    dependsOn(tasks.npmInstall)
+    options.set(listOf("--test"))
+    script.set(rootProject.file("scripts/check-oss-compliance.test.mjs"))
+    outputs.upToDateWhen { false }
+}
+
 tasks.named("check") {
-    dependsOn(npmCheck, npmLintReport, checkDesignTokens, lintE2e, lintOpenApi, testSbomFinalize)
+    dependsOn(
+        npmCheck, npmLintReport, checkDesignTokens, lintE2e, lintOpenApi, testSbomFinalize,
+        testOssCompliance, checkOssCompliance
+    )
     if (openApiGate) dependsOn(verifyOpenApiSchemaCommitted)
 }
 

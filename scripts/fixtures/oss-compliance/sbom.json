@@ -1,0 +1,59 @@
+{
+  "bomFormat": "CycloneDX",
+  "specVersion": "1.6",
+  "metadata": {
+    "component": {
+      "type": "application",
+      "bom-ref": "pythia",
+      "name": "pythia",
+      "licenses": [{ "license": { "id": "Apache-2.0" } }]
+    }
+  },
+  "components": [
+    {
+      "type": "application",
+      "bom-ref": "pythia-backend",
+      "name": "pythia-backend",
+      "licenses": [{ "license": { "id": "Apache-2.0" } }],
+      "components": [
+        {
+          "type": "library",
+          "bom-ref": "pythia-backend:pkg:maven/com.acme/lib-a@1.0",
+          "name": "lib-a",
+          "purl": "pkg:maven/com.acme/lib-a@1.0",
+          "licenses": [{ "license": { "id": "Apache-2.0" } }]
+        },
+        {
+          "type": "library",
+          "bom-ref": "pythia-backend:pkg:maven/io.pythia/core@9.9.9",
+          "name": "core",
+          "purl": "pkg:maven/io.pythia/core@9.9.9"
+        }
+      ]
+    },
+    {
+      "type": "application",
+      "bom-ref": "pythia-frontend",
+      "name": "pythia-frontend",
+      "licenses": [{ "license": { "id": "Apache-2.0" } }],
+      "components": [
+        {
+          "type": "library",
+          "bom-ref": "pythia-frontend:pkg:npm/lib-b@2.0.0",
+          "name": "lib-b",
+          "purl": "pkg:npm/lib-b@2.0.0",
+          "licenses": [{ "license": { "id": "MIT" } }],
+          "components": [
+            {
+              "type": "library",
+              "bom-ref": "pythia-frontend:pkg:npm/lib-b-inner@2.0.0",
+              "name": "lib-b-inner",
+              "purl": "pkg:npm/lib-b-inner@2.0.0",
+              "licenses": [{ "license": { "id": "MIT" } }]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

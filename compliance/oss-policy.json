@@ -1,0 +1,70 @@
+{
+  "description": "Pythia's open-source compliance policy (task-207): which third-party licenses may ship with Pythia, an Apache-2.0 product distributed as binaries. Checked by scripts/check-oss-compliance.mjs (Gradle :frontend:checkOssCompliance, part of ./gradlew build). Explained in docs/oss-compliance.md. A license in no category is unknown and FAILS: this is a closed allow-list.",
+  "scope": [
+    "build/sbom/pythia.cdx.json"
+  ],
+  "firstParty": [
+    "pkg:maven/io.pythia/"
+  ],
+  "licenses": {
+    "allowed": {
+      "Apache-2.0": "Our own license; permissive. Binary redistribution needs the license text and any NOTICE carried along (attribution: task-208).",
+      "MIT": "Permissive; binary redistribution needs only the copyright and permission notice (attribution: task-208).",
+      "MIT-0": "Permissive without even an attribution requirement.",
+      "BSD-2-Clause": "Permissive; binary redistribution needs the copyright notice and disclaimer (attribution: task-208).",
+      "BSD-3-Clause": "Permissive; as BSD-2-Clause plus a no-endorsement clause we do not touch.",
+      "ISC": "Permissive, functionally equivalent to MIT.",
+      "0BSD": "Permissive without an attribution requirement.",
+      "Zlib": "Permissive; only forbids misrepresenting the origin, which we do not do.",
+      "CC0-1.0": "Public-domain dedication with a permissive fallback license.",
+      "Unlicense": "Public-domain dedication with a permissive fallback license.",
+      "BlueOak-1.0.0": "Permissive; requires passing on the license terms (attribution: task-208).",
+      "UPL-1.0": "Permissive (Universal Permissive License), compatible with Apache-2.0.",
+      "Python-2.0": "Permissive (PSF license family); binary redistribution needs the license notice (attribution: task-208)."
+    },
+    "conditional": {
+      "EPL-1.0": "Weak copyleft per module: acceptable for an UNMODIFIED library shipped as its own jar. Its source is available upstream; if we ever modify it, the modified source must be published under EPL.",
+      "EPL-2.0": "Weak copyleft per module: acceptable for an UNMODIFIED library shipped as its own jar. Its source is available upstream; if we ever modify it, the modified source must be published under EPL.",
+      "MPL-2.0": "File-level copyleft: acceptable for UNMODIFIED files used as a separate component. Source is available upstream; modified MPL files would have to be published.",
+      "LGPL-2.1-only": "Weak copyleft: acceptable for an UNMODIFIED library used as a separate, replaceable component (a jar or package, not copied into our code). Source is available upstream; users may replace the library.",
+      "LGPL-2.1-or-later": "Weak copyleft: acceptable for an UNMODIFIED library used as a separate, replaceable component (a jar or package, not copied into our code). Source is available upstream; users may replace the library.",
+      "LGPL-3.0-only": "Weak copyleft: acceptable for an UNMODIFIED library used as a separate, replaceable component (a jar or package, not copied into our code). Source is available upstream; users may replace the library.",
+      "LGPL-3.0-or-later": "Weak copyleft: acceptable for an UNMODIFIED library used as a separate, replaceable component (a jar or package, not copied into our code). Source is available upstream; users may replace the library.",
+      "GPL-2.0-with-classpath-exception": "Deprecated SPDX id of GPL-2.0-only WITH Classpath-exception-2.0. The Classpath exception permits linking an UNMODIFIED library into an independent program under any license. Source is available upstream.",
+      "GPL-2.0-only WITH Classpath-exception-2.0": "Current SPDX spelling of GPL-2.0-with-classpath-exception; same obligation: only an UNMODIFIED library, linked, source available upstream. Listed so the modern form is not judged as plain GPL-2.0-only.",
+      "GPL-2.0-or-later WITH Classpath-exception-2.0": "As GPL-2.0-only WITH Classpath-exception-2.0: only an UNMODIFIED library, linked, source available upstream.",
+      "CDDL-1.0": "Weak copyleft per file: acceptable for an UNMODIFIED library shipped as its own jar. Source is available upstream; modified CDDL files would have to be published.",
+      "CDDL-1.1": "Weak copyleft per file: acceptable for an UNMODIFIED library shipped as its own jar. Source is available upstream; modified CDDL files would have to be published."
+    },
+    "forbidden": {
+      "GPL-2.0-only": "Strong copyleft: distributing Pythia with it would require licensing the combined work under GPL-2.0, incompatible with Apache-2.0.",
+      "GPL-2.0-or-later": "Strong copyleft: distributing Pythia with it would require licensing the combined work under the GPL.",
+      "GPL-3.0-only": "Strong copyleft: distributing Pythia with it would require licensing the combined work under GPL-3.0.",
+      "GPL-3.0-or-later": "Strong copyleft: distributing Pythia with it would require licensing the combined work under the GPL.",
+      "AGPL-3.0-only": "Network copyleft: even offering Pythia as a service would require publishing the combined work under AGPL-3.0.",
+      "AGPL-3.0-or-later": "Network copyleft: even offering Pythia as a service would require publishing the combined work under the AGPL.",
+      "SSPL-1.0": "Source-available, not open source: offering the software as a service requires publishing the whole service stack.",
+      "BUSL-1.1": "Source-available with usage restrictions until the change date; not an open-source license.",
+      "CC-BY-NC-4.0": "Non-commercial only; incompatible with Apache-2.0, which permits commercial use.",
+      "CC-BY-SA-4.0": "Share-alike copyleft not intended for software and one-way incompatible with Apache-2.0."
+    }
+  },
+  "aliases": {
+    "The Apache Software License, Version 2.0": "Apache-2.0",
+    "Apache License, Version 2.0": "Apache-2.0",
+    "Apache License 2.0": "Apache-2.0",
+    "The MIT License": "MIT",
+    "MIT License": "MIT",
+    "The BSD 3-Clause License": "BSD-3-Clause",
+    "Eclipse Public License - v 2.0": "EPL-2.0",
+    "Eclipse Public License v2.0": "EPL-2.0"
+  },
+  "exceptions": [
+    {
+      "purl": "pkg:maven/org.jboss/jboss-transaction-spi@8.0.0.Final?type=jar",
+      "license": "Public Domain (the license NAME in the SBOM; not an SPDX id)",
+      "reason": "pending review in task-208",
+      "pendingReview": true
+    }
+  ]
+}

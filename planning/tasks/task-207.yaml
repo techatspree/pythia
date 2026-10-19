@@ -42,11 +42,18 @@ description: |
   | category | SPDX ids | meaning |
   |---|---|---|
   | allowed | Apache-2.0, MIT, MIT-0, BSD-2-Clause, BSD-3-Clause, ISC, 0BSD, Zlib, CC0-1.0, Unlicense, BlueOak-1.0.0, UPL-1.0, Python-2.0 | permissive; compatible with distributing an Apache-2.0 product in binary form, given attribution (task-208) |
-  | conditional | EPL-1.0, EPL-2.0, MPL-2.0, LGPL-2.1-only, LGPL-2.1-or-later, LGPL-3.0-only, LGPL-3.0-or-later, GPL-2.0-with-classpath-exception, CDDL-1.0, CDDL-1.1 | weak copyleft; acceptable for an UNMODIFIED third-party library used as a separate component. Each entry states the obligation (e.g. "source of the library is available upstream; we do not modify it") |
+  | conditional | EPL-1.0, EPL-2.0, MPL-2.0, LGPL-2.1-only, LGPL-2.1-or-later, LGPL-3.0-only, LGPL-3.0-or-later, GPL-2.0-with-classpath-exception, `GPL-2.0-only WITH Classpath-exception-2.0`, `GPL-2.0-or-later WITH Classpath-exception-2.0`, CDDL-1.0, CDDL-1.1 | weak copyleft; acceptable for an UNMODIFIED third-party library used as a separate component. Each entry states the obligation (e.g. "source of the library is available upstream; we do not modify it") |
   | forbidden | GPL-2.0-only, GPL-2.0-or-later, GPL-3.0-only, GPL-3.0-or-later, AGPL-3.0-only, AGPL-3.0-or-later, SSPL-1.0, BUSL-1.1, CC-BY-NC-4.0, CC-BY-SA-4.0 | strong or network copyleft, or non-commercial or source-available terms: incompatible with distributing Pythia under Apache-2.0 |
 
   A license NOT in any list counts as unknown and fails. The list is a
   closed allow-list, never an open deny-list.
+
+  The two `WITH Classpath-exception-2.0` forms are listed because the SBOM
+  today uses the DEPRECATED id `GPL-2.0-with-classpath-exception` (9
+  components). If a library or the SBOM generator ever writes the current
+  SPDX spelling, rule 3 would otherwise judge it as plain `GPL-2.0-only` —
+  forbidden — and fail the build on a license that has not changed. Both
+  spellings are the same license.
 
   ## The check's rules
 
@@ -66,6 +73,16 @@ description: |
      is chosen, which is what dual licensing means); `A AND B` passes only if
      both do; `A WITH <exception>` is treated as `A` unless the policy lists
      the combined form; parentheses are honoured.
+     **Several entries in `licenses` are combined with AND.** CycloneDX does
+     not say whether such a list is a choice, so only an explicit `OR`
+     expression counts as one; a list is read conservatively. This is not
+     hypothetical: 19 shipped components carry two separate entries — Vert.x
+     (`Apache-2.0` + `EPL-1.0`/`EPL-2.0`), the Jakarta APIs, `parsson` and
+     `expressly` (`EPL-2.0` + `GPL-2.0-with-classpath-exception`),
+     `jakarta.persistence-api` (`EPL-2.0` + `BSD-3-Clause`) and `HdrHistogram`
+     (`CC0-1.0` + `BSD-2-Clause`). Every license involved is allowed or
+     conditional, so all 19 pass under AND; each conditional side is reported
+     with its obligation.
   4. Result: allowed → pass; conditional → pass, listed in the report with
      its obligation; forbidden, unknown or missing → FAIL.
   5. The policy itself is checked, too. An exception whose purl matches no
@@ -85,10 +102,16 @@ description: |
     We do not build those, and a gate on them would break whenever a base
     image moves. They are reviewed once by hand in task-208 and documented,
     not gated.
-  - **Blocking, in `./gradlew build`.** It joins the established blocking
-    gates (`checkDesignTokens`, `lintE2e`, the OpenAPI drift gate). It reads
-    the SBOMs that `build` already produces (task-206), so it adds no second
-    dependency resolution and cannot disagree with them.
+  - **Blocking, in `./gradlew build`** (via `:frontend:check`). It joins the
+    established blocking gates (`checkDesignTokens`, `lintE2e`,
+    `lintOpenApi`, the OpenAPI drift gate). It reads the SBOM that `build`
+    already produces (task-206), so it adds no second dependency resolution
+    and cannot disagree with it.
+  - **Not in `staticAnalysis`.** That task is a fast, standalone lint pass
+    (no tests, no Docker, no application build); through `:sbom` this check
+    needs `quarkusBuild` and `npmBuild`, i.e. the whole application. The root
+    `staticAnalysis` gets a comment saying so, so nobody adds it as an
+    oversight.
   - **Implementation: a zero-dependency Node ESM script**,
     `scripts/check-oss-compliance.mjs`, run on the project's pinned Node
     through a Gradle `NodeTask` in `:frontend` (where the Node plugin
@@ -96,9 +119,12 @@ description: |
     `node --test` (`scripts/check-oss-compliance.test.mjs`, fixtures under
     `scripts/fixtures/oss-compliance/`), run by a second task
     `testOssCompliance`. Both are wired into `check`.
-  - **The first run will find things.** task-206's survey already shows
-    components with no or non-SPDX license metadata (e.g. `jdom2`'s "Similar
-    to Apache License…", "Public Domain", `javax.annotation-api` with none).
+  - **The first run will find exactly one thing** (surveyed on the current
+    SBOM: 286 libraries, 285 with SPDX ids, none without a license):
+    `pkg:maven/org.jboss/jboss-transaction-spi@8.0.0.Final`, whose license is
+    the NAME "Public Domain". "Public Domain" must NOT become an alias —
+    mapping it is a judgement, and that is task-208's. Should the SBOM have
+    changed by the time this runs, treat every new finding the same way.
     This task does NOT judge them. Each finding becomes an `exceptions` entry
     with `pendingReview: true` and the reason "pending review in task-208".
     The build is then green but prints a warning per pending entry. A
@@ -136,19 +162,27 @@ steps:
     least: allowed id; conditional id (passes and is reported); forbidden id
     fails; unknown id fails; missing license fails; `OR` with one allowed
     side passes; `AND` with one forbidden side fails; parenthesised
-    expression; `WITH` exception; alias mapping; first-party prefix;
+    expression; `WITH` exception; the combined
+    `GPL-2.0-only WITH Classpath-exception-2.0` is conditional (not judged as
+    `GPL-2.0-only`); two separate `licenses` entries are combined with AND
+    (allowed + conditional passes, allowed + forbidden fails); alias mapping;
+    first-party prefix;
     exception overrides; `pendingReview` warns but passes; stale exception
     fails; exception without `reason` fails; id in two categories fails.
   - |
     Gradle: in `src/frontend/build.gradle.kts`, register `testOssCompliance`
     (`node --test` on the test file) and `checkOssCompliance` (the script,
-    `dependsOn(":sbom")` from task-206, inputs = policy + SBOMs). Wire both
-    into `:frontend:check` and the root `staticAnalysis`, with a comment that
-    this gate BLOCKS, like `checkDesignTokens`.
+    `dependsOn(":sbom")` from task-206). Declare the inputs (policy, SBOM,
+    the script) and an output marker so Gradle can skip it when nothing
+    changed, as `lintOpenApi` does. Wire both into `:frontend:check`, with a
+    comment that this gate BLOCKS, like `checkDesignTokens`. Do NOT add them
+    to the root `staticAnalysis`; add a comment there instead explaining why
+    `checkOssCompliance` is deliberately absent (see the decisions).
   - |
-    First run on the real SBOMs. Record every non-passing component as an
-    `exceptions` entry with `pendingReview: true` and reason "pending
-    review in task-208". If any is FORBIDDEN, stop and report it instead
+    First run on the real SBOM. Expected: exactly one non-passing component,
+    `jboss-transaction-spi` ("Public Domain"). Record every non-passing
+    component as an `exceptions` entry with `pendingReview: true` and reason
+    "pending review in task-208". If any is FORBIDDEN, stop and report it instead
     (see the decisions). The build must then be green, with the warnings
     listed.
   - |
@@ -178,6 +212,19 @@ validation:
     grep -q "pkg:npm/evil@1.0.0" "$T/out"
     rm -rf "$T"
   - |
+    # Several license entries are combined with AND: a forbidden second entry
+    # on a real dual-entry component (Vert.x) must fail.
+    T=$(mktemp -d)
+    jq '(.. | objects | select((.purl // "") | startswith("pkg:maven/io.vertx/vertx-core@")) | .licenses) += [{"license":{"id":"AGPL-3.0-only"}}]' \
+      build/sbom/pythia.cdx.json > "$T/f.json"
+    ! node scripts/check-oss-compliance.mjs "$T/f.json" > "$T/out" 2>&1
+    grep -q "vertx-core" "$T/out"
+    rm -rf "$T"
+  - |
+    jq -e '.licenses.conditional["GPL-2.0-only WITH Classpath-exception-2.0"]' compliance/oss-policy.json
+    jq -e '[.exceptions[] | select(.purl | startswith("pkg:maven/org.jboss/jboss-transaction-spi@"))] | length == 1' compliance/oss-policy.json
+    ! jq -e '.aliases["Public Domain"]' compliance/oss-policy.json
+  - |
     # A stale exception fails the check.
     T=$(mktemp -d)
     jq '.exceptions += [{"purl":"pkg:npm/not-a-dependency@0.0.1","license":"MIT","reason":"test"}]' compliance/oss-policy.json > "$T/p.json"
@@ -186,7 +233,9 @@ validation:
   - |
     grep -q 'checkOssCompliance' src/frontend/build.gradle.kts
     grep -q 'testOssCompliance' src/frontend/build.gradle.kts
+    # Root: present only as the comment explaining its absence from staticAnalysis.
     grep -q 'checkOssCompliance' build.gradle.kts
+    ! sed -n '/register("staticAnalysis")/,/^}/p' build.gradle.kts | grep -q '":frontend:checkOssCompliance"'
   - |
     test -f docs/oss-compliance.md
     grep -q 'oss-compliance' README.md

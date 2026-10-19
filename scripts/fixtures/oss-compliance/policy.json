@@ -1,0 +1,22 @@
+{
+  "scope": [],
+  "firstParty": ["pkg:maven/io.pythia/"],
+  "licenses": {
+    "allowed": {
+      "Apache-2.0": "permissive",
+      "MIT": "permissive"
+    },
+    "conditional": {
+      "EPL-2.0": "unmodified library, source upstream",
+      "GPL-2.0-only WITH Classpath-exception-2.0": "unmodified library, linked"
+    },
+    "forbidden": {
+      "GPL-2.0-only": "strong copyleft",
+      "GPL-3.0-only": "strong copyleft"
+    }
+  },
+  "aliases": {
+    "The MIT License": "MIT"
+  },
+  "exceptions": []
+}
