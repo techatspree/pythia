@@ -1,3 +1,8 @@
+---
+description: Create a new planning task (planning/tasks/task-NNN.yaml) for a problem or feature, registered in planning/status.json and ready for /implement-task.
+argument-hint: <problem or feature description>
+---
+
 Create a new planning task for the problem or feature described in $ARGUMENTS. Write the task file to `planning/tasks/` and register it in `planning/status.json`.
 
 ## Protocol
@@ -106,6 +111,12 @@ outputs:
 - **Wireframes.** If the task adds or changes any GUI function — a screen, a dialog, a panel, a control, a new state of an existing view (empty, error, filtered, role-dependent) — the `description` MUST contain a `## Wireframes` section with one ASCII wireframe per affected screen and state, before any step is written (see `planning/tasks/task-200.yaml` for the reference form). Each wireframe is a `### <screen>: <state>` heading, an indented box drawn with `+`, `-`, `|`, `[ Button ]`, `[x]`/`[ ]` checkboxes and `[ … v ]` selects, showing the German UI text as it will appear and realistic seeded test data (not placeholders). Below each box, bullets annotate it: the `data-testid` of every new element, the i18n key behind every new string, which role/user sees what, when an element is hidden or disabled, and how it relates to existing components (`$lib/ui` primitives, an existing dialog it mirrors). Show only the part of an existing page that changes, with `…` for the rest. Frontend steps then reference the wireframes ("as wireframed") instead of re-describing the layout, and the i18n table and testids in the steps must match the wireframes exactly. A task without GUI changes has no wireframe section.
 - **e2e tests.** If the task adds or changes a screen, dialog, or any control a Playwright spec will drive, it MUST go through the **Page Object Model**: a class in `src/frontend/e2e/pages/` (exported from the barrel), with the component carrying a new `data-testid="<screen>.<element>"` — English, dot-separated lower-kebab. Never write a spec that matches on a translated label: `getByRole(…, { name: '<text>' })`, `getByText('<text>')`, `getByLabel`/`getByPlaceholder`/`getByTitle`/`getByAltText('<text>')`, `locator('text=…')`, `{ hasText: '<text>' }`, a literal value in a `[title|placeholder|aria-label|alt="<text>"]` attribute selector, and `toHaveAttribute('aria-label'|'title'|'placeholder'|'alt', '<text>' or /<text>/)` are ESLint-banned under `e2e/**` and fail `:frontend:check` (via the blocking `lintE2e` gate). Assert a translated value through `catalogText()`/`catalogPattern()` from `e2e/helpers.ts`. Role-only `getByRole('dialog')` and `getByText(<variable>)` (test data) stay legal. Do NOT rename any existing flat-kebab testid. Add a validation check that proves it — e.g. `grep -q 'data-testid="<screen>.<element>"' <component>` plus `grep -q "from './pages'" src/frontend/e2e/<spec>`. See `src/frontend/CLAUDE.md`.
 - Outputs must list every file the steps create, modify, or delete. Include test files.
+- **Ground the task in today's repository.** Every count, path, line reference or quoted text in the description is measured now (grep it, run it) and says so; a prediction ("the first run will find …") comes from actually running the tool where that is cheap.
+- **Validations must fail before the change.** Write each so it would have failed on the current code — scope a grep to the block it is about, not the whole file. For a new gate or guard, add a step that proves it by a deliberate failure and a revert.
+- **No step commits, pushes or tags** — the user commits. Regenerated artefacts are left in the working tree and the report names the drift gate.
+- **A step that starts the dev stack or runs Playwright** includes the port protocol: check :8090, :5173 and :5432 are free first (otherwise stop), run `E2E_LANG=en` then `de`, and afterwards stop only the `dev.sh` the task started.
+- **Pin external tool versions** in steps and validation (`npx -y <pkg>@<exact version>`), never `@latest`.
+- **Documentation targets are the nearest `CLAUDE.md`.** Topic detail lives in nested files beside the code (each module's `CLAUDE.md` lists them under "Detail next to the code"); name that file, and the module or root file only for module- or project-wide rules.
 
 ### 6. Verify the status.json entry
 

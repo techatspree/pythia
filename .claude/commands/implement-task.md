@@ -1,3 +1,8 @@
+---
+description: Implement a planning task end to end — its steps, every validation, the build, static-analysis and i18n gates — then mark it done. Never commits.
+argument-hint: <task-id>
+---
+
 Implement the planning task whose ID is given in $ARGUMENTS (e.g. `task-041`).
 
 ## Protocol
@@ -11,6 +16,9 @@ Implement the planning task whose ID is given in $ARGUMENTS (e.g. `task-041`).
 4. **Verify outputs**: confirm that every path listed in the `outputs` section exists (or is deleted, as specified). If an expected file is missing, fix it before continuing.
 
 5. **Run the validation checks** listed in the `validation` section of the task. Each check is a shell command or a structural assertion. Run the shell commands with Bash. For structural assertions (e.g. "all four call sites accept EstimationVersion") inspect the relevant files and confirm. All checks must pass. **Legacy tasks (pre-task-082) may reference `./mvnw` / `mvn`; translate those to the equivalent `./gradlew` invocation** (e.g. `./mvnw verify` → `./gradlew build`, `./mvnw -pl backend/implementation test` → `./gradlew :backend:implementation:test`).
+   - **A check that passes on the unchanged code proves nothing.** Before trusting a validation, ask whether it would have FAILED before your change; if not (a grep for text that already exists elsewhere in the file, an assertion the old code also satisfies), tighten it and say so in the report.
+   - **Prove every new gate, guard or test can fail.** Break it on purpose once — remove the annotation, inject the forbidden input, mutate the rule — run it, see it fail *for the right reason*, then revert and confirm the file is restored. A gate that has never failed may be wired to nothing.
+   - **When a decision in the task turns out wrong** while implementing (it breaks something the task did not foresee), implement the working alternative, record it in the task YAML's `description` as "Deviation found during implementation" (and align its validation and outputs), and name it in the report. Do not silently follow a step you have shown to be broken, and do not silently depart from it either.
 
 6. **MANDATORY BUILD CHECK** — this step is non-negotiable and must not be skipped:
    - Run the task's own build/test command (typically its last `steps` entry, e.g. `./gradlew :backend:implementation:test`) exactly as written.
@@ -22,11 +30,17 @@ Implement the planning task whose ID is given in $ARGUMENTS (e.g. `task-041`).
      F=<scratchpad>/fresh; rm -rf "$F"; mkdir -p "$F"
      rsync -a --exclude '.gradle/' --exclude 'build/' --exclude 'node_modules/' --exclude '.svelte-kit/' \
        --exclude 'src/frontend/node/' --exclude 'src/frontend/reports/' --exclude 'test-results/' \
-       --exclude 'src/frontend/static/config.json' --exclude 'src/frontend/src/lib/domain/' ./ "$F/"
-     (cd "$F" && CI=true ./gradlew build --no-build-cache)
+       --exclude 'src/frontend/static/config.json' --exclude 'src/frontend/src/lib/domain/' --exclude 'target/' ./ "$F/"
+     (cd "$F" && CI=true ./gradlew build --no-build-cache -x :frontend:verifyOpenApiSchemaCommitted)
      ```
+     `CI=true` switches on the OpenAPI drift gate, which compares the regenerated `openapi.json`/`schema.d.ts` against the last COMMIT and therefore fails by design while your regenerated files are uncommitted — exclude it here, as above, and nothing else. Delete the copy afterwards.
      Remember that `--rerun` applies only to the task named directly before it; it does not rerun that task's dependencies.
-   - **Playwright e2e — required for tasks that touch the frontend, REST DTOs, or auth behaviour**; optional (but encouraged) for pure `:domain` internal refactors when `./gradlew :domain:jvmTest` is green. When required: `cd src/frontend && npm run test:e2e`, with the dev stack running (`./scripts/dev.sh`, Docker up, `dev` backend on :8090, Vite frontend on :5173). If you genuinely cannot start the stack in this environment, do NOT mark the task done: stop and report the e2e run as the outstanding gate (per the hard rule on unfixable build steps).
+   - **Playwright e2e — required for tasks that touch the frontend, REST DTOs, or auth behaviour**; optional (but encouraged) for pure `:domain` internal refactors when `./gradlew :domain:jvmTest` is green. When required, run it against a dev stack YOU started, in both languages:
+     1. **Check the ports first**: `lsof -nP -iTCP:<port> -sTCP:LISTEN` for 8090, 5173 and 5432. If any is taken, another stack is running — very likely the user's own (IntelliJ, a terminal) — and the tests would silently run against it and its data. Do not stop it and do not run against it: stop and ask the user.
+     2. Start `./scripts/dev.sh` in the background (Docker must be up) and wait until `GET http://localhost:8090/api/ping` and `http://localhost:5173/` answer.
+     3. `cd src/frontend && E2E_LANG=en npx playwright test`, then `E2E_LANG=de npx playwright test` (sequentially; English first leaves the stack German).
+     4. Stop ONLY the `dev.sh` you started — SIGTERM to the `bash ./scripts/dev.sh` process whose parent chain leads to this session, never `pkill`, never the user's — and confirm the three ports are free and no Dev Services PostgreSQL container is left.
+     If you genuinely cannot start the stack, do NOT mark the task done: stop and report the e2e run as the outstanding gate (per the hard rule on unfixable build steps).
    - **Every e2e test you write or change is self-contained.** It creates the project, estimation and draft contents it needs through the REST API (the pattern: `createBucketEstimation` + `PUT …/versions/draft` in the bucket specs) and asserts only on that data. It must NOT depend on the dev seed (`TestDataSeeder`) — no seeded project names, offers, ids or values — and it does not import or mirror seed constants. A test-local fixture constant (e.g. `PHASES` in `e2e/bucket-accompanying.test.ts`) is fine, even when it happens to resemble seed values. Why: the seed changes for its own reasons (task-186 and task-187 both changed it), and the e2e reset `DELETE /api/dev/test-data` (task-176) keeps the seeded projects INCLUDING any edits made to them, so a seed-dependent test either breaks or silently tests something else.
    - **Do not mark the task done until every required build/test above passes with zero failures.** If anything fails, diagnose and fix the root cause, then re-run. Never skip or work around the build step.
 
@@ -66,7 +80,8 @@ Implement the planning task whose ID is given in $ARGUMENTS (e.g. `task-041`).
    - If the task is backend-only or touches no user-visible text, say so in the report and skip — do not invent strings.
 
 9. **Update documentation**: after a green build, update any documentation affected by the changes.
-   - If the task added, removed, or renamed a module, endpoint, schema, or public API: update `CLAUDE.md` (or the relevant section of it) to reflect the new state.
+   - If the task added, removed, or renamed a module, endpoint, schema, or public API: update the `CLAUDE.md` that documents that area to reflect the new state. Topic detail lives in nested `CLAUDE.md` files beside the code (each module's `CLAUDE.md` opens with a "Detail next to the code" list) — update the one nearest the code, and the module file only for module-wide rules.
+   - Regenerated, committed artefacts (`openapi.json`, `schema.d.ts`, lockfiles) stay in the working tree for the user to commit; name the CI drift gate in the report when they changed.
    - If the task's `outputs` section lists `.md` files, ensure they exist and are accurate.
    - If nothing in the codebase's documented structure changed (e.g. pure internal refactor), skip this step.
    - Do not create new documentation files unless the task explicitly requires it.

@@ -1,3 +1,8 @@
+---
+description: Review a planning task against the architecture, the task conventions and the real repository, report PASS/WARN/FAIL per category, and apply the fixes on request.
+argument-hint: <task-id>
+---
+
 Review and improve the planning task whose ID is given in $ARGUMENTS (e.g. `task-055`).
 
 ## Protocol
@@ -28,6 +33,9 @@ Check mechanically for problems:
 - Every file path mentioned in `outputs` should also appear (explicitly or implicitly) in `steps`. Report any file listed as an output that no step accounts for.
 - Every file path mentioned in `steps` or `validation` that clearly refers to a specific module or class should be plausible given the stack and existing modules. Flag obviously wrong paths (e.g. `.java` files in a Kotlin module, non-existent subdirectories).
 - The task must have all four required sections: `description`, `steps`, `validation`, `outputs`. Report any that are missing or empty.
+- **Check the task's factual claims against the repository**, not just its structure: counts ("51 operations", "5 findings"), named files, line references, quoted text, the current state it describes, the CLAUDE.md file a step says holds a section (topic detail lives in nested `CLAUDE.md` files beside the code). Run the command or grep that establishes each claim. A claim that is no longer true is a WARN; one that would make a step or validation wrong is a FAIL. Earlier tasks in the same chain often change what a later one assumes.
+- **Run the tools the task relies on, on today's code, when that is cheap** — a linter, a script, an SBOM query. What they report today often contradicts the task's prediction (task-204's "two findings" were warnings that would not have failed the gate).
+- External tools invoked in steps or validation must be **version-pinned** (`npx -y @redocly/cli@2.64.1`, not `@latest`): a floating version can change the verdict without a commit. WARN.
 
 ### 4. Task organization alignment
 
@@ -42,6 +50,9 @@ Check structural conventions shared across all tasks:
   If none of these is present, flag it.
 - `validation` must contain at least one assertion that can be run as a shell command (not just "visual inspection"). If all validation items are prose-only, flag it.
 - The `depends_on` list must be consistent with the phase ordering in `plan.yaml`. A task in an earlier phase should not depend on a task in a later phase.
+- **No step may commit, push or tag.** The user commits. A step saying "commit the regenerated files" is a FAIL; it becomes "leave them in the working tree and name the drift gate in the report".
+- **A step that starts the dev stack or runs Playwright** must carry the port protocol: check :8090, :5173 and :5432 are free first (otherwise stop — the user's own stack is running and the tests would hit it), and afterwards stop only the `dev.sh` this task started. Missing: WARN.
+- **Every validation must be able to fail.** Flag a check that already passes on the CURRENT code (e.g. a grep for text that exists elsewhere in the same file, or `fetch-depth: 0` when another job already has it) as WARN, and propose a scoped one. A new gate, guard or test should be proven by a deliberate failure (mutate, run, see it fail, revert); suggest that step when it is missing.
 
 ### 5. Documentation completeness
 

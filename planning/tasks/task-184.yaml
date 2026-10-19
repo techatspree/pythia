@@ -94,7 +94,7 @@ description: |
   fix. If 40 full-suite runs at `--workers=4` stay green:
     - change no behaviour — a speculative "fix" for a cause nobody observed
       is exactly what the rulings above exist to prevent;
-    - record it in `src/frontend/CLAUDE.md` beside the task-163 paragraphs
+    - record it in `src/frontend/src/lib/components/treetable/CLAUDE.md` beside the task-163 paragraphs
       (runs, worker count, per-run times, the date, and that the
       instrumentation stays in place for the next occurrence);
     - do NOT run `./scripts/task.sh done task-184`. Leave it pending, put the
@@ -123,7 +123,7 @@ description: |
 
 steps:
   - |
-    Re-read the task-163 findings in `src/frontend/CLAUDE.md` (the two
+    Re-read the task-163 findings in `src/frontend/src/lib/components/treetable/CLAUDE.md` (the two
     paragraphs under the generic `TreeTable` section) so the ruled-out
     hypotheses are not re-derived.
   - |
@@ -183,7 +183,7 @@ steps:
     cannot, say so explicitly and explain what the new coverage does assert —
     do not present a probabilistic test as deterministic.
   - |
-    Record the outcome in `src/frontend/CLAUDE.md`: replace the "task-184,
+    (The TreeTable notes moved out of `src/frontend/CLAUDE.md` into this nested file when the CLAUDE.md files were split; `src/frontend/CLAUDE.md` keeps one pointer line naming "the open drag flake (task-184)" — update that line too.) Record the outcome in `src/frontend/src/lib/components/treetable/CLAUDE.md`: replace the "task-184,
     still open" sentence beside the task-163 paragraphs with the diagnosis and
     the fix. Rewrite the `dragDependency` doc comment in `e2e/schedule.test.ts`,
     which still calls the pointer drop "still unexplained (task-184; …".
@@ -212,8 +212,8 @@ validation:
     The diagnosis is written down and the "open" wording is gone (both greps
     match TODAY's text, so they fail until the docs are actually updated):
       F=src/frontend
-      grep -q "task-184" "$F/CLAUDE.md"
-      ! grep -q "task-184\*\*, still open" "$F/CLAUDE.md"
+      grep -q "task-184" "$F/src/lib/components/treetable/CLAUDE.md"
+      ! grep -q "task-184\*\*, still open" "$F/src/lib/components/treetable/CLAUDE.md"
       ! grep -q "still unexplained (task-184" "$F/e2e/schedule.test.ts"
   - |
     Behaviour actually changed, carrying its rationale marker at the fix site
@@ -247,5 +247,6 @@ outputs:
   - modified: src/frontend/src/lib/methods/bucketSampled/EditorModule.svelte
   - modified: src/frontend/e2e/bucket-views.test.ts
   - modified: src/frontend/e2e/pages/BucketEditor.ts
+  - modified: src/frontend/src/lib/components/treetable/CLAUDE.md
   - modified: src/frontend/CLAUDE.md
   - modified: src/frontend/e2e/schedule.test.ts

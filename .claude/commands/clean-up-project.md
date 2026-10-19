@@ -1,3 +1,8 @@
+---
+description: Fix the project's static-analysis findings (detekt, ESLint, svelte-check) one at a time, with a resumable state file and green tests as a hard gate.
+argument-hint: "[--rescan] [detekt|eslint|check]"
+---
+
 Run the project's **static-analysis** validation, collect every finding, and fix them one after another. Persist the set of remaining findings to a state file so the cleanup can be interrupted at any point and resumed later from exactly where it stopped.
 
 Findings are scoped to **static analysis only** — detekt (Kotlin: domain + backend), eslint (frontend), and svelte-check (frontend type errors). Test failures are **not** findings: a green test suite is a precondition for running this command and is re-checked after every fix (see below).
@@ -39,7 +44,7 @@ The first time you create the state file, ensure it is not committed: if `planni
 This command may only run against a project whose tests all pass. Before doing anything else (on a fresh run **and** on resume), confirm the test suites are green:
 
 ```bash
-./gradlew test                        # domain + backend unit + @QuarkusTest (Docker required)
+./gradlew test jvmTest                # backend @QuarkusTest + the four domain modules (Docker required)
 cd src/frontend && npm run test:e2e   # only if the frontend was likely affected / on request
 ```
 
@@ -47,7 +52,7 @@ cd src/frontend && npm run test:e2e   # only if the frontend was likely affected
 
 If any test fails, **abort immediately**: report the failing tests and tell the user to fix them first. Do not collect findings, do not modify the state file, do not fix anything. Cleaning up static-analysis findings on top of a broken build is out of scope for this command.
 
-(Unlike a single Maven `verify`, the Gradle build separates concerns: `./gradlew test` is the precondition, and `./gradlew staticAnalysis` in step 2 regenerates all the analysis reports. `./gradlew build` runs both at once but is heavier; either approach is fine.)
+**Both task names are needed.** The domain modules are Kotlin Multiplatform and have NO `test` task — only `jvmTest` (and `allTests`) — so `./gradlew test` alone silently skips the whole domain, and `./gradlew :domain:test` does not exist. `./gradlew jvmTest` at the root runs it in all four domain projects. `./gradlew build` runs everything at once but is heavier; either is fine.
 
 ## Protocol
 
@@ -68,14 +73,15 @@ These write machine-readable reports — parse these rather than scraping consol
 
 - Domain detekt:  `src/domain/build/reports/detekt/detekt.xml`
 - Backend detekt: `src/backend/implementation/build/reports/detekt/detekt.xml`
-  (use the Gradle `build/reports/` path — a stale Maven-era `target/detekt/`
-  report may still exist; ignore it. Glob `**/build/reports/detekt/detekt.xml`
-  to catch any other module, e.g. `:backend:end2end`.)
+  (glob `**/build/reports/detekt/detekt.xml` to catch every module — the domain
+  is four projects since task-143, each with its own report.)
 - Frontend eslint: `src/frontend/reports/eslint.json` (produced by the `lint:report` npm script the `:frontend:check` Gradle task runs)
 
 `staticAnalysis` also writes a **consolidated, human-readable overview** at `build/reports/static-analysis/static-analysis.html` (detekt + ESLint in one page, plus a merged `static-analysis.sarif`). Use it to eyeball the whole backlog at a glance, but keep parsing the per-tool machine-readable reports above (detekt XML, `eslint.json`) as the authoritative source for building the findings list.
 
 `staticAnalysis` runs svelte-check too (via the frontend `npmCheck` task); its warnings/errors are in the Gradle console output. To capture them cleanly for parsing, run `cd src/frontend && npm run check` directly.
+
+`staticAnalysis` also runs BLOCKING gates — `checkDesignTokens` and `lintOpenApi` — which fail the task instead of writing a report. If the run fails on one of them, its console output names the finding: record it like any other (source `design-tokens` / `openapi-lint`), then let the rest of the analysis run with `--continue`.
 
 Collect **static-analysis** findings from, in this order:
 
@@ -97,10 +103,10 @@ Process `pending` findings one after another (lowest id first). For each:
 2. Apply the smallest correct fix that resolves the finding **without changing behaviour**. Follow the conventions in `CLAUDE.md` — especially: business logic stays in `src/domain/`; the Kotlin/JS super-property and secondary-constructor pitfalls; the frontend error-surfacing rule and `log` (never bare `console.*`); the `$bindable` two-way-binding convention for editor components.
 3. If a finding is a genuine false positive or intentionally allowed, set its `status` to `skipped` with a one-line `message` note explaining why (prefer the tool's documented suppression mechanism — e.g. a detekt `@Suppress`, an eslint disable comment with justification — over editing the shared config) instead of `fixed`.
 4. **Confirm no test fails because of the fix.** Run the tests for the module(s) the fix touched before marking it done (Docker must be running for the backend/domain test tasks):
-   - domain change → `./gradlew :domain:test`
+   - domain change → `./gradlew jvmTest`
    - backend change → `./gradlew :backend:implementation:test`
    - frontend change → `cd src/frontend && npm run check` (and `npm run test:e2e` if behaviour-adjacent)
-   - a change spanning modules, or any doubt → `./gradlew test`
+   - a change spanning modules, or any doubt → `./gradlew test jvmTest`
 
    If a test fails, the fix is wrong: revert or correct it until the relevant tests are green again. Do **not** mark the finding `fixed` while any test is failing.
 5. Once tests are green, mark the finding `fixed` (or `skipped`) and **immediately rewrite `planning/cleanup-state.json`**. Do not move on until the file is saved — this is the interrupt-safety guarantee.
@@ -109,11 +115,11 @@ Do not re-run the full analysis inside the loop. The per-fix test run above is t
 
 ### 5. Final verification
 
-When no `pending` findings remain, re-run the full static analysis and the tests: `./gradlew staticAnalysis` (regenerates all the reports) and `./gradlew test` (Docker required). `./gradlew build` runs all of it in one pass if you prefer.
+When no `pending` findings remain, re-run the full static analysis and the tests: `./gradlew staticAnalysis` (regenerates all the reports) and `./gradlew test jvmTest` (Docker required). `./gradlew build` runs all of it in one pass if you prefer.
 
 - If it surfaces **new** static-analysis findings (e.g. a fix introduced a different warning), append them to the state file as fresh `pending` entries and return to step 4.
 - If any **test** fails at this point, stop and report it — the run is not clean.
-- When everything is clean — `./gradlew test` passes and `./gradlew staticAnalysis` reports no findings — delete `planning/cleanup-state.json` and report.
+- When everything is clean — `./gradlew test jvmTest` passes and `./gradlew staticAnalysis` reports no findings — delete `planning/cleanup-state.json` and report.
 
 ### 6. Report
 
