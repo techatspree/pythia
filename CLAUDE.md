@@ -128,7 +128,7 @@ This project uses a YAML-based task plan under `planning/`:
   `phase:` field, `./scripts/status.sh` groups the plan by it, and
   `./scripts/phase-check.sh` audits it (task-165).
 - `planning/tasks/task-NNN.yaml` — one self-contained spec per task (description, steps, validation commands, outputs).
-- `planning/status.json` — mutable progress; updated via `./scripts/task.sh start|done|pending <task-id>` (requires `jq`).
+- `planning/status.json` — mutable progress; updated via `./scripts/task.sh start|done|pending <task-id>` (requires `jq`). `pending` keeps a task's notes (task-214); `./scripts/task.test.sh` tests the script.
 - `.claude/commands/` — slash commands `add-task`, `implement-task`, `improve-task` automate the lifecycle.
 
 When implementing a task, read its YAML in full, run `./scripts/task.sh start`, follow the steps, run **every** validation command, and only call `./scripts/task.sh done` after `./gradlew build` and `./gradlew :frontend:check` are green. Older task YAMLs may reference `./mvnw …` / bare `mvn …` from before the Gradle migration (task-082); translate those to the equivalent `./gradlew …` invocation.

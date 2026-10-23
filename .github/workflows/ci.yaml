@@ -49,6 +49,11 @@ jobs:
       - name: Contributors list is complete
         run: ./scripts/check-contributors.sh
 
+      # The planning helper (task-214): runs against a temporary copy of a
+      # fixture, never planning/status.json. Needs only bash and jq.
+      - name: task.sh behaves
+        run: ./scripts/task.test.sh
+
       # Verifies gradle/wrapper/gradle-wrapper.jar against Gradle's published
       # checksums before anything executes it — on a public repo that accepts
       # fork PRs, a swapped wrapper jar runs arbitrary code with the build.

@@ -1,0 +1,22 @@
+{
+  "tasks": {
+    "task-001": {
+      "status": "done",
+      "started_at": "2026-01-01T10:00:00+00:00",
+      "completed_at": "2026-01-02T10:00:00+00:00",
+      "notes": "Split out task-003; keep these notes."
+    },
+    "task-002": {
+      "status": "pending",
+      "started_at": null,
+      "completed_at": null,
+      "notes": "Not started yet."
+    },
+    "task-003": {
+      "status": "in_progress",
+      "started_at": "2026-01-03T10:00:00+00:00",
+      "completed_at": null,
+      "notes": "Half done."
+    }
+  }
+}

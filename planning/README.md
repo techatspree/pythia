@@ -99,7 +99,13 @@ The plan is a starting point, not a contract. If you discover a task should be s
    `./scripts/phase-check.sh` audits the phase data: it reports any task naming
    a phase that does not exist (an error) and any task depending on a later
    phase (informational).
-3. Update `status.json` to add/remove the corresponding entry
+3. Update `status.json` to add/remove the corresponding entry — through
+   `./scripts/task.sh` (`add`, `start`, `done`, `pending`). `pending` resets
+   the status and both timestamps but **keeps the task's notes** (task-214):
+   they are its only record when it has no YAML yet. The script is tested by
+   `./scripts/task.test.sh` against a temporary copy of a fixture
+   (`TASK_STATUS_FILE` points `task.sh` at it), never the real file; CI runs
+   it on every PR.
 4. Commit the change with a note explaining why
 
 Treat the plan like any other code: review changes, keep history, prefer small commits.

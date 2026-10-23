@@ -22,12 +22,21 @@ description: |
   `planning/status.json`. A small test script exercises every command
   against a temporary copy.
 
+  `task.sh` runs via `#!/usr/bin/env bash`, which on macOS is bash 3.2.57.
+  The new test script must run there too: no associative arrays, no
+  `mapfile`, no `${var,,}`.
+
   Deliberately unchanged: the command set, the output messages, the id
   scheme of `add`, and the refusal of `start`/`done` on a done task.
   `pending` stays allowed from any status. There is no `--clear-notes`
   option; nobody has needed one.
 
 steps:
+  - |
+    Write the test FIRST (next step) and run it against the UNCHANGED
+    `task.sh`, apart from the `TASK_STATUS_FILE` override it needs. The
+    "notes unchanged after pending" check must FAIL there, which proves both
+    the bug and the test. Then make the fix and see it pass.
   - |
     In `scripts/task.sh`:
       - `STATUS_FILE="${TASK_STATUS_FILE:-$PROJECT_ROOT/planning/status.json}"`,
@@ -37,8 +46,9 @@ steps:
         filter;
       - add `TASK_STATUS_FILE` to `usage()` as an "Environment:" line.
     While there, pass `TASK_ID`/`NOW` to jq via `--arg` instead of
-    interpolating them into the filter string, as `add` already does. That
-    removes a quoting hazard and keeps the four branches consistent.
+    interpolating them into the filter string, as `add` already does — in the
+    four branches AND in the shared existence check
+    (`jq -e ".tasks[\"$TASK_ID\"]"`), which has the same quoting hazard.
   - |
     Create `scripts/task.test.sh` (bash, executable, `set -euo pipefail`,
     shellcheck-clean). It copies a small fixture status file into a
@@ -59,17 +69,26 @@ steps:
       ./scripts/task.test.sh
       shellcheck scripts/task.sh scripts/task.test.sh
   - |
-    Mention the test in `docs/development.md` wherever the planning scripts
-    are described (or, if there is no such place, under "Building" in one
-    line), and in the root `CLAUDE.md` "Planning system" section, one
-    sentence: `pending` keeps the notes (task-214).
+    Run the test in CI: in `.github/workflows/ci.yaml`, `build` job, a step
+    `name: task.sh behaves` / `run: ./scripts/task.test.sh`, next to the
+    contributors check (it needs only bash and jq, both on the runner).
+  - |
+    Docs: `planning/README.md` describes the planning scripts (`status.sh`,
+    `phase-check.sh`, around line 97); add `task.sh`'s test there and say that
+    `pending` keeps a task's notes. In the root `CLAUDE.md` "Planning system"
+    section, one sentence: `pending` keeps the notes (task-214).
+    (`docs/development.md` has no description of the planning scripts — its
+    only `task.sh` mention is an unrelated placeholder — so it is not
+    touched.)
   - |
     Full build as a safety net:
       ./gradlew build
 
 validation:
   - |
-    ! grep -q 'notes = ""' scripts/task.sh
+    # The source writes the filter with escaped quotes, so the bug is the text
+    # `.notes = \"\"` (an unescaped grep would pass on the buggy script).
+    ! grep -qF '.notes = \"\"' scripts/task.sh
     grep -q 'TASK_STATUS_FILE' scripts/task.sh
   - |
     test -x scripts/task.test.sh
@@ -82,6 +101,8 @@ validation:
     shellcheck scripts/task.sh scripts/task.test.sh
   - |
     grep -q "task-214" CLAUDE.md
+    grep -q "task.test.sh" planning/README.md
+    sed -n '/^  build:/,/^  e2e:/p' .github/workflows/ci.yaml | grep -q 'task.test.sh'
   - |
     ./gradlew build
 
@@ -89,5 +110,6 @@ outputs:
   - modified: scripts/task.sh
   - created: scripts/task.test.sh
   - created: scripts/fixtures/task-status.json
-  - modified: docs/development.md
+  - modified: planning/README.md
   - modified: CLAUDE.md
+  - modified: .github/workflows/ci.yaml

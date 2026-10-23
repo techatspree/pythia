@@ -1269,9 +1269,9 @@
       "notes": "Accompanying work: h/Woche inputs are hours — divide by a per-tenant hours-per-day (default 8, admin-editable); hours shown in italics. Decided by the user 2026-10-15."
     },
     "task-214": {
-      "status": "pending",
-      "started_at": null,
-      "completed_at": null,
+      "status": "done",
+      "started_at": "2026-10-23T14:33:19+00:00",
+      "completed_at": "2026-10-23T14:35:50+00:00",
       "notes": "task.sh pending silently erases a task's notes — keep them, and make the script testable"
     },
     "task-215": {
