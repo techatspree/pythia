@@ -1,0 +1,238 @@
+id: task-217
+phase: phase-18
+title: "One backend pod per stage, no HorizontalPodAutoscaler"
+depends_on: [task-199]
+description: |
+  ## Current state (measured 2026-11-10)
+
+  - `k8s/base/backend/hpa.yaml` defines a `HorizontalPodAutoscaler` named
+    `backend` (autoscaling/v2, minReplicas 1, maxReplicas 3, 80 % CPU), listed
+    in `k8s/base/kustomization.yaml`. So every overlay renders one:
+    `kubectl kustomize k8s/overlays/<o> | grep -c 'kind: HorizontalPodAutoscaler'`
+    prints 1 for production, staging and minikube.
+  - `k8s/overlays/production/kustomization.yaml` raises the backend to
+    `replicas: [{name: backend, count: 2}]`; the base Deployment says 1.
+  - `k8s/overlays/staging/kustomization.yaml` sets `count: 1` and patches the
+    HPA's `/spec/maxReplicas` to 1, because both namespaces share one node.
+  - `scripts/minikube-setup.sh` enables the `metrics-server` addon. Nothing
+    else in this repository uses it; it exists for the HPA's CPU metric.
+  - `scripts/deploy.sh` and `scripts/minikube-deploy.sh` run a plain
+    `kubectl apply -f -`, without `--prune`.
+
+  ## Why this goes
+
+  The target is a single minikube node serving a small internal team (see
+  `docs/deployment.md`, "The environment"). Extra pods and autoscaling add
+  moving parts there and no capacity, since all pods share one machine. Worse,
+  **more than one backend pod breaks collaborative sessions**, because two
+  pieces of session state live in ONE pod's memory:
+  - `SessionTicketStore` (`src/backend/implementation/src/main/kotlin/io/pythia/service/SessionTicketStore.kt`)
+    keeps the single-use WebSocket handshake tickets in a `ConcurrentHashMap`.
+    `POST /api/sessions/{id}/ws-ticket` can land on pod A while the WebSocket
+    upgrade lands on pod B, which does not know the ticket, so the handshake
+    is rejected.
+  - `SessionBroadcaster` pushes each change to the sockets open ON THAT POD.
+    A participant connected to the other pod misses the update, and the
+    heartbeat does not re-sync it (`.claude/skills/estimation-sessions/SKILL.md`).
+  The backend `Service` has no session affinity. So production's two replicas
+  are a latent defect as well as complexity.
+
+  ## Target
+
+  - **Every stage runs exactly one backend pod and has no HPA.** The base
+    Deployment's `replicas: 1` is the single statement of that. Neither
+    overlay overrides it, so production's and staging's `replicas:` blocks
+    both go, and so do staging's HPA patch and `k8s/base/backend/hpa.yaml`.
+    The frontend (`replicas: 1`) and PostgreSQL (`replicas: 1`) are unchanged.
+  - **The live HPA is removed by the deploy, not by hand.** Deleting the
+    manifest does not delete the object already in the cluster, because the
+    scripts apply without `--prune`. Left alone it would keep owning
+    `spec.replicas`. So `deploy.sh` and `minikube-deploy.sh` run
+    `kubectl -n <namespace> delete hpa backend --ignore-not-found` BEFORE their
+    `kubectl apply`. The order matters: applied first, `replicas: 1` could be
+    overwritten by the still-running HPA before it is deleted, and the
+    Deployment would then stay at whatever the HPA last chose. The delete is
+    idempotent, so it stays in the scripts permanently. A rollback to a
+    release cut before this task re-creates the HPA from that release's
+    bundle, and the next deploy of a newer release removes it again.
+  - **No `--prune`.** Pruning is broader than this task and can delete things
+    a label selector did not mean to cover.
+  - **Rollouts stay zero-downtime.** The default `RollingUpdate` with one
+    replica gives `maxSurge` 1 (25 % rounded up) and `maxUnavailable` 0
+    (25 % rounded down). The new pod starts and becomes ready before the old
+    one stops, so no `strategy:` block is added. For those few seconds two
+    backend pods exist, with two effects on a running session:
+      - a WebSocket handshake whose ticket came from the other pod fails once;
+        `socket.ts` reconnects and fetches a fresh ticket on every attempt,
+        so that heals itself;
+      - a socket that connected fine to the NEW pod misses a change made
+        through the OLD pod, and nothing makes it reconnect. It stays stale
+        until the next change in that session, which heals it because every
+        broadcast carries the full `SessionDto`.
+    Both are known, accepted transients of a deploy, documented, not
+    engineered away.
+  - **`metrics-server` is no longer enabled** by `scripts/minikube-setup.sh`,
+    since its only consumer was the HPA. A developer who wants `kubectl top`
+    enables it themselves.
+  - The bundle layout from task-199 is unchanged: `scripts/release-bundle.sh`
+    copies `k8s/base` and the overlays as directories, so one file fewer
+    inside them changes no path or `release.env` key of the public contract.
+  - **Server side:** the server configuration that downstream keeps outside
+    this repository may enable the metrics-server addon for this HPA. That is
+    not this repository's to change. Name it in the report as a follow-up,
+    and never name a host, a repository or the organisation in this public
+    one.
+
+  ## Scaling later
+
+  Running more than one backend pod again requires, first, a ticket store and
+  a broadcast that work across pods (e.g. tickets in PostgreSQL and
+  `LISTEN/NOTIFY` for change events), or sticky routing for both the REST
+  call and the upgrade. The docs written in this task say so, so that nobody
+  raises `replicas` as a quick fix.
+
+  No GUI, domain, backend-code or REST change: no wireframes, i18n, logging or
+  Flyway work applies.
+
+steps:
+  - |
+    BEFORE any edit, record the current render so the checks are proven to
+    bite (measured 2026-11-10 with kubectl v1.37.1 / Kustomize v5.8.1):
+      for o in production staging minikube; do
+        echo "$o: $(kubectl kustomize k8s/overlays/$o | grep -c 'kind: HorizontalPodAutoscaler')"
+      done                                   # 1 each
+    and the rendered production backend Deployment says `replicas: 2`. Run
+    validations 1–5 and 7 now: each must FAIL. Name the kubectl version you
+    used in the report.
+  - |
+    Delete `k8s/base/backend/hpa.yaml` and remove `- backend/hpa.yaml` from
+    `k8s/base/kustomization.yaml`.
+  - |
+    In `k8s/overlays/production/kustomization.yaml`, remove the whole
+    `replicas:` block (`name: backend`, `count: 2`). In
+    `k8s/overlays/staging/kustomization.yaml`, remove the `replicas:` block
+    (`count: 1`) and the `HorizontalPodAutoscaler` patch, including its
+    "One node, two namespaces, no isolation" comment. Leave every other patch
+    untouched.
+  - |
+    In `scripts/deploy.sh`, directly before
+    `envsubst "$ALLOW_LIST" < "$RENDERED" | kubectl apply -f -`, add
+      kubectl -n "$NAMESPACE" delete hpa backend --ignore-not-found
+    with a short comment: stages run one backend pod and no autoscaler
+    (task-217); a release before task-217 created this HPA and `apply`
+    without `--prune` would leave it in place, owning `spec.replicas`; it is
+    deleted BEFORE the apply so it cannot overwrite the applied replica count.
+    In `scripts/minikube-deploy.sh`, add the same before its
+    `kubectl kustomize "$K8S_OVERLAY" | … | kubectl apply -f -` pipeline,
+    using `"$MINIKUBE_NAMESPACE"`, with a one-line comment pointing at
+    deploy.sh's.
+  - |
+    In `scripts/minikube-setup.sh`, remove `minikube addons enable metrics-server`.
+  - |
+    Prove the rendered result: after the edits the HPA count is 0 for all
+    three overlays and the rendered production backend Deployment says
+    `replicas: 1`. Do NOT deploy to any cluster: the local minikube, if one
+    is running, is the user's.
+  - |
+    Prove the new delete line is safe on a fresh cluster: both scripts run
+    under `set -e`, and a first deploy runs it before the namespace exists.
+    Check that `kubectl delete hpa backend -n <ns> --ignore-not-found` exits
+    0 for a namespace that does not exist, against a THROWAWAY cluster only
+    (e.g. `minikube start -p task217-probe`, run the command, then
+    `minikube delete -p task217-probe`). Never use the user's profile or
+    current context, and do not run `minikube delete` on any other profile.
+    If no throwaway cluster can be started, say so in the report rather
+    than adding `|| true`.
+  - |
+    Documentation:
+      - `docs/deployment.md`, "Node sizing": production now requests
+        1 × (512Mi, 500m) for the backend, like staging; there is no
+        autoscaler; a rollout briefly adds one surge pod per namespace, which
+        the headroom must cover. Drop the "scales to 3 under load" and "HPA
+        capped at 1" wording. Add a subsection under "The server itself"
+        headed `### One backend pod (task-217)`, holding the session reason
+        (in-memory `SessionTicketStore` and per-pod `SessionBroadcaster`), the
+        two rollout transients exactly as the description states them, and
+        what "Scaling later" says it would take. Also say that a cluster set
+        up before this change keeps the metrics-server addon until someone
+        disables it, which does no harm.
+      - `docs/deployment.md`, "Rollback": one sentence that rolling back
+        past task-217 re-creates the HPA, and that the next deploy of a newer
+        release removes it.
+      - `docs/architecture.md`: drop "`backend` HPA" from the Backend row of
+        the component table, and replace "The Backend scales via a
+        HorizontalPodAutoscaler" with one backend pod per stage (see
+        docs/deployment.md). Also replace "(namespace `estimation-staging`,
+        one replica)", since every stage has one now.
+      - Root `CLAUDE.md`, the "The target is one server running minikube"
+        bullet: replace "staging capped at one replica" with "one backend
+        pod per stage, no HPA — sessions keep state in memory".
+      - `.claude/skills/estimation-sessions/SKILL.md`: one sentence beside
+        the WebSocket paragraph saying that tickets and the broadcast are
+        per-pod, so the backend must run as ONE pod (task-217,
+        docs/deployment.md).
+  - |
+    Check the scripts:
+      bash -n scripts/deploy.sh scripts/minikube-deploy.sh scripts/minikube-setup.sh
+      shellcheck scripts/deploy.sh scripts/minikube-deploy.sh scripts/minikube-setup.sh
+    shellcheck 0.11.0 is clean on all three today; the edits must keep it so.
+  - |
+    Final:
+      ./gradlew build
+
+validation:
+  - |
+    test ! -e k8s/base/backend/hpa.yaml
+    ! grep -q "hpa.yaml" k8s/base/kustomization.yaml
+  - |
+    # no overlay renders an HPA any more (each printed 1 before)
+    for o in production staging minikube; do
+      n=$(kubectl kustomize "k8s/overlays/$o" | grep -c 'kind: HorizontalPodAutoscaler' || true)
+      [ "$n" -eq 0 ] || { echo "$o still renders an HPA"; exit 1; }
+    done
+  - |
+    # production's backend Deployment renders with replicas 1 (was 2)
+    kubectl kustomize k8s/overlays/production | python3 -c '
+    import sys
+    docs = ["\n" + x for x in sys.stdin.read().split("\n---\n")]
+    # top-level kind only: the scaleTargetRef of the HPA also says "kind: Deployment"
+    d = [x for x in docs if "\nkind: Deployment\n" in x and "\n  name: backend\n" in x]
+    assert len(d) == 1, "backend Deployment not found"
+    assert "\n  replicas: 1\n" in d[0], "backend replicas is not 1"
+    '
+  - |
+    ! grep -q "^replicas:" k8s/overlays/production/kustomization.yaml
+    ! grep -q "^replicas:" k8s/overlays/staging/kustomization.yaml
+    ! grep -q "HorizontalPodAutoscaler" k8s/overlays/staging/kustomization.yaml
+  - |
+    # the HPA is deleted BEFORE the apply, in both deploy scripts
+    awk '/delete hpa backend --ignore-not-found/{d=NR} /kubectl apply -f -/{a=NR} END{exit !(d && a && d < a)}' scripts/deploy.sh
+    awk '/delete hpa backend --ignore-not-found/{d=NR} /kubectl apply -f -/{a=NR} END{exit !(d && a && d < a)}' scripts/minikube-deploy.sh
+    ! grep -q "metrics-server" scripts/minikube-setup.sh
+  - |
+    # guard, not a change proof: syntax and lint stay clean (both clean today)
+    bash -n scripts/deploy.sh && bash -n scripts/minikube-deploy.sh && bash -n scripts/minikube-setup.sh
+    shellcheck scripts/deploy.sh scripts/minikube-deploy.sh scripts/minikube-setup.sh
+  - |
+    grep -q "### One backend pod (task-217)" docs/deployment.md
+    sed -n '/^### One backend pod (task-217)/,/^##/p' docs/deployment.md | grep -q "SessionTicketStore"
+    sed -n '/^### One backend pod (task-217)/,/^##/p' docs/deployment.md | grep -q "SessionDto"
+    ! grep -q "scales to 3 under load" docs/deployment.md
+    ! grep -q "HorizontalPodAutoscaler" docs/architecture.md
+    ! grep -q "staging capped at one replica" CLAUDE.md
+    grep -q "task-217" .claude/skills/estimation-sessions/SKILL.md
+  - |
+    ./gradlew build
+
+outputs:
+  - deleted: k8s/base/backend/hpa.yaml
+  - modified: k8s/base/kustomization.yaml
+  - modified: k8s/overlays/production/kustomization.yaml
+  - modified: k8s/overlays/staging/kustomization.yaml
+  - modified: scripts/deploy.sh
+  - modified: scripts/minikube-deploy.sh
+  - modified: scripts/minikube-setup.sh
+  - modified: docs/deployment.md
+  - modified: docs/architecture.md
+  - modified: CLAUDE.md
+  - modified: .claude/skills/estimation-sessions/SKILL.md
