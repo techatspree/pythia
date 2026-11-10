@@ -36,7 +36,7 @@ documentation, and each maps directly onto a Kubernetes resource.
 |--------------|-----------------------------------------------------------|-------------------------------------------------------------------------------------|------|
 | **Browser**  | The end user's web browser running the SPA (the client)   | — (not deployed)                                                                    | —    |
 | **Frontend** | nginx serving the SvelteKit SPA and proxying `/api`        | `frontend` Deployment + Service, `frontend-config` ConfigMap (mounted as `/config.json`) | 80   |
-| **Backend**  | Quarkus REST API under `/api/…`                            | `backend` Deployment + Service, `backend-config` ConfigMap, `backend` HPA           | 8080 |
+| **Backend**  | Quarkus REST API under `/api/…`                            | `backend` Deployment + Service, `backend-config` ConfigMap                         | 8080 |
 | **Database** | PostgreSQL 16                                              | `postgres` StatefulSet + Service, `postgres-credentials` Secret, `postgres-data` PVC | 5432 |
 
 The external **Identity Provider** (Microsoft Entra ID) is not deployed by this
@@ -68,10 +68,11 @@ StatefulSet for the stateful Database — fronted by a Service, all in the
 `estimation` namespace, with a single Ingress (`estimation.local` in the base)
 routing external traffic to the Frontend. Manifests live under `k8s/` and are
 composed with Kustomize: a `base/` plus three overlays — `overlays/minikube`
-(local), `overlays/staging` (namespace `estimation-staging`, one replica) and
-`overlays/production` (namespace `estimation`, a TLS Ingress). The
-Backend scales via a HorizontalPodAutoscaler; the Database keeps a persistent
-volume.
+(local), `overlays/staging` (namespace `estimation-staging`) and
+`overlays/production` (namespace `estimation`, a TLS Ingress). Every stage runs
+one Backend pod and no autoscaler, because session state lives in the Backend's
+memory (see [deployment.md](./deployment.md), "One backend pod"); the Database
+keeps a persistent volume.
 
 **A stage differs from another stage by its configuration, never by its image**
 (task-161/task-162). One Backend image and one Frontend image serve every stage;

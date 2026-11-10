@@ -25,10 +25,6 @@ images:
     newName: ${REGISTRY}/pythia/pythia-frontend
     digest: ${FRONTEND_DIGEST}
 
-replicas:
-  - name: backend
-    count: 1
-
 patches:
   # Staging needs its own hostname — a subdomain of the production one is the
   # obvious choice. Where no second DNS record exists, deploy with the ingress
@@ -41,17 +37,6 @@ patches:
       - op: replace
         path: /spec/rules/0/host
         value: ${INGRESS_HOST}
-
-  # One node, two namespaces, no isolation: the base HPA scales the backend to
-  # 3 replicas at 512Mi/500m each, which on a shared node lets a staging load
-  # spike evict production pods. Staging stays at one.
-  - target:
-      kind: HorizontalPodAutoscaler
-      name: backend
-    patch: |-
-      - op: replace
-        path: /spec/maxReplicas
-        value: 1
 
   - path: frontend-config.yaml
     target:

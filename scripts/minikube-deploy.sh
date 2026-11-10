@@ -131,6 +131,9 @@ if ! command -v envsubst >/dev/null 2>&1; then
     echo "Error: envsubst is required (install gettext, e.g. 'brew install gettext')." >&2
     exit 1
 fi
+# Remove the pre-task-217 backend HPA before applying; see scripts/deploy.sh.
+kubectl -n "$MINIKUBE_NAMESPACE" delete hpa backend --ignore-not-found
+
 # shellcheck disable=SC2016  # single quotes are intentional: this literal is
 # envsubst's allow-list of variable NAMES, not a shell expansion.
 # MINIKUBE_IMAGE_REGISTRY and MINIKUBE_IMAGE_TAG are passed explicitly:

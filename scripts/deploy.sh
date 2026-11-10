@@ -192,6 +192,12 @@ for name in $REQUIRED; do
     esac
 done
 
+# Every stage runs one backend pod and no autoscaler (task-217). A release
+# before task-217 created this HPA, and `apply` without --prune would leave it
+# in place, still owning spec.replicas. Delete it BEFORE the apply, so it cannot
+# overwrite the replica count just applied. Idempotent, so it stays.
+kubectl -n "$NAMESPACE" delete hpa backend --ignore-not-found
+
 echo "Applying to namespace $NAMESPACE..."
 envsubst "$ALLOW_LIST" < "$RENDERED" | kubectl apply -f -
 

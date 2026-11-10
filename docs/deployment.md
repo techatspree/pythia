@@ -544,6 +544,10 @@ know. Check the releases in between for new `V*.sql` files first; if there are
 any, restore from a dump taken before the upgrade (below) instead of rolling the
 image back.
 
+Rolling back to a release cut before task-217 re-creates the backend
+HorizontalPodAutoscaler from that release's manifests. The next deploy of a
+newer release removes it again (see "One backend pod").
+
 ## The server itself
 
 minikube is a development tool being used as the production runtime. That is the
@@ -623,11 +627,11 @@ dev-only sample and must not become the precedent.
 
 ### Node sizing
 
-Both namespaces share one node. Production requests 2 × (512Mi, 500m) for the
-backend and scales to 3 under load; staging is pinned to 1 replica with its HPA
-capped at 1 for exactly this reason. Each namespace also runs a PostgreSQL
-(256Mi/250m requested, 512Mi/1 CPU limit) and a frontend. Start the cluster with
-headroom over the sum:
+Both namespaces share one node. Each runs one backend pod requesting
+(512Mi, 500m) and no autoscaler (see "One backend pod" below), plus a PostgreSQL
+(256Mi/250m requested, 512Mi/1 CPU limit) and a frontend. A rollout briefly adds
+one surge pod per Deployment, the new one starting before the old one stops, so
+the headroom must cover that too. Start the cluster with headroom over the sum:
 
 ```bash
 minikube start --profile <profile> --cpus=4 --memory=8g
@@ -635,6 +639,45 @@ minikube start --profile <profile> --cpus=4 --memory=8g
 
 Under-provisioning shows up as a staging rollout evicting a production pod — the
 failure mode this sizing exists to prevent.
+
+### One backend pod (task-217)
+
+Every stage runs exactly ONE backend pod, set once by `replicas: 1` in
+`k8s/base/backend/deployment.yaml`, and there is no HorizontalPodAutoscaler.
+On one node, more pods add moving parts but no capacity, and more than one
+backend pod breaks collaborative sessions, because two pieces of session state
+live in one pod's memory:
+
+- `SessionTicketStore` keeps the single-use WebSocket handshake tickets in an
+  in-memory map. `POST /api/sessions/{id}/ws-ticket` can reach one pod while
+  the WebSocket upgrade reaches another, which does not know the ticket and
+  rejects the handshake.
+- `SessionBroadcaster` pushes each change only to the sockets open on its own
+  pod. A participant connected to another pod misses the update.
+
+The backend Service has no session affinity, so nothing routes around either.
+
+**During a rollout** two backend pods exist for a few seconds (the default
+`RollingUpdate` with one replica means `maxSurge` 1, `maxUnavailable` 0, which is
+what keeps deploys free of downtime). Two transients follow, both accepted:
+
+- a handshake whose ticket came from the other pod fails once; the client
+  reconnects and fetches a fresh ticket on every attempt, so it heals itself;
+- a socket that connected fine to the new pod misses a change made through the
+  old pod, and nothing makes it reconnect. It stays stale until the next change
+  in that session, which heals it because every broadcast carries the full
+  `SessionDto`.
+
+**Do not raise `replicas` as a quick fix.** Running more than one backend pod
+first needs a ticket store and a broadcast that work across pods (for example
+tickets in PostgreSQL and `LISTEN/NOTIFY` for change events), or sticky routing
+for both the ticket request and the upgrade.
+
+The deploy scripts delete the `backend` HPA that releases before task-217
+created, before they apply, since `kubectl apply` without `--prune` would leave
+it in place, still owning `spec.replicas`. A cluster set up with an older
+`scripts/minikube-setup.sh` keeps the metrics-server addon, which only the HPA
+used, until someone disables it. That does no harm.
 
 ## Backups — read this before anything else
 

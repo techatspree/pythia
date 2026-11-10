@@ -12,7 +12,6 @@ minikube start --cpus="$MINIKUBE_CPUS" --memory="$MINIKUBE_MEMORY" --driver="$MI
 
 echo "Enabling addons..."
 minikube addons enable ingress
-minikube addons enable metrics-server
 # The images are pushed into this in-cluster registry by minikube-deploy.sh
 # (task-196). Pods pull from the node's localhost:5000, which the addon's
 # registry-proxy serves; the host pushes through a port-forward on 5005,

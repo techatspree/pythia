@@ -17,9 +17,6 @@ images:
   - name: pythia/pythia-frontend
     newName: ${REGISTRY}/pythia/pythia-frontend
     digest: ${FRONTEND_DIGEST}
-replicas:
-  - name: backend
-    count: 2
 patches:
   - path: backend-oidc.yaml
     target:

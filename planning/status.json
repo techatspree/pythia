@@ -1285,6 +1285,12 @@
       "started_at": "2026-11-10T10:41:32+00:00",
       "completed_at": "2026-11-10T10:48:10+00:00",
       "notes": "Zero-length (unestimated) leaves stretch a phase's window, and with it an AUTOMATIC phase's length and its accompanying work's effort"
+    },
+    "task-217": {
+      "status": "done",
+      "started_at": "2026-11-10T12:15:30+00:00",
+      "completed_at": "2026-11-10T12:17:38+00:00",
+      "notes": "Production runs 2 backend pods plus an HPA (1-3); simplify to one backend pod with no autoscaler"
     }
   }
 }

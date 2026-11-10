@@ -65,7 +65,7 @@ Stop `./scripts/dev.sh` with SIGTERM (Ctrl-C) — never `pkill` the child JVMs, 
 - A release is an annotated `vX.Y.Z` tag on `main` (task-193), immutable. The version is ONE line, `version=` in the root `gradle.properties` (`-SNAPSHOT` between releases), changed only by `./scripts/release.sh`.
 - **A release publishes everything a deployment needs** (task-199): CI's `publish` job, after every gate, pushes both images multi-arch to GHCR and attaches a deploy bundle (`scripts/release-bundle.sh`). The bundle's layout and its `release.env` keys are a **public contract**; change them only deliberately.
 - The downstream (an internal GitLab) is a consumer: it downloads a bundle and runs `deploy.sh` from it. **No hostname, registry or credential ever enters this public history**: the overlays carry `${REGISTRY}`/`${BACKEND_DIGEST}`/`${FRONTEND_DIGEST}`/`${INGRESS_HOST}` placeholders — never commit a real value — and images are pinned by digest, never by tag. `scripts/deploy.sh` parses `release.env` (never sources it) and refuses unset placeholders or malformed digests; `scripts/smoke.sh` checks the result.
-- The target is one server running **minikube**, staging and production as two namespaces (`estimation-staging` / `estimation`). Its traps (`minikube delete` destroys the database, the systemd unit, staging capped at one replica) are in `docs/deployment.md`.
+- The target is one server running **minikube**, staging and production as two namespaces (`estimation-staging` / `estimation`). Its traps (`minikube delete` destroys the database, the systemd unit, one backend pod per stage and no HPA because sessions keep state in memory) are in `docs/deployment.md`.
 
 ## Architecture
 
