@@ -133,6 +133,13 @@ than a wrong number.
 Every phase gets a window — its earliest start, its earliest finish, and how
 many scheduled leaves fall inside it — over a five-day working week.
 
+Only leaves with a duration shape a window. An unestimated item (0/0/0) is
+still scheduled and drawn as a thin marker, but it neither moves its phase's
+window nor counts towards it, so adding a placeholder cannot lengthen a
+computed phase. A phase holding only such items has no window; a computed
+phase then keeps its last length, and the phases panel says there is nothing
+to compute from.
+
 A phase's length can be either **specified** by hand or **computed from the net
 plan**, chosen per phase. Computing it closes the loop that used to be left to
 the estimator: the phase length that accompanying work is measured against then

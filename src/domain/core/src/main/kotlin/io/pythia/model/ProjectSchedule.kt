@@ -38,6 +38,13 @@ const val WORKING_DAYS_PER_WEEK: Double = 5.0
  * SCHEDULED leaves. `scheduledLeafCount` is 0 for a phase that carries only
  * accompanying work — a caller must say so rather than render zero weeks, which
  * would look like a defect.
+ *
+ * Only leaves WITH duration shape a window (task-216): zero-length leaves —
+ * unestimated 0/0/0 placeholders — are still scheduled and drawn, but neither
+ * move its bounds nor count in `scheduledLeafCount`. Otherwise a placeholder
+ * would set the phase's length merely by where the levelling put it, and an
+ * AUTOMATIC phase and its accompanying work's effort derive from that length.
+ * A phase holding only such leaves has no window.
  */
 @JsExport
 data class PhaseWindow(
@@ -285,6 +292,13 @@ internal fun computeSchedule(
 
     val tasks = tree.map { node -> scheduledTaskFor(node, forward, criticalLeaves) }
     val phaseWindows = phaseWindowsOf(tree, forward)
+    val zeroLength = tree.count { node ->
+        node.isScheduledLeaf && node.phaseAbbreviation != null &&
+            forward[node.logicalId]?.let(::hasDuration) == false
+    }
+    if (zeroLength > 0) {
+        logger.debug { "schedule(): $zeroLength zero-length leaf/leaves left out of phase windows" }
+    }
 
     // The band follows the longest DEPENDENCY path's own mean and variance, not
     // projectDurationDays: offerPT already carries a stdDevFactor loading, so
@@ -456,6 +470,10 @@ private fun emptySchedule(teamFte: Double) = ProjectSchedule(
  * leaves (task-177). Accompanying work runs across the whole of this window
  * rather than occupying a slot inside it, and an AUTOMATIC phase length is this
  * window expressed in weeks.
+ *
+ * Zero-length leaves are left out (task-216): an unestimated placeholder must
+ * not set a phase's length, which an AUTOMATIC phase and its accompanying
+ * work's effort derive from.
  */
 private fun phaseWindowsOf(
     tree: List<TreeNode>,
@@ -464,6 +482,7 @@ private fun phaseWindowsOf(
     .filter { it.isScheduledLeaf }
     .mapNotNull { leaf -> leaf.phaseAbbreviation?.let { abbr -> abbr to forward[leaf.logicalId] } }
     .mapNotNull { (abbr, state) -> state?.let { abbr to it } }
+    .filter { (_, state) -> hasDuration(state) }
     .groupBy({ it.first }, { it.second })
     .map { (abbr, states) ->
         PhaseWindow(
@@ -474,6 +493,9 @@ private fun phaseWindowsOf(
         )
     }
     .sortedBy { it.earliestStart }
+
+private fun hasDuration(state: ForwardState): Boolean =
+    state.earliestFinish - state.earliestStart > CRITICAL_SLACK_EPSILON
 
 private fun failedSchedule(teamFte: Double, error: ScheduleError) = ProjectSchedule(
     tasks = emptyList(),

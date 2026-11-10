@@ -1281,9 +1281,9 @@
       "notes": "e2e coverage for the four editor selects no spec drives: PERT grid type and phase, phase duration mode, additional-cost phase"
     },
     "task-216": {
-      "status": "pending",
-      "started_at": null,
-      "completed_at": null,
+      "status": "done",
+      "started_at": "2026-11-10T10:41:32+00:00",
+      "completed_at": "2026-11-10T10:48:10+00:00",
       "notes": "Zero-length (unestimated) leaves stretch a phase's window, and with it an AUTOMATIC phase's length and its accompanying work's effort"
     }
   }

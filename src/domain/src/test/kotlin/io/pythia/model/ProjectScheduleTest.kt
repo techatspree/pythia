@@ -598,6 +598,72 @@ class ProjectScheduleTest {
         assertEquals(1, schedule.phaseWindows.single { it.abbreviation == "KO" }.scheduledLeafCount)
     }
 
+    /**
+     * k1 (KO, 10 d), u1 (UM, 5 d), k0 (KO, 0/0/0) with one worker. The UM leaf
+     * between them is the point: it pushes k0 to day 15, so a window that let
+     * k0 count would end at 15. Without it k0 would sit at day 10 and the test
+     * could not tell the difference (task-216).
+     */
+    private fun versionWithUnestimatedKoLeafLast(): EstimationVersion {
+        val ko = phase("KO")
+        val um = phase("UM")
+        return versionOf(
+            EstimationGroup(
+                title = "Unit A",
+                children = listOf(
+                    phasedLeaf("k1", 10.0, ko),
+                    phasedLeaf("u1", 5.0, um),
+                    phasedLeaf("k0", 0.0, ko)
+                ),
+                _logicalId = "A"
+            )
+        )
+    }
+
+    @Test
+    fun `a zero-length leaf does not stretch its phase window`() {
+        val schedule = versionWithUnestimatedKoLeafLast().schedule(emptyList(), teamFte = 1.0)
+
+        val koWindow = schedule.phaseWindows.single { it.abbreviation == "KO" }
+        assertEquals(0.0, koWindow.earliestStart, 0.001)
+        assertEquals(10.0, koWindow.earliestFinish, 0.001)
+        assertEquals(1, koWindow.scheduledLeafCount)
+        assertEquals(2.0, koWindow.durationWeeks, 0.001)
+    }
+
+    @Test
+    fun `a phase with only zero-length leaves has no window`() {
+        val ko = phase("KO")
+        val open = ProjectPhase(
+            name = "Phase OP",
+            abbreviation = "OP",
+            durationWeeks = 4.0,
+            durationMode = PhaseDurationMode.AUTOMATIC
+        )
+        val version = versionOf(
+            EstimationGroup(
+                title = "Unit A",
+                children = listOf(phasedLeaf("a", 10.0, ko), phasedLeaf("o", 0.0, open)),
+                _logicalId = "A"
+            )
+        )
+        val schedule = version.schedule(emptyList(), teamFte = 1.0)
+
+        // Only an unestimated placeholder carries OP: there is nothing to derive
+        // an AUTOMATIC length from, exactly as for a phase of accompanying work.
+        assertTrue(schedule.phaseWindows.none { it.abbreviation == "OP" })
+        assertEquals(1, schedule.phaseWindows.single { it.abbreviation == "KO" }.scheduledLeafCount)
+    }
+
+    @Test
+    fun `a zero-length leaf is still scheduled`() {
+        val schedule = versionWithUnestimatedKoLeafLast().schedule(emptyList(), teamFte = 1.0)
+
+        val placeholder = schedule.task("leaf-k0")
+        assertEquals(0.0, placeholder.durationDays, 0.001)
+        assertEquals(15.0, placeholder.earliestStart, 0.001)
+    }
+
     // ------------------------------------------------- levelling priority (task-211)
     //
     // The helpers above use ids that are alphabetical in tree order, which is

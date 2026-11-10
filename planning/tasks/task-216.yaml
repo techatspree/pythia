@@ -45,6 +45,20 @@ description: |
     explains it (`phase-no-window`, task-177) instead of rendering 0 weeks,
     and `GanttChart` already handles a missing window. That is the honest
     answer for "only unestimated items", so no UI change is needed.
+    Two consequences, accepted deliberately:
+      - For an AUTOMATIC phase without a window, `PhasesPanel` skips the
+        write-back (`if (w == null || w.scheduledLeafCount === 0) continue`),
+        so the phase KEEPS its last persisted `durationWeeks`; it is not reset
+        to 0. Its accompanying work keeps being computed from that length
+        until the phase gets estimated work again. That is the existing
+        "no scheduled work" behaviour, now reached in one more case.
+      - The `panel.phases.noScheduledWork` text ("Keine geplanten Vorgänge in
+        dieser Phase — es gibt nichts zu berechnen." / "No scheduled work in
+        this phase — there is nothing to compute from.") stays as it is. For a
+        phase holding only unestimated items it is slightly loose — those
+        items are scheduled, just without duration — but "nothing to compute
+        from" is exactly right, and rewording would turn this domain fix into
+        a GUI task. Not changed here.
   - No change to `ScheduledTask`, to the levelling, to group roll-ups or to
     the critical chain. `PhaseWindow`'s shape is unchanged, so `domain.d.mts`
     does not change.
@@ -53,6 +67,15 @@ description: |
     `docs/images/schedule-gantt.png` shrinks back. The dependency editor's
     group spans are untouched (U01 9.8, U02 11.4, U03 11.4, U04 4.3 days),
     since group spans come from their own children, not from phase windows.
+
+  ## Deviation found during implementation
+
+  The duration test (`earliestFinish - earliestStart > CRITICAL_SLACK_EPSILON`)
+  lives in one private helper, `hasDuration(state: ForwardState)`, beside
+  `phaseWindowsOf`, instead of inline in its filter: the debug log of step 2
+  counts the same leaves in `computeSchedule`, and two copies of the predicate
+  could drift apart. The first validation checks that `phaseWindowsOf` uses
+  the helper and that the helper uses `CRITICAL_SLACK_EPSILON`.
 
   ## Kotlin Multiplatform
 
@@ -71,6 +94,13 @@ description: |
 
 steps:
   - |
+    Write the tests of the step below FIRST and run them on the unmodified code:
+      ./gradlew :domain:jvmTest --tests "io.pythia.model.ProjectScheduleTest"
+    `a zero-length leaf does not stretch its phase window` and
+    `a phase with only zero-length leaves has no window` must FAIL (the
+    window ends at 15.0 / the phase has a window). If either passes, the test
+    does not reproduce the bug — fix the test before touching the code.
+  - |
     In `src/domain/core/src/main/kotlin/io/pythia/model/ProjectSchedule.kt`,
     `phaseWindowsOf`: after resolving each leaf's forward state, keep only
     states with `earliestFinish - earliestStart > CRITICAL_SLACK_EPSILON`
@@ -86,11 +116,18 @@ steps:
     Tests in `src/domain/src/test/kotlin/io/pythia/model/ProjectScheduleTest.kt`,
     next to `a phase window spans exactly that phase's scheduled leaves`:
       - `a zero-length leaf does not stretch its phase window`: one worker,
-        phase KO with a 10-day leaf, and after it in the tree a 0/0/0 leaf
-        also in KO that the levelling places later. The KO window is [0, 10]
-        and `scheduledLeafCount` is 1;
+        tree order `k1` (KO, 10 days), `u1` (UM, 5 days), `k0` (KO, 0/0/0 —
+        `phasedLeaf("k0", 0.0, ko)`). The UM leaf between them is essential:
+        with one worker `k0` is levelled to day 15, so the unfixed code gives
+        a KO window of [0, 15]. With only `k1` and `k0`, `k0` would sit at
+        day 10 and the window would be [0, 10] even WITHOUT the fix. Assert
+        the KO window is [0, 10], `scheduledLeafCount` is 1, and
+        `durationWeeks` is 2.0;
       - `a phase with only zero-length leaves has no window`: a phase whose
-        only scheduled leaf is 0/0/0 does not appear in `phaseWindows`;
+        only scheduled leaf is 0/0/0 does not appear in `phaseWindows`; build
+        that phase with `durationMode = PhaseDurationMode.AUTOMATIC`, since
+        that is the case where the window sets the length (the panel then
+        takes its `phase-no-window` path);
       - `a zero-length leaf is still scheduled`: the 0/0/0 leaf from the
         first test is still in `tasks`, with `durationDays == 0.0`;
       - the existing phase-window tests stay green unchanged. If one changes,
@@ -99,6 +136,13 @@ steps:
     Update `src/domain/CLAUDE.md`, the task-177 paragraph on accompanying work
     and AUTOMATIC phases: one sentence that a phase window is spanned by the
     phase's scheduled leaves WITH duration only, and why (task-216).
+  - |
+    Update `docs/scheduling.md`, section "Phase windows: specified or
+    computed": its first paragraph says a window covers "how many scheduled
+    leaves fall inside it". Add that leaves without duration (unestimated
+    0/0/0 items) do not shape or count towards a window, so a placeholder
+    cannot lengthen a computed phase; a phase holding only such leaves has
+    no window and a computed phase keeps its last length.
   - |
     Build the domain and its consumers:
       ./gradlew :domain:build
@@ -109,7 +153,9 @@ steps:
     check that :8090 / :5173 / :5432 are free, start a fresh `./scripts/dev.sh`,
     run `npm run gen:screenshots` before anything else, and stop only the
     `dev.sh` you started). Open `docs/images/schedule-gantt.png`: the dashed
-    "Projektbegleitung" bar now ends with KO's estimated work. Only
+    "Projektbegleitung" bar now ends with KO's estimated work, at about
+    working day 9.8, instead of running to about day 29 where U05's
+    placeholders sit. Only
     `schedule-gantt.png` should differ from the committed set; if another
     shot changes, explain why before keeping it.
   - |
@@ -124,9 +170,13 @@ steps:
 validation:
   - |
     F=src/domain/core/src/main/kotlin/io/pythia/model/ProjectSchedule.kt
-    sed -n '/private fun phaseWindowsOf/,/^}/p' "$F" | grep -q "CRITICAL_SLACK_EPSILON"
+    # phaseWindowsOf is an expression body: end the range at its sortedBy, not at a `^}`.
+    # The predicate is the shared hasDuration helper (see the deviation in description).
+    sed -n '/private fun phaseWindowsOf/,/sortedBy/p' "$F" | grep -q "hasDuration"
+    sed -n '/private fun hasDuration/,/^$/p' "$F" | grep -q "CRITICAL_SLACK_EPSILON"
     grep -q "task-216" "$F"
-    grep -q "zero-length" "$F"
+    # "zero-length" alone already occurs at the accompanying-work comment
+    grep -q "zero-length leaves" "$F"
   - |
     T=src/domain/src/test/kotlin/io/pythia/model/ProjectScheduleTest.kt
     grep -q "a zero-length leaf does not stretch its phase window" "$T"
@@ -134,6 +184,8 @@ validation:
     grep -q "a zero-length leaf is still scheduled" "$T"
   - |
     grep -q "task-216" src/domain/CLAUDE.md
+  - |
+    sed -n '/^## Phase windows/,/^## /p' docs/scheduling.md | grep -qiE "without duration|zero-length|unestimated"
   - |
     # no exported surface change
     ! git diff --quiet HEAD -- src/domain/core/src/main/kotlin/io/pythia/model/ProjectSchedule.kt
@@ -149,4 +201,5 @@ outputs:
   - modified: src/domain/core/src/main/kotlin/io/pythia/model/ProjectSchedule.kt
   - modified: src/domain/src/test/kotlin/io/pythia/model/ProjectScheduleTest.kt
   - modified: src/domain/CLAUDE.md
+  - modified: docs/scheduling.md
   - modified: docs/images/schedule-gantt.png
