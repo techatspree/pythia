@@ -1291,6 +1291,12 @@
       "started_at": "2026-11-10T12:15:30+00:00",
       "completed_at": "2026-11-10T12:17:38+00:00",
       "notes": "Production runs 2 backend pods plus an HPA (1-3); simplify to one backend pod with no autoscaler"
+    },
+    "task-218": {
+      "status": "pending",
+      "started_at": null,
+      "completed_at": null,
+      "notes": "Expose Pythia's data to AI clients through an MCP server, switched on per tenant in the administration settings (default off), authenticated with the tenant's standard mechanisms"
     }
   }
 }

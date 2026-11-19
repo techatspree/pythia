@@ -1,0 +1,517 @@
+id: task-218
+phase: phase-21
+title: "Read-only MCP server, switched on per tenant (default off)"
+depends_on: [task-213]
+description: |
+  ## Why
+
+  Pythia's estimates are only available through its web UI and its REST API.
+  An AI assistant (Claude, an IDE agent, any MCP client) that should answer
+  "what did we estimate for the Mobile App MVP, and what changed since
+  version 2?" has no supported way in. The Model Context Protocol (MCP) is the
+  standard way to give AI clients such access. This task adds an MCP server to
+  the backend. An administrator switches it on per tenant in the system
+  settings, it is OFF by default, and its clients authenticate exactly like
+  every other API client of that tenant.
+
+  "Tenant" means one installation, as in task-213: the singleton
+  `system_settings` row, edited on `/admin/system`.
+
+  ## Current state (measured 2026-11-19)
+
+  - Quarkus platform 3.40.1 (`src/backend/implementation/gradle.properties`).
+    The platform publishes `io.quarkus.platform:quarkus-mcp-server-bom:3.40.1`,
+    which pins `io.quarkiverse.mcp:quarkus-mcp-server-http` to **2.0.1**
+    (checked on Maven Central). The newer 2.0.4 is built against Quarkus 3.33,
+    and 2.1.0 is only a CR. No MCP dependency exists in the build today.
+  - `system_settings` has columns up to `hours_per_day` (`V21`). The highest
+    migration is `V21__hours_per_day.sql`.
+  - `SystemSettingsResource` (`/api/system`): `GET` is `@PermitAll`. Every
+    write is `@RolesAllowed("ADMIN")`. A setting that is not the display name
+    gets its OWN endpoint (`PUT /api/system/hours-per-day`), because
+    `PUT /api/system` treats a null `displayName` as "clear the name"
+    (`src/backend/CLAUDE.md`, "System settings").
+  - `src/frontend/src/routes/admin/system/+page.svelte` has four `<section>`s:
+    name, Arbeitszeit (task-213), Standard-Aufwandstreiber, Stylesheet.
+  - **The JAX-RS filters, not the security layer, populate `CurrentUserProvider`.**
+    `auth/entra/EntraAuthFilter.kt` and `auth/dev/DevAuthFilter.kt` are both
+    `ContainerRequestFilter`s, while authentication itself is a Vert.x
+    `HttpAuthenticationMechanism` (dev: `DevHttpAuthMechanism`) or quarkus-oidc
+    (entra). An MCP request is a Vert.x route, not JAX-RS. So inside a tool,
+    `SecurityIdentity` is populated and `CurrentUserProvider` is NOT.
+  - nginx (`src/frontend/nginx.conf`) forwards only `/api/` and `/ws/` to the
+    backend, with `proxy_set_header Host $host`.
+  - The read logic the tools need lives in the REST resources:
+    `ProjectResource.listProjects/getProject`, `EstimationResource.getEstimation`,
+    and `EstimationVersionResource.listVersions/getDraft/getSubmittedVersion/compareVersions`.
+    Their private glue includes `EstimationVersionResource.resolveVersion`
+    ("draft" or a version number, resolved to a version) and the
+    draft-first assembly of version summaries in `listVersions`.
+
+  ## Target state
+
+  ### The switch
+
+  - New column `system_settings.mcp_enabled BOOLEAN NOT NULL DEFAULT FALSE`
+    (`V22__mcp_enabled.sql`), mirrored on the `SystemSettings` entity
+    (migration ↔ entity parity rule). The existing row therefore starts OFF in
+    every profile.
+  - `GET /api/system` adds `mcpEnabled: Boolean` to `SystemSettingsDto`.
+    Whether the interface is on is not a secret: the endpoint exists in every
+    build anyway.
+  - `PUT /api/system/mcp`, body `{ "enabled": true|false }`
+    (`SystemSettingsMcpDto`), `@RolesAllowed("ADMIN")`. It returns `204`, or
+    `403` for a non-admin and `401` for an anonymous caller. The method is
+    named `updateMcpEnabled`, unique across all resources (task-201). It is a
+    separate endpoint for the same reason as hours-per-day.
+
+  ### The server
+
+  - Transport: MCP **Streamable HTTP** via `quarkus-mcp-server-http`, at
+    `quarkus.mcp.server.http.root-path=/api/mcp`. Under `/api/`, nginx and the
+    Vite dev proxy already route it, so no gateway or ingress change is needed.
+  - **Off means absent.** While `mcp_enabled` is false, every request to
+    `/api/mcp` and `/api/mcp/*` from an AUTHENTICATED caller is answered
+    `404` with the structured `{ "message", "status" }` body, before the MCP
+    extension sees it. The switch is read per request, not cached, so it
+    takes effect immediately and stays correct with any number of pods (today
+    there is one per stage, task-217).
+  - **Authentication: the tenant's standard mechanisms, nothing new.** An
+    HTTP permission makes `/api/mcp` and `/api/mcp/*` `authenticated`.
+    Whatever authenticates `/api/*` in that build authenticates the MCP
+    endpoint too:
+      - `entra` (prod, minikube): an OAuth 2.0 bearer access token for the
+        Pythia API, validated by quarkus-oidc against the configured issuer and
+        audience. This is the same token the SPA sends.
+      - `dev`: the `Authorization: Dev <subjectId>` header.
+    An anonymous request is `401`, whether the switch is on or off, exactly
+    like every other `/api` path. Authentication runs first, so the 404 is
+    only ever seen by authenticated callers.
+  - **Authorization: VIEWER**, the same role every REST read requires. Each
+    tool is `@RolesAllowed("VIEWER")`. A caller without it gets an MCP error
+    result for every tool call, never data.
+  - **Read-only.** This task exposes reads only. Write tools are deliberately
+    out of scope: they would need the provisioning, audit and undo semantics
+    of the mutating REST endpoints, which is a design of its own.
+
+  ### The tools
+
+  All tools are in one bean, `io.pythia.mcp.PythiaMcpTools`. Each returns the
+  SAME DTO the corresponding REST endpoint returns, serialised as JSON. No
+  number is computed in the tool layer (single source of truth: the
+  calculation stays in the domain, called through the existing services).
+
+  | tool               | arguments                                     | returns (DTO)                        | REST twin |
+  |--------------------|-----------------------------------------------|--------------------------------------|-----------|
+  | `list_projects`    | `status?`: `ACTIVE` \| `ARCHIVED`             | `List<ProjectSummaryDto>`            | `GET /api/projects` |
+  | `get_project`      | `projectId`: UUID                             | `ProjectDetailDto` (incl. estimations) | `GET /api/projects/{id}` |
+  | `get_estimation`   | `estimationId`: UUID                          | `EstimationDetailDto`                | `GET /api/estimations/{id}` |
+  | `list_versions`    | `estimationId`                                | `List<EstimationVersionSummaryDto>`  | `GET …/versions` |
+  | `get_version`      | `estimationId`, `version`: `"draft"` or a number | `EstimationVersionDto` (calculated) | `GET …/draft`, `GET …/{n}` |
+  | `compare_versions` | `estimationId`, `versionA`, `versionB` (`"draft"` or a number) | `VersionComparisonDto` | `GET …/{a}/compare/{b}` |
+
+  - `canChangeOwner` is always `false` in tool output, because the MCP surface
+    is read-only.
+  - An unknown id or version becomes a `ToolCallException` with the same
+    English message the REST 404 carries (an MCP error result, not a protocol
+    error). A malformed UUID or version is a `ToolCallException` too.
+  - Each tool has a one-sentence English `description` and per-argument
+    `@ToolArg(description = …)`. These are what the AI reads to pick a tool.
+  - Shared glue is MOVED, not copied. `resolveVersion` and the version-summary
+    assembly become public methods of `EstimationVersionService`
+    (`resolveVersionForComparison(estimationId, ref)`,
+    `versionSummaries(estimationId)`), and both the resource and the tools
+    call them.
+
+  ### Out of scope (follow-ups, not this task)
+
+  - **OAuth protected-resource metadata (RFC 9728) and the MCP authorization
+    discovery flow.** quarkus-oidc 3.40 can serve it
+    (`quarkus.oidc.resource-metadata.*`), but it is served under
+    `/.well-known/oauth-protected-resource…`, outside nginx's `/api/`. It also
+    needs the external URL, a per-stage coordinate that belongs in the
+    ConfigMap. Entra ID has no dynamic client registration either, so
+    automatic MCP sign-in would not complete anyway. Clients configure a
+    bearer token (or, under Entra, a pre-registered client) themselves.
+    `docs/mcp.md` says so.
+  - Write tools, MCP resources/prompts, and per-user (rather than per-tenant)
+    opt-in.
+
+  ## Wireframes
+
+  ### Systemeinstellungen: KI-Schnittstelle, off (default)
+
+      +---------------------------------------------------------------------------+
+      | Systemeinstellungen                                                       |
+      | …                                                                         |
+      | +-----------------------------------------------------------------------+ |
+      | | Arbeitszeit                                                           | |
+      | | …                                                                     | |
+      | +-----------------------------------------------------------------------+ |
+      | +-----------------------------------------------------------------------+ |
+      | | KI-Schnittstelle (MCP)                                                | |
+      | | Stellt Projekte, Schätzungen und Versionen KI-Assistenten über das    | |
+      | | Model Context Protocol zur Verfügung – nur lesend. Zugriff erhalten   | |
+      | | nur angemeldete Benutzer mit mindestens Leserechten.                  | |
+      | |                                                                       | |
+      | | [ ] MCP-Schnittstelle aktivieren                                      | |
+      | |                                                                       | |
+      | | [ KI-Schnittstelle speichern ]                                        | |
+      | +-----------------------------------------------------------------------+ |
+      | +-----------------------------------------------------------------------+ |
+      | | Standard-Aufwandstreiber                                              | |
+      | | …                                                                     | |
+      +---------------------------------------------------------------------------+
+
+    - Seen by `dev-admin` (the page is admin-only, as today).
+    - New `<section>` between "Arbeitszeit" and "Standard-Aufwandstreiber",
+      same markup as the Arbeitszeit section (`border rounded-lg p-4 bg-white`,
+      `h2` + muted hint).
+    - Heading `admin.system.mcpSection`, hint `admin.system.mcpHint`.
+    - Checkbox `data-testid="system.mcp-enabled"`, label `admin.system.mcpLabel`,
+      styled like `projects.only-mine` (`accent-brand-green`, label wraps the
+      input). Bound to local `$state`, initialised from `settings.mcpEnabled`.
+    - Button from `$lib/ui/Button.svelte`, `data-testid="system.save-mcp"`,
+      text `admin.system.mcpSave`. Saving shows the existing `system-notice`
+      with `admin.system.mcpSaved`. A failure goes through the page's existing
+      ErrorBanner path.
+    - The endpoint line is absent while the SAVED state is off.
+
+  ### Systemeinstellungen: KI-Schnittstelle, on (after saving)
+
+      +-----------------------------------------------------------------------+
+      | KI-Schnittstelle (MCP)                                                |
+      | Stellt Projekte, Schätzungen und Versionen KI-Assistenten über das    |
+      | Model Context Protocol zur Verfügung – nur lesend. Zugriff erhalten   |
+      | nur angemeldete Benutzer mit mindestens Leserechten.                  |
+      |                                                                       |
+      | [x] MCP-Schnittstelle aktivieren                                      |
+      |                                                                       |
+      | Endpunkt: http://localhost:5173/api/mcp                               |
+      | Clients melden sich wie die Weboberfläche an (Bearer-Token des        |
+      | Mandanten).                                                           |
+      |                                                                       |
+      | [ KI-Schnittstelle speichern ]                                        |
+      +-----------------------------------------------------------------------+
+
+      Saved.  (system-notice: "KI-Schnittstelle gespeichert.")
+
+    - `data-testid="system.mcp-endpoint"` holds
+      `admin.system.mcpEndpoint` = "Endpunkt: {url}", where `url` is
+      `${window.location.origin}/api/mcp`, computed in the browser, so no host
+      is ever in the code (the example shows the dev stack). Rendered in a
+      `<code>` element for the URL part.
+    - Below it `admin.system.mcpAuthHint` (muted text).
+    - Both lines show only while the SAVED value is on (after a successful
+      PUT, or on load when `mcpEnabled` is true), not merely while the box is
+      ticked.
+
+steps:
+  - |
+    Add the dependency. In `src/backend/implementation/build.gradle.kts` add,
+    next to the existing platform:
+      implementation(enforcedPlatform("$quarkusPlatformGroupId:quarkus-mcp-server-bom:$quarkusPlatformVersion"))
+      implementation("io.quarkiverse.mcp:quarkus-mcp-server-http")
+      testImplementation("io.rest-assured:rest-assured")   // already present
+    No explicit version: the platform BOM pins 2.0.1 and moves with
+    `quarkusPlatformVersion`. Comment why this BOM, not a hand-picked
+    Quarkiverse version: 2.0.4 targets Quarkus 3.33.
+  - |
+    Migration + entity. Create
+    `src/backend/implementation/src/main/resources/db/migration/V22__mcp_enabled.sql`:
+      ALTER TABLE system_settings ADD COLUMN mcp_enabled BOOLEAN NOT NULL DEFAULT FALSE;
+    with a header comment (task-218, off by default, why per tenant). Add
+    `@Column(name = "mcp_enabled", nullable = false) var mcpEnabled: Boolean = false`
+    to `domain/system/SystemSettings.kt`. Hibernate builds `%dev`/`%test` from
+    the entity, and `SystemSettingsBootstrap` creates the row with the
+    default, so no bootstrap change is needed. Verify that by reading it.
+  - |
+    Service. In `service/SystemSettingsService.kt` add `fun mcpEnabled(): Boolean`
+    and `@Transactional fun updateMcpEnabled(enabled: Boolean)` with
+    `Log.info("MCP interface ${if (enabled) "enabled" else "disabled"}")`.
+  - |
+    REST. In `rest/dto/SystemSettingsDtos.kt` add `mcpEnabled: Boolean` to
+    `SystemSettingsDto` (KDoc: task-218) and
+    `data class SystemSettingsMcpDto(val enabled: Boolean)`. In
+    `SystemSettingsResource` fill `mcpEnabled` in `toDto()` and add
+      @PUT @Path("/mcp") @Consumes(APPLICATION_JSON) @RolesAllowed("ADMIN")
+      @Operation(summary = "Admin: switch the read-only MCP interface on or off")
+      @APIResponse 204 "Stored", 401 "Not authenticated", 403 "Not an administrator"
+      fun updateMcpEnabled(body: SystemSettingsMcpDto): Response
+    logging INFO with the admin's `subjectId`, as `updateHoursPerDay` does.
+  - |
+    Move the shared read glue. In `service/EstimationVersionService.kt` add
+    public `versionSummaries(estimationId: UUID): List<EstimationVersionSummaryDto>`
+    (draft first with its calculated total, then submitted, exactly the body
+    of `EstimationVersionResource.listVersions` today) and
+    `resolveVersionForComparison(estimationId: UUID, ref: String): SubmittedEstimationVersion?`
+    (the body of the private `resolveVersion`, returning null instead of
+    throwing). Make `listVersions` and `compareVersions` in the resource call
+    them, mapping null to the same `NotFoundException` messages as today.
+    Delete the private `resolveVersion`. The REST behaviour must stay identical:
+    the existing `EstimationVersionResource*` tests are the proof.
+  - |
+    Configuration in `src/backend/implementation/src/main/resources/application.properties`
+    (unprofiled: these are stage-invariant, so they are allowed outside the
+    ConfigMap):
+      quarkus.mcp.server.http.root-path=/api/mcp
+      quarkus.http.auth.permission.mcp.paths=/api/mcp,/api/mcp/*
+      quarkus.http.auth.permission.mcp.policy=authenticated
+    plus a comment block (task-218): the MCP endpoint authenticates through
+    the active auth module like every `/api` path, and the switch lives in the
+    DB (`McpGate`), not here. Find out from the extension's config doc and
+    source what `quarkus.mcp.server.http.dns-rebinding-check.enabled` compares
+    (Host? Origin?). Pythia sits behind nginx, which forwards the external
+    `Host`, so the check must not reject a non-localhost Host. If the default
+    would, set it with a comment saying why. Either way the test in the
+    IT step below proves the behaviour.
+  - |
+    The gate. Create `src/backend/implementation/src/main/kotlin/io/pythia/mcp/McpGate.kt`,
+    an `@ApplicationScoped` bean that observes `io.vertx.ext.web.Router`
+    (`fun install(@Observes router: Router)`). It registers a handler on
+    `/api/mcp` and `/api/mcp/*` ordered BEFORE the MCP extension's own routes:
+    look up the order the extension uses and choose a lower one. The handler
+    reads the switch OFF the event loop
+    (`ctx.vertx().executeBlocking { QuarkusTransaction.requiringNew().call { settings.mcpEnabled() } }`).
+    When the switch is on it calls `ctx.next()`. When it is off it ends with
+    `404`, `Content-Type: application/json` and
+    `{"message":"The MCP interface is disabled for this installation","status":404}`,
+    and logs DEBUG with the path. A failed read ends with `500` and an ERROR log.
+    Comment the class with why it is per-request (any pod count) and why off
+    is 404 rather than an empty tool list.
+  - |
+    The tools. Create `src/backend/implementation/src/main/kotlin/io/pythia/mcp/PythiaMcpTools.kt`,
+    an `@ApplicationScoped` class with one `@Tool` method per row of the
+    table in the description. Each method is `@RolesAllowed("VIEWER")` and
+    `@Transactional`, because the detail mappers read lazy collections. It
+    injects `ProjectService`/`ProjectRepository`, `EstimationRepository`,
+    `EstimationVersionService` and `VersionComparisonService`, and returns the
+    DTO via the existing mappers in `rest/dto/` (`toSummaryDto(false)`,
+    `toDetailDto(false)`, `toEstimationDetailDto(draftTotal)`, `toDto(...)`,
+    `comparisonService.compare(a, b)`). Read the caller from an injected
+    `SecurityIdentity` (`identity.principal.name`), NEVER from
+    `CurrentUserProvider`, which is empty here (see the description). Tool
+    names are snake_case via `@Tool(name = "list_projects", description = …)`.
+    Arguments use `@ToolArg(description = …)`, with `required = false` for
+    `status`. Missing or malformed input becomes
+    `throw ToolCallException("<same message as the REST 404/400>")`.
+    Log INFO per call with the tool name, the principal and the key id, and
+    DEBUG with the result size.
+  - |
+    Backend test: `src/backend/implementation/src/test/kotlin/io/pythia/mcp/McpServerIT.kt`
+    (`@QuarkusTest`, RestAssured, raw JSON-RPC over Streamable HTTP. Send
+    `Accept: application/json, text/event-stream` and
+    `Content-Type: application/json`. If a response comes back as
+    `text/event-stream`, parse its `data:` line. Carry the
+    `Mcp-Session-Id` response header of `initialize` on later calls). The
+    setting is GLOBAL, so `@AfterEach` switches MCP off again (see
+    `SystemSettingsHoursPerDayIT`). Cases:
+      1. Default state: `GET /api/system` has `mcpEnabled == false`, and an
+         `initialize` POST as `Dev dev-viewer` → `404` with the JSON body.
+      2. Anonymous `initialize` → `401`, with the switch off AND on.
+      3. `PUT /api/system/mcp {"enabled":true}` as `Dev dev-estimator` → `403`.
+         As `Dev dev-admin` → `204`, then `GET /api/system` shows `true`.
+      4. Switched on, as `Dev dev-viewer`: `initialize` → 200 with
+         `serverInfo`. `tools/list` returns exactly the six tool names.
+      5. `tools/call list_projects` returns the seeded project names (assert
+         one from `SeededProjects`, e.g. by reading `SeededProjects.ALL`).
+         `get_project` on that project includes its estimations.
+         `get_version` with `"draft"` and with a submitted number returns a
+         non-null `totalEffort`. `compare_versions` returns a comparison.
+         Pick ids by first calling `get_project`, or create the fixture via
+         the REST API like `SystemSettingsHoursPerDayIT` does, if the test
+         profile does not seed.
+      6. `get_project` with an unknown UUID → result `isError == true`, text
+         contains "not found".
+      7. After switching off again, the same viewer's `tools/list` → `404`.
+      8. Switched on, an `initialize` carrying `Host: pythia.example.org` →
+         200 (the DNS-rebinding check does not break the reverse proxy).
+    Also extend `SystemSettingsResourceIT` with an assertion that
+    `GET /api/system` carries `mcpEnabled`.
+  - |
+    Prove the gate by a deliberate failure. Temporarily make
+    `McpGate`'s handler always call `ctx.next()`, run
+    `./gradlew :backend:implementation:test --tests "io.pythia.mcp.McpServerIT"`
+    and see cases 1 and 7 fail. Revert, then see them pass. Report both runs.
+  - |
+    Frontend API + types. Run `./gradlew build` once so `openapi.json` and
+    `schema.d.ts` regenerate (commit both later, as the drift gate requires). In
+    `src/frontend/src/lib/api/system.ts` add
+      export async function updateMcpEnabled(enabled: boolean): Promise<void>
+    (PUT `${BASE}/mcp`, `assertOk(res, 'Failed to save the MCP setting')`).
+    If `$lib/api/types.ts` mirrors `SystemSettingsDto` by hand, add
+    `mcpEnabled` there too.
+  - |
+    Admin page, as wireframed. In `src/frontend/src/routes/admin/system/+page.svelte`
+    add the section between Arbeitszeit and Standard-Aufwandstreiber.
+    Use `let mcpEnabled = $state(false)` (checkbox) and
+    `let mcpSavedEnabled = $state(false)` (what the server holds, which
+    drives the endpoint line), both set from `settings.mcpEnabled` on load.
+    Add `async function saveMcp()`, which calls `updateMcpEnabled`, sets
+    `mcpSavedEnabled`, shows the notice, and does
+    `log.info('admin/system: MCP interface saved', { mcpEnabled })`. Its
+    `catch` surfaces via the page's existing error banner path, like
+    `saveHoursPerDay`. Compute the endpoint as
+    `${window.location.origin}/api/mcp`. No bare `console.*`, no inline strings.
+  - |
+    i18n, both catalogs key-for-key under `admin.system`:
+      | key          | de                                                   | en |
+      |--------------|------------------------------------------------------|----|
+      | mcpSection   | KI-Schnittstelle (MCP)                               | AI interface (MCP) |
+      | mcpHint      | Stellt Projekte, Schätzungen und Versionen KI-Assistenten über das Model Context Protocol zur Verfügung – nur lesend. Zugriff erhalten nur angemeldete Benutzer mit mindestens Leserechten. | Makes projects, estimations and versions available to AI assistants through the Model Context Protocol – read-only. Only signed-in users with at least viewer rights get access. |
+      | mcpLabel     | MCP-Schnittstelle aktivieren                         | Enable the MCP interface |
+      | mcpSave      | KI-Schnittstelle speichern                           | Save AI interface |
+      | mcpSaved     | KI-Schnittstelle gespeichert.                        | AI interface saved. |
+      | mcpEndpoint  | Endpunkt: {url}                                      | Endpoint: {url} |
+      | mcpAuthHint  | Clients melden sich wie die Weboberfläche an (Bearer-Token des Mandanten). | Clients sign in like the web UI does (the tenant's bearer token). |
+  - |
+    Page Object + e2e. Extend `src/frontend/e2e/pages/SystemSettingsPage.ts`
+    with `get mcpEnabledCheckbox()` (`system.mcp-enabled`), `get mcpEndpoint()`
+    (`system.mcp-endpoint`) and `async saveMcp(enabled: boolean)` (set the
+    checkbox, click `system.save-mcp`). Create
+    `src/frontend/e2e/mcp-settings.test.ts`, importing from `'./pages'`:
+      - The admin opens the page: the checkbox is unchecked and the endpoint
+        is hidden.
+      - `saveMcp(true)`: the notice is visible, the endpoint text contains
+        `/api/mcp`, and an API `POST /api/mcp` `initialize` with
+        `Authorization: Dev dev-viewer` (via `request`, as `hours-per-day.test.ts`
+        does) returns 200. After a reload the box is still checked.
+      - `saveMcp(false)`: the same POST → 404 and the endpoint is hidden.
+      - `afterEach` PUTs `{enabled:false}` through the API even on failure,
+        because the setting is global (comment it like `hours-per-day.test.ts`).
+    No translated literals. Assert copy only through `catalogText`/`catalogPattern`.
+  - |
+    Run the e2e spec with the port protocol. First check :8090, :5173 and
+    :5432 are free (`lsof -nP -iTCP:8090 -iTCP:5173 -iTCP:5432 -sTCP:LISTEN`).
+    If any is bound, STOP and report. Start `./scripts/dev.sh` in the
+    background. Run
+    `cd src/frontend && E2E_LANG=en npx playwright test e2e/mcp-settings.test.ts e2e/system-settings.test.ts e2e/hours-per-day.test.ts`,
+    then the same with `E2E_LANG=de`. Afterwards stop ONLY the `dev.sh` this
+    step started, with SIGTERM.
+  - |
+    Documentation.
+      - New `docs/mcp.md` (public, so no hostnames). It covers: what the
+        interface exposes (the tool table), how an admin switches it on, the
+        endpoint `https://<your-host>/api/mcp`, and authentication. For entra,
+        a bearer access token for the Pythia API, the same audience the SPA
+        uses (see `docs/entra-setup.md`). For dev, `Authorization: Dev dev-viewer`.
+        Give an example client registration with placeholders, e.g.
+        `claude mcp add --transport http pythia https://<your-host>/api/mcp --header "Authorization: Bearer <token>"`.
+        Say that automatic OAuth discovery (RFC 9728) is not offered yet, and why.
+        Link it from `README.md` next to the other docs links.
+      - New `src/backend/implementation/src/main/kotlin/io/pythia/mcp/CLAUDE.md`.
+        It covers: the gate (per-request, 404 when off, after authentication),
+        why tools use `SecurityIdentity` not `CurrentUserProvider`, the
+        "same DTO as the REST twin, no computation" rule, the BOM-pinned version,
+        and read-only by decision. List it under "Detail next to the code" in
+        `src/backend/CLAUDE.md`, and add one paragraph on `mcp_enabled` /
+        `PUT /api/system/mcp` to that file's "System settings" section.
+  - |
+    Dependency compliance: `./gradlew build` runs `checkOssCompliance` over the
+    new SBOM components (the MCP extension and its transitive jars). If one
+    fails as unknown or missing, add a justified entry to
+    `compliance/oss-policy.json` per `docs/oss-compliance.md`. Never weaken
+    the check.
+  - |
+    Final gates: `./gradlew build`, `./gradlew staticAnalysis` (Redocly is
+    blocking: the new operation needs its operationId, security and a 4xx),
+    `./gradlew :frontend:check`. Leave the regenerated `openapi.json` and
+    `schema.d.ts` in the working tree. CI's
+    `verifyOpenApiSchemaCommitted` drift gate requires them to be committed
+    with this change.
+
+validation:
+  - |
+    # dependency via the platform BOM, no hand-picked version
+    grep -q 'quarkus-mcp-server-bom' src/backend/implementation/build.gradle.kts
+    grep -qE '"io.quarkiverse.mcp:quarkus-mcp-server-http"\)' src/backend/implementation/build.gradle.kts
+  - |
+    # migration + entity parity
+    grep -q 'mcp_enabled BOOLEAN NOT NULL DEFAULT FALSE' src/backend/implementation/src/main/resources/db/migration/V22__mcp_enabled.sql
+    grep -q 'name = "mcp_enabled"' src/backend/implementation/src/main/kotlin/io/pythia/domain/system/SystemSettings.kt
+  - |
+    # the admin endpoint is ADMIN-only
+    grep -B6 'fun updateMcpEnabled' src/backend/implementation/src/main/kotlin/io/pythia/rest/SystemSettingsResource.kt | grep -q '@RolesAllowed("ADMIN")'
+    grep -q '@Path("/mcp")' src/backend/implementation/src/main/kotlin/io/pythia/rest/SystemSettingsResource.kt
+  - |
+    # endpoint location and authentication
+    grep -q '^quarkus.mcp.server.http.root-path=/api/mcp' src/backend/implementation/src/main/resources/application.properties
+    grep -q '^quarkus.http.auth.permission.mcp.policy=authenticated' src/backend/implementation/src/main/resources/application.properties
+  - |
+    # gate and tools exist; tools are VIEWER-gated, use SecurityIdentity, log
+    test -f src/backend/implementation/src/main/kotlin/io/pythia/mcp/McpGate.kt
+    T=src/backend/implementation/src/main/kotlin/io/pythia/mcp/PythiaMcpTools.kt
+    test "$(grep -c '@Tool(' $T)" -eq 6
+    test "$(grep -c '@RolesAllowed("VIEWER")' $T)" -ge 6
+    grep -q 'SecurityIdentity' $T
+    ! grep -q 'CurrentUserProvider' $T
+    grep -q 'Log\.' $T
+    grep -q 'Log\.' src/backend/implementation/src/main/kotlin/io/pythia/mcp/McpGate.kt
+  - |
+    # shared glue moved, not copied
+    ! grep -q 'private fun resolveVersion' src/backend/implementation/src/main/kotlin/io/pythia/rest/EstimationVersionResource.kt
+    grep -q 'fun resolveVersionForComparison' src/backend/implementation/src/main/kotlin/io/pythia/service/EstimationVersionService.kt
+    grep -q 'fun versionSummaries' src/backend/implementation/src/main/kotlin/io/pythia/service/EstimationVersionService.kt
+  - |
+    ./gradlew :backend:implementation:test --tests "io.pythia.mcp.McpServerIT" --tests "io.pythia.rest.SystemSettingsResourceIT"
+  - |
+    # OpenAPI carries the new field and operation
+    grep -q '"mcpEnabled"' src/frontend/src/lib/api/openapi.json
+    grep -q '"updateMcpEnabled"' src/frontend/src/lib/api/openapi.json
+  - |
+    # frontend: testids, i18n parity, logging, no console
+    P=src/frontend/src/routes/admin/system/+page.svelte
+    grep -q 'data-testid="system.mcp-enabled"' $P
+    grep -q 'data-testid="system.save-mcp"' $P
+    grep -q 'data-testid="system.mcp-endpoint"' $P
+    grep -q "log.info('admin/system: MCP interface saved'" $P
+    ! grep -q 'console\.' $P
+    for k in mcpSection mcpHint mcpLabel mcpSave mcpSaved mcpEndpoint mcpAuthHint; do
+      jq -e ".admin.system.$k" src/frontend/src/lib/i18n/de.json >/dev/null &&
+      jq -e ".admin.system.$k" src/frontend/src/lib/i18n/en.json >/dev/null || exit 1; done
+  - |
+    # e2e via the Page Object
+    grep -q 'system.mcp-enabled' src/frontend/e2e/pages/SystemSettingsPage.ts
+    grep -q "from './pages'" src/frontend/e2e/mcp-settings.test.ts
+  - |
+    # docs
+    test -f docs/mcp.md && grep -q 'docs/mcp.md' README.md
+    test -f src/backend/implementation/src/main/kotlin/io/pythia/mcp/CLAUDE.md
+    grep -q 'mcp/CLAUDE.md' src/backend/CLAUDE.md
+    # no real host in the public doc
+    ! grep -qiE 'https://[a-z0-9.-]+\.(de|com|net|io|org)/api/mcp' docs/mcp.md
+  - |
+    ./gradlew build
+  - |
+    ./gradlew staticAnalysis
+  - |
+    ./gradlew :frontend:check
+
+outputs:
+  - modified: src/backend/implementation/build.gradle.kts
+  - created: src/backend/implementation/src/main/resources/db/migration/V22__mcp_enabled.sql
+  - modified: src/backend/implementation/src/main/kotlin/io/pythia/domain/system/SystemSettings.kt
+  - modified: src/backend/implementation/src/main/kotlin/io/pythia/service/SystemSettingsService.kt
+  - modified: src/backend/implementation/src/main/kotlin/io/pythia/service/EstimationVersionService.kt
+  - modified: src/backend/implementation/src/main/kotlin/io/pythia/rest/dto/SystemSettingsDtos.kt
+  - modified: src/backend/implementation/src/main/kotlin/io/pythia/rest/SystemSettingsResource.kt
+  - modified: src/backend/implementation/src/main/kotlin/io/pythia/rest/EstimationVersionResource.kt
+  - modified: src/backend/implementation/src/main/resources/application.properties
+  - created: src/backend/implementation/src/main/kotlin/io/pythia/mcp/McpGate.kt
+  - created: src/backend/implementation/src/main/kotlin/io/pythia/mcp/PythiaMcpTools.kt
+  - created: src/backend/implementation/src/main/kotlin/io/pythia/mcp/CLAUDE.md
+  - created: src/backend/implementation/src/test/kotlin/io/pythia/mcp/McpServerIT.kt
+  - modified: src/backend/implementation/src/test/kotlin/io/pythia/rest/SystemSettingsResourceIT.kt
+  - modified: src/frontend/src/lib/api/openapi.json
+  - modified: src/frontend/src/lib/api/schema.d.ts
+  - modified: src/frontend/src/lib/api/system.ts
+  - modified: src/frontend/src/lib/api/types.ts   # only if it mirrors SystemSettingsDto by hand
+  - modified: src/frontend/src/routes/admin/system/+page.svelte
+  - modified: src/frontend/src/lib/i18n/de.json
+  - modified: src/frontend/src/lib/i18n/en.json
+  - modified: src/frontend/e2e/pages/SystemSettingsPage.ts
+  - created: src/frontend/e2e/mcp-settings.test.ts
+  - created: docs/mcp.md
+  - modified: README.md
+  - modified: src/backend/CLAUDE.md
+  - modified: compliance/oss-policy.json   # only if a new component needs a justified entry
