@@ -110,6 +110,46 @@ Do not edit the check. Pick the case that applies and change
 the build passes but warns. It exists for the first introduction of the check,
 not for new dependencies.
 
+## Pythia's own licence in the artifacts
+
+Apache-2.0 asks every redistribution to give its recipients a copy of the
+licence and to carry the NOTICE file, and a tool that scans an artifact needs
+machine-readable licence information on the artifact itself. Since task-219
+every published artifact carries it:
+
+| artifact | where it carries Pythia's licence |
+|---|---|
+| deploy bundle `pythia-deploy-vX.Y.Z.tar.gz` | `LICENSE`, `NOTICE`, `CONTRIBUTORS` at its top level |
+| release SBOM `pythia-vX.Y.Z.cdx.json` | `Apache-2.0` on the root component and on both parts |
+| backend image `pythia/pythia-backend` | label `org.opencontainers.image.licenses=Apache-2.0`; `/licenses/pythia/` with `LICENSE`, `NOTICE`, `CONTRIBUTORS` and `sbom.cdx.json` (the image's part of the release SBOM) |
+| frontend image `pythia/pythia-frontend` | the same label and the same `/licenses/pythia/`, as an image layer outside the web root (not served) |
+| backend app jar (`quarkus-app/app/implementation-*.jar`, the jar that runs) | `SPDX-License-Identifier: Apache-2.0` in its manifest, from `quarkus.package.jar.manifest.attributes` |
+
+**One place in both images: `/licenses/pythia/`.** `/licenses/` is the Red Hat
+UBI convention for licence files (the backend's base is UBI 9, and Red Hat's
+certification tooling looks there), so the one directory a tool does look at by
+name is the one used. All later licence material goes there too: task-208's
+`THIRD-PARTY-LICENSES.txt`.
+
+**Why no label points at that directory.** No OCI annotation names a licence
+path: `org.opencontainers.image.licenses` is the standard key, and its value is
+an SPDX expression, not a path. Scanners such as Trivy and Syft find licences in
+package metadata and in SBOMs, not in a directory a label names. A custom label
+would be read by no tool, so the location is documented here instead. The SBOM
+is what tools actually use, and for the frontend it is the ONLY source: the
+minified bundle has no `package.json` or `node_modules` left. That is why each
+image carries its SBOM part. Attaching the SBOM to the images in the registry,
+where scanners discover it without pulling, is task-220.
+
+**The gate.** CI's `images` job runs `scripts/check-artifact-licenses.sh` on the
+images it has just built. It checks the jar's manifest, each image's label, the
+three files (byte-identical to the repository root), and each image's
+`sbom.cdx.json` against a fresh `scripts/sbom-part.mjs` cut of the build's SBOM,
+which catches an image built from a stale staging. With `--bundle <dir>` it also
+checks an unpacked deploy bundle. How the backend image gets its directory, and
+why that takes two Gradle invocations, is in [Deployment](deployment.md), "How
+the images are built".
+
 ## What this does not cover
 
 - **The base images' operating-system packages.** The images also contain the

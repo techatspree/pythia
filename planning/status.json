@@ -1299,9 +1299,9 @@
       "notes": "Expose Pythia's data to AI clients through an MCP server, switched on per tenant in the administration settings (default off), authenticated with the tenant's standard mechanisms"
     },
     "task-219": {
-      "status": "pending",
-      "started_at": null,
-      "completed_at": null,
+      "status": "done",
+      "started_at": "2026-11-19T20:41:10+00:00",
+      "completed_at": "2026-11-19T20:54:21+00:00",
       "notes": "Every shipped artifact carries Pythia's licence information: the Quarkus app jar's SPDX manifest attribute, LICENSE/NOTICE/CONTRIBUTORS and an OCI licenses label in both images, checked in CI"
     },
     "task-220": {

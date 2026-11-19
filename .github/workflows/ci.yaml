@@ -277,10 +277,14 @@ jobs:
       # task-195) declares itself never up to date and has no cacheable outputs.
       # It loads into this runner's daemon because the job pushes nothing; with
       # -PfrontendImagePush=true it would push with no Docker at all.
+      #
+      # The backend image is built only through scripts/build-backend-image.sh
+      # (task-219, docs/deployment.md "How the images are built"): it stages
+      # /licenses/pythia/ in one invocation, then rebuilds with
+      # `quarkusAppPartsBuild --rerun` (plus --no-build-cache) in a second one.
       - name: Build both container images
         run: |
-          ./gradlew :backend:implementation:imageBuild \
-            -Dquarkus.container-image.build=true --no-build-cache
+          ./scripts/build-backend-image.sh -Dquarkus.container-image.build=true
           ./gradlew :frontend:imageBuild
 
       - name: Assert both image references exist
@@ -288,19 +292,29 @@ jobs:
           docker image inspect "pythia/pythia-backend:$PYTHIA_VERSION" > /dev/null
           docker image inspect "pythia/pythia-frontend:$PYTHIA_VERSION" > /dev/null
 
+      # Pythia's own licence on what ships (task-219): the app jar's manifest, the
+      # OCI licence label and /licenses/pythia/ in both images, the SBOM part in
+      # each compared with a fresh cut (which catches a stale staging).
+      - name: Check both images carry Pythia's licence and SBOM (task-219)
+        run: |
+          ./scripts/check-artifact-licenses.sh \
+            --jar src/backend/implementation/build/quarkus-app/app/implementation-$PYTHIA_VERSION.jar \
+            --backend-image "pythia/pythia-backend:$PYTHIA_VERSION" \
+            --frontend-image "pythia/pythia-frontend:$PYTHIA_VERSION"
+
       # The daemon builds above can only ever produce and check linux/amd64. This
       # pushes both images to the throwaway registry and asserts each index lists
       # linux/amd64 AND linux/arm64 — proving the arm64 half is buildable and that
       # pushing implies multi-arch (task-196). quarkusAppPartsBuild is where the
       # backend image is built and pushed; `--rerun` keeps the push from depending
-      # on what ran before it, as everywhere else this task pushes.
+      # on what ran before it, as everywhere else this task pushes. The script
+      # supplies both (task-219, docs/deployment.md "How the images are built").
       - name: Push multi-arch images to a throwaway registry and check both platforms
         run: |
-          ./gradlew :backend:implementation:quarkusAppPartsBuild --rerun \
-            :backend:implementation:imageBuild \
+          ./scripts/build-backend-image.sh \
             -Dquarkus.container-image.push=true \
             -Dquarkus.container-image.registry=localhost:5000 \
-            -Dquarkus.container-image.insecure=true --no-build-cache
+            -Dquarkus.container-image.insecure=true
           ./gradlew :frontend:imageBuild -PfrontendImagePush=true \
             -PfrontendImageRegistry=localhost:5000
           for img in pythia-backend pythia-frontend; do
@@ -369,7 +383,8 @@ jobs:
   #
   # Order, and why it is this order:
   #   1. refuse if the release is already PUBLISHED (releases are immutable,
-  #      task-193); delete a DRAFT a failed run left behind;
+  #      task-193); delete a DRAFT a failed run left behind; build the
+  #      application SBOM, which both images then carry a part of (task-219);
   #   2. push the backend, then run the task-194 auth-module check on THAT
   #      augmentation — the one whose image was just pushed;
   #   3. push the frontend;
@@ -442,9 +457,23 @@ jobs:
             exit 1
           fi
 
+      # Pythia's one application SBOM (task-206), its own release asset next to
+      # the bundle. It runs BEFORE the pushes (task-219): each image carries its
+      # part of this same SBOM in /licenses/pythia/, so a release provably ships
+      # the same SBOM inside its images as beside them. The image pushes below
+      # reuse nothing from this build (they rerun the augmentation).
+      - name: Build the application SBOM
+        run: |
+          ./gradlew sbom
+          mkdir -p dist
+          cp build/sbom/pythia.cdx.json "dist/pythia-$V.cdx.json"
+          (cd dist && sha256sum "pythia-$V.cdx.json" > "pythia-$V.cdx.json.sha256")
+
       # quarkusAppPartsBuild is where the image is built and pushed; --rerun and
       # --no-build-cache keep a cached augmentation from replaying files without
-      # the push (see the `images` job). Pushing implies multi-arch (task-196).
+      # the push (see the `images` job). scripts/build-backend-image.sh supplies
+      # both, after staging /licenses/pythia/ (task-219, docs/deployment.md "How
+      # the images are built"). Pushing implies multi-arch (task-196).
       # `container-image.image` sets registry, group, name and tag in one value.
       # The source label links the GHCR package to this repository; it is set
       # here only, so no other build changes. Credentials travel as environment
@@ -454,12 +483,11 @@ jobs:
           QUARKUS_CONTAINER_IMAGE_USERNAME: ${{ github.actor }}
           QUARKUS_CONTAINER_IMAGE_PASSWORD: ${{ github.token }}
         run: |
-          ./gradlew :backend:implementation:quarkusAppPartsBuild --rerun \
-            :backend:implementation:imageBuild \
+          ./scripts/build-backend-image.sh \
             -Dquarkus.container-image.push=true \
             -Dquarkus.container-image.image="$BASE/pythia-backend:$VER" \
             -Dquarkus.container-image.labels.\"org.opencontainers.image.source\"="$SRC" \
-            -x test --no-build-cache
+            -x test
 
       - name: Verify the pushed augmentation carries Entra and not the dev auth module
         run: ./scripts/verify-auth-modules.sh
@@ -498,16 +526,6 @@ jobs:
             echo "$x: $digest"
             echo "${x^^}_DIGEST=$digest" >> "$GITHUB_ENV"
           done
-
-      # Pythia's one application SBOM (task-206), from this same run: `sbom`
-      # reuses the Quarkus build that was just pushed and checks the SBOM
-      # against exactly those jars. Its own release asset, next to the bundle.
-      - name: Build the application SBOM
-        run: |
-          ./gradlew sbom
-          mkdir -p dist
-          cp build/sbom/pythia.cdx.json "dist/pythia-$V.cdx.json"
-          (cd dist && sha256sum "pythia-$V.cdx.json" > "pythia-$V.cdx.json.sha256")
 
       - name: Build the deploy bundle
         run: |

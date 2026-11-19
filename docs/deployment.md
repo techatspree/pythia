@@ -69,7 +69,12 @@ and the API's `info.version`. The `pythia/pythia-*` part equals the names the
 overlays use (`${REGISTRY}/pythia/pythia-backend`), so `REGISTRY=ghcr.io/<owner>`
 pulls straight from GHCR, and a registry holding copies keeps the same paths.
 Each image carries the `org.opencontainers.image.source` label pointing at this
-repository.
+repository. Both also carry Pythia's licence (task-219): the label
+`org.opencontainers.image.licenses=Apache-2.0`, and the directory
+`/licenses/pythia/` with `LICENSE`, `NOTICE`, `CONTRIBUTORS` and that image's
+part of the release SBOM (`sbom.cdx.json`). See
+[Open-source compliance](oss-compliance.md), "Pythia's own licence in the
+artifacts".
 
 **A deploy bundle**, attached to the GitHub Release of the tag:
 `pythia-deploy-vX.Y.Z.tar.gz` plus `pythia-deploy-vX.Y.Z.tar.gz.sha256`.
@@ -173,8 +178,57 @@ backend, `-PfrontendImagePush=true` for the frontend. Each node pulls its native
 variant. Only a build into a local Docker daemon is single-platform
 (`linux/amd64`), because a daemon load takes one image, not an index.
 
+**Build the backend image only through `scripts/build-backend-image.sh`**
+(task-219), with your `-D…` options:
+
+```bash
+./scripts/build-backend-image.sh -Dquarkus.container-image.build=true          # into the local daemon
+./scripts/build-backend-image.sh -Dquarkus.container-image.push=true \
+    -Dquarkus.container-image.registry=<host> -x test                        # push
+```
+
+It runs two Gradle invocations, because one cannot do it. Each image carries
+`/licenses/pythia/`, including its part of the SBOM, and the backend's SBOM part
+needs the jars of the backend's own Quarkus augmentation, the very step that
+builds the image. So:
+
+1. `:backend:implementation:stageImageLicenses` builds the backend, assembles
+   the SBOM and stages `/licenses/pythia/` into `src/main/jib/` (generated and
+   gitignored; Quarkus' Jib extension copies that directory into the image root).
+2. `quarkusAppPartsBuild --rerun :backend:implementation:imageBuild
+   --no-build-cache <your options>` builds the image. **Both flags are
+   mandatory.** Invocation 1 has just run the augmentation without an image,
+   and the image is a side effect, not a declared output: Gradle must not be
+   allowed to consider the augmentation done. `--no-build-cache` is the known
+   trap (see the `images` job's comment: a cache entry from a build without
+   the image replays as success with no image). `--rerun` covers the same
+   trap for the local up-to-date check. Measured 2026-11-19, a plain
+   `imageBuild` after a `quarkusBuild` did re-run the augmentation, but
+   nothing guarantees it, and `minikube-deploy.sh` and `publish` already
+   relied on `--rerun` before task-219.
+
+Invocation 1 must not get the `quarkus.container-image.*` options. The script
+takes care of that and refuses task names among its arguments.
+
+**A guard catches a skipped invocation 1.**
+`:backend:implementation:verifyImageLicensesStaged` always runs whenever a
+BACKEND image is requested: the `quarkus.container-image.build` or `.push`
+property, or the task `backend:implementation:imageBuild`/`imagePush` or an
+unqualified `imageBuild`/`imagePush`. It fails if the staged SBOM is missing,
+so an image cannot ship without its licence. It deliberately does NOT fire for
+`:frontend:imageBuild`, which reaches the backend's augmentation only to build
+the SBOM. A STALE staging is caught in CI instead, by
+`scripts/check-artifact-licenses.sh`, which compares each image's SBOM part with
+a fresh cut.
+
+The frontend image has no such cycle: `:frontend:imageBuild` stages its
+`/licenses/pythia/` itself (under the root `build/frontend-image/licenses/`)
+and adds it as an image layer, outside the web root. Since that needs the SBOM,
+building the frontend image builds the backend first.
+
 **No image build needs a Docker daemon** (task-195). The backend pushes through
-Quarkus/Jib with `-Dquarkus.container-image.push=true`, and the frontend through
+Quarkus/Jib with `-Dquarkus.container-image.push=true` (via the script above),
+and the frontend through
 jib-core. Registry credentials for the frontend come from
 `~/.docker/config.json` and the well-known credential helpers, or explicitly
 from `ORG_GRADLE_PROJECT_frontendImageUsername` /

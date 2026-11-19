@@ -217,6 +217,56 @@ val testSbomFinalize = tasks.register<NodeTask>("testSbomFinalize") {
     outputs.upToDateWhen { false }
 }
 
+// Each image carries its own part of the SBOM in /licenses/pythia/ (task-219),
+// cut by scripts/sbom-part.mjs. Both cuts run HERE, on the build's pinned Node,
+// the backend's included: :backend:implementation has no Node of its own, and a
+// system `node` would bypass the pin. Like finalizeSbom, cheap and always rerun.
+fun registerSbomPart(name: String, part: String, out: Provider<RegularFile>) =
+    tasks.register<NodeTask>(name) {
+        description = "Cuts the $part part out of build/sbom/pythia.cdx.json (task-219)."
+        dependsOn(finalizeSbom)
+        script.set(rootProject.file("scripts/sbom-part.mjs"))
+        args.set(
+            listOf(
+                "--sbom", rootProject.layout.buildDirectory.file("sbom/pythia.cdx.json").get().asFile.path,
+                "--part", part,
+                "--out", out.get().asFile.path
+            )
+        )
+        outputs.upToDateWhen { false }
+    }
+
+// Into the BACKEND's build dir; :backend:implementation:stageImageLicenses picks it up.
+registerSbomPart(
+    "writeBackendImageSbomPart", "pythia-backend",
+    project(":backend:implementation").layout.buildDirectory.file("image-licenses/sbom.cdx.json")
+)
+// ROOT build/, not this project's: that is the SPA the image is made from.
+val writeImageSbomPart = registerSbomPart(
+    "writeImageSbomPart", "pythia-frontend",
+    rootProject.layout.buildDirectory.file("frontend-image/sbom.cdx.json")
+)
+
+// The frontend image's /licenses/pythia/ (task-219), staged under the ROOT build
+// dir next to jib-image.digest and added by imageBuild as its own layer.
+val frontendImageLicensesDir = rootProject.layout.buildDirectory.dir("frontend-image/licenses")
+val stageImageLicenses = tasks.register<Sync>("stageImageLicenses") {
+    description = "Stages /licenses/pythia/ for the frontend image (task-219)."
+    dependsOn(writeImageSbomPart)
+    from(rootProject.files("LICENSE", "NOTICE", "CONTRIBUTORS"))
+    from(rootProject.layout.buildDirectory.file("frontend-image/sbom.cdx.json"))
+    into(frontendImageLicensesDir)
+}
+
+// Unit tests of the part cut, part of :frontend:check.
+val testSbomPart = tasks.register<NodeTask>("testSbomPart") {
+    description = "Runs the node --test suite of scripts/sbom-part.mjs."
+    dependsOn(tasks.npmInstall)
+    options.set(listOf("--test"))
+    script.set(rootProject.file("scripts/sbom-part.test.mjs"))
+    outputs.upToDateWhen { false }
+}
+
 val checkDesignTokens = tasks.register<NodeTask>("checkDesignTokens") {
     dependsOn(tasks.npmInstall)
     script.set(file("scripts/check-design-tokens.mjs"))
@@ -300,7 +350,7 @@ val testOssCompliance = tasks.register<NodeTask>("testOssCompliance") {
 tasks.named("check") {
     dependsOn(
         npmCheck, npmLintReport, checkDesignTokens, lintE2e, lintOpenApi, testSbomFinalize,
-        testOssCompliance, checkOssCompliance
+        testSbomPart, testOssCompliance, checkOssCompliance
     )
     if (openApiGate) dependsOn(verifyOpenApiSchemaCommitted)
 }
@@ -348,6 +398,12 @@ tasks.register("imageBuild") {
     description = "Builds the frontend image with jib-core: into the local Docker daemon, " +
         "or straight to a registry with -PfrontendImagePush=true."
     dependsOn(npmBuild)
+    // /licenses/pythia/ (task-219). Consequence, accepted: through finalizeSbom,
+    // which needs :backend:implementation:quarkusBuild, building the frontend
+    // image now builds the backend first. No cycle: no backend IMAGE is involved.
+    dependsOn(stageImageLicenses)
+    val licensesDir = frontendImageLicensesDir.get().asFile.toPath()
+    inputs.files(rootProject.files("LICENSE", "NOTICE", "CONTRIBUTORS"))
     // The image is a side effect, not a declared output, so this task must never
     // be up to date or cached — the same trap ci.yaml describes for the backend's
     // augmentation.
@@ -396,6 +452,15 @@ tasks.register("imageBuild") {
                 spaLayer.addEntry(file, htmlRoot.resolve(rel.joinToString("/")))
             }
         }
+        // Pythia's licence and this image's SBOM part (task-219), outside the web
+        // root: an image layer, never served by nginx.
+        val licensesRoot = AbsoluteUnixPath.get("/licenses/pythia")
+        val licensesLayer = FileEntriesLayer.builder().setName("licenses")
+        Files.list(licensesDir).use { files ->
+            files.filter { Files.isRegularFile(it) }.sorted().forEach { file ->
+                licensesLayer.addEntry(file, licensesRoot.resolve(file.fileName.toString()))
+            }
+        }
 
         val target = if (push) {
             val image = RegistryImage.named(ref)
@@ -437,9 +502,11 @@ tasks.register("imageBuild") {
         // fixed defaults, so the image does not depend on WHEN it is built.
         val builder = Jib.from(frontendBaseImage)
             .setPlatforms(platforms)
-            .setFileEntriesLayers(listOf(configLayer, spaLayer.build()))
+            .setFileEntriesLayers(listOf(configLayer, spaLayer.build(), licensesLayer.build()))
             .addEnvironmentVariable("NGINX_ENTRYPOINT_LOCAL_RESOLVERS", "1")
             .addExposedPort(Port.tcp(80))
+            // The OCI standard key; its value is an SPDX expression, not a path (task-219).
+            .addLabel("org.opencontainers.image.licenses", "Apache-2.0")
         frontendImageSourceUrl.orNull?.let { builder.addLabel("org.opencontainers.image.source", it) }
         val container = builder.containerize(target)
         Files.createDirectories(digestFile.parent)

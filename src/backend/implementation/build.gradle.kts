@@ -46,6 +46,70 @@ if (pushesImage) {
     }
 }
 
+// Licence material in the image (task-219): /licenses/pythia/ holds Pythia's
+// LICENSE, NOTICE and CONTRIBUTORS and this image's part of the SBOM. Quarkus'
+// Jib extension copies src/main/jib/ into the image root, so it is staged there
+// (generated, gitignored).
+//
+// THE CYCLE: the SBOM part needs build/sbom/pythia.cdx.json, which needs this
+// project's quarkusBuild (the jars in quarkus-app/lib); but the image is built
+// INSIDE that same augmentation (quarkusAppPartsBuild with container-image
+// build/push). One invocation cannot both feed the augmentation and depend on
+// its output, so staging is a SEPARATE invocation before the image build, and
+// quarkusAppPartsBuild must NOT depend on stageImageLicenses.
+//
+// THE --rerun RULE: the staging invocation has just run the augmentation
+// without an image, and the container-image properties are not among its
+// inputs. The image invocation must therefore force it with
+// `quarkusAppPartsBuild --rerun`, or it is UP-TO-DATE and builds no image while
+// reporting success. scripts/build-backend-image.sh owns both invocations; build
+// the backend image only through it (docs/deployment.md, "How the images are
+// built").
+val imageLicensesDir = layout.projectDirectory.dir("src/main/jib/licenses/pythia")
+
+val stageImageLicenses = tasks.register<Sync>("stageImageLicenses") {
+    description = "Stages /licenses/pythia/ for the backend image into src/main/jib (task-219)."
+    // The SBOM part is cut by :frontend, where the build's pinned Node runs.
+    dependsOn(":frontend:writeBackendImageSbomPart")
+    from(rootProject.files("LICENSE", "NOTICE", "CONTRIBUTORS"))
+    from(layout.buildDirectory.file("image-licenses/sbom.cdx.json"))
+    into(imageLicensesDir)
+}
+
+// True only when THIS project's image is built or pushed. Not for
+// :frontend:imageBuild, which reaches quarkusAppPartsBuild through
+// finalizeSbom -> quarkusBuild without building a backend image. Task names are
+// checked because the plugin's imageBuild forces container-image.build itself
+// (application.properties sets it false), with no system property visible.
+val backendImageRequested =
+    listOf("quarkus.container-image.build", "quarkus.container-image.push").any {
+        providers.systemProperty(it).orNull == "true"
+    } || gradle.startParameter.taskNames.map { it.trimStart(':') }.any {
+        it in setOf("backend:implementation:imageBuild", "backend:implementation:imagePush", "imageBuild", "imagePush")
+    }
+
+// The guard: an image built without staging would ship without its licence.
+// A task of its own that always runs, so it fires even when the augmentation
+// itself would be UP-TO-DATE (a doFirst there would be skipped).
+val verifyImageLicensesStaged = tasks.register("verifyImageLicensesStaged") {
+    description = "Fails a backend image build whose /licenses/pythia/ was not staged (task-219)."
+    val sbomPart = imageLicensesDir.file("sbom.cdx.json").asFile
+    outputs.upToDateWhen { false }
+    doLast {
+        if (!sbomPart.exists()) {
+            throw GradleException(
+                "$sbomPart is missing, so the image would ship without /licenses/pythia/. " +
+                    "Build the backend image with scripts/build-backend-image.sh: the SBOM it carries " +
+                    "needs this augmentation's output, so it is staged in a separate Gradle invocation " +
+                    "first (docs/deployment.md, \"How the images are built\")."
+            )
+        }
+    }
+}
+if (backendImageRequested) {
+    tasks.named("quarkusAppPartsBuild") { dependsOn(verifyImageLicensesStaged) }
+}
+
 val quarkusPlatformGroupId = project.property("quarkusPlatformGroupId") as String
 val quarkusPlatformArtifactId = project.property("quarkusPlatformArtifactId") as String
 val quarkusPlatformVersion = project.property("quarkusPlatformVersion") as String

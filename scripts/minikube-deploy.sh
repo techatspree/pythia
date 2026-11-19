@@ -110,14 +110,18 @@ cd "$PROJECT_ROOT"
 # cluster, so a reset leaves it empty — yet an unchanged backend build would be
 # UP-TO-DATE (or replayed FROM-CACHE) and push nothing. quarkusAppPartsBuild is
 # where the image is actually built and pushed, so it is forced with --rerun.
-# The frontend's imageBuild is never up to date. Tests are skipped here.
-"$PROJECT_ROOT/gradlew" \
-    :backend:implementation:quarkusAppPartsBuild --rerun \
-    :backend:implementation:imageBuild \
+# scripts/build-backend-image.sh does that after staging the image's
+# /licenses/pythia/ in an invocation of its own (task-219, docs/deployment.md
+# "How the images are built"), which is why the backend and the frontend are
+# no longer one Gradle invocation. The frontend's imageBuild is never up to
+# date. Tests are skipped here.
+"$PROJECT_ROOT/scripts/build-backend-image.sh" \
     -Dquarkus.container-image.push=true \
     -Dquarkus.container-image.registry="$push_registry" \
     -Dquarkus.container-image.tag="$MINIKUBE_IMAGE_TAG" \
     -Dquarkus.container-image.insecure=true \
+    -x test
+"$PROJECT_ROOT/gradlew" \
     :frontend:imageBuild -PfrontendImagePush=true \
     -PfrontendImageRegistry="$push_registry" -PfrontendImageTag="$MINIKUBE_IMAGE_TAG" \
     -x test

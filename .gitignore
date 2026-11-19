@@ -65,3 +65,8 @@ planning/cleanup-state.json
 .claude/settings.local.json
 /.kotlin/metadata/kotlinTransformedMetadataLibraries/
 /.kotlin/sessions/
+
+# The backend image's /licenses/pythia/, staged by
+# :backend:implementation:stageImageLicenses (task-219). Generated: copies of the
+# root LICENSE/NOTICE/CONTRIBUTORS plus the image's SBOM part. Never committed.
+src/backend/implementation/src/main/jib/

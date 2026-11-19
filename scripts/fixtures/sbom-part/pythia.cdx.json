@@ -1,0 +1,34 @@
+{
+  "bomFormat": "CycloneDX",
+  "specVersion": "1.6",
+  "version": 1,
+  "metadata": {
+    "timestamp": "2026-01-01T00:00:00Z",
+    "component": { "type": "application", "bom-ref": "pythia", "name": "pythia", "version": "9.9.9", "licenses": [{ "license": { "id": "Apache-2.0" } }] }
+  },
+  "components": [
+    {
+      "type": "application", "bom-ref": "pythia-backend", "name": "pythia-backend", "version": "9.9.9",
+      "licenses": [{ "license": { "id": "Apache-2.0" } }],
+      "components": [
+        { "type": "library", "bom-ref": "pythia-backend:pkg:maven/com.acme/lib-a@1.0?type=jar", "group": "com.acme", "name": "lib-a", "version": "1.0", "licenses": [{ "license": { "id": "MIT" } }] },
+        { "type": "library", "bom-ref": "pythia-backend:pkg:maven/com.acme/lib-b@2.0?type=jar", "group": "com.acme", "name": "lib-b", "version": "2.0", "licenses": [{ "license": { "id": "Apache-2.0" } }] }
+      ]
+    },
+    {
+      "type": "application", "bom-ref": "pythia-frontend", "name": "pythia-frontend", "version": "9.9.9",
+      "licenses": [{ "license": { "id": "Apache-2.0" } }],
+      "components": [
+        { "type": "library", "bom-ref": "pythia-frontend:pkg:npm/svelte@5.0.0", "name": "svelte", "version": "5.0.0", "licenses": [{ "license": { "id": "MIT" } }] }
+      ]
+    }
+  ],
+  "dependencies": [
+    { "ref": "pythia", "dependsOn": ["pythia-backend", "pythia-frontend"] },
+    { "ref": "pythia-backend", "dependsOn": ["pythia-backend:pkg:maven/com.acme/lib-a@1.0?type=jar"] },
+    { "ref": "pythia-backend:pkg:maven/com.acme/lib-a@1.0?type=jar", "dependsOn": ["pythia-backend:pkg:maven/com.acme/lib-b@2.0?type=jar"] },
+    { "ref": "pythia-backend:pkg:maven/com.acme/lib-b@2.0?type=jar", "dependsOn": [] },
+    { "ref": "pythia-frontend", "dependsOn": ["pythia-frontend:pkg:npm/svelte@5.0.0"] },
+    { "ref": "pythia-frontend:pkg:npm/svelte@5.0.0", "dependsOn": [] }
+  ]
+}

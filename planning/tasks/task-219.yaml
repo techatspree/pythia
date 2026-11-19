@@ -181,6 +181,33 @@ description: |
 
   No application behaviour, REST or GUI change.
 
+  ## Deviations found during implementation (2026-11-19)
+
+  - **The backend's SBOM part is cut in `:frontend`, not in
+    `:backend:implementation`.** Step 3 allowed a `NodeTask` or `Exec` in the
+    backend project, but only `:frontend` applies the node-gradle plugin
+    that provides the build's pinned Node; an `Exec` of a system `node` would
+    bypass that pin. So `:frontend` registers both cuts, `writeImageSbomPart`
+    (frontend part, into the root `build/frontend-image/sbom.cdx.json`) and
+    `writeBackendImageSbomPart` (backend part, into
+    `src/backend/implementation/build/image-licenses/sbom.cdx.json`, the path
+    task-220 reads). `:backend:implementation:stageImageLicenses` depends on
+    the latter.
+  - **`scripts/sbom-part.test.mjs` also runs in `:frontend:check`** (task
+    `testSbomPart`, beside `testSbomFinalize`). Otherwise CI would never run
+    it.
+  - **The UP-TO-DATE trap did not reproduce locally.** After
+    `stageImageLicenses` and two `quarkusBuild` runs, a plain
+    `imageBuild -Dquarkus.container-image.build=true --no-build-cache`
+    re-ran `quarkusAppPartsBuild` and produced an image. The script keeps
+    `--rerun` anyway, as cheap insurance and consistent with
+    `minikube-deploy.sh` and `publish`, which relied on it before. The build
+    CACHE trap (ci.yaml's comment) is real and `--no-build-cache` stays.
+    `docs/deployment.md` states the measurement rather than claiming the
+    trap.
+  - The nearest module docs also changed: `src/frontend/CLAUDE.md`
+    (container-image layers) and `src/backend/CLAUDE.md` (Jib image).
+
 steps:
   - |
     Backend jar. Add to
@@ -460,3 +487,5 @@ outputs:
   - modified: docs/oss-compliance.md
   - modified: docs/deployment.md
   - modified: CLAUDE.md
+  - modified: src/frontend/CLAUDE.md
+  - modified: src/backend/CLAUDE.md
