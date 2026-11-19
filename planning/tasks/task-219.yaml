@@ -109,28 +109,61 @@ description: |
      single invocation cannot both feed the augmentation and depend on its
      output. Therefore:
        - invocation 1: `./gradlew :backend:implementation:stageImageLicenses`
-         (pulls in `quarkusBuild` and `finalizeSbom`);
-       - invocation 2: the existing image build or push command, unchanged.
-     A guard makes forgetting invocation 1 a build failure, not a silently
-     licence-less image. When the build builds or pushes an image (the same
-     detection as the existing `pushesImage` val in
-     `src/backend/implementation/build.gradle.kts`, extended to
-     `quarkus.container-image.build` and an `imageBuild` task name),
-     `quarkusAppPartsBuild` fails in `doFirst` if
-     `src/main/jib/licenses/pythia/sbom.cdx.json` is missing. The message
-     names the command to run first. A STALE staging is caught by the gate
-     (point 5), which compares the image's SBOM part with the build's.
+         (pulls in `quarkusBuild` and `finalizeSbom`), WITHOUT any
+         `quarkus.container-image.*` property;
+       - invocation 2: the image build or push, **always with
+         `:backend:implementation:quarkusAppPartsBuild --rerun`**.
+     **The `--rerun` is not optional.** Invocation 1 has just run the
+     augmentation without an image. The container-image properties are not
+     among `quarkusAppPartsBuild`'s inputs, so invocation 2 would find it
+     UP-TO-DATE, report BUILD SUCCESSFUL and build NO image. This is the
+     trap ci.yaml's comment above "Build both container images" describes
+     for the build cache, and the one `scripts/minikube-deploy.sh`
+     (line ~110) already avoids with `--rerun`. Today the `images` job's
+     daemon build gets away without it only because nothing ran the
+     augmentation earlier on that runner; after this task, invocation 1
+     does.
+     **One script owns the sequence**, so no caller can get it wrong:
+     `scripts/build-backend-image.sh [gradle args…]` runs invocation 1,
+     then
+     `./gradlew :backend:implementation:quarkusAppPartsBuild --rerun :backend:implementation:imageBuild --no-build-cache "$@"`.
+     The caller's arguments (`-Dquarkus.container-image.build|push=…`,
+     registry/image/label properties, `-x test`) go to invocation 2 only.
+     Credentials stay environment variables, as today.
+     **A guard** makes skipping invocation 1 a build failure instead of a
+     licence-less image. It is a dedicated task,
+     `verifyImageLicensesStaged`, with no dependencies and
+     `outputs.upToDateWhen { false }`, so it runs whenever it is in the
+     graph, even when the augmentation would be UP-TO-DATE. It fails if
+     `src/main/jib/licenses/pythia/sbom.cdx.json` is missing, naming
+     `scripts/build-backend-image.sh` and why. `quarkusAppPartsBuild`
+     `dependsOn` it ONLY when a BACKEND image is requested:
+       - system property `quarkus.container-image.build` or
+         `quarkus.container-image.push` is `"true"`; or
+       - a requested task name (leading `:` trimmed) is
+         `backend:implementation:imageBuild`,
+         `backend:implementation:imagePush`, or the unqualified `imageBuild`
+         / `imagePush` (which run in every project, the backend included).
+     NOT `:frontend:imageBuild`. That task reaches the backend's
+     `quarkusAppPartsBuild` through `finalizeSbom` → `quarkusBuild` without
+     building a backend image, and matching it would block every
+     frontend-only image build. The plugin's `imageBuild` forces
+     `container-image.build` internally (`application.properties:216` sets
+     it `false`), which is why task names are checked at all.
+     A STALE staging is caught by the gate (point 5), which compares the
+     image's SBOM part with the build's.
      The frontend image has no such cycle: `:frontend:imageBuild` simply
      `dependsOn(":frontend:stageImageLicenses")`.
-     Every place that builds the backend image changes accordingly:
+     Every place that builds the backend image switches to the script:
        - `ci.yaml` `images` job: the daemon build (around line 282) and the
          throwaway-registry push (around line 300);
        - `ci.yaml` `publish` job: "Push the backend image". Its "Build the
-         application SBOM" step, today AFTER the pushes, must run BEFORE
-         them (as invocation 1, producing both the staging and the release
-         SBOM asset). A release then provably carries the same SBOM inside
-         its images as beside them;
-       - `scripts/minikube-deploy.sh` (around line 114).
+         application SBOM" step, today AFTER the pushes, moves BEFORE them,
+         so a release provably carries the same SBOM inside its images as
+         beside them;
+       - `scripts/minikube-deploy.sh` (around line 114). Its combined
+         backend+frontend invocation splits into the script call and a
+         frontend invocation.
   5. **A gate, so it stays true:** `scripts/check-artifact-licenses.sh`
      checks:
        - the shipped app jar's manifest;
@@ -180,20 +213,39 @@ steps:
         `:frontend:finalizeSbom`;
       - register `Sync` `stageImageLicenses`, `from(rootProject.files("LICENSE", "NOTICE", "CONTRIBUTORS"))`
         plus `from(writeImageSbomPart)`, `into("src/main/jib/licenses/pythia")`;
-      - extend the image detection beside `pushesImage` to a
-        `buildsOrPushesImage` (the system properties
-        `quarkus.container-image.build`/`.push` == "true", or a requested task
-        name ending in `imageBuild`/`imagePush`);
-      - `tasks.named("quarkusAppPartsBuild") { doFirst { … } }`: if
-        `buildsOrPushesImage` and the staged `sbom.cdx.json` is missing, throw
-        a `GradleException` saying to run
-        `./gradlew :backend:implementation:stageImageLicenses` first, in a
-        SEPARATE invocation, and why (the SBOM needs this augmentation's
-        output).
-    Comment the whole block with the cycle explanation. Do NOT make
-    `quarkusAppPartsBuild` or `imageBuild` depend on `stageImageLicenses`:
-    that is the cycle. Add `src/backend/implementation/src/main/jib/` to the
-    root `.gitignore` (comment: generated, task-219).
+      - beside the existing `pushesImage`, add `backendImageRequested`
+        exactly as the description defines it: the two system properties,
+        or a requested task name that, with leading `:` trimmed, is
+        `backend:implementation:imageBuild`,
+        `backend:implementation:imagePush`, `imageBuild` or `imagePush`.
+        It must NOT be true for `:frontend:imageBuild`. Leave `pushesImage`
+        itself unchanged;
+      - register `verifyImageLicensesStaged`: no dependencies,
+        `outputs.upToDateWhen { false }`, and a `doLast` that throws a
+        `GradleException` if
+        `src/main/jib/licenses/pythia/sbom.cdx.json` is missing. The
+        message says to build the image with
+        `scripts/build-backend-image.sh`, and why (the SBOM needs this
+        augmentation's output, so staging is a separate invocation);
+      - `if (backendImageRequested) tasks.named("quarkusAppPartsBuild") { dependsOn(verifyImageLicensesStaged) }`.
+    Comment the whole block with the cycle explanation and the `--rerun`
+    rule. Do NOT make `quarkusAppPartsBuild` or `imageBuild` depend on
+    `stageImageLicenses`: that is the cycle. Add
+    `src/backend/implementation/src/main/jib/` to the root `.gitignore`
+    (comment: generated, task-219).
+  - |
+    Create `scripts/build-backend-image.sh` (bash, `set -euo pipefail`,
+    executable). It resolves the repository root from its own location and
+    runs:
+      ./gradlew :backend:implementation:stageImageLicenses
+      ./gradlew :backend:implementation:quarkusAppPartsBuild --rerun \
+        :backend:implementation:imageBuild --no-build-cache "$@"
+    passing the caller's arguments to the SECOND invocation only. Refuse
+    (exit 2, usage message) if an argument is a task name rather than an
+    option (starts with `:` or has no leading `-`): the script builds the
+    backend image and nothing else. The header comment explains the two
+    invocations and the `--rerun`, and points at `docs/deployment.md` →
+    "How the images are built".
   - |
     Frontend staging + image, in `src/frontend/build.gradle.kts`:
       - register `writeImageSbomPart` (`--part pythia-frontend`, into
@@ -211,17 +263,27 @@ steps:
         frontend image now builds the backend first (`finalizeSbom` needs
         `quarkusBuild`).
   - |
-    Callers of the backend image build. Prefix each with invocation 1 and a
-    one-line comment pointing at `docs/deployment.md`:
+    Callers of the backend image build. Replace each backend `./gradlew …
+    imageBuild` with `scripts/build-backend-image.sh <its options>`, keeping
+    every option it passes today. Keep the existing comments and add one
+    line pointing at `docs/deployment.md`:
       - `.github/workflows/ci.yaml`, `images` job, "Build both container
-        images" and "Push multi-arch images to a throwaway registry…";
-      - `.github/workflows/ci.yaml`, `publish` job: move "Build the
-        application SBOM" before "Push the backend image" and add
-        `:backend:implementation:stageImageLicenses` to its `./gradlew sbom`
-        call. Its comment ("reuses the Quarkus build that was just pushed")
-        becomes: the pushes reuse the Quarkus build this step made, and the
-        images carry the same SBOM as the release asset;
-      - `scripts/minikube-deploy.sh`, before its combined push invocation.
+        images":
+        `./scripts/build-backend-image.sh -Dquarkus.container-image.build=true`.
+        This is the call that gains the `--rerun` it lacked;
+      - same job, "Push multi-arch images to a throwaway registry…": the
+        `quarkusAppPartsBuild --rerun …imageBuild -D…push… --no-build-cache`
+        call becomes the script with the `-D` options;
+      - `publish` job: move "Build the application SBOM" before "Push the
+        backend image". Its comment ("reuses the Quarkus build that was just
+        pushed") becomes: the image push reuses nothing from it (it reruns
+        the augmentation), but the images carry the same SBOM as this release
+        asset. "Push the backend image" becomes the script with its `-D`
+        options and `-x test`. The credentials stay in `env:`;
+      - `scripts/minikube-deploy.sh`: split its combined invocation into the
+        script (backend, with its `-D` options and `-x test`) and a
+        `./gradlew :frontend:imageBuild …` invocation with the frontend
+        options.
   - |
     The gate. Create `scripts/check-artifact-licenses.sh` (bash,
     `set -euo pipefail`), usage
@@ -255,8 +317,7 @@ steps:
     the jar name.
   - |
     Build both images locally, the documented way, and run the gate:
-      ./gradlew :backend:implementation:stageImageLicenses
-      ./gradlew :backend:implementation:imageBuild -Dquarkus.container-image.build=true --no-build-cache
+      ./scripts/build-backend-image.sh -Dquarkus.container-image.build=true
       ./gradlew :frontend:imageBuild
       V=$(grep '^version=' gradle.properties | cut -d= -f2)
       ./scripts/check-artifact-licenses.sh \
@@ -269,8 +330,15 @@ steps:
   - |
     Prove the guard and the gate by deliberate failures. Revert each and
     report both runs:
-      - `rm -r src/backend/implementation/src/main/jib` and run the backend
-        `imageBuild` command: the guard fails with its message;
+      - `rm -r src/backend/implementation/src/main/jib` and run invocation 2
+        alone (`./gradlew :backend:implementation:quarkusAppPartsBuild --rerun :backend:implementation:imageBuild -Dquarkus.container-image.build=true --no-build-cache`):
+        the guard fails with its message. Then run `./gradlew :frontend:imageBuild`
+        with the same directory still missing: it must SUCCEED (the guard
+        does not fire for a frontend-only build). Then also run
+        `./gradlew :backend:implementation:quarkusBuild` twice in a row and
+        `imageBuild` WITHOUT `--rerun`, and note in the report whether an
+        image was produced. That documents the UP-TO-DATE trap the script
+        exists for;
       - comment out the manifest property and rebuild the backend: the jar
         check fails;
       - drop the `licenses` layer from the frontend `imageBuild` and rebuild:
@@ -294,15 +362,17 @@ steps:
       - `docs/deployment.md`:
         - "What a release publishes": one sentence that both images carry
           `/licenses/pythia/` and the licence label;
-        - "How the images are built": the two-invocation rule for the backend
-          image, the guard, and why (the cycle).
+        - "How the images are built": build the backend image only through
+          `scripts/build-backend-image.sh`. Explain its two invocations, the
+          mandatory `quarkusAppPartsBuild --rerun` (the UP-TO-DATE trap), the
+          guard and when it fires (backend image only), and why (the cycle).
       - Root `CLAUDE.md`, Licence paragraph: correct the jar-manifest
         sentence. The root `build.gradle.kts` stamps the Gradle-built jars,
         and the Quarkus app jar gets the attribute from
         `quarkus.package.jar.manifest.attributes`. Add one sentence: all
-        licence material in both images lives in `/licenses/pythia/`, and a
-        backend image build must be preceded by `stageImageLicenses` in a
-        separate invocation (checked in CI by
+        licence material in both images lives in `/licenses/pythia/`, and the
+        backend image is built ONLY through `scripts/build-backend-image.sh`
+        (two invocations, `--rerun`; checked in CI by
         `scripts/check-artifact-licenses.sh`).
   - |
     Final gates: `node --test scripts/sbom-part.test.mjs`, `./gradlew build`,
@@ -331,20 +401,31 @@ validation:
     git check-ignore -q "$S/LICENSE"
     test -z "$(git ls-files src/backend/implementation/src/main/jib)"
   - |
-    # the guard: an image build without staging fails
+    # the guard: a BACKEND image build without staging fails, with its own message ...
     rm -rf src/backend/implementation/src/main/jib
-    ! ./gradlew :backend:implementation:imageBuild -Dquarkus.container-image.build=true --no-build-cache -q
+    if out=$(./gradlew :backend:implementation:quarkusAppPartsBuild --rerun :backend:implementation:imageBuild \
+          -Dquarkus.container-image.build=true --no-build-cache 2>&1); then echo "guard did not fire"; exit 1; fi
+    echo "$out" | grep -q 'build-backend-image.sh'
+    # ... but a frontend-only image build is not blocked by it
+    ./gradlew :frontend:imageBuild -q
     ./gradlew :backend:implementation:stageImageLicenses -q
   - |
-    # every backend image build is preceded by staging
-    grep -q 'stageImageLicenses' scripts/minikube-deploy.sh
-    test "$(grep -c 'stageImageLicenses' .github/workflows/ci.yaml)" -ge 3
+    # every backend image build goes through the one script (two invocations, --rerun)
+    test -x scripts/build-backend-image.sh
+    grep -q 'quarkusAppPartsBuild --rerun' scripts/build-backend-image.sh
+    grep -q 'stageImageLicenses' scripts/build-backend-image.sh
+    test "$(grep -c 'build-backend-image.sh' .github/workflows/ci.yaml)" -ge 3
+    grep -q 'build-backend-image.sh' scripts/minikube-deploy.sh
+    # no direct backend image build left (today: ci.yaml lines 282, 300, 458 and minikube-deploy.sh:116)
+    ! cat .github/workflows/ci.yaml scripts/minikube-deploy.sh | grep -v '^[[:space:]]*#' | grep -q ':backend:implementation:imageBuild'
     grep -q 'check-artifact-licenses.sh' .github/workflows/ci.yaml
     test -x scripts/check-artifact-licenses.sh
   - |
-    # both images actually carry it (builds into the local Docker daemon)
-    ./gradlew :backend:implementation:stageImageLicenses -q
-    ./gradlew :backend:implementation:imageBuild -Dquarkus.container-image.build=true --no-build-cache -q
+    # both images actually carry it (fresh builds into the local Docker daemon;
+    # remove the old images first so a stale one cannot pass)
+    V=$(grep '^version=' gradle.properties | cut -d= -f2)
+    docker image rm -f "pythia/pythia-backend:$V" "pythia/pythia-frontend:$V" > /dev/null 2>&1 || true
+    ./scripts/build-backend-image.sh -Dquarkus.container-image.build=true -q
     ./gradlew :frontend:imageBuild -q
     V=$(grep '^version=' gradle.properties | cut -d= -f2)
     ./scripts/check-artifact-licenses.sh \
@@ -355,7 +436,9 @@ validation:
     grep -q "^## Pythia's own licence in the artifacts" docs/oss-compliance.md
     grep -q 'check-artifact-licenses.sh' docs/oss-compliance.md
     grep -q '/licenses/pythia' docs/deployment.md
-    grep -q 'stageImageLicenses' docs/deployment.md
+    grep -q 'build-backend-image.sh' docs/deployment.md
+    grep -q -- '--rerun' docs/deployment.md
+    grep -q 'build-backend-image.sh' CLAUDE.md
     grep -q 'quarkus.package.jar.manifest.attributes' CLAUDE.md
   - |
     ./gradlew build
@@ -371,6 +454,7 @@ outputs:
   - created: scripts/sbom-part.test.mjs
   - created: scripts/fixtures/sbom-part/
   - created: scripts/check-artifact-licenses.sh
+  - created: scripts/build-backend-image.sh
   - modified: scripts/minikube-deploy.sh
   - modified: .github/workflows/ci.yaml
   - modified: docs/oss-compliance.md

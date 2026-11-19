@@ -139,10 +139,9 @@ steps:
   - |
     Prove it locally against a throwaway registry, with Docker:
       docker run -d --rm -p 5000:5000 --name tpl-registry registry:2.8.3
-      ./gradlew :backend:implementation:stageImageLicenses
-      ./gradlew :backend:implementation:quarkusAppPartsBuild --rerun :backend:implementation:imageBuild \
+      ./scripts/build-backend-image.sh \
         -Dquarkus.container-image.push=true -Dquarkus.container-image.registry=localhost:5000 \
-        -Dquarkus.container-image.insecure=true --no-build-cache
+        -Dquarkus.container-image.insecure=true
       ./gradlew :frontend:imageBuild -PfrontendImagePush=true -PfrontendImageRegistry=localhost:5000
       then run the attach script for both, twice (second run: "already present"),
     and check discovery from the SCANNER side with Trivy, pinned:
