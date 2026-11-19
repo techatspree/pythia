@@ -1,7 +1,7 @@
 id: task-208
 phase: phase-18
 title: "Review shipped OSS components, attribution, replacements"
-depends_on: [task-207]
+depends_on: [task-207, task-219]
 description: |
   task-206 lists what Pythia ships (SBOMs); task-207 states what is
   acceptable (`compliance/oss-policy.json`) and gates the build on it, but
@@ -25,16 +25,18 @@ description: |
       exception;
     - **incompatible:** replace the component (section 3).
 
-  Candidates already visible in task-206's survey (2026-10-13; confirm
-  against the SHIPPED set, since some may be build-only and vanish):
-  `javax.annotation:javax.annotation-api:1.3.2` (no license metadata;
-  upstream is CDDL-1.1 OR GPL-2.0-with-classpath-exception → conditional),
-  `org.jdom:jdom2:2.0.6.1` (the JDOM license, an Apache-style license
-  without the acknowledgement clause → compatible, non-SPDX),
-  `aopalliance:aopalliance:1.0` and `org.jboss:jboss-transaction-spi`
-  ("Public Domain" metadata, verify upstream),
-  `io.smallrye.classfile:jdk-classfile-backport` (GPL-2.0 with Classpath
-  Exception → conditional, as for the JDK itself).
+  **Measured 2026-11-19, exactly one exception is pending:**
+  `pkg:maven/org.jboss/jboss-transaction-spi@8.0.0.Final?type=jar`, whose
+  SBOM metadata says "Public Domain" (a name, not an SPDX id). Verify that
+  upstream (the jboss-transaction-spi repository and POM at 8.0.0.Final).
+  `node scripts/check-oss-compliance.mjs` reports today: "259 allowed,
+  18 conditional, 4 first-party, 1 by exception (1 pending review),
+  0 failed". task-206's survey (2026-10-13) also named
+  `javax.annotation-api`, `jdom2`, `aopalliance` and
+  `jdk-classfile-backport`. None of them is in today's shipped SBOM (they
+  were build-only), so there is nothing to resolve for them. Re-run the
+  `jq` in step 1 anyway: a dependency bump since then may have added a
+  pending entry.
 
   ## 2. Meet the attribution obligations
 
@@ -54,23 +56,75 @@ description: |
   The file is generated from that image's part of Pythia's SBOM (`pythia-backend` or
   `pythia-frontend` in `build/sbom/pythia.cdx.json`, task-206) plus
   the license and notice files of the packages themselves, so it cannot
-  drift from what ships:
-    - frontend: written into the SPA build output, so nginx serves it at
-      `/THIRD-PARTY-LICENSES.txt` and `:frontend:imageBuild` packages it
-      unchanged (the image is made from `src/frontend/build/`);
-    - backend: added to the image next to the application (Quarkus/Jib:
-      the `src/main/jib` directory, or the extension's equivalent; verify
-      that the file actually lands in the image).
-  The texts come from the package files (`node_modules/<pkg>/LICENSE*`, the
-  jar's `META-INF/LICENSE*`/`NOTICE*`). Where a package ships no license
-  file, use the canonical SPDX text for its license id and say so in the
-  entry.
+  drift from what ships.
+
+  **It lives in the one licence directory task-219 established:
+  `/licenses/pythia/THIRD-PARTY-LICENSES.txt` in BOTH images**, next to
+  Pythia's own `LICENSE`, `NOTICE`, `CONTRIBUTORS` and the image's
+  `sbom.cdx.json`. This task does not serve it on the web. People using
+  Pythia in a browser get it through task-210, which serves a copy of this
+  same generated file at `/THIRD-PARTY-LICENSES.txt` and links it from the
+  "Open-Source-Lizenzen" dialog. That is one source file with two delivery
+  channels (image and web UI), not a second place. The file gets into the
+  images through task-219's staging tasks, not through a mechanism of its
+  own:
+    - the generator writes to a build directory,
+      `build/third-party-licenses/<part>/THIRD-PARTY-LICENSES.txt` (root
+      build dir);
+    - each image's `stageImageLicenses` `Sync` task (task-219) adds that
+      file as one more `from(...)`. So it lands in
+      `src/backend/implementation/src/main/jib/licenses/pythia/` (already
+      gitignored by task-219) or `build/frontend-image/licenses/`, and from
+      there in the image. Task-219's layer and `src/main/jib` handling take
+      it along unchanged.
+
+  **Where the texts come from depends on the component, not on the image.**
+  Measured 2026-11-19: the `pythia-frontend` part of the SBOM has 25
+  components. Only 16 are npm packages from `src/frontend/node_modules`
+  (`svelte`, `@azure/msal-browser`, `svelte-i18n`, `devalue`, …). The
+  other nine come from Gradle, compiled into the SPA through the KMP domain:
+    - five third-party Kotlin/JS libraries:
+      `org.jetbrains.kotlin:kotlin-stdlib-js`, `kotlin-dom-api-compat`,
+      `org.jetbrains.kotlinx:kotlinx-datetime-js`,
+      `kotlinx-serialization-core-js` and
+      `io.github.oshai:kotlin-logging-js` (all Apache-2.0). Their LICENSE
+      and NOTICE files are read from the artifact in the Gradle cache (a
+      `.klib`/`.jar` is a zip; read `META-INF/LICENSE*`/`NOTICE*` or the
+      root `LICENSE*`/`NOTICE*`);
+    - four first-party ones: `io.pythia:core`, `domain`,
+      `method-threepoint` and `method-bucketsampled`. These are Pythia
+      itself and are not reproduced. They get one line each, pointing at
+      the root `LICENSE` and `NOTICE`, so "every SBOM component is listed"
+      stays literally true.
+  So the generator is told, per component, how to find its files: an npm
+  directory, a list of jar/klib paths (the backend's
+  `build/quarkus-app/lib/**`, plus the Kotlin/JS artifacts that a Gradle
+  task resolves and passes in), or first-party. Where a package ships no
+  license file, use the canonical SPDX text for its license id and say so
+  in the entry.
 
   The generator is one zero-dependency Node script,
-  `scripts/generate-third-party-licenses.mjs`, used for both images. It runs
-  in the build after the SBOMs exist, and its output is deterministic: the
-  same SBOM gives the same file (sorted, no timestamps). The root CLAUDE.md
-  rule against environment- or time-derived content in images applies.
+  `scripts/generate-third-party-licenses.mjs`, used for both images, with
+  this command line:
+      --sbom build/sbom/pythia.cdx.json
+      --part pythia-frontend | pythia-backend
+      --node-modules <dir>       (frontend)
+      --jars <file listing jar/klib paths, one per line>
+      --first-party-group io.pythia
+      --out <file>
+  It runs as two Gradle tasks,
+  `:frontend:generateThirdPartyLicenses` and
+  `:backend:implementation:generateThirdPartyLicenses`. Each depends on
+  `:frontend:finalizeSbom` (which writes the SBOM), and each image's
+  `stageImageLicenses` (task-219) depends on its own task. Build order is
+  task-219's: the frontend image stages in the same invocation, while the
+  backend image needs `stageImageLicenses` in a SEPARATE invocation before
+  the image build. The backend image is built inside the Quarkus
+  augmentation that the SBOM itself depends on, and task-219's guard
+  enforces this. Nothing new is needed here. The output is deterministic:
+  the same SBOM gives the same file (sorted, no timestamps). The root
+  CLAUDE.md rule against environment- or time-derived content in images
+  applies.
 
   Our own `NOTICE` (task-145) stays as it is; the third-party file
   complements it.
@@ -123,76 +177,131 @@ steps:
     adapt code, run that module's tests. Document each in
     `docs/oss-compliance.md` → "Replaced components".
   - |
-    Write `scripts/generate-third-party-licenses.mjs` (section 2): input an
-    part of the SBOM (`pythia-backend` or `pythia-frontend`) plus the directory to read package files from
-    (`src/frontend/node_modules`, or the backend's
-    `build/quarkus-app/lib/**` jars, read with `unzip -p` or Node's zlib),
-    output `THIRD-PARTY-LICENSES.txt`. Sort by component; no timestamps.
-    Unit-test it with `node --test`
-    (`scripts/generate-third-party-licenses.test.mjs`) on fixtures:
-    a package with LICENSE, one without (canonical text used and noted),
-    and an Apache-2.0 one with a NOTICE (NOTICE included).
+    Write `scripts/generate-third-party-licenses.mjs` with the command
+    line from section 2. It selects the SBOM part named by `--part` and, per
+    component, takes its texts from `--node-modules` (npm), from the
+    `--jars` list (Maven jars and Kotlin/JS klibs, which are zips; read them
+    with Node's zlib, with no dependency), or writes the first-party pointer
+    line for `--first-party-group`. Output: sorted by component, no
+    timestamps. Unit-test it with `node --test`
+    (`scripts/generate-third-party-licenses.test.mjs`) on fixtures under
+    `scripts/fixtures/third-party-licenses/` (the directory convention of
+    `scripts/fixtures/oss-compliance/` and `scripts/fixtures/sbom/`):
+      - an npm package with a LICENSE;
+      - one without (canonical text used and noted);
+      - an Apache-2.0 jar/klib carrying `META-INF/NOTICE` (NOTICE included);
+      - a first-party component (pointer line only, no text);
+      - the same input twice gives byte-identical output.
   - |
-    Frontend: run the generator after `npmBuild` so the file lands in
-    `src/frontend/build/THIRD-PARTY-LICENSES.txt`, BEFORE
-    `:frontend:imageBuild` (which must depend on it). Backend: generate into
-    the location Quarkus/Jib adds to the image (verify), with
-    `:backend:implementation:imageBuild` depending on it.
+    Gradle wiring.
+    `:frontend:generateThirdPartyLicenses` (in `src/frontend/build.gradle.kts`)
+    depends on `:frontend:finalizeSbom`, which already depends on
+    `npmBuild`. It writes
+    `build/third-party-licenses/pythia-frontend/THIRD-PARTY-LICENSES.txt`
+    (root build dir), passes `--node-modules src/frontend/node_modules`, and
+    passes a jars list resolved from the Kotlin/JS artifacts the domain's JS
+    target consumes. Resolve the configuration that `:domain`'s
+    `cyclonedxDirectBom` reads for the JS components, and write the paths to
+    a file under `build/`.
+    `:backend:implementation:generateThirdPartyLicenses` (in
+    `src/backend/implementation/build.gradle.kts`) passes the jars of
+    `build/quarkus-app/lib/**` and writes
+    `build/third-party-licenses/pythia-backend/THIRD-PARTY-LICENSES.txt`.
+    In BOTH projects, add the generator task's output to task-219's
+    `stageImageLicenses` `Sync` as one more `from(...)`. That carries the
+    task dependency and puts the file into `/licenses/pythia/`. Do NOT add
+    a dependency on the backend's `imageBuild`/`quarkusAppPartsBuild`: that
+    is the cycle task-219 documents. No `.gitignore` change: task-219
+    already ignores `src/main/jib/`. Extend task-219's
+    `scripts/check-artifact-licenses.sh` to require
+    `/licenses/pythia/THIRD-PARTY-LICENSES.txt` in both images (non-empty,
+    and listing every component of that image's `sbom.cdx.json`).
   - |
-    Prove the file is IN both images: build both into the local Docker
-    daemon (`./gradlew :backend:implementation:imageBuild
-    -Dquarkus.container-image.build=true`, `./gradlew :frontend:imageBuild`),
-    then `docker create` + `docker cp` the file out of each and check it
-    lists, e.g., `svelte` and `@azure/msal-browser` (frontend) and
-    `jackson-databind` and `quarkus-core` (backend). Find the backend path
-    first; it depends on where Jib puts it.
+    Prove the file is IN both images, built the documented way (task-219):
+      ./gradlew :backend:implementation:stageImageLicenses
+      ./gradlew :backend:implementation:imageBuild -Dquarkus.container-image.build=true --no-build-cache
+      ./gradlew :frontend:imageBuild
+    then run `scripts/check-artifact-licenses.sh` as task-219 does. Also
+    `docker cp` `/licenses/pythia/THIRD-PARTY-LICENSES.txt` out of each
+    image and check it lists `svelte`, `@azure/msal-browser` and
+    `kotlin-stdlib-js` (frontend) and `jackson-databind` and `quarkus-core`
+    (backend). Remove the containers you created.
+  - |
+    Prove the listing check can fail: delete the `devalue` entry from
+    `build/third-party-licenses/pythia-frontend/THIRD-PARTY-LICENSES.txt` by hand, run the
+    "every frontend SBOM component is listed" validation and see it report
+    `not listed: devalue`, then regenerate with
+    `./gradlew :frontend:generateThirdPartyLicenses --rerun` and see it pass.
+    Report both runs.
   - |
     Base images (section 4): generate SBOMs of the two daemon images with
-    Trivy (`trivy image --format cyclonedx`, or the `aquasec/trivy` container
-    image when Trivy is not installed; task-206 deliberately produces none
-    for the images). These are working material, not committed. Review
-    the license spread, and write `docs/oss-compliance.md` → "Base images".
+    Trivy, pinned:
+      docker run --rm -v /var/run/docker.sock:/var/run/docker.sock \
+        aquasec/trivy:0.76.1 image --format cyclonedx <image>
+    (task-206 deliberately produces none for the images). These are working
+    material, not committed: write them to the scratchpad. Review the
+    license spread, and write `docs/oss-compliance.md` → "Base images",
+    naming the Trivy version used.
   - |
     Docs: `docs/oss-compliance.md` gains "Attribution"
-    (`THIRD-PARTY-LICENSES.txt`, where it is in each image, how it is
-    generated), "Base images" and "Replaced components" (or "none,
-    as of <date>"). Root CLAUDE.md: one sentence that both images carry a
-    generated third-party license file which must not be removed.
+    (`/licenses/pythia/THIRD-PARTY-LICENSES.txt` in both images, how it is
+    generated, how it joins task-219's directory), "Base images" and
+    "Replaced components" (or "none, as of <date>"). Add its row to
+    task-219's artifact table. Root CLAUDE.md: extend task-219's
+    `/licenses/pythia/` sentence so it names `THIRD-PARTY-LICENSES.txt`
+    as well, a generated file that must not be removed.
   - |
-    ./gradlew :frontend:check, then ./gradlew build, then the Playwright
-    suite (`E2E_LANG=en`, then `de`) against `./scripts/dev.sh` if any
-    dependency was replaced.
+    ./gradlew :frontend:check, then ./gradlew build. If any dependency was
+    replaced, also run the Playwright suite against `./scripts/dev.sh`, with
+    the port protocol. First check that :8090, :5173 and :5432 are free
+    (`lsof -nP -iTCP:8090 -iTCP:5173 -iTCP:5432 -sTCP:LISTEN`). If one is
+    bound, STOP and report: the user's own stack is running and the tests
+    would hit it. Start `dev.sh` in the background and run
+    `cd src/frontend && E2E_LANG=en npm run test:e2e`, then `E2E_LANG=de`.
+    Afterwards stop ONLY the `dev.sh` this step started, with SIGTERM.
 
 validation:
   - |
     test "$(jq '[.exceptions[] | select(.pendingReview == true)] | length' compliance/oss-policy.json)" -eq 0
-    jq -e '[.exceptions[] | select((.reason // "") | test("task-208|pending"; "i"))] | length == 0' compliance/oss-policy.json
+    # no placeholder reason left (today's is "pending review in task-208")
+    jq -e '[.exceptions[] | select((.reason // "") | test("pending review"; "i"))] | length == 0' compliance/oss-policy.json
   - |
     ./gradlew sbom
     node scripts/check-oss-compliance.mjs
   - |
     node --test scripts/generate-third-party-licenses.test.mjs
   - |
-    F=src/frontend/build/THIRD-PARTY-LICENSES.txt
+    ./gradlew :frontend:generateThirdPartyLicenses -q
+    F=build/third-party-licenses/pythia-frontend/THIRD-PARTY-LICENSES.txt
     test -s "$F"
-    for p in svelte @azure/msal-browser svelte-i18n devalue; do grep -q "$p" "$F" || { echo "missing $p"; exit 1; }; done
+    for p in svelte @azure/msal-browser svelte-i18n devalue kotlin-stdlib-js; do grep -q "$p" "$F" || { echo "missing $p"; exit 1; }; done
     # every frontend SBOM component is listed
     for n in $(jq -r '.components[] | if .group then "\(.group)/\(.name)" else .name end' <(jq '.components[] | select(.name == "pythia-frontend")' build/sbom/pythia.cdx.json)); do grep -qF "$n" "$F" || { echo "not listed: $n"; exit 1; }; done
   - |
-    # Deterministic: regenerating gives the same bytes.
-    ./gradlew :frontend:npmBuild -q
-    sha1=$(shasum src/frontend/build/THIRD-PARTY-LICENSES.txt)
-    ./gradlew :frontend:npmBuild --rerun -q
-    test "$sha1" = "$(shasum src/frontend/build/THIRD-PARTY-LICENSES.txt)"
+    # Deterministic: regenerating gives the same bytes (both images' files).
+    ./gradlew :frontend:generateThirdPartyLicenses :backend:implementation:generateThirdPartyLicenses -q
+    FE=build/third-party-licenses/pythia-frontend/THIRD-PARTY-LICENSES.txt
+    BE=build/third-party-licenses/pythia-backend/THIRD-PARTY-LICENSES.txt
+    sha1=$(shasum "$FE" "$BE")
+    ./gradlew :frontend:generateThirdPartyLicenses :backend:implementation:generateThirdPartyLicenses --rerun -q
+    test "$sha1" = "$(shasum "$FE" "$BE")"
   - |
-    # In the frontend image.
+    # In both images, at the one licence directory (task-219), built the documented way.
+    ./gradlew :backend:implementation:stageImageLicenses -q
+    test -s src/backend/implementation/src/main/jib/licenses/pythia/THIRD-PARTY-LICENSES.txt
+    ./gradlew :backend:implementation:imageBuild -Dquarkus.container-image.build=true --no-build-cache -q
     ./gradlew :frontend:imageBuild -q
-    c=$(docker create "pythia/pythia-frontend:$(grep '^version=' gradle.properties | cut -d= -f2)")
-    docker cp "$c:/usr/share/nginx/html/THIRD-PARTY-LICENSES.txt" /tmp/fe-tpl.txt; docker rm "$c" > /dev/null
-    grep -q "svelte" /tmp/fe-tpl.txt
-  - |
-    # In the backend image (path as documented in docs/oss-compliance.md).
-    grep -q "THIRD-PARTY-LICENSES.txt" docs/oss-compliance.md
+    V=$(grep '^version=' gradle.properties | cut -d= -f2)
+    for x in backend frontend; do
+      c=$(docker create "pythia/pythia-$x:$V")
+      docker cp "$c:/licenses/pythia/THIRD-PARTY-LICENSES.txt" "/tmp/$x-tpl.txt"; docker rm "$c" > /dev/null
+    done
+    grep -q "svelte" /tmp/frontend-tpl.txt && grep -q "kotlin-stdlib-js" /tmp/frontend-tpl.txt
+    grep -q "jackson-databind" /tmp/backend-tpl.txt && grep -q "quarkus-core" /tmp/backend-tpl.txt
+    # the gate requires it now
+    grep -q 'THIRD-PARTY-LICENSES.txt' scripts/check-artifact-licenses.sh
+    # not web-served any more
+    test ! -e src/frontend/build/THIRD-PARTY-LICENSES.txt
   - |
     grep -q "^## Base images" docs/oss-compliance.md
     grep -q "^## Attribution" docs/oss-compliance.md
@@ -210,6 +319,7 @@ outputs:
   - created: scripts/fixtures/third-party-licenses/
   - modified: src/frontend/build.gradle.kts
   - modified: src/backend/implementation/build.gradle.kts
+  - modified: scripts/check-artifact-licenses.sh   # created by task-219; now also requires THIRD-PARTY-LICENSES.txt
   - modified: docs/oss-compliance.md
   - modified: CLAUDE.md
   # Only if section 3 replaces a component:

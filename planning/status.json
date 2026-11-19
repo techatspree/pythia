@@ -1297,6 +1297,18 @@
       "started_at": null,
       "completed_at": null,
       "notes": "Expose Pythia's data to AI clients through an MCP server, switched on per tenant in the administration settings (default off), authenticated with the tenant's standard mechanisms"
+    },
+    "task-219": {
+      "status": "pending",
+      "started_at": null,
+      "completed_at": null,
+      "notes": "Every shipped artifact carries Pythia's licence information: the Quarkus app jar's SPDX manifest attribute, LICENSE/NOTICE/CONTRIBUTORS and an OCI licenses label in both images, checked in CI"
+    },
+    "task-220": {
+      "status": "pending",
+      "started_at": null,
+      "completed_at": null,
+      "notes": "Attach each image's SBOM to the published GHCR images as an OCI referrer, so registry-side scanners discover the licence and component data"
     }
   }
 }

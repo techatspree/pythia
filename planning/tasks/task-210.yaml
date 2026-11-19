@@ -105,13 +105,30 @@ description: |
   It is generated after `npmBuild`, at the same point in the build as
   task-208's `THIRD-PARTY-LICENSES.txt`, and written to TWO places:
     - `build/oss-notices/third-party-notices.json` (the ROOT build
-      directory), the persistent copy. task-208's
-      `THIRD-PARTY-LICENSES.txt` is copied next to it, to
-      `build/oss-notices/THIRD-PARTY-LICENSES.txt`. Every frontend build
+      directory), the persistent copy. Next to it,
+      `build/oss-notices/THIRD-PARTY-LICENSES.txt`: the WEB copy of the
+      full licence texts, covering BOTH parts, because the dialog lists the
+      server's components as well as the web interface's. It is the
+      concatenation of task-208's two generated files,
+      `build/third-party-licenses/pythia-frontend/THIRD-PARTY-LICENSES.txt`
+      and `build/third-party-licenses/pythia-backend/THIRD-PARTY-LICENSES.txt`
+      (in the images they live in `/licenses/pythia/`, task-219). It is
+      written by `scripts/combine-third-party-licenses.mjs`: a fixed English
+      header per part (`Web interface (pythia-frontend)`,
+      `Server (pythia-backend)`, each underlined with `=`), the part's file
+      verbatim, frontend first, one blank line between, no timestamp. It is
+      deterministic, and each part's text is byte-identical to the
+      corresponding image file. It is one URL, so the dialog's single
+      "Vollständige Lizenztexte" link, the dev plugin and the testids stay
+      as they are. Every frontend build
       empties `src/frontend/build/` (adapter-static), so a copy that has to
       outlive later builds cannot live there.
     - `src/frontend/build/third-party-notices.json`, so `:frontend:imageBuild`
-      packages it and nginx serves it at `/third-party-notices.json`.
+      packages it and nginx serves it at `/third-party-notices.json`, and
+      `src/frontend/build/THIRD-PARTY-LICENSES.txt`, served at
+      `/THIRD-PARTY-LICENSES.txt`. task-208 no longer serves that file
+      itself (since task-219 it only places it in `/licenses/pythia/` in the
+      images), so THIS task owns the web copy.
   It is generated, not committed.
 
   ## Dev mode: the copy from the last full build is shown
@@ -146,11 +163,11 @@ description: |
   - **Entry point:** a link-style button "Lizenzen" in the `UserMenu`,
     between the language select and "Abmelden". It is visible to every
     signed-in user regardless of role. (Anyone not signed in can still read
-    task-208's public `/THIRD-PARTY-LICENSES.txt`.)
+    the public `/THIRD-PARTY-LICENSES.txt` this task serves.)
   - **Content:** an intro stating Pythia's own license and copyright, a
     filter field, then two sections (web interface, server), each a
     vertically scrolling list of the components, and a link to the full
-    license texts (`/THIRD-PARTY-LICENSES.txt`, task-208, opened in a new
+    license texts (`/THIRD-PARTY-LICENSES.txt`, served by this task, opened in a new
     tab).
   - **Filter:** client-side, case-insensitive substring over name, licenses,
     copyright lines and authors. The section headings show the filtered
@@ -337,7 +354,8 @@ steps:
     `generate-third-party-licenses.mjs` import it, with unchanged behaviour:
     `node --test scripts/generate-third-party-licenses.test.mjs` stays green
     and its output is byte-identical before and after (compare a
-    `shasum` of `src/frontend/build/THIRD-PARTY-LICENSES.txt`).
+    `shasum` of `build/third-party-licenses/pythia-frontend/THIRD-PARTY-LICENSES.txt`
+    and of its `pythia-backend` sibling).
   - |
     In `scripts/sbom-finalize.mjs`, after the trimmed tree is assembled,
     set `copyright` on every `library` component from its package files per
@@ -378,10 +396,22 @@ steps:
     after `finalizeSbom` and after task-208's THIRD-PARTY-LICENSES generator,
     writing `build/oss-notices/third-party-notices.json` (ROOT build dir,
     declared as the task's output). It then copies that file to
-    `src/frontend/build/third-party-notices.json` and task-208's
-    `src/frontend/build/THIRD-PARTY-LICENSES.txt` to
-    `build/oss-notices/THIRD-PARTY-LICENSES.txt` (a `doLast` copy, or a
-    separate `Copy`/`Sync` task it finalizes). Wire it with
+    `src/frontend/build/third-party-notices.json`. It also runs
+    `node scripts/combine-third-party-licenses.mjs --frontend <task-208 frontend file> --backend <task-208 backend file> --out build/oss-notices/THIRD-PARTY-LICENSES.txt`
+    and copies the result to `src/frontend/build/THIRD-PARTY-LICENSES.txt`,
+    the web copy nginx serves (a `doLast` copy, or a separate `Copy`/`Sync`
+    task it finalizes). It depends on BOTH task-208 generator tasks,
+    `:frontend:generateThirdPartyLicenses` and
+    `:backend:implementation:generateThirdPartyLicenses`. That is no cycle:
+    the backend generator needs only `finalizeSbom`, never the backend
+    image. task-208 no longer writes into `src/frontend/build/`, since
+    task-219 moved its file to `/licenses/pythia/`.
+    Write `scripts/combine-third-party-licenses.mjs` (zero dependencies)
+    with a `node --test` file `scripts/combine-third-party-licenses.test.mjs`
+    on two tiny fixtures in `scripts/fixtures/combine-third-party-licenses/`:
+    both headers present in order, each part byte-identical to its input,
+    two runs give the same bytes, and a missing input exits 1. Run it from
+    the same `testOssNotices` wiring (or a sibling `NodeTask` in `check`). Wire it with
     `:frontend:imageBuild` and `:frontend:build` depending on it; and a
     `testOssNotices` `NodeTask` running the test file, added to `check`'s
     `dependsOn` next to `testSbomFinalize`. In `imageBuild`'s `doLast`, add
@@ -461,7 +491,7 @@ steps:
     Run it in both languages: `E2E_LANG=en` and `E2E_LANG=de`.
   - |
     Docs: `docs/oss-compliance.md` (task-207/208) gains a section
-    "## In the application" covering what the dialog shows, the SBOM
+    "## In the application" covering what the dialog shows, the web copy of the full licence texts (`/THIRD-PARTY-LICENSES.txt`, both parts, combined from task-208's two files), the SBOM
     `copyright` enrichment and its rule, `third-party-notices.json` and why it
     has no versions, the persistent copy in `build/oss-notices/` and the
     dev-mode plugin that serves it (possibly older than the working tree;
@@ -507,6 +537,17 @@ validation:
     test "$s1" = "$(shasum < src/frontend/build/third-party-notices.json)"
     test "$s1" = "$(shasum < build/oss-notices/third-party-notices.json)"
     test -s build/oss-notices/THIRD-PARTY-LICENSES.txt
+  - |
+    # the web copy covers BOTH parts, each verbatim from task-208's generated file
+    W=build/oss-notices/THIRD-PARTY-LICENSES.txt
+    cmp "$W" src/frontend/build/THIRD-PARTY-LICENSES.txt
+    grep -q '^Web interface (pythia-frontend)$' "$W"
+    grep -q '^Server (pythia-backend)$' "$W"
+    grep -q 'svelte' "$W" && grep -q 'jackson-databind' "$W"
+    for p in pythia-frontend pythia-backend; do
+      grep -qF "$(head -c 2000 build/third-party-licenses/$p/THIRD-PARTY-LICENSES.txt | head -5)" "$W" || { echo "$p not verbatim"; exit 1; }
+    done
+    node --test scripts/combine-third-party-licenses.test.mjs
   - |
     # the persistent copy survives a later frontend-only build
     ./gradlew :frontend:npmBuild --rerun -q
@@ -557,6 +598,9 @@ outputs:
   - created: scripts/generate-oss-notices.mjs
   - created: scripts/generate-oss-notices.test.mjs
   - created: scripts/fixtures/oss-notices/
+  - created: scripts/combine-third-party-licenses.mjs
+  - created: scripts/combine-third-party-licenses.test.mjs
+  - created: scripts/fixtures/combine-third-party-licenses/
   - modified: src/frontend/build.gradle.kts
   - modified: src/frontend/vite.config.ts
   - created: src/frontend/src/lib/ossNotices.ts

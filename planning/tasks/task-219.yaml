@@ -1,0 +1,378 @@
+id: task-219
+phase: phase-18
+title: "Every shipped artifact carries Pythia's licence information"
+depends_on: [task-199, task-209]
+description: |
+  ## Why
+
+  Pythia is Apache-2.0 (task-145). Apache-2.0 §4 asks every redistribution
+  to give its recipients a copy of the License and to carry the NOTICE file.
+  A tool that scans an artifact (an SBOM scanner, a registry UI, a
+  compliance audit) also needs machine-readable licence information ON the
+  artifact. What Pythia publishes is a GitHub release: two images on GHCR,
+  a deploy bundle and an SBOM (task-199). Only the bundle and the SBOM
+  carry the licence today. The images, the artifacts people actually run,
+  carry none of it, and one declaration the root `CLAUDE.md` claims exists
+  does not reach the shipped jar.
+
+  This task establishes ONE place for all licence material in both images,
+  `/licenses/pythia/`, and fills it with Pythia's own licence and that
+  image's SBOM. Two later tasks build on it:
+    - task-208 adds `THIRD-PARTY-LICENSES.txt` to the same directory and
+      depends on this task;
+    - task-220 attaches the SBOM to the published images as an OCI referrer,
+      so registry-side scanners can discover it.
+
+  ## Current state (measured 2026-11-19, on the build outputs of 2026-11-10)
+
+  | artifact | licence information today |
+  |---|---|
+  | release bundle (`scripts/release-bundle.sh:82`) | ✅ `LICENSE`, `NOTICE`, `CONTRIBUTORS` |
+  | SBOM `build/sbom/pythia.cdx.json` | ✅ `Apache-2.0` on `metadata.component` and on both parts `pythia-backend` / `pythia-frontend` (top-level `.components[]`, each with nested `.components`) |
+  | `src/frontend/package.json` | ✅ `"license": "Apache-2.0"` |
+  | OpenAPI `info.license` | ✅ (`application.properties:52-57`) |
+  | domain jars in `quarkus-app/lib/main/` (`io.pythia.{core,domain,method-threepoint,method-bucketsampled}-jvm-*.jar`) | ✅ `SPDX-License-Identifier: Apache-2.0` in the manifest |
+  | **backend app jar** `src/backend/implementation/build/quarkus-app/app/implementation-*.jar` | ❌ manifest has `Implementation-Title`/`-Version` but **no `SPDX-License-Identifier`** |
+  | **backend image** `pythia/pythia-backend` | ❌ no licence file, no SBOM, no licence label |
+  | **frontend image** `pythia/pythia-frontend` | ❌ no licence file, no SBOM, no licence label (the only label is the optional `org.opencontainers.image.source`, `src/frontend/build.gradle.kts:443`) |
+
+  **Why the app jar misses it:** the root `build.gradle.kts` (lines 40-52)
+  stamps the attribute through `tasks.withType<Jar>()`. That reaches
+  `build/libs/implementation-*.jar`, which has the attribute (verified with
+  `unzip -p … META-INF/MANIFEST.MF`), but that jar never ships. Quarkus'
+  augmentation writes the shipped jar into `quarkus-app/app/` and builds its
+  manifest itself. The root `CLAUDE.md` sentence "an
+  `SPDX-License-Identifier` jar-manifest attribute set for every project"
+  is therefore not true of the jar that runs.
+
+  ## What tools actually read, and why there is no "path" label
+
+  No OCI annotation points to a licence directory.
+  `org.opencontainers.image.licenses` is the standard key, and its value is
+  an SPDX EXPRESSION, not a path. Scanners (Trivy, Syft) find licences in
+  package metadata and in SBOMs. The minified SPA has no `package.json` or
+  `node_modules` left, so for the frontend the SBOM is the ONLY source a
+  tool can use. Hence:
+    - the label carries the SPDX id, as the standard intends;
+    - each image carries its own part of the SBOM inside `/licenses/pythia/`.
+      Discovery from the registry is task-220;
+    - `/licenses/` is the Red Hat UBI convention (the backend's base is UBI
+      9, and Red Hat's certification tooling checks that directory), so the
+      one directory a tool does look at by name is the one used here;
+    - no custom path label is added: no tool would read it. The location is
+      documented in `docs/oss-compliance.md` instead.
+
+  ## Target state
+
+  1. **Shipped backend jar:**
+     `quarkus.package.jar.manifest.attributes."SPDX-License-Identifier"=Apache-2.0`
+     in `application.properties` (property verified in the Quarkus 3.40.1
+     config model). The root `build.gradle.kts` stamping stays, because it
+     still covers the domain jars.
+  2. **One directory in both images, `/licenses/pythia/`:**
+       - `LICENSE`, `NOTICE`, `CONTRIBUTORS`, byte-identical to the
+         repository root;
+       - `sbom.cdx.json`, that image's part of `build/sbom/pythia.cdx.json`
+         as a standalone CycloneDX document. `metadata.component` is the
+         part (`pythia-backend` or `pythia-frontend`, with `licenses`),
+         `components` holds its nested components, and `dependencies` is
+         filtered to refs inside the part. Written by
+         `scripts/sbom-part.mjs`, deterministically: the same input gives
+         the same bytes.
+       - (task-208 later adds `THIRD-PARTY-LICENSES.txt` here.)
+     The directory is not web-served. In the frontend image it is an image
+     layer outside `/usr/share/nginx/html`, so the earlier decision not to
+     SERVE dependency versions (task-206, `npmBuild`'s comment) still holds.
+     The image and the release SBOM were public anyway.
+     Each image gets a staging task, `stageImageLicenses`, that assembles
+     the directory:
+       - backend → `src/backend/implementation/src/main/jib/licenses/pythia/`.
+         Quarkus' Jib extension copies `src/main/jib/` into the image root
+         (the `main`/`jib` path lookup is in `JibProcessor`, Quarkus 3.40.1).
+         `src/main/jib/` is gitignored as a whole: everything in it is
+         generated.
+       - frontend → `build/frontend-image/licenses/` (root build dir, next to
+         the existing `jib-image.digest`), added by `:frontend:imageBuild`
+         as one more jib-core `FileEntriesLayer` named `licenses`.
+  3. **Both images carry the OCI label**
+     `org.opencontainers.image.licenses=Apache-2.0`. Backend:
+     `quarkus.container-image.labels."org.opencontainers.image.licenses"=Apache-2.0`.
+     Frontend: `builder.addLabel(…)`, unconditionally, beside the optional
+     source label.
+  4. **Build order: the backend image needs TWO Gradle invocations.** This
+     is the trap of this task. The SBOM part needs `build/sbom/pythia.cdx.json`.
+     That file comes from `:frontend:finalizeSbom`, which needs
+     `:backend:implementation:quarkusBuild` (the jars in `quarkus-app/lib`).
+     But the backend IMAGE is built inside that same augmentation
+     (`quarkusAppPartsBuild` with `quarkus.container-image.build|push=true`,
+     per the comments in `ci.yaml` and `scripts/minikube-deploy.sh`). A
+     single invocation cannot both feed the augmentation and depend on its
+     output. Therefore:
+       - invocation 1: `./gradlew :backend:implementation:stageImageLicenses`
+         (pulls in `quarkusBuild` and `finalizeSbom`);
+       - invocation 2: the existing image build or push command, unchanged.
+     A guard makes forgetting invocation 1 a build failure, not a silently
+     licence-less image. When the build builds or pushes an image (the same
+     detection as the existing `pushesImage` val in
+     `src/backend/implementation/build.gradle.kts`, extended to
+     `quarkus.container-image.build` and an `imageBuild` task name),
+     `quarkusAppPartsBuild` fails in `doFirst` if
+     `src/main/jib/licenses/pythia/sbom.cdx.json` is missing. The message
+     names the command to run first. A STALE staging is caught by the gate
+     (point 5), which compares the image's SBOM part with the build's.
+     The frontend image has no such cycle: `:frontend:imageBuild` simply
+     `dependsOn(":frontend:stageImageLicenses")`.
+     Every place that builds the backend image changes accordingly:
+       - `ci.yaml` `images` job: the daemon build (around line 282) and the
+         throwaway-registry push (around line 300);
+       - `ci.yaml` `publish` job: "Push the backend image". Its "Build the
+         application SBOM" step, today AFTER the pushes, must run BEFORE
+         them (as invocation 1, producing both the staging and the release
+         SBOM asset). A release then provably carries the same SBOM inside
+         its images as beside them;
+       - `scripts/minikube-deploy.sh` (around line 114).
+  5. **A gate, so it stays true:** `scripts/check-artifact-licenses.sh`
+     checks:
+       - the shipped app jar's manifest;
+       - in both images, the label, the three files (byte-identical to the
+         repository root), and `sbom.cdx.json` being identical to
+         `node scripts/sbom-part.mjs` run on the current
+         `build/sbom/pythia.cdx.json`, which catches a stale staging;
+       - when given a bundle directory, that the bundle has the three files.
+     CI's `images` job runs it right after "Assert both image references
+     exist".
+
+  Everything added is a constant or derived from the SBOM: no time- or
+  environment-derived value enters an image (root `CLAUDE.md`). Jib's fixed
+  file timestamps keep the new layers reproducible.
+
+  No application behaviour, REST or GUI change.
+
+steps:
+  - |
+    Backend jar. Add to
+    `src/backend/implementation/src/main/resources/application.properties`,
+    in the container-image block (around line 216):
+      quarkus.package.jar.manifest.attributes."SPDX-License-Identifier"=Apache-2.0
+      quarkus.container-image.labels."org.opencontainers.image.licenses"=Apache-2.0
+    with a comment (task-219): the root `build.gradle.kts` stamping does not
+    reach the jar Quarkus writes, and both values are constants
+    (reproducibility).
+  - |
+    SBOM part. Create `scripts/sbom-part.mjs` (zero dependencies, the style
+    of `scripts/sbom-finalize.mjs`), usage
+    `node scripts/sbom-part.mjs --sbom <file> --part <name> --out <file>`.
+    The output keeps `bomFormat`, `specVersion` and `version`. It sets
+    `metadata.component` to the part without its nested `components`, sets
+    `components` to the part's nested components, and keeps only the
+    `dependencies` whose `ref` is in the part. Output is pretty-printed with
+    a stable key order and no timestamp; if the input has
+    `metadata.timestamp`, drop it in the part. It exits non-zero for an
+    unknown part. Test it with `node --test` in
+    `scripts/sbom-part.test.mjs`, on a fixture under
+    `scripts/fixtures/sbom-part/`: both parts, an unknown part, and
+    byte-identical output on two runs.
+  - |
+    Backend staging + guard, in `src/backend/implementation/build.gradle.kts`:
+      - register a `NodeTask` (or `Exec`) `writeImageSbomPart` that runs
+        `sbom-part.mjs --part pythia-backend` into
+        `build/image-licenses/sbom.cdx.json` and depends on
+        `:frontend:finalizeSbom`;
+      - register `Sync` `stageImageLicenses`, `from(rootProject.files("LICENSE", "NOTICE", "CONTRIBUTORS"))`
+        plus `from(writeImageSbomPart)`, `into("src/main/jib/licenses/pythia")`;
+      - extend the image detection beside `pushesImage` to a
+        `buildsOrPushesImage` (the system properties
+        `quarkus.container-image.build`/`.push` == "true", or a requested task
+        name ending in `imageBuild`/`imagePush`);
+      - `tasks.named("quarkusAppPartsBuild") { doFirst { … } }`: if
+        `buildsOrPushesImage` and the staged `sbom.cdx.json` is missing, throw
+        a `GradleException` saying to run
+        `./gradlew :backend:implementation:stageImageLicenses` first, in a
+        SEPARATE invocation, and why (the SBOM needs this augmentation's
+        output).
+    Comment the whole block with the cycle explanation. Do NOT make
+    `quarkusAppPartsBuild` or `imageBuild` depend on `stageImageLicenses`:
+    that is the cycle. Add `src/backend/implementation/src/main/jib/` to the
+    root `.gitignore` (comment: generated, task-219).
+  - |
+    Frontend staging + image, in `src/frontend/build.gradle.kts`:
+      - register `writeImageSbomPart` (`--part pythia-frontend`, into
+        `build/frontend-image/sbom.cdx.json` under the ROOT build dir, the
+        place `jib-image.digest` already lives), depending on `finalizeSbom`;
+      - register `Sync` `stageImageLicenses` into the root build dir's
+        `frontend-image/licenses/`, from the three root files plus the SBOM
+        part;
+      - `imageBuild`: `dependsOn(stageImageLicenses)`; add a
+        `FileEntriesLayer` named `licenses` with every file of that directory
+        at `AbsoluteUnixPath.get("/licenses/pythia/<name>")`, in sorted order;
+        `setFileEntriesLayers(listOf(configLayer, spaLayer.build(), licensesLayer))`;
+        `.addLabel("org.opencontainers.image.licenses", "Apache-2.0")`
+        unconditionally. Consequence, accepted and commented: building the
+        frontend image now builds the backend first (`finalizeSbom` needs
+        `quarkusBuild`).
+  - |
+    Callers of the backend image build. Prefix each with invocation 1 and a
+    one-line comment pointing at `docs/deployment.md`:
+      - `.github/workflows/ci.yaml`, `images` job, "Build both container
+        images" and "Push multi-arch images to a throwaway registry…";
+      - `.github/workflows/ci.yaml`, `publish` job: move "Build the
+        application SBOM" before "Push the backend image" and add
+        `:backend:implementation:stageImageLicenses` to its `./gradlew sbom`
+        call. Its comment ("reuses the Quarkus build that was just pushed")
+        becomes: the pushes reuse the Quarkus build this step made, and the
+        images carry the same SBOM as the release asset;
+      - `scripts/minikube-deploy.sh`, before its combined push invocation.
+  - |
+    The gate. Create `scripts/check-artifact-licenses.sh` (bash,
+    `set -euo pipefail`), usage
+      ./scripts/check-artifact-licenses.sh --jar <app jar> \
+          --backend-image <ref> --frontend-image <ref> \
+          [--bundle <dir>] [--root <repo root, default: the script's repo>]
+    It checks:
+      - `unzip -p <jar> META-INF/MANIFEST.MF` has
+        `SPDX-License-Identifier: Apache-2.0`;
+      - per image, the label is `Apache-2.0`
+        (`docker image inspect -f '{{ index .Config.Labels "org.opencontainers.image.licenses" }}'`);
+      - LICENSE, NOTICE and CONTRIBUTORS (`docker cp` from a `docker create`d
+        container) are `cmp`-identical to `<root>/<f>`;
+      - `/licenses/pythia/sbom.cdx.json` is `cmp`-identical to a fresh
+        `node scripts/sbom-part.mjs` run on `<root>/build/sbom/pythia.cdx.json`;
+      - with `--bundle`, the three files exist and are identical.
+    It prints one line per check, reports EVERY failure, not just the first,
+    and removes its containers on any exit (`trap`). Tools: `docker`,
+    `unzip`, `cmp`, `node`, coreutils.
+  - |
+    CI. In `.github/workflows/ci.yaml`, `images` job, after "Assert both image
+    references exist":
+      - name: Check both images carry Pythia's licence and SBOM (task-219)
+        run: |
+          ./scripts/check-artifact-licenses.sh \
+            --jar src/backend/implementation/build/quarkus-app/app/implementation-$PYTHIA_VERSION.jar \
+            --backend-image "pythia/pythia-backend:$PYTHIA_VERSION" \
+            --frontend-image "pythia/pythia-frontend:$PYTHIA_VERSION"
+    `$PYTHIA_VERSION` is the raw `version=` from `gradle.properties`, with no
+    `v` (step "Read the application version", ci.yaml:249-254), so it matches
+    the jar name.
+  - |
+    Build both images locally, the documented way, and run the gate:
+      ./gradlew :backend:implementation:stageImageLicenses
+      ./gradlew :backend:implementation:imageBuild -Dquarkus.container-image.build=true --no-build-cache
+      ./gradlew :frontend:imageBuild
+      V=$(grep '^version=' gradle.properties | cut -d= -f2)
+      ./scripts/check-artifact-licenses.sh \
+        --jar src/backend/implementation/build/quarkus-app/app/implementation-$V.jar \
+        --backend-image pythia/pythia-backend:$V --frontend-image pythia/pythia-frontend:$V
+    It must pass. Also run the bundle check once:
+    `./scripts/release-bundle.sh v0.0.0 example.invalid/pythia sha256:<64×0> sha256:<64×0> <scratch dir> HEAD`.
+    Read the script for what it writes and unpack it if it is a tarball,
+    then pass `--bundle <the bundle dir>`.
+  - |
+    Prove the guard and the gate by deliberate failures. Revert each and
+    report both runs:
+      - `rm -r src/backend/implementation/src/main/jib` and run the backend
+        `imageBuild` command: the guard fails with its message;
+      - comment out the manifest property and rebuild the backend: the jar
+        check fails;
+      - drop the `licenses` layer from the frontend `imageBuild` and rebuild:
+        the frontend file and SBOM checks fail;
+      - run the gate with `--root` pointing at a scratch copy of the
+        repository root files whose `NOTICE` has an extra byte: the `cmp`
+        checks fail;
+      - after building the images, change a component version in a scratch
+        copy of `build/sbom/pythia.cdx.json` and point `--root` at it: the
+        SBOM checks fail (stale staging is caught).
+  - |
+    Docs.
+      - `docs/oss-compliance.md`: new section "Pythia's own licence in the
+        artifacts". It has a table of every published artifact (release
+        bundle, release SBOM, both images, the backend jar) and where each
+        carries licence information: `/licenses/pythia/`, the label, the
+        manifest attribute. It explains why there is no path label (point
+        "What tools actually read" above), names the gate, and notes that
+        task-208 adds `THIRD-PARTY-LICENSES.txt` and task-220 attaches the
+        SBOM in the registry.
+      - `docs/deployment.md`:
+        - "What a release publishes": one sentence that both images carry
+          `/licenses/pythia/` and the licence label;
+        - "How the images are built": the two-invocation rule for the backend
+          image, the guard, and why (the cycle).
+      - Root `CLAUDE.md`, Licence paragraph: correct the jar-manifest
+        sentence. The root `build.gradle.kts` stamps the Gradle-built jars,
+        and the Quarkus app jar gets the attribute from
+        `quarkus.package.jar.manifest.attributes`. Add one sentence: all
+        licence material in both images lives in `/licenses/pythia/`, and a
+        backend image build must be preceded by `stageImageLicenses` in a
+        separate invocation (checked in CI by
+        `scripts/check-artifact-licenses.sh`).
+  - |
+    Final gates: `node --test scripts/sbom-part.test.mjs`, `./gradlew build`,
+    then `./gradlew :frontend:check`.
+
+validation:
+  - |
+    # shipped jar gets the attribute (the property is new; the Gradle stamp already existed)
+    grep -q '^quarkus.package.jar.manifest.attributes."SPDX-License-Identifier"=Apache-2.0' src/backend/implementation/src/main/resources/application.properties
+    ./gradlew :backend:implementation:quarkusBuild -q
+    unzip -p src/backend/implementation/build/quarkus-app/app/implementation-$(grep '^version=' gradle.properties | cut -d= -f2).jar META-INF/MANIFEST.MF | grep -q '^SPDX-License-Identifier: Apache-2.0'
+  - |
+    # labels and layers are declared
+    grep -q '^quarkus.container-image.labels."org.opencontainers.image.licenses"=Apache-2.0' src/backend/implementation/src/main/resources/application.properties
+    grep -q 'addLabel("org.opencontainers.image.licenses", "Apache-2.0")' src/frontend/build.gradle.kts
+    grep -q '/licenses/pythia' src/frontend/build.gradle.kts
+  - |
+    # SBOM part script is tested and deterministic
+    node --test scripts/sbom-part.test.mjs
+  - |
+    # backend staging: generated, complete, never committed
+    ./gradlew :backend:implementation:stageImageLicenses -q
+    S=src/backend/implementation/src/main/jib/licenses/pythia
+    for f in LICENSE NOTICE CONTRIBUTORS; do cmp "$f" "$S/$f"; done
+    jq -e '.metadata.component.name == "pythia-backend"' "$S/sbom.cdx.json"
+    git check-ignore -q "$S/LICENSE"
+    test -z "$(git ls-files src/backend/implementation/src/main/jib)"
+  - |
+    # the guard: an image build without staging fails
+    rm -rf src/backend/implementation/src/main/jib
+    ! ./gradlew :backend:implementation:imageBuild -Dquarkus.container-image.build=true --no-build-cache -q
+    ./gradlew :backend:implementation:stageImageLicenses -q
+  - |
+    # every backend image build is preceded by staging
+    grep -q 'stageImageLicenses' scripts/minikube-deploy.sh
+    test "$(grep -c 'stageImageLicenses' .github/workflows/ci.yaml)" -ge 3
+    grep -q 'check-artifact-licenses.sh' .github/workflows/ci.yaml
+    test -x scripts/check-artifact-licenses.sh
+  - |
+    # both images actually carry it (builds into the local Docker daemon)
+    ./gradlew :backend:implementation:stageImageLicenses -q
+    ./gradlew :backend:implementation:imageBuild -Dquarkus.container-image.build=true --no-build-cache -q
+    ./gradlew :frontend:imageBuild -q
+    V=$(grep '^version=' gradle.properties | cut -d= -f2)
+    ./scripts/check-artifact-licenses.sh \
+      --jar src/backend/implementation/build/quarkus-app/app/implementation-$V.jar \
+      --backend-image pythia/pythia-backend:$V --frontend-image pythia/pythia-frontend:$V
+  - |
+    # docs
+    grep -q "^## Pythia's own licence in the artifacts" docs/oss-compliance.md
+    grep -q 'check-artifact-licenses.sh' docs/oss-compliance.md
+    grep -q '/licenses/pythia' docs/deployment.md
+    grep -q 'stageImageLicenses' docs/deployment.md
+    grep -q 'quarkus.package.jar.manifest.attributes' CLAUDE.md
+  - |
+    ./gradlew build
+  - |
+    ./gradlew :frontend:check
+
+outputs:
+  - modified: src/backend/implementation/src/main/resources/application.properties
+  - modified: src/backend/implementation/build.gradle.kts
+  - modified: src/frontend/build.gradle.kts
+  - modified: .gitignore
+  - created: scripts/sbom-part.mjs
+  - created: scripts/sbom-part.test.mjs
+  - created: scripts/fixtures/sbom-part/
+  - created: scripts/check-artifact-licenses.sh
+  - modified: scripts/minikube-deploy.sh
+  - modified: .github/workflows/ci.yaml
+  - modified: docs/oss-compliance.md
+  - modified: docs/deployment.md
+  - modified: CLAUDE.md
