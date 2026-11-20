@@ -47,6 +47,25 @@ export class BucketEditor {
 		return this.page.getByTestId(`tt-row-${leafId}`);
 	}
 
+	// ── Bucket-view geometry, for pointer drags (task-184) ──────────────────
+	// The selectors use TreeTable's English, deliberately untranslated zone
+	// labels ("Root nodes", "Children").
+
+	/** A bucket row's own header line (the row, without its children zone). */
+	bucketHeaderLine(bucketId: string): Locator {
+		return this.page.locator(`[data-testid="tt-row-bucket:${bucketId}"] > :first-child`);
+	}
+
+	/** The children drop zone of a bucket row. */
+	bucketDropZone(bucketId: string): Locator {
+		return this.page.locator(`[data-testid="tt-row-bucket:${bucketId}"] > [aria-label="Children"]`);
+	}
+
+	/** The rows directly in the root list: the bucket rows, plus any drag placeholder. */
+	get rootRows(): Locator {
+		return this.page.locator('[aria-label="Root nodes"] > *');
+	}
+
 	leafTypeSelect(leafId: string): Locator {
 		return this.leafRow(leafId).getByTestId('bucket.leaf-type');
 	}

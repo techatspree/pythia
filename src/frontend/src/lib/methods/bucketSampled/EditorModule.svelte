@@ -908,6 +908,7 @@
 			{editable}
 			defaultCollapsed={isBucketRow}
 			onChildrenChange={onBucketChildrenChange}
+			rootAcceptsDrops={false}
 		/>
 		{#if editable}
 			<div class="p-3 border-t bg-surface-subtle/40">

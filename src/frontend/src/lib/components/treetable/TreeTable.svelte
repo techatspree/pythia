@@ -23,6 +23,7 @@
 		rowAttrs,
 		childrenZoneAttrs,
 		collapseBreakpointPx = 900,
+		rootAcceptsDrops = true,
 		footer,
 		defaultCollapsed = () => false
 	}: TreeTableProps<T> & { roots?: T[] } = $props();
@@ -464,6 +465,18 @@
 				{/if}
 			</div>
 
+			<!-- task-184: `rootAcceptsDrops={false}` keeps rows dragged out of a
+			     children zone from ever entering the root list. Otherwise, while the
+			     pointer crosses a root row on its way to a target, the library
+			     inserts a visible placeholder row into the roots, which pushes every
+			     zone below it down by one row. Its next check (every 200 ms) can then
+			     find the pointer over the zone ABOVE the intended one. When the
+			     placeholder moves there, the layout snaps back, and because the
+			     library only re-checks after the pointer moves 10 px, a pointer held
+			     still drops into that wrong zone. In the bucket view that zone is
+			     usually a collapsed bucket, so the user never sees the mistake.
+			     `dropFromOthersDisabled` exempts the zone a drag started in, so
+			     reordering the roots themselves still works. -->
 			<div
 				use:dndzone={{
 					items: wrappedRoots,
@@ -471,6 +484,7 @@
 					flipDurationMs: 200,
 					dropTargetStyle: {},
 					dragDisabled: !editable,
+					dropFromOthersDisabled: !rootAcceptsDrops,
 					useCursorForDetection: true
 				}}
 				onconsider={(e) => handleZoneEvent([], null, e)}

@@ -13,7 +13,7 @@ Topic detail lives in a `CLAUDE.md` beside the code it describes and loads when 
 - `src/lib/components/schedule/CLAUDE.md` — the schedule bridge (`computeEstimation`'s `scheduleInputs`), `DependencyEditor`, `GanttChart`, the Mermaid export, the schedule route and its partial PUT (the ONLY writer of `dependencies`).
 - `src/lib/methods/CLAUDE.md` — pluggable per-method editors and the bucket + sampled editor's two views.
 - `src/lib/stores/CLAUDE.md` — `UndoStore` and the undo keyboard shortcuts.
-- `src/lib/components/treetable/CLAUDE.md` — the generic `TreeTable`: dnd zones, cycle protection, the cross-zone publish queue, header fit, and the open drag flake (task-184).
+- `src/lib/components/treetable/CLAUDE.md` — the generic `TreeTable`: dnd zones, cycle protection, the cross-zone publish queue, header fit, and why the bucket view's root zone refuses nested rows (`rootAcceptsDrops`, task-184).
 - `e2e/CLAUDE.md` — Page Objects, testid naming, the translated-label ESLint ban, `E2E_LANG`, and the pre-run database reset.
 - `src/lib/i18n/CLAUDE.md` — the catalogs, the language switcher, and `$lib/format.ts`.
 - `src/lib/assets/CLAUDE.md` — the logo, generated icons and screenshots.

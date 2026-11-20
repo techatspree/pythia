@@ -442,6 +442,53 @@ test('a leaf can be dragged into an EMPTY bucket', async ({ page, request }) => 
 	await expect(select).toHaveValue(b3);
 });
 
+test('crossing a bucket header mid-drag adds no row to the root list (task-184)', async ({
+	page,
+	request
+}) => {
+	const { estimationId, b1, b2, b3, leafC } = await seed(request);
+	await openDraft(page, estimationId);
+	await expandBucket(page, b1);
+	const editor = new BucketEditor(page);
+	const rootRowsBefore = await editor.rootRows.count();
+
+	await page.locator(row(leafC)).scrollIntoViewIfNeeded();
+	const sb = await page.locator(`${row(leafC)} [data-dnd-handle]`).first().boundingBox();
+	if (!sb) throw new Error('source row not found');
+	await page.mouse.move(sb.x + sb.width / 2, sb.y + sb.height / 2);
+	await page.mouse.down();
+	await page.mouse.move(sb.x + sb.width / 2, sb.y + sb.height / 2 + 6, { steps: 4 });
+	await page.waitForTimeout(150);
+
+	// Hold the pointer on b2's header line, which belongs to the ROOT zone,
+	// for longer than svelte-dnd-action's 200 ms detection interval. Before
+	// task-184 the library inserted a placeholder row into the root list
+	// here, which pushed every zone below it down by one row, and the next
+	// check could then send the drop to the bucket above the intended one.
+	const header = await editor.bucketHeaderLine(b2).boundingBox();
+	if (!header) throw new Error('bucket header line not found');
+	await page.mouse.move(header.x + Math.min(header.width / 2, 400), header.y + header.height / 2, {
+		steps: 6
+	});
+	await page.waitForTimeout(500);
+	await expect(editor.rootRows).toHaveCount(rootRowsBefore);
+
+	// And the drag still completes into the bucket that was aimed at.
+	const zone = editor.bucketDropZone(b3);
+	await settleAndDrop(
+		page,
+		async () => {
+			const z = await zone.boundingBox();
+			return z ? { x: z.x + Math.min(z.width / 2, 400), y: z.y + z.height / 2 } : null;
+		},
+		'the bucket drop zone'
+	);
+	// Until the drop animation ends the leaf's row exists more than once
+	// (the dragged clone and the placeholder), which a strict locator rejects.
+	await page.waitForTimeout(600);
+	await expect(editor.leafBucketSelect(leafC)).toHaveValue(b3);
+});
+
 test('dropping into the unassigned row is ignored (a null bucket cannot be saved)', async ({
 	page,
 	request

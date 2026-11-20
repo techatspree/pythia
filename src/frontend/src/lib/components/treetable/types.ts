@@ -49,6 +49,13 @@ export type TreeTableProps<T> = {
 	/** Container width (px) below which columns marked `collapsible`
 	 *  are hidden. Default 900. */
 	collapseBreakpointPx?: number;
+	/** Whether a node dragged out of a CHILDREN zone may be dropped among the
+	 *  roots. Reordering the roots themselves is unaffected. Set it to false
+	 *  when the root level is not a drop target for nested rows (the bucket
+	 *  view): the library otherwise inserts a visible placeholder row there
+	 *  while the pointer crosses a root row, which shifts every zone below
+	 *  it mid-drag (task-184). Default true. */
+	rootAcceptsDrops?: boolean;
 	footer?: Snippet<[T[]]>;
 	/** Whether a row starts collapsed. A RULE, not a one-time seed: it is
 	 *  consulted for every row the user has not toggled, so a row that only
