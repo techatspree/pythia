@@ -1245,9 +1245,9 @@
       "notes": "Add an Apache-2.0-compliant contributors list (CONTRIBUTORS / NOTICE attribution) to the project"
     },
     "task-210": {
-      "status": "pending",
-      "started_at": null,
-      "completed_at": null,
+      "status": "done",
+      "started_at": "2026-11-20T12:53:36+00:00",
+      "completed_at": "2026-11-20T13:15:01+00:00",
       "notes": "Open-source notices dialog listing every shipped OSS component with license and copyright holders, generated from the SBOM"
     },
     "task-211": {

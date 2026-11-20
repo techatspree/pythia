@@ -1,8 +1,27 @@
 import adapter from '@sveltejs/adapter-static';
 import { sveltekit } from '@sveltejs/kit/vite';
 import tailwindcss from '@tailwindcss/vite';
-import { defineConfig } from 'vite';
+import { defineConfig, type Plugin } from 'vite';
 import sbom from 'rollup-plugin-sbom';
+import { serveOssNotices } from './scripts/oss-notices-dev.mjs';
+
+// The "Open-Source-Lizenzen" dialog's two files in DEV mode (task-210). A full
+// `./gradlew build` generates them into the repository root's build/oss-notices/
+// (production serves them from the SPA); the dev server serves static/, not
+// build/, so this plugin answers exactly those two URLs from that persistent
+// copy, which may be older than the working tree's dependencies.
+// Resolved from this file's location, never from process.cwd().
+const OSS_NOTICES_DIR = new URL('../../build/oss-notices/', import.meta.url);
+
+function ossNoticesDev(): Plugin {
+	return {
+		name: 'pythia-oss-notices-dev',
+		apply: 'serve',
+		configureServer(server) {
+			serveOssNotices(server, OSS_NOTICES_DIR);
+		}
+	};
+}
 
 export default defineConfig({
 	plugins: [
@@ -28,7 +47,10 @@ export default defineConfig({
 				generateSerial: false
 			}),
 			apply: 'build'
-		}
+		},
+
+		// Dev only (task-210): serves build/oss-notices/ at the repository root.
+		ossNoticesDev()
 	],
 	server: {
 		proxy: {

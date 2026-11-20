@@ -14,6 +14,10 @@
 //   --domain    the CycloneDX Gradle plugin's output for :domain (jsRuntimeClasspath)
 //   --version   the application version (gradle.properties)
 //   --out       where to write the result (build/sbom/pythia.cdx.json)
+// Optional, for the copyright holders (task-210):
+//   --node-modules  src/frontend/node_modules, the npm packages' own files
+//   --klib-list     the Kotlin/JS klibs, one path per line
+//                   (:domain:writeJsRuntimeJarList); the backend jars come from --lib-dir
 //
 // What it does, and why:
 //   * Trims the backend part to the shipped jars. The Gradle configuration is
@@ -29,13 +33,17 @@
 //     `pythia-frontend:`): the same purl ships in both parts (our io.pythia
 //     modules as JVM jars AND as Kotlin/JS), and bom-refs must be unique.
 //   * Marks our own components Apache-2.0 (task-145); the tools leave them blank.
+//   * Fills `copyright` on every third-party component from the copyright lines
+//     of its own licence and notice files (task-210), found exactly as
+//     scripts/generate-third-party-licenses.mjs finds them. See copyrightLines.
 //   * Deterministic output: no serial number, no timestamp, sorted entries.
 //
 // Zero dependencies on purpose: it runs on the project's pinned Node.
 
 import { readFileSync, readdirSync, writeFileSync, mkdirSync, statSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { findPackageFiles, indexJars, indexNodeModules } from './lib/package-license-files.mjs';
 
 const APACHE = [{ license: { id: 'Apache-2.0' } }];
 const FIRST_PARTY = 'pkg:maven/io.pythia/';
@@ -90,13 +98,48 @@ function contractGraph(dependencies, keep) {
 	return out;
 }
 
+// A copyright line names a holder. It starts with a capitalised `Copyright` (or
+// `COPYRIGHT`) that does not continue licence prose ("copyright notice …",
+// "COPYRIGHT HOLDERS WILL NOT …", "Copyright and license statement …"), or with
+// `(c)`/`©` followed by a year. A plain prefix match is not enough: Apache-2.0's
+// own text has lines starting "copyright license to reproduce" and "(c) You
+// must retain" (measured on the real SBOM, task-210).
+const isCopyrightLine = (line) =>
+	(/^(?:Copyright|COPYRIGHT)(?:\W|$)/.test(line) &&
+		!/^copyright[ \t]+(?:notices?|licen[cs]es?|holders?|owners?|and|statements?|laws?|protection)\b/i.test(line)) ||
+	/^(?:\([cC]\)|©)[ \t]*\d/.test(line);
+// A licence template's placeholder names nobody.
+const PLACEHOLDER = /\[yyyy]|\{yyyy}|<year>/i;
+const MAX_COPYRIGHT_LINES = 20;
+
+/**
+ * The copyright lines of a component's licence and notice files: notice files
+ * first, then licence files, each kind in path order; trimmed, deduplicated,
+ * template placeholders dropped, at most MAX_COPYRIGHT_LINES.
+ */
+export function copyrightLines(files) {
+	const ordered = [...files.filter((f) => f.kind === 'notice'), ...files.filter((f) => f.kind === 'license')];
+	const lines = [];
+	for (const f of ordered) {
+		for (const raw of f.text.split(/\r?\n/)) {
+			const line = raw.trim();
+			if (!isCopyrightLine(line) || PLACEHOLDER.test(line) || lines.includes(line)) continue;
+			lines.push(line);
+			if (lines.length === MAX_COPYRIGHT_LINES) return lines;
+		}
+	}
+	return lines;
+}
+
 const sortBy = (key) => (a, b) => (a[key] < b[key] ? -1 : a[key] > b[key] ? 1 : 0);
 
 /**
  * The pure core: raw BOMs (+ the shipped jar names) in, one SBOM out.
+ * `packageFiles` (optional): { npm, jarByName } as findPackageFiles takes them,
+ * the source of the components' `copyright`.
  * Returns { bom, dropped, errors }.
  */
-export function finalize({ backend, jars, frontend, domain, version }) {
+export function finalize({ backend, jars, frontend, domain, version, packageFiles }) {
 	const errors = [];
 	const dropped = [];
 
@@ -154,6 +197,10 @@ export function finalize({ backend, jars, frontend, domain, version }) {
 				const out = structuredClone(c);
 				out['bom-ref'] = prefix + c['bom-ref'];
 				if (isFirstParty(c)) out.licenses = APACHE;
+				else if (packageFiles) {
+					const lines = copyrightLines(findPackageFiles(c, packageFiles).files);
+					if (lines.length) out.copyright = lines.join('\n');
+				}
 				return out;
 			})
 			.sort(sortBy('bom-ref'));
@@ -235,6 +282,19 @@ export function listJars(libDir) {
 	return out.sort();
 }
 
+/** Every .jar under a directory, any depth, as absolute paths (task-208's backend list). */
+export function listJarPaths(dir) {
+	const out = [];
+	const walk = (d) => {
+		for (const e of readdirSync(d, { withFileTypes: true })) {
+			if (e.isDirectory()) walk(join(d, e.name));
+			else if (e.name.endsWith('.jar')) out.push(resolve(d, e.name));
+		}
+	};
+	walk(dir);
+	return out.sort();
+}
+
 function parseArgs(argv) {
 	const args = {};
 	for (let i = 0; i < argv.length; i += 2) {
@@ -247,6 +307,8 @@ function parseArgs(argv) {
 	return args;
 }
 
+// The throw below deliberately funnels into the one usage-error exit (2).
+// noinspection ExceptionCaughtLocallyJS
 function main() {
 	let args;
 	let inputs;
@@ -259,6 +321,16 @@ function main() {
 			domain: read(args.domain),
 			jars: listJars(args['lib-dir']),
 			version: args.version
+		};
+		const klibs = args['klib-list']
+			? readFileSync(args['klib-list'], 'utf8')
+					.split('\n')
+					.map((l) => l.trim())
+					.filter(Boolean)
+			: [];
+		inputs.packageFiles = {
+			npm: args['node-modules'] ? indexNodeModules(args['node-modules']) : new Map(),
+			jarByName: indexJars([...listJarPaths(args['lib-dir']), ...klibs])
 		};
 		if (inputs.jars.length === 0) throw new Error(`no jars under ${args['lib-dir']}/{boot,main}`);
 	} catch (e) {
@@ -274,8 +346,10 @@ function main() {
 	mkdirSync(dirname(args.out), { recursive: true });
 	writeFileSync(args.out, JSON.stringify(bom, null, 2) + '\n');
 	const [be, fe] = bom.components;
+	const all = [...be.components, ...fe.components].filter((c) => !isFirstParty(c));
 	console.log(
-		`Wrote ${args.out}: pythia ${args.version}, ${be.components.length} backend + ${fe.components.length} frontend components`
+		`Wrote ${args.out}: pythia ${args.version}, ${be.components.length} backend + ${fe.components.length} frontend components, ` +
+			`copyright found for ${all.filter((c) => c.copyright).length} of ${all.length} third-party components`
 	);
 }
 

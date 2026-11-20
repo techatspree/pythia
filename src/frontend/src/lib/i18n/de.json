@@ -26,7 +26,8 @@
   },
   "menu": {
     "user": {
-      "logout": "Abmelden"
+      "logout": "Abmelden",
+      "ossNotices": "Lizenzen"
     }
   },
   "dialog": {
@@ -574,5 +575,23 @@
       "hoursSaved": "Arbeitszeit gespeichert.",
       "hoursInvalid": "Bitte eine Zahl größer als 0 und höchstens 24 eingeben."
     }
+  },
+  "ossNotices": {
+    "title": "Open-Source-Lizenzen",
+    "intro": "{name} ist Open-Source-Software unter der Apache-Lizenz 2.0 – Copyright 2026 {name} Contributors. Es enthält die folgenden Open-Source-Komponenten.",
+    "filterLabel": "Filtern",
+    "filterPlaceholder": "Name, Lizenz oder Urheber",
+    "part": {
+      "frontend": "Weboberfläche (läuft in Ihrem Browser) – {count} Komponenten",
+      "backend": "Server – {count} Komponenten"
+    },
+    "authors": "Autoren: {names}",
+    "copyrightUnknown": "Urheber: siehe Lizenztext",
+    "homepage": "Projektseite",
+    "fullText": "Vollständige Lizenztexte",
+    "noMatch": "Keine Komponente passt zu „{filter}“.",
+    "unavailable": "Die Komponentenliste wird beim Bauen der Anwendung erzeugt und ist in dieser Umgebung noch nicht vorhanden.",
+    "loadFailed": "Die Komponentenliste konnte nicht geladen werden.",
+    "close": "Schließen"
   }
 }

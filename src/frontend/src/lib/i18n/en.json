@@ -26,7 +26,8 @@
   },
   "menu": {
     "user": {
-      "logout": "Logout"
+      "logout": "Logout",
+      "ossNotices": "Licenses"
     }
   },
   "dialog": {
@@ -574,5 +575,23 @@
       "hoursSaved": "Working time saved.",
       "hoursInvalid": "Please enter a number greater than 0 and at most 24."
     }
+  },
+  "ossNotices": {
+    "title": "Open-source licenses",
+    "intro": "{name} is open-source software under the Apache License 2.0 – Copyright 2026 {name} Contributors. It includes the following open-source components.",
+    "filterLabel": "Filter",
+    "filterPlaceholder": "Name, license or copyright holder",
+    "part": {
+      "frontend": "Web interface (runs in your browser) – {count} components",
+      "backend": "Server – {count} components"
+    },
+    "authors": "Authors: {names}",
+    "copyrightUnknown": "Copyright holders: see the license text",
+    "homepage": "Project page",
+    "fullText": "Full license texts",
+    "noMatch": "No component matches “{filter}”.",
+    "unavailable": "The component list is generated when the application is built and does not exist in this environment yet.",
+    "loadFailed": "The component list could not be loaded.",
+    "close": "Close"
   }
 }

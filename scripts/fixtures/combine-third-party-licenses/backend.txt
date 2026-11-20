@@ -1,0 +1,7 @@
+Third-party licences: pythia-backend
+Generated from Pythia's SBOM. Do not edit.
+
+## Apache-2.0
+  * com.fasterxml.jackson.core/jackson-databind 2.18.0
+
+Apache License text

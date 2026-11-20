@@ -257,6 +257,16 @@ parts, `pythia-backend` and `pythia-frontend`, each listing exactly what ships:
   publicly. `npmBuild` deletes it in the same task, and `:frontend:imageBuild`
   refuses to package an SPA that still contains it.
 
+**Copyright holders (task-210):** every third-party component carries
+CycloneDX's `copyright` (newline-separated lines) when its own licence or notice
+files name a holder. `sbom-finalize.mjs` reads them through
+`scripts/lib/package-license-files.mjs`, the lookup the THIRD-PARTY-LICENSES
+generator uses, so `finalizeSbom` also gets `--node-modules` and `--klib-list`
+(`:domain:writeJsRuntimeJarList`); the backend jars come from `--lib-dir`. The
+line rule and today's coverage are in `docs/oss-compliance.md` → "In the
+application"; `check-sbom.sh` prints the coverage as information, not as a gate.
+The field feeds the "Open-Source-Lizenzen" dialog.
+
 The output is deterministic (no serial number, no timestamp, sorted), so two
 builds of the same commit give the same file. `scripts/check-sbom.sh` verifies
 it against the build: jars, bundled packages, unique references, a resolvable

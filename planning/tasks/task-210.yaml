@@ -1,7 +1,7 @@
 id: task-210
 phase: phase-18
 title: "\"Open-Source-Lizenzen\" dialog, generated from the SBOM"
-depends_on: [task-208]
+depends_on: [task-208, task-219]
 description: |
   Pythia ships about 286 third-party components (measured 2026-10-15 in
   `build/sbom/pythia.cdx.json`: the backend's jars plus the npm and
@@ -29,28 +29,42 @@ description: |
   answer "who holds the copyright". Of 286 library components, 286 have
   `licenses`, but only 10 have `author`, 19 `publisher`, and none
   `copyright`. The holders are written in the components' own
-  `LICENSE`/`NOTICE`/`COPYRIGHT` files, which task-208 already reads to
+  `LICENSE`/`COPYING`/`NOTICE` files, which task-208 already reads to
   build `THIRD-PARTY-LICENSES.txt`. So the pipeline is two steps, each with
   one job:
 
     1. **Enrich the SBOM.** `scripts/sbom-finalize.mjs` fills CycloneDX
        1.6's `component.copyright` (a string) for every library component
        from its package files. It joins the copyright lines with `\n`. A
-       copyright line is a line of the component's NOTICE*, LICENSE*,
-       LICENCE* or COPYRIGHT* file that starts (after trimming) with
-       `Copyright`, `(c)` or `©`, case-insensitive. Lines are trimmed,
-       deduplicated, kept in file order (NOTICE before LICENSE), and capped
-       at 20 per component. A line that is only the license template
-       placeholder (`Copyright [yyyy] [name of copyright owner]`,
-       `Copyright {yyyy} {name of copyright owner}`) is dropped. Package files
-       are found exactly as task-208's generator finds them: npm under
-       `src/frontend/node_modules/<group/name>/`, backend jars in
-       `build/quarkus-app/lib/**` (`META-INF/`). That lookup is moved into a
-       shared module, `scripts/lib/package-license-files.mjs`, which both
-       scripts import, so there is one implementation. The Kotlin/JS klibs
-       have no package files in reach. They and any component without a
-       match simply get no `copyright`. The release's SBOM thereby gains the
-       holders too, which is a bonus.
+       copyright line is a line of one of the component's licence or notice
+       files that starts (after trimming) with `Copyright`, `(c)` or `©`,
+       case-insensitive. Lines are trimmed, deduplicated, kept in file order
+       (notice files before licence files, each kind sorted by path as
+       task-208 sorts them), and capped at 20 per component. A line that is
+       only the license template placeholder
+       (`Copyright [yyyy] [name of copyright owner]`,
+       `Copyright {yyyy} {name of copyright owner}`) is dropped.
+       Package files are found EXACTLY as task-208's generator finds them,
+       with its regexes unchanged (`generate-third-party-licenses.mjs:37-38`):
+       licence files are `LICENSE*`, `LICENCE*` or `COPYING*`
+       (`/^(licen[cs]e|copying)([._-][^/]*)?$/i`), notice files `NOTICE*`
+       (`/^notice([._-][^/]*)?$/i`). There is deliberately NO `COPYRIGHT*`
+       pattern: adding one would change task-208's output. Where they are
+       looked up: npm packages in `src/frontend/node_modules` (indexed by
+       `name@version`, nested ones included); Maven jars AND the Kotlin/JS
+       klibs, both zips, at their root or under `META-INF/`. The zips come
+       from jar-list files, one path per line, as task-208 passes them via
+       `--jars`. The backend's list is the jars in
+       `build/quarkus-app/lib/**` (`build/third-party-licenses/backend-jars.txt`).
+       The klibs' list is `src/domain/build/third-party/js-runtime-jars.txt`,
+       written by `:domain:writeJsRuntimeJarList` (e.g. `kotlin-logging-js`
+       carries a `META-INF/LICENSE`). That lookup is moved into a shared
+       module, `scripts/lib/package-license-files.mjs`, which both scripts
+       import, so there is one implementation. A component without a match
+       simply gets no `copyright`. The release's SBOM thereby gains the
+       holders too, which is a bonus. Measured on task-208's generated files
+       (2026-11-20), about 137 components (17 frontend, 120 backend) have
+       such a line.
     2. **Project it for the UI.** A new `scripts/generate-oss-notices.mjs`
        reads ONLY the finalized SBOM and writes `third-party-notices.json`.
        It does not read package files: the dialog shows what the SBOM says,
@@ -182,8 +196,9 @@ description: |
   - Mirrors `ChangeOwnerDialog.svelte`'s modal structure (`role="dialog"`,
     `aria-modal`, Escape closes, `$bindable open`), but is wider
     (`max-w-3xl`) and caps its height (`max-h-[85vh]`) with the list
-    scrolling inside. Buttons come from `$lib/ui/Button.svelte`, the filter
-    from `$lib/ui/Field.svelte`, and license chips from `$lib/ui/Badge.svelte`.
+    scrolling inside. Buttons come from `#lib/ui/Button.svelte`, the filter
+    from `#lib/ui/Field.svelte`, and license chips from `#lib/ui/Badge.svelte`
+    (`#lib/…` with the extension; `$lib` is removed, `src/frontend/CLAUDE.md`).
     Only `ink-*`/`surface-*`/`hairline` tokens, no raw palette classes.
   - Copyright lines are legal text and are shown verbatim and untranslated.
     The product name comes only from `$_('brand.name')` (root CLAUDE.md: never
@@ -224,15 +239,15 @@ description: |
       | | svelte                                                    [MIT] | |
       | |   Copyright (c) 2016-2025 Svelte Contributors                   | |
       | |   Projektseite ↗                                                | |
-      | | kotlin-stdlib-js                                   [Apache-2.0] | |
-      | |   Autoren: JetBrains                                            | |
+      | | org.jetbrains.kotlin:kotlin-stdlib-js              [Apache-2.0] | |
+      | |   Urheber: siehe Lizenztext                                     | |
+      | |   Projektseite ↗                                                | |
       | | …                                                               | |
       | +-----------------------------------------------------------------+ |
       | Server – 257 Komponenten                                            |
       | +-----------------------------------------------------------------+ |
-      | | com.fasterxml.jackson.core:jackson-databind        [Apache-2.0] | |
-      | |   Urheber: siehe Lizenztext                                     | |
-      | |   Projektseite ↗                                                | |
+      | | org.hibernate.orm:hibernate-core                   [Apache-2.0] | |
+      | |   Autoren: Hibernate.org                                        | |
       | | org.postgresql:postgresql                        [BSD-2-Clause] | |
       | |   Copyright (c) 1997, PostgreSQL Global Development Group       | |
       | | …                                                               | |
@@ -241,6 +256,11 @@ description: |
       | Vollständige Lizenztexte ↗                         [ Schließen ]    |
       +---------------------------------------------------------------------+
 
+    - The rows are real SBOM components (2026-11-20): `kotlin-stdlib-js` has
+      no author/publisher/supplier and its klib no copyright line, so it shows
+      the "see the license text" line; `hibernate-core` shows its SBOM
+      `publisher` as the authors line if its jar yields no copyright line.
+      Counts: 25 − 4 first-party = 21, 261 − 4 = 257.
     - Dialog `data-testid="oss-notices-dialog"`, `aria-label` = title
       `ossNotices.title`.
     - Intro `ossNotices.intro` with `{name}` = `$_('brand.name')`,
@@ -263,8 +283,9 @@ description: |
       a plain link is correct, unlike an `/api` download). The close button
       `ossNotices.close`, `data-testid="oss-notices-dialog.close"`,
       `Button variant="secondary"`. Escape also closes.
-    - All numbers via `$lib/format.ts` (the counts are integers; use its
-      integer formatter, never `toLocaleString`).
+    - All numbers via `#lib/format.ts`: the counts are integers, rendered with
+      `formatNumber(count, $locale ?? DEFAULT_LOCALE)` (it has no separate
+      integer formatter), never `toLocaleString`.
 
   ### Open-Source-Lizenzen dialog: filter matches nothing
 
@@ -344,30 +365,96 @@ description: |
 
   No backend, domain or REST change.
 
+  ## Deviations found during implementation
+
+  - **The copyright-line rule.** The rule above ("a line that starts with
+    `Copyright`, `(c)` or `©`, case-insensitive") put three lines of
+    Apache-2.0's own licence text into 113 components' `copyright`
+    ("copyright license to reproduce, prepare Derivative Works of,",
+    "copyright notice that is included in or attached to the work",
+    "(c) You must retain, in the Source form of any Derivative Works"), plus
+    the GPL template's `Copyright (C) <year> <name of author>`. Implemented
+    instead: a copyright line starts with a CAPITALISED `Copyright` or
+    `COPYRIGHT` not followed by licence-prose words (notice, license/licence,
+    holder(s), owner(s), and, statement(s), law(s), protection), or with
+    `(c)`/`©` followed by a year. Placeholders are any line containing
+    `[yyyy]`, `{yyyy}` or `<year>`. Measured afterwards: 59 of 278 third-party
+    components have a holder line (42 of 257 backend, 17 of 21 frontend), not
+    the ~137 estimated from task-208's files, which counted the prose lines.
+    The SBOM validation's threshold is therefore `-ge 50` (was `-gt 100`), and
+    a check that no prose line got in was added. The four jars task-208 lists
+    without a holder still have none.
+  - **The dev plugin's middleware lives in `src/frontend/scripts/oss-notices-dev.mjs`**,
+    imported by the `pythia-oss-notices-dev` plugin entry in `vite.config.ts`.
+    `vite.config.ts` is type-checked by svelte-check, and the frontend has no
+    Node typings (`@types/node`), so `node:fs` and the request's `url`/`method`
+    fail there. A plain JS module (`checkJs` is off; ESLint gives
+    `scripts/**/*.mjs` Node globals) avoids adding a dependency for one
+    middleware. The plugin's `name`, `apply: 'serve'` and the
+    `build/oss-notices/` URL stay in `vite.config.ts`.
+  - **The zip writer of task-208's test** moved to `scripts/lib/test-zip.mjs`,
+    because `sbom-finalize.test.mjs` needs the same jar/klib fixtures; both
+    tests import it.
+  - **`combineThirdPartyLicenses` is its own `NodeTask`** that
+    `generateOssNotices` depends on (the step allowed a sibling task), with
+    `testOssNotices` and `testCombineThirdPartyLicenses` both in `check`.
+    `:frontend:build` depends on it through `assemble`.
+  - **The load-failed banner** shows `ossNotices.loadFailed` alone: `assertOk`
+    returns the caller's fallback unchanged for a 500 without a JSON body, so
+    the wireframe's "(HTTP 500)" suffix does not appear.
+  - **The e2e filter cases.** "filtering by `microsoft` matches by copyright
+    line" did not test that: `@azure/msal-browser`'s AUTHOR is also
+    "Microsoft", so the spec stayed green with copyright removed from the
+    filter (mutation run). The spec filters `CONTRIBUTORS` instead (only in
+    svelte's copyright line; upper case also proves case-insensitivity) and
+    `hibernate.org` (only in an author). Removing copyright from the filter, or
+    making it case-sensitive, now fails the spec.
+  - **An extra testid** `oss-notices-dialog.section.<part>` wraps each section,
+    so the page object counts a part's rows without relying on DOM order.
+
 steps:
   - |
     Move the package-file lookup that task-208 wrote in
     `scripts/generate-third-party-licenses.mjs` (find a component's
-    LICENSE*/LICENCE*/NOTICE*/COPYRIGHT* files: npm under
-    `node_modules/<group/name>/`, Maven inside its jar's `META-INF/`) into
+    LICENSE*/LICENCE*/COPYING*/NOTICE* files: npm under
+    `node_modules/<group/name>/`, Maven jars and Kotlin/JS klibs (zips) at
+    their root or under `META-INF/`, listed by a `--jars` file) into
     `scripts/lib/package-license-files.mjs`, exporting it. Make
     `generate-third-party-licenses.mjs` import it, with unchanged behaviour:
     `node --test scripts/generate-third-party-licenses.test.mjs` stays green
-    and its output is byte-identical before and after (compare a
-    `shasum` of `build/third-party-licenses/pythia-frontend/THIRD-PARTY-LICENSES.txt`
-    and of its `pythia-backend` sibling).
+    and its output is byte-identical before and after. BEFORE touching the
+    script, regenerate the baseline (the files on disk may be stale, e.g.
+    from an older `@sveltejs/kit`):
+    `./gradlew :frontend:generateThirdPartyLicenses :frontend:generateBackendThirdPartyLicenses`,
+    record a `shasum` of `build/third-party-licenses/pythia-frontend/THIRD-PARTY-LICENSES.txt`
+    and of its `pythia-backend` sibling, refactor, run the same two tasks
+    again, and compare. The file-name regexes move unchanged (licence:
+    LICENSE/LICENCE/COPYING, notice: NOTICE; no COPYRIGHT pattern).
   - |
     In `scripts/sbom-finalize.mjs`, after the trimmed tree is assembled,
     set `copyright` on every `library` component from its package files per
     the description's rule (prefixes, placeholder drop, dedupe, file order
-    NOTICE→LICENSE→LICENCE→COPYRIGHT, cap 20, joined with `\n`). Omit the
-    key when nothing is found; never write an empty string. It needs to know
-    where `node_modules` and `build/quarkus-app/lib` are. Pass them as
-    arguments from `:frontend:finalizeSbom` in `src/frontend/build.gradle.kts`
-    and declare them as task inputs. Extend
+    notice files before licence files, cap 20, joined with `\n`). Omit the
+    key when nothing is found; never write an empty string. It needs three
+    sources, all through `scripts/lib/package-license-files.mjs`:
+      - the backend jars: `finalizeSbom` ALREADY receives
+        `--lib-dir <backend>/build/quarkus-app/lib`; walk it for `*.jar`
+        (sorted) instead of adding a second argument. Do not read
+        `build/third-party-licenses/backend-jars.txt`: it is written in
+        `generateBackendThirdPartyLicenses`' `doFirst`, which runs AFTER
+        `finalizeSbom`.
+      - the npm packages: add `--node-modules src/frontend/node_modules`.
+      - the Kotlin/JS klibs: add `--klib-list <domain>/build/third-party/js-runtime-jars.txt`
+        and make `finalizeSbom` `dependsOn(":domain:writeJsRuntimeJarList")`.
+    In `:frontend:finalizeSbom` (`src/frontend/build.gradle.kts`) add the two
+    arguments and the dependency. `finalizeSbom` stays
+    `outputs.upToDateWhen { false }`, so no input declarations are needed.
+    Extend
     `scripts/sbom-finalize.test.mjs` and `scripts/fixtures/sbom/` with: an
     npm package whose LICENSE has a copyright line, a jar whose
-    `META-INF/NOTICE` has two (plus a duplicate), a LICENSE with only the
+    `META-INF/NOTICE` has two (plus a duplicate), a klib (zip from the klib
+    list) whose `META-INF/LICENSE` has one, a `COPYING` file with one (found,
+    like task-208 finds it), a `COPYRIGHT` file (NOT read), a LICENSE with only the
     Apache template placeholder (→ no `copyright`), and a component with no
     files (→ no `copyright`). Print the coverage
     ("copyright found for N of M library components") in `scripts/check-sbom.sh`
@@ -400,12 +487,19 @@ steps:
     `node scripts/combine-third-party-licenses.mjs --frontend <task-208 frontend file> --backend <task-208 backend file> --out build/oss-notices/THIRD-PARTY-LICENSES.txt`
     and copies the result to `src/frontend/build/THIRD-PARTY-LICENSES.txt`,
     the web copy nginx serves (a `doLast` copy, or a separate `Copy`/`Sync`
-    task it finalizes). It depends on BOTH task-208 generator tasks,
-    `:frontend:generateThirdPartyLicenses` and
-    `:backend:implementation:generateThirdPartyLicenses`. That is no cycle:
-    the backend generator needs only `finalizeSbom`, never the backend
-    image. task-208 no longer writes into `src/frontend/build/`, since
-    task-219 moved its file to `/licenses/pythia/`.
+    task it finalizes). It depends on BOTH task-208 generator tasks, which
+    are both registered in `src/frontend/build.gradle.kts`:
+    `:frontend:generateThirdPartyLicenses` (pythia-frontend) and
+    `:frontend:generateBackendThirdPartyLicenses` (pythia-backend). That is
+    no cycle: the backend generator needs only `finalizeSbom`, never the
+    backend image. task-208 no longer writes into `src/frontend/build/`,
+    since task-219 moved its file to `/licenses/pythia/`.
+    Mark `generateOssNotices` `outputs.upToDateWhen { false }` like its
+    siblings: `npmBuild` empties `src/frontend/build/` (adapter-static), and
+    an up-to-date skip would leave the SPA without its copies. Note in a
+    comment that `:frontend:build` thereby builds the backend
+    (`finalizeSbom` → `:backend:implementation:quarkusBuild`), the same
+    accepted consequence task-219 wrote down for `imageBuild`.
     Write `scripts/combine-third-party-licenses.mjs` (zero dependencies)
     with a `node --test` file `scripts/combine-third-party-licenses.test.mjs`
     on two tiny fixtures in `scripts/fixtures/combine-third-party-licenses/`:
@@ -415,8 +509,16 @@ steps:
     `:frontend:imageBuild` and `:frontend:build` depending on it; and a
     `testOssNotices` `NodeTask` running the test file, added to `check`'s
     `dependsOn` next to `testSbomFinalize`. In `imageBuild`'s `doLast`, add
-    a `check` that `build/third-party-notices.json` exists (an image without
-    it would show "unavailable" in production).
+    a `check` that `build/third-party-notices.json` and
+    `build/THIRD-PARTY-LICENSES.txt` exist (an image without them would show
+    "unavailable" in production, and nginx's `try_files … /index.html` would
+    even answer the JSON URL with the SPA's HTML).
+    Prove the check by a deliberate failure (needs Docker, since
+    `imageBuild` loads into the local daemon): run
+    `./gradlew :frontend:npmBuild --rerun :frontend:imageBuild -x :frontend:generateOssNotices`
+    so `npmBuild` empties `build/` and nothing puts the file back; see it fail
+    with the check's message; then run `./gradlew :frontend:imageBuild` and
+    see it pass. Record both outcomes in the report.
   - |
     Dev-mode serving in `src/frontend/vite.config.ts`: add a plugin object
     `{ name: 'pythia-oss-notices-dev', apply: 'serve', configureServer(server) { … } }`
@@ -431,7 +533,12 @@ steps:
     file is missing. Every other path goes to `next()`. On startup, log
     once through `server.config.logger.info` whether a copy exists and its
     mtime. Do not touch the production `sbom` plugin entry or the `/api` and
-    `/ws` proxies. Verify by hand: with `build/oss-notices/` present,
+    `/ws` proxies. Verify by hand, with the port protocol: first check that
+    :8090, :5173 and :5432 are free (`lsof -iTCP:<port> -sTCP:LISTEN`); if
+    any is bound, STOP: the user's own stack is running and the curl would
+    hit it. Start `./scripts/dev.sh` in the background, and afterwards stop
+    only that `dev.sh` with SIGTERM (never `pkill` the JVMs). With
+    `build/oss-notices/` present,
     `curl -s localhost:5173/third-party-notices.json | jq '.parts|length'`
     prints `2`. After moving it aside, `curl -o /dev/null -w '%{http_code}'`
     gives `404`.
@@ -450,7 +557,8 @@ steps:
     `ChangeOwnerDialog.svelte`'s structure. Load on open; on failure
     `log.error('OssNoticesDialog: loading failed', e)` and the ErrorBanner.
     No bare `console.*`, no inline strings, no `.toFixed`/`toLocale*`.
-    Counts go through `$lib/format.ts`.
+    Counts go through `formatNumber` from `#lib/format.ts`; all imports use
+    `#lib/…` with the file extension.
   - |
     In `src/frontend/src/lib/components/UserMenu.svelte`, add the
     "Lizenzen" button (`data-testid="user-menu.oss-notices"`) between the
@@ -460,12 +568,15 @@ steps:
     Add every i18n key from the table to `src/frontend/src/lib/i18n/de.json`
     and `en.json`, key for key, with the exact texts.
   - |
-    Page Object `src/frontend/e2e/pages/OssNoticesDialog.ts` (exported
-    from `e2e/pages/index.ts`): `open()` (clicks `user-menu.oss-notices`),
-    `expectVisible()`, `expectHidden()`, `filter(text)`,
+    The entry point belongs to the existing `src/frontend/e2e/pages/UserMenu.ts`:
+    add `openOssNotices()` there (clicks `user-menu.oss-notices`). The dialog
+    gets its own Page Object `src/frontend/e2e/pages/OssNoticesDialog.ts`
+    (exported from `e2e/pages/index.ts`): `expectVisible()`, `expectHidden()`, `filter(text)`,
     `expectComponent(name)` / `expectNoComponent(name)` (by `data-name`),
-    `expectPartCount('frontend'|'backend', n)` (asserting the heading text
-    via `catalogPattern('ossNotices.part.frontend', …)` or equivalent),
+    `expectPartCount('frontend'|'backend', n)` (the row count by
+    `oss-notices-dialog.component` inside the section, plus the heading
+    matching `catalogPattern('ossNotices.part.frontend')`; `catalogPattern`
+    takes only the key and matches every `{placeholder}` as `.+`),
     `expectNoMatch()`, `expectUnavailable()`, `expectLoadFailed()`, `close()`,
     `closeWithEscape()`. Also `stubNotices(page, json)` and
     `stubNoticesStatus(page, status)` helpers using
@@ -473,11 +584,13 @@ steps:
   - |
     Spec `src/frontend/e2e/oss-notices.test.ts` (Page Objects only, no
     translated literals). With a stubbed fixture of 3 frontend + 2 backend
-    components (e.g. `@azure/msal-browser` MIT, `svelte` MIT,
-    `kotlin-stdlib-js` Apache-2.0 with authors only,
-    `com.fasterxml.jackson.core:jackson-databind` with nothing,
-    `org.postgresql:postgresql` BSD-2-Clause):
-      - a VIEWER opens it from the user menu; both part counts are right;
+    components, the wireframe's rows: `@azure/msal-browser` MIT with
+    copyright, `svelte` MIT with copyright,
+    `org.jetbrains.kotlin:kotlin-stdlib-js` Apache-2.0 with nothing;
+    `org.hibernate.orm:hibernate-core` Apache-2.0 with authors only
+    (`Hibernate.org`), `org.postgresql:postgresql` BSD-2-Clause with
+    copyright:
+      - a VIEWER opens it via `UserMenu.openOssNotices()`; both part counts are right;
         a component with copyright shows it, one with authors only shows
         the authors line, one with neither shows the "see the license text"
         line;
@@ -506,20 +619,37 @@ steps:
     Run, in order: `./gradlew sbom`, `./gradlew :frontend:check`, the
     Playwright spec against `./scripts/dev.sh` (both languages), then
       ./gradlew build
+    Port protocol for the Playwright run: before starting `dev.sh`, check
+    that :8090, :5173 and :5432 are free; if any is bound, STOP and report
+    (the user's own stack is running, and the tests would hit it). Run
+    `cd src/frontend && E2E_LANG=de npx playwright test e2e/oss-notices.test.ts`
+    and the same with `E2E_LANG=en`. Afterwards stop only the `dev.sh` this
+    task started, with SIGTERM.
 
 validation:
   - |
     test -f scripts/lib/package-license-files.mjs
     grep -q "package-license-files" scripts/generate-third-party-licenses.mjs
     grep -q "package-license-files" scripts/sbom-finalize.mjs
+    # the klibs and node_modules reach the enrichment
+    grep -q -- "--klib-list" src/frontend/build.gradle.kts
+    grep -q -- "--node-modules" scripts/sbom-finalize.mjs
+    awk '/val finalizeSbom/,/^}/' src/frontend/build.gradle.kts | grep -q "writeJsRuntimeJarList"
+    # the generateOssNotices wiring names the task-208 tasks that exist
+    # (through the sibling task combineThirdPartyLicenses, see the deviations)
+    awk '/val generateOssNotices/,/^}/' src/frontend/build.gradle.kts | grep -q "combineThirdPartyLicenses"
+    awk '/val combineThirdPartyLicenses/,/^}/' src/frontend/build.gradle.kts | grep -q "generateThirdPartyLicenses, \"generateBackendThirdPartyLicenses\""
+    ! grep -q "backend:implementation:generateThirdPartyLicenses" src/frontend/build.gradle.kts
   - |
     node --test scripts/sbom-finalize.test.mjs
     node --test scripts/generate-oss-notices.test.mjs
     node --test scripts/generate-third-party-licenses.test.mjs
   - |
     ./gradlew sbom
-    # the SBOM now carries copyright holders for a substantial part
-    test "$(jq '[.. | objects | select(.type? == "library" and .copyright?)] | length' build/sbom/pythia.cdx.json)" -gt 100
+    # the SBOM now carries copyright holders (59 measured at implementation)
+    test "$(jq '[.. | objects | select(.type? == "library" and .copyright?)] | length' build/sbom/pythia.cdx.json)" -ge 50
+    # ... and no line of licence prose (the first rule's defect)
+    ! jq -r '.. | objects | .copyright? // empty' build/sbom/pythia.cdx.json | grep -qiE '^(copyright (license|notice)|\(c\) You must)'
   - |
     ./gradlew :frontend:build -x test
     F=src/frontend/build/third-party-notices.json
@@ -544,9 +674,15 @@ validation:
     grep -q '^Web interface (pythia-frontend)$' "$W"
     grep -q '^Server (pythia-backend)$' "$W"
     grep -q 'svelte' "$W" && grep -q 'jackson-databind' "$W"
-    for p in pythia-frontend pythia-backend; do
-      grep -qF "$(head -c 2000 build/third-party-licenses/$p/THIRD-PARTY-LICENSES.txt | head -5)" "$W" || { echo "$p not verbatim"; exit 1; }
-    done
+    # each part's WHOLE file is contained byte for byte (grep -F with a
+    # multi-line pattern would accept any single matching line)
+    node -e '
+      const fs = require("fs");
+      const w = fs.readFileSync(process.argv[1], "utf8");
+      for (const p of ["pythia-frontend", "pythia-backend"]) {
+        const t = fs.readFileSync(`build/third-party-licenses/${p}/THIRD-PARTY-LICENSES.txt`, "utf8");
+        if (!w.includes(t)) { console.error(`${p} not verbatim`); process.exit(1); }
+      }' "$W"
     node --test scripts/combine-third-party-licenses.test.mjs
   - |
     # the persistent copy survives a later frontend-only build
@@ -557,6 +693,7 @@ validation:
     grep -q "pythia-oss-notices-dev" src/frontend/vite.config.ts
     grep -q "apply: 'serve'" src/frontend/vite.config.ts
     grep -q "build/oss-notices" src/frontend/vite.config.ts
+    grep -q "Cache-Control" src/frontend/scripts/oss-notices-dev.mjs
   - |
     C=src/frontend/src/lib/components/OssNoticesDialog.svelte
     test -f "$C"
@@ -577,8 +714,27 @@ validation:
       done
     done
   - |
+    # every catalog key for key (catches a key added to one catalog only)
+    python3 - <<'PY'
+    import json, pathlib, sys
+    cats = {p.stem: json.loads(p.read_text())
+            for p in pathlib.Path('src/frontend/src/lib/i18n').glob('*.json')}
+    def flat(o, p=''):
+        s = set()
+        for k, v in o.items():
+            n = f'{p}.{k}' if p else k
+            s |= flat(v, n) if isinstance(v, dict) else {n}
+        return s
+    keys = {l: flat(d) for l, d in cats.items()}
+    ref = set().union(*keys.values())
+    bad = {l: sorted(ref - k) for l, k in keys.items() if ref - k}
+    print('missing keys:', bad or 'none')
+    sys.exit(1 if bad else 0)
+    PY
+  - |
     test -f src/frontend/e2e/pages/OssNoticesDialog.ts
     grep -q "OssNoticesDialog" src/frontend/e2e/pages/index.ts
+    grep -q "openOssNotices" src/frontend/e2e/pages/UserMenu.ts
     grep -q "from './pages'" src/frontend/e2e/oss-notices.test.ts
   - |
     grep -q "^## In the application" docs/oss-compliance.md
@@ -603,6 +759,10 @@ outputs:
   - created: scripts/fixtures/combine-third-party-licenses/
   - modified: src/frontend/build.gradle.kts
   - modified: src/frontend/vite.config.ts
+  - created: src/frontend/scripts/oss-notices-dev.mjs
+  - created: scripts/lib/test-zip.mjs
+  - modified: scripts/generate-third-party-licenses.test.mjs
+  - modified: src/frontend/CLAUDE.md
   - created: src/frontend/src/lib/ossNotices.ts
   - created: src/frontend/src/lib/components/OssNoticesDialog.svelte
   - modified: src/frontend/src/lib/components/UserMenu.svelte
@@ -610,6 +770,7 @@ outputs:
   - modified: src/frontend/src/lib/i18n/en.json
   - created: src/frontend/e2e/pages/OssNoticesDialog.ts
   - modified: src/frontend/e2e/pages/index.ts
+  - modified: src/frontend/e2e/pages/UserMenu.ts
   - created: src/frontend/e2e/oss-notices.test.ts
   - modified: docs/oss-compliance.md
   - modified: docs/development.md

@@ -1,0 +1,7 @@
+Third-party licences: pythia-frontend
+Generated from Pythia's SBOM. Do not edit.
+
+## MIT
+  * svelte 5.0.0
+
+MIT License text

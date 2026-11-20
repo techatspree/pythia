@@ -1,8 +1,13 @@
 // Unit tests for scripts/sbom-finalize.mjs (task-206). Run: node --test scripts/sbom-finalize.test.mjs
-import { test } from 'node:test';
+import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
-import { finalize, parsePurl } from './sbom-finalize.mjs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { copyrightLines, finalize, parsePurl } from './sbom-finalize.mjs';
+import { indexJars, indexNodeModules } from './lib/package-license-files.mjs';
+import { zip } from './lib/test-zip.mjs';
 
 const fixture = (name) =>
 	JSON.parse(readFileSync(new URL(`./fixtures/sbom/${name}.json`, import.meta.url), 'utf8'));
@@ -116,4 +121,86 @@ test('the same purl in both parts gets two distinct bom-refs, and the graph reso
 
 test('output is deterministic', () => {
 	assert.equal(JSON.stringify(run().bom), JSON.stringify(run().bom));
+});
+
+// ---- copyright holders (task-210) ---------------------------------------------
+
+const PACKAGES = fileURLToPath(new URL('./fixtures/sbom/packages/', import.meta.url));
+let work;
+let jarPaths;
+before(() => {
+	work = mkdtempSync(join(tmpdir(), 'sbom-finalize-'));
+	const zips = {
+		// NOTICE: two lines plus a duplicate; LICENSE repeats one and adds one.
+		'com.acme.lib-a-1.0.jar': zip({
+			'META-INF/NOTICE': 'lib-a\nCopyright 2023 Acme Inc.\n  (c) 2024 Acme Labs  \nCopyright 2023 Acme Inc.\n',
+			'META-INF/LICENSE': 'Copyright 2023 Acme Inc.\n\u00a9 2025 Late Holder\n'
+		}),
+		// COPYING at the root counts as a licence file, as in task-208.
+		'com.acme.umbrella-jvm-2.0.jar': zip({ COPYING: 'GNU GPL\nCopyright (C) 2001 Umbrella Folks\n' }),
+		// Our own module: never gets a copyright, whatever its jar holds.
+		'io.pythia.core-9.9.9.jar': zip({ 'META-INF/LICENSE': 'Copyright 2026 Somebody\n' }),
+		// A Kotlin/JS klib from the klib list.
+		'kotlin-stdlib-js-2.4.10.klib': zip({
+			'default/manifest': 'x',
+			'META-INF/LICENSE': 'Copyright 2010-2025 JetBrains s.r.o. and Kotlin Programming Language contributors.\n'
+		})
+	};
+	jarPaths = Object.entries(zips).map(([name, buf]) => {
+		writeFileSync(join(work, name), buf);
+		return join(work, name);
+	});
+});
+after(() => rmSync(work, { recursive: true, force: true }));
+
+const withFiles = (jars = jarPaths) =>
+	run({ packageFiles: { npm: indexNodeModules(PACKAGES), jarByName: indexJars(jars) } }).bom;
+const component = (bom, partName, name) => part(bom, partName).components.find((c) => c.name === name);
+
+test('copyright: an npm LICENSE line; a COPYRIGHT file is not a licence file', () => {
+	const svelte = component(withFiles(), 'pythia-frontend', 'svelte');
+	assert.equal(svelte.copyright, 'Copyright (c) 2016-2025 Svelte Contributors');
+});
+
+test('copyright: a jar NOTICE before its LICENSE, trimmed and deduplicated', () => {
+	const libA = component(withFiles(), 'pythia-backend', 'lib-a');
+	assert.equal(libA.copyright, 'Copyright 2023 Acme Inc.\n(c) 2024 Acme Labs\n\u00a9 2025 Late Holder');
+});
+
+test('copyright: a root COPYING file of a jar is read', () => {
+	const umbrella = component(withFiles(), 'pythia-backend', 'umbrella-jvm');
+	assert.equal(umbrella.copyright, 'Copyright (C) 2001 Umbrella Folks');
+});
+
+test('copyright: a Kotlin/JS klib from the klib list', () => {
+	const stdlib = component(withFiles(), 'pythia-frontend', 'kotlin-stdlib-js');
+	assert.match(stdlib.copyright, /^Copyright 2010-2025 JetBrains/);
+});
+
+test('copyright: only the template placeholder gives no key, no empty string', () => {
+	const msal = component(withFiles(), 'pythia-frontend', 'msal-browser');
+	assert.equal('copyright' in msal, false);
+});
+
+test('copyright: a component without files gets no key', () => {
+	const bom = withFiles(jarPaths.filter((j) => !j.endsWith('.klib')));
+	assert.equal('copyright' in component(bom, 'pythia-frontend', 'kotlin-stdlib-js'), false);
+});
+
+test('copyright: never on our own components, and not without packageFiles', () => {
+	for (const p of withFiles().components) {
+		for (const c of p.components.filter((c) => c.group === 'io.pythia')) assert.equal(c.copyright, undefined);
+	}
+	assert.ok(!JSON.stringify(run().bom).includes('"copyright"'));
+});
+
+test('copyright: at most 20 lines', () => {
+	const text = Array.from({ length: 25 }, (_, i) => `Copyright ${2000 + i} Holder ${i}`).join('\n');
+	const lines = copyrightLines([{ path: 'NOTICE', kind: 'notice', text }]);
+	assert.equal(lines.length, 20);
+	assert.equal(lines[19], 'Copyright 2019 Holder 19');
+});
+
+test('copyright: deterministic', () => {
+	assert.equal(JSON.stringify(withFiles()), JSON.stringify(withFiles()));
 });

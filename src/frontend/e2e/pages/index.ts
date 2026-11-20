@@ -9,6 +9,7 @@ export { ErrorBanner } from './ErrorBanner';
 export { EstimationGrid } from './EstimationGrid';
 export { ImportExportMenu } from './ImportExportMenu';
 export { MerlinStructureDialog } from './MerlinStructureDialog';
+export { OssNoticesDialog, stubNotices, stubNoticesStatus } from './OssNoticesDialog';
 export { PhasesPanel } from './PhasesPanel';
 export { ProjectDetailPage } from './ProjectDetailPage';
 export { ProjectsListPage } from './ProjectsListPage';

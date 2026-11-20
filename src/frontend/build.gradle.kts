@@ -187,6 +187,8 @@ val finalizeSbom = tasks.register<NodeTask>("finalizeSbom") {
         ":backend:implementation:cyclonedxDirectBom",
         ":backend:implementation:quarkusBuild",
         ":domain:cyclonedxDirectBom",
+        // The klibs' own licence files, for the copyright holders (task-210).
+        ":domain:writeJsRuntimeJarList",
         npmBuild
     )
     script.set(rootProject.file("scripts/sbom-finalize.mjs"))
@@ -199,7 +201,11 @@ val finalizeSbom = tasks.register<NodeTask>("finalizeSbom") {
             "--frontend", file(".svelte-kit/output/client/cyclonedx/bom.json").path,
             "--domain", domainDir.file("reports/cyclonedx-direct/bom.json").get().asFile.path,
             "--version", project.version.toString(),
-            "--out", rootProject.layout.buildDirectory.file("sbom/pythia.cdx.json").get().asFile.path
+            "--out", rootProject.layout.buildDirectory.file("sbom/pythia.cdx.json").get().asFile.path,
+            // Where each component's own licence and notice files are, for its
+            // `copyright` (task-210); the backend jars come from --lib-dir.
+            "--node-modules", file("node_modules").path,
+            "--klib-list", domainDir.file("third-party/js-runtime-jars.txt").get().asFile.path
         )
     )
     // Reads build outputs of three projects; cheap, so always rerun rather than
@@ -307,6 +313,63 @@ val stageImageLicenses = tasks.register<Sync>("stageImageLicenses") {
     into(frontendImageLicensesDir)
 }
 
+// The "Open-Source-Lizenzen" dialog (task-210). Two generated files the SPA
+// serves next to index.html:
+//   - third-party-notices.json, the dialog's component list, projected from the
+//     SBOM by scripts/generate-oss-notices.mjs (no versions, by design);
+//   - THIRD-PARTY-LICENSES.txt, the full licence texts of BOTH parts: task-208's
+//     two generated files combined by scripts/combine-third-party-licenses.mjs.
+// The persistent copies live in the ROOT build/oss-notices/, because every
+// npmBuild empties this project's build/ (adapter-static); the dev server's
+// `pythia-oss-notices-dev` plugin (vite.config.ts) serves them from there.
+// Consequence, accepted as for imageBuild: through finalizeSbom, :frontend:build
+// now builds the backend (:backend:implementation:quarkusBuild) first.
+val ossNoticesDir = rootProject.layout.buildDirectory.dir("oss-notices")
+val combineThirdPartyLicenses = tasks.register<NodeTask>("combineThirdPartyLicenses") {
+    description = "Combines both parts' THIRD-PARTY-LICENSES.txt into the web copy (task-210)."
+    dependsOn(generateThirdPartyLicenses, "generateBackendThirdPartyLicenses")
+    script.set(rootProject.file("scripts/combine-third-party-licenses.mjs"))
+    args.set(
+        listOf(
+            "--frontend", thirdPartyLicensesDir.get().file("pythia-frontend/THIRD-PARTY-LICENSES.txt").asFile.path,
+            "--backend", thirdPartyLicensesDir.get().file("pythia-backend/THIRD-PARTY-LICENSES.txt").asFile.path,
+            "--out", ossNoticesDir.get().file("THIRD-PARTY-LICENSES.txt").asFile.path
+        )
+    )
+    // Reads other tasks' always-rerun outputs; cheap, so always rerun too.
+    outputs.upToDateWhen { false }
+}
+val generateOssNotices = tasks.register<NodeTask>("generateOssNotices") {
+    description = "Generates third-party-notices.json from the SBOM and puts both dialog files into the SPA (task-210)."
+    dependsOn(finalizeSbom, combineThirdPartyLicenses)
+    // finalizeSbom already runs after npmBuild; this states the reason the copy
+    // below needs it: npmBuild empties the SPA directory.
+    mustRunAfter(npmBuild)
+    script.set(rootProject.file("scripts/generate-oss-notices.mjs"))
+    val notices = ossNoticesDir.get().file("third-party-notices.json").asFile
+    val licensesTxt = ossNoticesDir.get().file("THIRD-PARTY-LICENSES.txt").asFile
+    val spaDir = layout.projectDirectory.dir("build").asFile
+    args.set(
+        listOf(
+            "--sbom", rootProject.layout.buildDirectory.file("sbom/pythia.cdx.json").get().asFile.path,
+            "--policy", rootProject.file("compliance/oss-policy.json").path,
+            "--out", notices.path
+        )
+    )
+    outputs.file(notices)
+    // Must never be skipped: an up-to-date skip after npmBuild emptied build/
+    // would leave the SPA without its copies.
+    outputs.upToDateWhen { false }
+    doLast {
+        spaDir.mkdirs()
+        notices.copyTo(spaDir.resolve("third-party-notices.json"), overwrite = true)
+        licensesTxt.copyTo(spaDir.resolve("THIRD-PARTY-LICENSES.txt"), overwrite = true)
+    }
+}
+tasks.named("assemble") {
+    dependsOn(generateOssNotices)
+}
+
 // Every CycloneDX fixture under scripts/fixtures/ against the official 1.6
 // schema (compliance/cyclonedx-schema/), part of :frontend:check. The scripts
 // under test read only a few fields, so an invalid fixture would otherwise pass.
@@ -319,6 +382,22 @@ val testSbomSchema = tasks.register<NodeTask>("testSbomSchema") {
 }
 
 // Unit tests of the third-party licence generator, part of :frontend:check.
+// Unit tests of the dialog's two generators (task-210), part of :frontend:check.
+val testOssNotices = tasks.register<NodeTask>("testOssNotices") {
+    description = "Runs the node --test suite of scripts/generate-oss-notices.mjs."
+    dependsOn(tasks.npmInstall)
+    options.set(listOf("--test"))
+    script.set(rootProject.file("scripts/generate-oss-notices.test.mjs"))
+    outputs.upToDateWhen { false }
+}
+val testCombineThirdPartyLicenses = tasks.register<NodeTask>("testCombineThirdPartyLicenses") {
+    description = "Runs the node --test suite of scripts/combine-third-party-licenses.mjs."
+    dependsOn(tasks.npmInstall)
+    options.set(listOf("--test"))
+    script.set(rootProject.file("scripts/combine-third-party-licenses.test.mjs"))
+    outputs.upToDateWhen { false }
+}
+
 val testThirdPartyLicenses = tasks.register<NodeTask>("testThirdPartyLicenses") {
     description = "Runs the node --test suite of scripts/generate-third-party-licenses.mjs."
     dependsOn(tasks.npmInstall)
@@ -419,6 +498,7 @@ val testOssCompliance = tasks.register<NodeTask>("testOssCompliance") {
 tasks.named("check") {
     dependsOn(
         npmCheck, npmLintReport, checkDesignTokens, lintE2e, lintOpenApi, testSbomFinalize,
+        testOssNotices, testCombineThirdPartyLicenses,
         testSbomPart, testThirdPartyLicenses, testSbomSchema, testOssCompliance, checkOssCompliance
     )
     if (openApiGate) dependsOn(verifyOpenApiSchemaCommitted)
@@ -471,6 +551,8 @@ tasks.register("imageBuild") {
     // which needs :backend:implementation:quarkusBuild, building the frontend
     // image now builds the backend first. No cycle: no backend IMAGE is involved.
     dependsOn(stageImageLicenses)
+    // The "Open-Source-Lizenzen" dialog's files in the SPA (task-210).
+    dependsOn(generateOssNotices)
     val licensesDir = frontendImageLicensesDir.get().asFile.toPath()
     inputs.files(rootProject.files("LICENSE", "NOTICE", "CONTRIBUTORS"))
     // The image is a side effect, not a declared output, so this task must never
@@ -490,6 +572,13 @@ tasks.register("imageBuild") {
         val registry = frontendImageRegistry.orNull
         check(Files.isRegularFile(spaDir.resolve("index.html"))) {
             "No SPA build at $spaDir — npmBuild should have produced build/index.html"
+        }
+        // Without these the dialog would say "not available" in production, and
+        // nginx's `try_files … /index.html` would answer the JSON URL with HTML (task-210).
+        for (name in listOf("third-party-notices.json", "THIRD-PARTY-LICENSES.txt")) {
+            check(Files.isRegularFile(spaDir.resolve(name))) {
+                "No $name in $spaDir — :frontend:generateOssNotices should have put it there"
+            }
         }
         // The bundler's SBOM must never ship (task-206); npmBuild removes it, this
         // refuses an image if anything ever puts it back.

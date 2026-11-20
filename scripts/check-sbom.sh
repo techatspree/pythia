@@ -12,7 +12,9 @@
 #   - backend part: one component per jar in build/quarkus-app/lib and vice versa;
 #   - frontend part: the bundle's packages and the Kotlin/JS libraries, and none
 #     of the dev toolchain;
-#   - our own components are Apache-2.0.
+#   - our own components are Apache-2.0;
+#   - and it reports (without failing) how many third-party components carry a
+#     `copyright` (task-210).
 
 # Refuse to be sourced: `set -euo pipefail` would leak into the caller's shell.
 _sourced=0
@@ -87,5 +89,9 @@ jq -e '[.components[] | select(.name == "pythia-frontend") | .components[].purl 
 jq -e '[.metadata.component, .components[], (.. | objects | select((.purl? // "") | startswith("pkg:maven/io.pythia/")))]
        | all([.licenses[]?.license.id] | index("Apache-2.0") != null)' "$S" > /dev/null \
     || fail "pythia, its parts and every io.pythia component must be Apache-2.0"
+
+# Information, not a gate (task-210): how many third-party components the
+# finalize step found a copyright line for in their own files.
+echo "check-sbom: copyright found for $(jq '[.components[].components[] | select((.purl // "") | startswith("pkg:maven/io.pythia/") | not)] | [(map(select(.copyright)) | length), length] | "\(.[0]) of \(.[1])"' -r "$S") library components"
 
 echo "check-sbom: $S OK — $(jq '.components[0].components | length' "$S") backend + $(jq '.components[1].components | length' "$S") frontend components"

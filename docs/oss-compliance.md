@@ -208,7 +208,78 @@ marked `copyright holder not stated in the package`. Today that is 4 backend
 jars: `org.crac:crac`, `com.github.virtuald:curvesapi`,
 `com.sun.istack:istack-commons-runtime` and `org.antlr:antlr4-runtime`. The
 holder cannot be recovered from the package itself. task-210's copyright
-enrichment narrows this.
+enrichment did not change that: none of the four ships a file with a copyright
+line, and none has an author or publisher in the SBOM, so the dialog below shows
+"see the license text" for them.
+
+## In the application
+
+The images carry their attribution in `/licenses/pythia/`, but a person using
+Pythia never sees an image. Since task-210 the web application itself lists
+every shipped third-party component: **"Lizenzen"** in the user menu (every
+signed-in user, any role) opens the **"Open-Source-Lizenzen"** dialog. It states
+Pythia's own licence and copyright (the product name from `brand.name`), then
+the web interface's and the server's components, each with its licences, its
+copyright lines (verbatim, untranslated) or else its authors, and its project
+page, with a client-side filter over all of that. A link opens the full licence
+texts.
+
+**Where the copyright holders come from: the SBOM.** `scripts/sbom-finalize.mjs`
+fills CycloneDX's `component.copyright` for every third-party component from the
+component's own licence and notice files, found exactly as the
+THIRD-PARTY-LICENSES generator finds them (one shared implementation,
+`scripts/lib/package-license-files.mjs`: `LICENSE*`/`LICENCE*`/`COPYING*` and
+`NOTICE*`, in npm packages, backend jars and the Kotlin/JS klibs). A copyright
+line starts with a capitalised `Copyright`/`COPYRIGHT` that does not continue
+licence prose ("copyright notice …", "COPYRIGHT HOLDERS WILL NOT …"), or with
+`(c)`/`©` followed by a year. Licence-template placeholders (`[yyyy]`,
+`{yyyy}`, `<year>`) are dropped; lines are trimmed, deduplicated, notice files
+before licence files, at most 20. A plain "starts with copyright" rule is not
+enough: Apache-2.0's own text has lines starting "copyright license to
+reproduce" and "(c) You must retain", which put three lines of licence prose into
+113 components when task-210 first measured it. Today 59 of 278 third-party
+components have a holder line (42 of 257 backend, 17 of 21 frontend); most
+Apache-2.0 jars name nobody in their files. The rest show their SBOM authors or
+publisher, or "see the license text". The release's SBOM carries the field too.
+
+**`third-party-notices.json`** is the interface between build and dialog,
+written by `scripts/generate-oss-notices.mjs` from the finalized SBOM alone: two
+parts (`frontend`, `backend`), each component's `name` (npm `@group/name`, Maven
+`group:name`), `licenses`, `copyright` lines, `authors` and an `https://`
+`homepage` (or `null`); same-name components merged, our own `io.pythia`
+modules left out, sorted, no timestamp. It deliberately has **no versions,
+purls or hashes**: nginx serves it publicly, and Pythia does not publish its
+deployed dependency versions over HTTP (a fingerprint of the server;
+`docs/development.md` → "The SBOM", "Never in the image"). Attribution needs the
+name, the licence and the holders; the release's SBOM and the images' licence
+files keep the versions.
+
+**The full licence texts on the web** are `/THIRD-PARTY-LICENSES.txt`: the two
+images' generated files combined by `scripts/combine-third-party-licenses.mjs`,
+under the headers `Web interface (pythia-frontend)` and `Server (pythia-backend)`,
+each part byte-identical to its image's `/licenses/pythia/THIRD-PARTY-LICENSES.txt`.
+Anyone, signed in or not, can read it.
+
+**Build wiring.** `:frontend:generateOssNotices` (after `finalizeSbom` and
+`:frontend:combineThirdPartyLicenses`, which needs both task-208 generators)
+writes both files to the ROOT `build/oss-notices/`, the persistent copy, and
+copies them into the SPA (`src/frontend/build/`), which every `npmBuild`
+empties. `:frontend:assemble` and `:frontend:imageBuild` depend on it, and
+`imageBuild` refuses an SPA without either file: nginx's `try_files … /index.html`
+would otherwise answer the JSON URL with the SPA's HTML. So `:frontend:build`
+builds the backend first, through `finalizeSbom`.
+
+**Dev mode** shows the copy of the last full build. Vite serves `static/`, not
+`build/`, and the file needs the full SBOM, which needs the backend packaged. The
+dev-only Vite plugin `pythia-oss-notices-dev` (`vite.config.ts`, its middleware
+in `src/frontend/scripts/oss-notices-dev.mjs`) serves both URLs from
+`build/oss-notices/` per request and logs at startup whether a copy exists and
+when it was built. That copy may be **older than the working tree's
+dependencies**; run `./gradlew build` to refresh it. Without any full build
+(or after `./gradlew clean`) the plugin answers 404 and the dialog shows its
+**"not available yet"** state, an expected state rather than an error; any
+other failure goes to the error banner. Production never reaches that state.
+The Playwright suite stubs the file in every test (`e2e/oss-notices.test.ts`).
 
 ## Base images
 

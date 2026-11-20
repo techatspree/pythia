@@ -10,50 +10,14 @@ import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, write
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { deflateRawSync } from 'node:zlib';
 import { generate, readZip, readNoTextNames } from './generate-third-party-licenses.mjs';
 import { licenseTree } from './check-oss-compliance.mjs';
+import { zip } from './lib/test-zip.mjs';
 
 const FIXTURES = fileURLToPath(new URL('./fixtures/third-party-licenses/', import.meta.url));
 const SCRIPT = fileURLToPath(new URL('./generate-third-party-licenses.mjs', import.meta.url));
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
 const read = (f) => JSON.parse(readFileSync(join(FIXTURES, f), 'utf8'));
-
-// A minimal zip writer: `store` entries uncompressed, the rest deflated.
-function zip(entries, store = false) {
-	const locals = [];
-	const central = [];
-	let offset = 0;
-	for (const [name, content] of Object.entries(entries)) {
-		const raw = Buffer.from(content);
-		const data = store ? raw : deflateRawSync(raw);
-		const n = Buffer.from(name);
-		const local = Buffer.alloc(30);
-		local.writeUInt32LE(0x04034b50, 0);
-		local.writeUInt16LE(store ? 0 : 8, 8);
-		local.writeUInt32LE(data.length, 18);
-		local.writeUInt32LE(raw.length, 22);
-		local.writeUInt16LE(n.length, 26);
-		const cen = Buffer.alloc(46);
-		cen.writeUInt32LE(0x02014b50, 0);
-		cen.writeUInt16LE(store ? 0 : 8, 10);
-		cen.writeUInt32LE(data.length, 20);
-		cen.writeUInt32LE(raw.length, 24);
-		cen.writeUInt16LE(n.length, 28);
-		cen.writeUInt32LE(offset, 42);
-		locals.push(local, n, data);
-		central.push(cen, n);
-		offset += 30 + n.length + data.length;
-	}
-	const cd = Buffer.concat(central);
-	const eocd = Buffer.alloc(22);
-	eocd.writeUInt32LE(0x06054b50, 0);
-	eocd.writeUInt16LE(Object.keys(entries).length, 8);
-	eocd.writeUInt16LE(Object.keys(entries).length, 10);
-	eocd.writeUInt32LE(cd.length, 12);
-	eocd.writeUInt32LE(offset, 16);
-	return Buffer.concat([...locals, cd, eocd]);
-}
 
 let work;
 let jars;

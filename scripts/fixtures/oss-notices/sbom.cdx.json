@@ -1,0 +1,57 @@
+{
+  "bomFormat": "CycloneDX",
+  "specVersion": "1.6",
+  "version": 1,
+  "metadata": {
+    "component": { "type": "application", "bom-ref": "pythia", "name": "pythia", "version": "9.9.9", "licenses": [{ "license": { "id": "Apache-2.0" } }] }
+  },
+  "components": [
+    {
+      "type": "application", "bom-ref": "pythia-backend", "name": "pythia-backend", "version": "9.9.9",
+      "licenses": [{ "license": { "id": "Apache-2.0" } }],
+      "components": [
+        { "type": "library", "bom-ref": "pythia-backend:pkg:maven/io.pythia/core@9.9.9", "group": "io.pythia", "name": "core", "version": "9.9.9",
+          "purl": "pkg:maven/io.pythia/core@9.9.9", "licenses": [{ "license": { "id": "Apache-2.0" } }] },
+        { "type": "library", "bom-ref": "pythia-backend:pkg:maven/org.postgresql/postgresql@42.7.0", "group": "org.postgresql", "name": "postgresql", "version": "42.7.0",
+          "purl": "pkg:maven/org.postgresql/postgresql@42.7.0", "licenses": [{ "license": { "id": "BSD-2-Clause" } }],
+          "publisher": "PostgreSQL Global Development Group",
+          "copyright": "Copyright (c) 1997, PostgreSQL Global Development Group\nCopyright (c) 2017 OnGres, Inc.",
+          "externalReferences": [{ "type": "website", "url": "http://jdbc.postgresql.org" }, { "type": "vcs", "url": "https://github.com/pgjdbc/pgjdbc" }] },
+        { "type": "library", "bom-ref": "pythia-backend:pkg:maven/com.acme/twice@1.0", "group": "com.acme", "name": "twice", "version": "1.0",
+          "purl": "pkg:maven/com.acme/twice@1.0", "licenses": [{ "license": { "id": "MIT" } }],
+          "copyright": "Copyright 2020 Acme",
+          "components": [
+            { "type": "library", "bom-ref": "pythia-backend:pkg:maven/com.acme/nested@3.0", "group": "com.acme", "name": "nested", "version": "3.0",
+              "purl": "pkg:maven/com.acme/nested@3.0", "licenses": [{ "license": { "name": "The Nested License" } }],
+              "externalReferences": [{ "type": "website", "url": "http://nested.example.org" }] }
+          ] },
+        { "type": "library", "bom-ref": "pythia-backend:pkg:maven/com.acme/twice@2.0", "group": "com.acme", "name": "twice", "version": "2.0",
+          "purl": "pkg:maven/com.acme/twice@2.0", "licenses": [{ "expression": "MIT OR Apache-2.0" }],
+          "copyright": "Copyright 2020 Acme\nCopyright 2024 Acme Two",
+          "supplier": { "name": "Acme Supplies" },
+          "externalReferences": [{ "type": "website", "url": "https://acme.example.com" }] }
+      ]
+    },
+    {
+      "type": "application", "bom-ref": "pythia-frontend", "name": "pythia-frontend", "version": "9.9.9",
+      "licenses": [{ "license": { "id": "Apache-2.0" } }],
+      "components": [
+        { "type": "library", "bom-ref": "pythia-frontend:pkg:npm/svelte@5.0.0", "name": "svelte", "version": "5.0.0",
+          "purl": "pkg:npm/svelte@5.0.0", "licenses": [{ "license": { "id": "MIT" } }],
+          "copyright": "Copyright (c) 2016-2025 Svelte Contributors",
+          "externalReferences": [{ "type": "vcs", "url": "git+https://github.com/sveltejs/svelte.git" }] },
+        { "type": "library", "bom-ref": "pythia-frontend:pkg:npm/%40azure/msal-browser@5.0.0", "group": "@azure", "name": "msal-browser", "version": "5.0.0",
+          "purl": "pkg:npm/%40azure/msal-browser@5.0.0", "licenses": [{ "license": { "id": "MIT" } }],
+          "author": "Microsoft", "authors": [{ "name": "Microsoft" }, { "name": "MSAL Team" }],
+          "externalReferences": [{ "type": "website", "url": "https://github.com/AzureAD/microsoft-authentication-library-for-js#readme" }] },
+        { "type": "library", "bom-ref": "pythia-frontend:pkg:maven/org.jetbrains.kotlin/kotlin-stdlib-js@2.4.10?type=klib", "group": "org.jetbrains.kotlin", "name": "kotlin-stdlib-js", "version": "2.4.10",
+          "purl": "pkg:maven/org.jetbrains.kotlin/kotlin-stdlib-js@2.4.10?type=klib", "licenses": [{ "license": { "id": "Apache-2.0" } }] },
+        { "type": "library", "bom-ref": "pythia-frontend:pkg:maven/io.pythia/domain@9.9.9", "group": "io.pythia", "name": "domain", "version": "9.9.9",
+          "purl": "pkg:maven/io.pythia/domain@9.9.9", "licenses": [{ "license": { "id": "Apache-2.0" } }] }
+      ]
+    }
+  ],
+  "dependencies": [
+    { "ref": "pythia", "dependsOn": ["pythia-backend", "pythia-frontend"] }
+  ]
+}
