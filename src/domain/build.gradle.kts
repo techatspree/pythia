@@ -129,7 +129,9 @@ val prepareTypescriptArtifacts = tasks.register<Copy>("prepareTypescriptArtifact
         if (pkg.exists()) {
             @Suppress("UNCHECKED_CAST")
             val json = groovy.json.JsonSlurper().parse(pkg) as MutableMap<String, Any?>
-            (json["devDependencies"] as? MutableMap<String, Any?>)?.let { dev ->
+            @Suppress("UNCHECKED_CAST")
+            val devDependencies = json["devDependencies"] as? MutableMap<String, Any?>
+            devDependencies?.let { dev ->
                 dev.remove("typescript")
                 if (dev.isEmpty()) json.remove("devDependencies")
             }
