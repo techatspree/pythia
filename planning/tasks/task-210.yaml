@@ -174,10 +174,12 @@ description: |
 
   ## The dialog
 
-  - **Entry point:** a link-style button "Lizenzen" in the `UserMenu`,
-    between the language select and "Abmelden". It is visible to every
+  - **Entry point:** a link-style button "Open-Source-Lizenzen" in a new
+    app footer (`AppFooter.svelte`, rendered by the root layout on every
+    route, the place for legal information). It is visible to every
     signed-in user regardless of role. (Anyone not signed in can still read
-    the public `/THIRD-PARTY-LICENSES.txt` this task serves.)
+    the public `/THIRD-PARTY-LICENSES.txt` this task serves.) It first sat in
+    the `UserMenu` next to "Abmelden"; see "Change after implementation".
   - **Content:** an intro stating Pythia's own license and copyright, a
     filter field, then two sections (web interface, server), each a
     vertically scrolling list of the components, and a link to the full
@@ -207,17 +209,30 @@ description: |
 
   ## Wireframes
 
-  ### App header: signed in (any role)
+  ### Any page: app footer, signed in (any role)
 
       +--------------------------------------------------------------------------------------+
-      | (o) Pythia   Projekte  Sitzungen  …        Anna Admin [ADMIN]  [ Deutsch v ]  Lizenzen  Abmelden |
+      | (o) Pythia   Projekte  Sitzungen  …        Anna Admin [ADMIN]  [ Deutsch v ]  Abmelden |
+      +--------------------------------------------------------------------------------------+
+      |                                                                                      |
+      |   … page content …                                                                   |
+      |                                                                                      |
+      +--------------------------------------------------------------------------------------+
+      |                                                               Open-Source-Lizenzen   |
       +--------------------------------------------------------------------------------------+
 
-    - New: "Lizenzen" (`menu.user.ossNotices`), `data-testid="user-menu.oss-notices"`,
-      a `<button type="button">` styled exactly like the existing logout
-      button (link look, `text-brand-green`). Visible to VIEWER, ESTIMATOR and
-      ADMIN alike. Opens the dialog below.
-    - The existing `language-select` and `logout-button` are unchanged.
+    - New: `<footer data-testid="app-footer">` (`AppFooter.svelte`), a
+      `border-t border-hairline` row at the bottom of every route; the root
+      layout makes header, `main` and footer a `min-h-screen flex flex-col`
+      column so the footer sits at the bottom of a short page. Rendered only
+      for a signed-in user, like the header's navigation. Further legal links
+      (imprint, privacy notice) go into this row later.
+    - New: "Open-Source-Lizenzen" (`footer.ossNotices`),
+      `data-testid="app-footer.oss-notices"`, a `<button type="button">` in
+      small muted link style (`text-xs text-ink-muted`, hover
+      `text-ink-strong` + underline). Visible to VIEWER, ESTIMATOR and ADMIN
+      alike. Opens the dialog below.
+    - The header and `UserMenu` are unchanged.
 
   ### Open-Source-Lizenzen dialog: loaded
 
@@ -347,7 +362,7 @@ description: |
 
   | key | de | en |
   |---|---|---|
-  | `menu.user.ossNotices` | Lizenzen | Licenses |
+  | `footer.ossNotices` | Open-Source-Lizenzen | Open-source licenses |
   | `ossNotices.title` | Open-Source-Lizenzen | Open-source licenses |
   | `ossNotices.intro` | {name} ist Open-Source-Software unter der Apache-Lizenz 2.0 – Copyright 2026 {name} Contributors. Es enthält die folgenden Open-Source-Komponenten. | {name} is open-source software under the Apache License 2.0 – Copyright 2026 {name} Contributors. It includes the following open-source components. |
   | `ossNotices.filterLabel` | Filtern | Filter |
@@ -411,6 +426,20 @@ description: |
     making it case-sensitive, now fails the spec.
   - **An extra testid** `oss-notices-dialog.section.<part>` wraps each section,
     so the page object counts a part's rows without relying on DOM order.
+
+  ## Change after implementation: the entry point moved to a footer
+
+  The first implementation put a "Lizenzen" link into the `UserMenu`, next
+  to "Abmelden". Reviewed in the running app, that was too prominent for
+  legal information. It moved to a new app footer (`AppFooter.svelte`), the
+  place where further legal information (imprint, privacy notice) will go.
+  The key `menu.user.ossNotices` ("Lizenzen") became `footer.ossNotices`
+  ("Open-Source-Lizenzen" / "Open-source licenses"), the testid
+  `user-menu.oss-notices` became `app-footer.oss-notices`, and the page
+  object method moved from `UserMenu` to a new `AppFooter` page object. The
+  description, wireframe, steps, validation and outputs above already show
+  the footer version; `UserMenu.svelte` and `e2e/pages/UserMenu.ts` are back
+  to their state before this task.
 
 steps:
   - |
@@ -560,16 +589,21 @@ steps:
     Counts go through `formatNumber` from `#lib/format.ts`; all imports use
     `#lib/…` with the file extension.
   - |
-    In `src/frontend/src/lib/components/UserMenu.svelte`, add the
-    "Lizenzen" button (`data-testid="user-menu.oss-notices"`) between the
-    language select and the logout button, as wireframed, and render
-    `<OssNoticesDialog bind:open={ossNoticesOpen} />`.
+    Create `src/frontend/src/lib/components/AppFooter.svelte` as wireframed
+    (`account` prop; renders nothing without one) with the
+    "Open-Source-Lizenzen" button (`data-testid="app-footer.oss-notices"`)
+    and `<OssNoticesDialog bind:open={ossNoticesOpen} />`, and render
+    `<AppFooter {account} />` after `main` in `src/frontend/src/routes/+layout.svelte`,
+    wrapping header, `main` and footer in a `min-h-screen flex flex-col`
+    column with `main` as `flex-1 min-w-0` (a flex item, still not a flex
+    container).
   - |
     Add every i18n key from the table to `src/frontend/src/lib/i18n/de.json`
     and `en.json`, key for key, with the exact texts.
   - |
-    The entry point belongs to the existing `src/frontend/e2e/pages/UserMenu.ts`:
-    add `openOssNotices()` there (clicks `user-menu.oss-notices`). The dialog
+    The entry point gets a Page Object `src/frontend/e2e/pages/AppFooter.ts`:
+    `expectVisible()` and `openOssNotices()` (clicks `app-footer.oss-notices`
+    inside `app-footer`). The dialog
     gets its own Page Object `src/frontend/e2e/pages/OssNoticesDialog.ts`
     (exported from `e2e/pages/index.ts`): `expectVisible()`, `expectHidden()`, `filter(text)`,
     `expectComponent(name)` / `expectNoComponent(name)` (by `data-name`),
@@ -590,7 +624,7 @@ steps:
     `org.hibernate.orm:hibernate-core` Apache-2.0 with authors only
     (`Hibernate.org`), `org.postgresql:postgresql` BSD-2-Clause with
     copyright:
-      - a VIEWER opens it via `UserMenu.openOssNotices()`; both part counts are right;
+      - a VIEWER sees the footer and opens it via `AppFooter.openOssNotices()`; both part counts are right;
         a component with copyright shows it, one with authors only shows
         the authors line, one with neither shows the "see the license text"
         line;
@@ -706,9 +740,12 @@ validation:
     ! grep -q "console\." "$C" src/frontend/src/lib/ossNotices.ts
     grep -q "apiFetch('/third-party-notices.json')" src/frontend/src/lib/ossNotices.ts
     ! grep -qE "(^|[^A-Za-z])fetch\(" src/frontend/src/lib/ossNotices.ts
-    grep -q 'data-testid="user-menu.oss-notices"' src/frontend/src/lib/components/UserMenu.svelte
+    grep -q 'data-testid="app-footer.oss-notices"' src/frontend/src/lib/components/AppFooter.svelte
+    grep -q '<AppFooter' src/frontend/src/routes/+layout.svelte
+    # not in the header any more
+    ! grep -q 'oss-notices\|OssNotices' src/frontend/src/lib/components/UserMenu.svelte src/frontend/src/lib/components/AppHeader.svelte
   - |
-    for k in menu.user.ossNotices ossNotices.title ossNotices.intro ossNotices.filterLabel ossNotices.filterPlaceholder ossNotices.part.frontend ossNotices.part.backend ossNotices.authors ossNotices.copyrightUnknown ossNotices.homepage ossNotices.fullText ossNotices.noMatch ossNotices.unavailable ossNotices.loadFailed ossNotices.close; do
+    for k in footer.ossNotices ossNotices.title ossNotices.intro ossNotices.filterLabel ossNotices.filterPlaceholder ossNotices.part.frontend ossNotices.part.backend ossNotices.authors ossNotices.copyrightUnknown ossNotices.homepage ossNotices.fullText ossNotices.noMatch ossNotices.unavailable ossNotices.loadFailed ossNotices.close; do
       for f in src/frontend/src/lib/i18n/de.json src/frontend/src/lib/i18n/en.json; do
         jq -e --arg k "$k" 'getpath($k | split(".")) | type == "string"' "$f" > /dev/null || { echo "missing $k in $f"; exit 1; }
       done
@@ -734,7 +771,8 @@ validation:
   - |
     test -f src/frontend/e2e/pages/OssNoticesDialog.ts
     grep -q "OssNoticesDialog" src/frontend/e2e/pages/index.ts
-    grep -q "openOssNotices" src/frontend/e2e/pages/UserMenu.ts
+    grep -q "openOssNotices" src/frontend/e2e/pages/AppFooter.ts
+    grep -q "AppFooter" src/frontend/e2e/pages/index.ts
     grep -q "from './pages'" src/frontend/e2e/oss-notices.test.ts
   - |
     grep -q "^## In the application" docs/oss-compliance.md
@@ -765,12 +803,13 @@ outputs:
   - modified: src/frontend/CLAUDE.md
   - created: src/frontend/src/lib/ossNotices.ts
   - created: src/frontend/src/lib/components/OssNoticesDialog.svelte
-  - modified: src/frontend/src/lib/components/UserMenu.svelte
+  - created: src/frontend/src/lib/components/AppFooter.svelte
+  - modified: src/frontend/src/routes/+layout.svelte
   - modified: src/frontend/src/lib/i18n/de.json
   - modified: src/frontend/src/lib/i18n/en.json
   - created: src/frontend/e2e/pages/OssNoticesDialog.ts
   - modified: src/frontend/e2e/pages/index.ts
-  - modified: src/frontend/e2e/pages/UserMenu.ts
+  - created: src/frontend/e2e/pages/AppFooter.ts
   - created: src/frontend/e2e/oss-notices.test.ts
   - modified: docs/oss-compliance.md
   - modified: docs/development.md

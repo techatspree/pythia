@@ -4,6 +4,7 @@
 	import logo from '#lib/assets/logo.svg';
 	import RequireAuth from '#lib/auth/RequireAuth.svelte';
 	import AppHeader from '#lib/components/AppHeader.svelte';
+	import AppFooter from '#lib/components/AppFooter.svelte';
 	import ErrorBanner from '#lib/components/ErrorBanner.svelte';
 	import ConnectionLostDialog from '#lib/components/ConnectionLostDialog.svelte';
 	import { connection } from '#lib/stores/connection.svelte.ts';
@@ -88,14 +89,19 @@
 	{/if}
 </svelte:head>
 
+<!-- A column at least one screen tall, so the footer (task-210) sits at the
+     bottom of a short page and after the content of a long one. -->
+<div class="min-h-screen flex flex-col">
 <AppHeader {account} onlogout={refresh} />
 
 <!-- `main` is deliberately a plain block: making it a flex container turns every
      page's root element into a flex item, whose automatic minimum size stops the
      TreeTable's horizontal scroll wrapper from overflowing (caught by
      `e2e/treetable-responsive.test.ts`). A route that paints its own background
-     therefore ends it with its content rather than at the fold. -->
-<main>
+     therefore ends it with its content rather than at the fold. It IS a flex
+     ITEM of the column above (`flex-1` pushes the footer down); `min-w-0` keeps
+     that from imposing an automatic minimum width on the same scroll wrapper. -->
+<main class="flex-1 min-w-0">
 	{#if configError}
 		<!-- The message arrives ALREADY TRANSLATED: runtimeConfig.ts resolves it
 		     through get(_) before throwing, because +layout.ts awaits waitLocale()
@@ -114,6 +120,9 @@
 		<p class="p-6 text-sm text-ink-muted">Loading…</p>
 	{/if}
 </main>
+
+<AppFooter {account} />
+</div>
 
 <!-- Global connection watchdog: overlays every route (session chrome included). -->
 {#if connection.blocked}

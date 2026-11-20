@@ -30,7 +30,7 @@ export async function stubNoticesStatus(page: Page, status: number): Promise<voi
 	await page.route('**/third-party-notices.json', (route) => route.fulfill({ status, body: '' }));
 }
 
-/** The "Open-Source-Lizenzen" dialog (task-210); opened via UserMenu.openOssNotices(). */
+/** The "Open-Source-Lizenzen" dialog (task-210); opened via AppFooter.openOssNotices(). */
 export class OssNoticesDialog {
 	constructor(private readonly page: Page) {}
 

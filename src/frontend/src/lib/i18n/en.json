@@ -26,8 +26,7 @@
   },
   "menu": {
     "user": {
-      "logout": "Logout",
-      "ossNotices": "Licenses"
+      "logout": "Logout"
     }
   },
   "dialog": {
@@ -575,6 +574,9 @@
       "hoursSaved": "Working time saved.",
       "hoursInvalid": "Please enter a number greater than 0 and at most 24."
     }
+  },
+  "footer": {
+    "ossNotices": "Open-source licenses"
   },
   "ossNotices": {
     "title": "Open-source licenses",

@@ -1,4 +1,5 @@
 export { AdditionalCostsPanel } from './AdditionalCostsPanel';
+export { AppFooter } from './AppFooter';
 export { BucketEditor } from './BucketEditor';
 export { ChangeOwnerDialog } from './ChangeOwnerDialog';
 export { ComparePage } from './ComparePage';

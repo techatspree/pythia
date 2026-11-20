@@ -6,7 +6,6 @@
 	import { assertOk } from '#lib/api/errors.ts';
 	import { log } from '#lib/log.ts';
 	import ErrorBanner from '#lib/components/ErrorBanner.svelte';
-	import OssNoticesDialog from '#lib/components/OssNoticesDialog.svelte';
 	import type { AuthAccount } from '#lib/auth/AuthProvider.ts';
 	import { getAuthProvider } from '#lib/auth/index.ts';
 
@@ -25,7 +24,6 @@
 	} = $props();
 
 	let bannerMessage = $state<string | null>(null);
-	let ossNoticesOpen = $state(false);
 
 	// Persist the chosen language to the backend, then switch the active locale.
 	// Maps the ISO code to the domain's canonical SupportedLanguage (fromCode is
@@ -73,12 +71,6 @@
 	</select>
 	<button
 		type="button"
-		data-testid="user-menu.oss-notices"
-		class="text-sm text-brand-green hover:text-brand-green-hover underline-offset-2 hover:underline"
-		onclick={() => (ossNoticesOpen = true)}
-	>{$_('menu.user.ossNotices')}</button>
-	<button
-		type="button"
 		data-testid="logout-button"
 		class="text-sm text-brand-green hover:text-brand-green-hover underline-offset-2 hover:underline"
 		onclick={async () => {
@@ -86,8 +78,6 @@
 			onlogout();
 		}}
 	>{$_('menu.user.logout')}</button>
-
-	<OssNoticesDialog bind:open={ossNoticesOpen} />
 
 	{#if bannerMessage}
 		<div class="absolute right-0 top-full mt-2 w-72 z-50">

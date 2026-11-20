@@ -1,6 +1,6 @@
 import { test, type Page } from '@playwright/test';
 import { loginAsDev } from './helpers';
-import { OssNoticesDialog, ProjectsListPage, UserMenu, stubNotices, stubNoticesStatus } from './pages';
+import { AppFooter, OssNoticesDialog, ProjectsListPage, stubNotices, stubNoticesStatus } from './pages';
 import type { NoticesFixture } from './pages/OssNoticesDialog';
 
 // The "Open-Source-Lizenzen" dialog (task-210). The notices file is stubbed in
@@ -58,13 +58,15 @@ const NOTICES: NoticesFixture = {
 async function openAsViewer(page: Page): Promise<OssNoticesDialog> {
 	await loginAsDev(page, 'dev-viewer');
 	await new ProjectsListPage(page).goto();
-	await new UserMenu(page).openOssNotices();
+	const footer = new AppFooter(page);
+	await footer.expectVisible();
+	await footer.openOssNotices();
 	const dialog = new OssNoticesDialog(page);
 	await dialog.expectVisible();
 	return dialog;
 }
 
-test('a viewer opens the licences from the user menu and sees both parts', async ({ page }) => {
+test('a viewer opens the licences from the footer and sees both parts', async ({ page }) => {
 	await stubNotices(page, NOTICES);
 	const dialog = await openAsViewer(page);
 
@@ -112,7 +114,7 @@ test('Escape and the close button both close the dialog', async ({ page }) => {
 	await dialog.closeWithEscape();
 	await dialog.expectHidden();
 
-	await new UserMenu(page).openOssNotices();
+	await new AppFooter(page).openOssNotices();
 	await dialog.expectVisible();
 	await dialog.close();
 	await dialog.expectHidden();

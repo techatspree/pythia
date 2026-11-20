@@ -3,7 +3,7 @@ import { expect } from '@playwright/test';
 
 type Role = 'viewer' | 'estimator' | 'admin';
 
-/** The account area in the app header: display name, role badges, language, licences, logout. */
+/** The account area in the app header: display name, role badges, language, logout. */
 export class UserMenu {
 	constructor(private readonly page: Page) {}
 
@@ -18,11 +18,6 @@ export class UserMenu {
 
 	async expectLogoutVisible(): Promise<void> {
 		await expect(this.page.getByTestId('logout-button')).toBeVisible();
-	}
-
-	/** Opens the "Open-Source-Lizenzen" dialog (task-210); drive it with OssNoticesDialog. */
-	async openOssNotices(): Promise<void> {
-		await this.page.getByTestId('user-menu.oss-notices').click();
 	}
 
 	async logout(): Promise<void> {

@@ -216,8 +216,9 @@ line, and none has an author or publisher in the SBOM, so the dialog below shows
 
 The images carry their attribution in `/licenses/pythia/`, but a person using
 Pythia never sees an image. Since task-210 the web application itself lists
-every shipped third-party component: **"Lizenzen"** in the user menu (every
-signed-in user, any role) opens the **"Open-Source-Lizenzen"** dialog. It states
+every shipped third-party component: the **"Open-Source-Lizenzen"** link in the
+app footer (every signed-in user, any role, on every route) opens the dialog of
+the same name. It states
 Pythia's own licence and copyright (the product name from `brand.name`), then
 the web interface's and the server's components, each with its licences, its
 copyright lines (verbatim, untranslated) or else its authors, and its project

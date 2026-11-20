@@ -26,8 +26,7 @@
   },
   "menu": {
     "user": {
-      "logout": "Abmelden",
-      "ossNotices": "Lizenzen"
+      "logout": "Abmelden"
     }
   },
   "dialog": {
@@ -575,6 +574,9 @@
       "hoursSaved": "Arbeitszeit gespeichert.",
       "hoursInvalid": "Bitte eine Zahl größer als 0 und höchstens 24 eingeben."
     }
+  },
+  "footer": {
+    "ossNotices": "Open-Source-Lizenzen"
   },
   "ossNotices": {
     "title": "Open-Source-Lizenzen",
