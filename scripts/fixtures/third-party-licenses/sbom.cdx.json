@@ -1,0 +1,29 @@
+{
+  "bomFormat": "CycloneDX",
+  "specVersion": "1.6",
+  "version": 1,
+  "components": [
+    {
+      "type": "application", "name": "pythia-backend", "bom-ref": "pythia-backend",
+      "components": [
+        { "type": "library", "group": "com.acme", "name": "lib-b", "version": "2.0", "purl": "pkg:maven/com.acme/lib-b@2.0?type=jar", "licenses": [{ "license": { "id": "Apache-2.0" } }] },
+        { "type": "library", "group": "com.acme", "name": "lib-a", "version": "1.0", "purl": "pkg:maven/com.acme/lib-a@1.0?type=jar", "licenses": [{ "license": { "id": "Apache-2.0" } }] },
+        { "type": "library", "group": "com.acme", "name": "relicensed", "version": "1.0", "purl": "pkg:maven/com.acme/relicensed@1.0?type=jar", "licenses": [{ "license": { "name": "Public Domain" } }] },
+        { "type": "library", "group": "io.pythia", "name": "core", "version": "1.0.0", "purl": "pkg:maven/io.pythia/core@1.0.0", "licenses": [{ "license": { "id": "Apache-2.0" } }] }
+      ]
+    },
+    {
+      "type": "application", "name": "pythia-frontend", "bom-ref": "pythia-frontend",
+      "components": [
+        { "type": "library", "name": "mit-own", "version": "1.0.0", "purl": "pkg:npm/mit-own@1.0.0", "licenses": [{ "license": { "id": "MIT" } }] },
+        { "type": "library", "name": "mit-bare", "version": "2.0.0", "purl": "pkg:npm/mit-bare@2.0.0", "licenses": [{ "license": { "name": "The MIT License" } }] },
+        { "type": "library", "name": "mit-canonical", "version": "3.0.0", "purl": "pkg:npm/mit-canonical@3.0.0", "licenses": [{ "license": { "id": "MIT" } }] },
+        { "type": "library", "name": "dual", "version": "4.0.0", "purl": "pkg:npm/dual@4.0.0", "licenses": [{ "expression": "MIT OR Apache-2.0" }] },
+        { "type": "library", "group": "@scope", "name": "scoped", "version": "5.0.0", "purl": "pkg:npm/%40scope/scoped@5.0.0", "licenses": [{ "license": { "id": "Apache-2.0" } }] },
+        { "type": "library", "name": "inner", "version": "6.0.0", "purl": "pkg:npm/inner@6.0.0", "licenses": [{ "license": { "id": "BSD-3-Clause" } }] },
+        { "type": "library", "group": "org.example", "name": "lib-js", "version": "3.0", "purl": "pkg:maven/org.example/lib-js@3.0?type=klib", "licenses": [{ "license": { "id": "Apache-2.0" } }] },
+        { "type": "library", "group": "io.pythia", "name": "domain", "version": "1.0.0", "purl": "pkg:maven/io.pythia/domain@1.0.0", "licenses": [{ "license": { "id": "Apache-2.0" } }] }
+      ]
+    }
+  ]
+}

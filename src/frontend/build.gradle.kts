@@ -1,7 +1,6 @@
 import com.github.gradle.node.npm.task.NpmTask
 import com.github.gradle.node.task.NodeTask
 import com.google.cloud.tools.jib.api.Containerizer
-import com.google.cloud.tools.jib.api.Credential
 import com.google.cloud.tools.jib.api.DockerDaemonImage
 import com.google.cloud.tools.jib.api.ImageReference
 import com.google.cloud.tools.jib.api.Jib
@@ -247,15 +246,85 @@ val writeImageSbomPart = registerSbomPart(
     rootProject.layout.buildDirectory.file("frontend-image/sbom.cdx.json")
 )
 
+// Each image's /licenses/pythia/THIRD-PARTY-LICENSES.txt (task-208): every
+// shipped component, grouped by licence, with the licence texts and the
+// packages' own licence and notice files. scripts/generate-third-party-licenses.mjs
+// runs HERE for both parts, on the build's pinned Node, like registerSbomPart.
+// Written under the ROOT build dir, never this project's SPA build/.
+val thirdPartyLicensesDir = rootProject.layout.buildDirectory.dir("third-party-licenses")
+fun registerThirdPartyLicenses(name: String, part: String, configure: NodeTask.(MutableList<String>) -> Unit) =
+    tasks.register<NodeTask>(name) {
+        description = "Generates THIRD-PARTY-LICENSES.txt for the $part part (task-208)."
+        dependsOn(finalizeSbom)
+        script.set(rootProject.file("scripts/generate-third-party-licenses.mjs"))
+        inputs.dir(rootProject.file("compliance/license-texts"))
+        inputs.file(rootProject.file("compliance/oss-policy.json"))
+        val extra = mutableListOf<String>()
+        configure(extra)
+        args.set(
+            listOf(
+                "--sbom", rootProject.layout.buildDirectory.file("sbom/pythia.cdx.json").get().asFile.path,
+                "--part", part,
+                "--first-party-group", "io.pythia",
+                "--license-texts", rootProject.file("compliance/license-texts").path,
+                "--policy", rootProject.file("compliance/oss-policy.json").path,
+                "--out", thirdPartyLicensesDir.get().file("$part/THIRD-PARTY-LICENSES.txt").asFile.path
+            ) + extra
+        )
+        // Reads other projects' outputs; cheap, so always rerun like finalizeSbom.
+        outputs.upToDateWhen { false }
+    }
+
+val generateThirdPartyLicenses = registerThirdPartyLicenses("generateThirdPartyLicenses", "pythia-frontend") { extra ->
+    // The Kotlin/JS libraries compiled into the SPA; :domain resolves them itself.
+    dependsOn(":domain:writeJsRuntimeJarList")
+    val jarList = project(":domain").layout.buildDirectory.file("third-party/js-runtime-jars.txt").get().asFile
+    extra += listOf("--node-modules", file("node_modules").path, "--jars", jarList.path)
+}
+
+// For the BACKEND image; :backend:implementation:stageImageLicenses picks it up.
+registerThirdPartyLicenses("generateBackendThirdPartyLicenses", "pythia-backend") { extra ->
+    val libDir = project(":backend:implementation").layout.buildDirectory.dir("quarkus-app/lib").get().asFile
+    val jarList = thirdPartyLicensesDir.get().file("backend-jars.txt").asFile
+    extra += listOf("--jars", jarList.path)
+    // finalizeSbom already depends on quarkusBuild, which writes these jars.
+    doFirst {
+        jarList.parentFile.mkdirs()
+        val jars = libDir.walkTopDown().filter { it.isFile && it.name.endsWith(".jar") }.map { it.absolutePath }.sorted()
+        jarList.writeText(jars.joinToString("\n", postfix = "\n"))
+    }
+}
+
 // The frontend image's /licenses/pythia/ (task-219), staged under the ROOT build
 // dir next to jib-image.digest and added by imageBuild as its own layer.
 val frontendImageLicensesDir = rootProject.layout.buildDirectory.dir("frontend-image/licenses")
 val stageImageLicenses = tasks.register<Sync>("stageImageLicenses") {
     description = "Stages /licenses/pythia/ for the frontend image (task-219)."
-    dependsOn(writeImageSbomPart)
+    dependsOn(writeImageSbomPart, generateThirdPartyLicenses)
     from(rootProject.files("LICENSE", "NOTICE", "CONTRIBUTORS"))
     from(rootProject.layout.buildDirectory.file("frontend-image/sbom.cdx.json"))
+    from(thirdPartyLicensesDir.map { it.file("pythia-frontend/THIRD-PARTY-LICENSES.txt") })
     into(frontendImageLicensesDir)
+}
+
+// Every CycloneDX fixture under scripts/fixtures/ against the official 1.6
+// schema (compliance/cyclonedx-schema/), part of :frontend:check. The scripts
+// under test read only a few fields, so an invalid fixture would otherwise pass.
+val testSbomSchema = tasks.register<NodeTask>("testSbomSchema") {
+    description = "Validates the CycloneDX test fixtures against the CycloneDX 1.6 JSON schema."
+    dependsOn(tasks.npmInstall)
+    options.set(listOf("--test"))
+    script.set(rootProject.file("scripts/sbom-schema.test.mjs"))
+    outputs.upToDateWhen { false }
+}
+
+// Unit tests of the third-party licence generator, part of :frontend:check.
+val testThirdPartyLicenses = tasks.register<NodeTask>("testThirdPartyLicenses") {
+    description = "Runs the node --test suite of scripts/generate-third-party-licenses.mjs."
+    dependsOn(tasks.npmInstall)
+    options.set(listOf("--test"))
+    script.set(rootProject.file("scripts/generate-third-party-licenses.test.mjs"))
+    outputs.upToDateWhen { false }
 }
 
 // Unit tests of the part cut, part of :frontend:check.
@@ -350,7 +419,7 @@ val testOssCompliance = tasks.register<NodeTask>("testOssCompliance") {
 tasks.named("check") {
     dependsOn(
         npmCheck, npmLintReport, checkDesignTokens, lintE2e, lintOpenApi, testSbomFinalize,
-        testSbomPart, testOssCompliance, checkOssCompliance
+        testSbomPart, testThirdPartyLicenses, testSbomSchema, testOssCompliance, checkOssCompliance
     )
     if (openApiGate) dependsOn(verifyOpenApiSchemaCommitted)
 }

@@ -1,0 +1,195 @@
+id: task-221
+phase: phase-19
+title: "Merlin import brings the activities' dependencies along"
+depends_on: [task-131, task-216]
+description: |
+  ## Why
+
+  The Merlin import (task-131) predates schedule dependencies (task-155 to
+  task-157). Merlin has dependencies too, and an imported Merlin project is
+  the tool's main input for the schedule (`src/domain/CLAUDE.md`, task-164:
+  "`MerlinImporter` reconstructs a whole WBS as nested groups … which is the
+  tool's main input"). Today an imported draft therefore starts with NO
+  dependencies, even when the Merlin plan has them, and the user must redraw
+  every edge in the dependency editor by hand.
+
+  ## Current state (measured 2026-11-20)
+
+  - `MerlinImporter.kt` reads ONLY `ZSCHEDULEITEM` (`ACTIVITIES_QUERY`).
+    `grep -c ZDEPENDENCY` on it is 0. `buildVersion` never touches
+    `version.scheduleDependencies`.
+  - Merlin keeps dependencies in their own Core Data table:
+
+        CREATE TABLE ZDEPENDENCY ( Z_PK INTEGER PRIMARY KEY, Z_ENT INTEGER,
+          Z_OPT INTEGER, ZTYPE INTEGER, ZNEXTACTIVITY_ INTEGER,
+          Z49_NEXTACTIVITY_ INTEGER, ZPREVIOUSACTIVITY_ INTEGER,
+          Z49_PREVIOUSACTIVITY_ INTEGER, ZPROJECT INTEGER, ZUNIQUEID VARCHAR,
+          ZLAG_ BLOB );
+
+    `ZPREVIOUSACTIVITY_` is the predecessor, `ZNEXTACTIVITY_` the successor,
+    both a `ZSCHEDULEITEM.Z_PK`.
+  - The demo file (`planning/inputdata/MerlinDemoProject.mproject/state.sql`,
+    byte-identical to the test resource
+    `src/backend/implementation/src/test/resources/merlin/state.sql`) has
+    exactly two rows, both `ZTYPE = 0`, `ZLAG_` NULL, both between TOP-LEVEL
+    GROUPS:
+
+        Z_PK 2: Initialisation (pk 4)  → Implementation (pk 6)
+        Z_PK 1: Implementation (pk 6)  → Closure (pk 9)
+
+  - Pythia stores an edge as `DraftScheduleDependency(fromLogicalId,
+    toLogicalId)` on `DraftEstimationVersion.scheduleDependencies`
+    (`cascade = ALL`, so `draftRepository.persist(draft)` in
+    `EstimationVersionService.importMerlinDraft` saves them with the draft).
+    The ids are `DraftEstimationNode.logicalId.toString()`. An edge may name
+    ANY node, group or leaf (task-164). The domain lowers group edges through
+    milestones. There is a UNIQUE `(version_id, from_logical_id,
+    to_logical_id)` constraint, so a duplicate edge aborts the persist.
+  - Pythia knows only finish-to-start edges WITHOUT lag
+    (`ScheduleDependency`, "A finish-to-start edge").
+
+  ## Target state
+
+  Importing a Merlin file creates one `DraftScheduleDependency` per Merlin
+  dependency that Pythia can represent. The imported draft's schedule then
+  shows the same ordering as the Merlin plan. For the demo file the draft
+  carries 2 edges: Initialisation → Implementation, Implementation → Closure.
+
+  ## Decisions
+
+  - **`ZTYPE = 0` is finish-to-start.** That is the value of both rows in the
+    demo file and Merlin's default dependency type. It is an assumption from
+    the observed data, written as such in the code comment. Any other
+    `ZTYPE` (start-to-start, finish-to-finish, start-to-finish) has no
+    Pythia equivalent: the edge is SKIPPED, and one WARN names how many were
+    skipped and their types. Importing it as finish-to-start would invent a
+    constraint the planner did not draw.
+  - **A lag is dropped, the edge is kept.** A non-NULL `ZLAG_` still orders
+    the two activities. Without its lag the edge is closer to the plan than
+    no edge at all. The edge is imported, and one WARN counts the lags that
+    were ignored. The `ZLAG_` blob's encoding is not decoded.
+  - **Edges Pythia cannot place are skipped, not fatal:** an endpoint that is
+    not an imported activity (the project root activity, which IS the
+    estimation and becomes no node; a `Z_PK` with no `ZTITLE`, such as an
+    assignment row; a dangling reference) and a self-edge. One WARN with the
+    count. The import of the WBS itself must never fail because of a
+    dependency row.
+  - **Duplicates are collapsed** to one edge before they reach the entity,
+    because the UNIQUE constraint would otherwise abort the whole import.
+  - **No `ZDEPENDENCY` table** (an older or stripped document) means no
+    edges. It is not an error. Check `sqlite_master` first, and log it at DEBUG.
+  - **Cycles are imported as they are.** Merlin itself should not hold one,
+    but if it does, the domain already reports it as `ScheduleError(CYCLE)`
+    with the user's ids, and the dependency editor can fix it. Rejecting it
+    at import would lose the whole WBS over one edge.
+  - **No GUI change.** The edges appear in the existing dependency editor and
+    Gantt. Skipped edges are only logged, not surfaced to the user. That is
+    accepted for now.
+  - **Do not gate on `Z_ENT`** for the dependency rows, for the same reason
+    `ACTIVITIES_QUERY` does not: entity ids differ across exports.
+
+steps:
+  - |
+    Read `MerlinImporter.kt`, `DraftScheduleDependency.kt`,
+    `DraftEstimationVersion.kt`, `EstimationVersionService.importMerlinDraft`,
+    `src/backend/implementation/src/main/kotlin/io/pythia/domain/CLAUDE.md`
+    ("Schedule inputs") and `.claude/skills/merlin-integration/SKILL.md`.
+  - |
+    In `MerlinImporter`, while building the tree, record each activity's
+    node: a `Map<Long, DraftEstimationNode>` from Merlin `Z_PK` to the node
+    `buildNode`/`buildLeaf` created for it (groups included). Pass it out
+    of `buildVersion`, or build it as a local the recursion fills. Do not
+    change the tree that is built.
+  - |
+    Add `readDependencies(conn)` in `MerlinImporter`. It runs on the same
+    connection as `readActivities`, so open the connection once in `import`
+    and pass it to both. If `SELECT 1 FROM sqlite_master WHERE type='table'
+    AND name='ZDEPENDENCY'` finds nothing, it returns an empty list. Otherwise
+    it runs a new companion constant
+
+        DEPENDENCIES_QUERY = "SELECT ZPREVIOUSACTIVITY_, ZNEXTACTIVITY_, ZTYPE, " +
+            "ZLAG_ IS NOT NULL AND length(ZLAG_) > 0 FROM ZDEPENDENCY"
+
+    into a private `data class MerlinDependency(val previousPk: Long?,
+    val nextPk: Long?, val type: Int, val hasLag: Boolean)` (NULL columns map
+    to null).
+  - |
+    Add `applyDependencies(version, nodesByPk, dependencies)`, called at the
+    end of `buildVersion`. It follows the decisions above, in this order:
+    skip `type != 0` (count per type), skip edges with a null or unknown
+    endpoint or with `from == to` (count), count `hasLag`, collapse
+    duplicates on the `(fromLogicalId, toLogicalId)` pair (use a
+    `LinkedHashSet` so the order stays the Merlin row order), then add one
+    `DraftScheduleDependency().apply { fromLogicalId = …logicalId.toString();
+    toLogicalId = …; this.version = version }` per edge. Logging:
+    `Log.info` with the number of imported edges (extend the existing
+    "Imported Merlin WBS …" line or add one beside it), one `Log.warn` per
+    non-zero skip category (unsupported type with the types seen, unknown or
+    self endpoints, ignored lags), and `Log.debug` for the missing table.
+    Write a comment that `ZTYPE = 0` = finish-to-start is taken from the
+    observed data.
+  - |
+    Update the class header comment of `MerlinImporter` (it says activities
+    only) and `.claude/skills/merlin-integration/SKILL.md` ("WBS import"):
+    the importer also reads `ZDEPENDENCY`, with the column meanings, the
+    `ZTYPE = 0` assumption, the skip/lag/duplicate rules, and that edges may
+    name groups.
+  - |
+    Tests in `MerlinImporterTest.kt`:
+    - `imports the demo file's two dependencies between top-level groups`:
+      import the sample (THREE_POINT_PERT), resolve each edge's ids back to
+      node titles, and assert exactly
+      `[("Initialisation","Implementation"), ("Implementation","Closure")]`.
+    - The same for `BUCKET_SAMPLED_PERT` (the edges do not depend on the method).
+    - `unsupported types, unknown endpoints, self edges and duplicates are skipped`:
+      copy the sample to a temp file, INSERT via JDBC into `ZDEPENDENCY` one
+      row `ZTYPE = 1` between two activities, one with `ZNEXTACTIVITY_ = 999999`,
+      one self-edge, one exact duplicate of Z_PK 1, and one `ZTYPE = 0` row
+      with a non-NULL `ZLAG_` between two LEAVES ("Setup Project
+      Management", pk 61 → "Cluster Setup", pk 106, both without children,
+      measured). Assert the imported edges are the two original ones plus
+      the lagged leaf edge, with no duplicate pair.
+    - `a document without a ZDEPENDENCY table imports with no edges`:
+      `DROP TABLE ZDEPENDENCY` on a temp copy, import, assert the WBS is
+      unchanged (same root count as the untouched sample) and
+      `scheduleDependencies` is empty.
+    Reuse the JDBC temp-copy pattern `MerlinExporterTest` already uses
+    (`withSqlite`), moving it into a small shared test helper if both
+    classes need it.
+  - |
+    In `MerlinImportResourceIT.kt`, extend `import a Merlin WBS creates a
+    draft…` (or add a test) to GET the draft and assert `dependencies` has
+    size 2. This proves the edges are persisted through
+    `importMerlinDraft`, not only built in memory.
+  - |
+    ./gradlew :backend:implementation:test
+  - |
+    ./gradlew build
+
+validation:
+  - |
+    F=src/backend/implementation/src/main/kotlin/io/pythia/service/MerlinImporter.kt
+    grep -q 'ZDEPENDENCY' $F
+    grep -q 'DEPENDENCIES_QUERY' $F
+    grep -q 'DraftScheduleDependency' $F
+    grep -q 'sqlite_master' $F
+  - |
+    # Logging on the new path
+    awk '/fun applyDependencies/,/^    }$/' src/backend/implementation/src/main/kotlin/io/pythia/service/MerlinImporter.kt | grep -q 'Log\.warn'
+  - |
+    T=src/backend/implementation/src/test/kotlin/io/pythia/service/MerlinImporterTest.kt
+    grep -q 'scheduleDependencies' $T
+    grep -q 'DROP TABLE ZDEPENDENCY' $T
+    grep -q 'dependencies' src/backend/implementation/src/test/kotlin/io/pythia/rest/MerlinImportResourceIT.kt
+  - |
+    grep -q 'ZDEPENDENCY' .claude/skills/merlin-integration/SKILL.md
+  - |
+    ./gradlew :backend:implementation:test --tests 'io.pythia.service.MerlinImporterTest' --tests 'io.pythia.rest.MerlinImportResourceIT'
+  - |
+    ./gradlew build
+
+outputs:
+  - modified: src/backend/implementation/src/main/kotlin/io/pythia/service/MerlinImporter.kt
+  - modified: src/backend/implementation/src/test/kotlin/io/pythia/service/MerlinImporterTest.kt
+  - modified: src/backend/implementation/src/test/kotlin/io/pythia/rest/MerlinImportResourceIT.kt
+  - modified: .claude/skills/merlin-integration/SKILL.md

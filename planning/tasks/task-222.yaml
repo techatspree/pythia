@@ -1,0 +1,246 @@
+id: task-222
+phase: phase-19
+title: "Merlin structure overwrite leaves no dangling rows"
+depends_on: [task-133]
+description: |
+  ## Why
+
+  When the Merlin export runs with `?overwriteStructure=true`,
+  `MerlinExporter.deleteObsolete` deletes activities that no longer exist in
+  the estimation. It removes their assignment rows (`ZSCHEDULEITEM.ZACTIVITY_`)
+  and the activity rows, and nothing else. Every OTHER row that refers to a
+  deleted activity stays in the file and points at a `Z_PK` that no longer
+  exists. The returned Merlin document is then internally inconsistent. How
+  Merlin reacts to that (ignore, repair, error, crash on open) is unknown, and
+  it is the user's real project plan.
+
+  ## Current state (measured 2026-11-20 on the demo file)
+
+  Tables in the demo `state.sql` that reference a `ZSCHEDULEITEM` row
+  (found by scanning every table's columns):
+
+  | table.column | what it is | rows in demo |
+  |---|---|---|
+  | `ZSCHEDULEITEM.ZACTIVITY_` | assignment → activity | already deleted today |
+  | `ZSCHEDULEITEM.ZPARENTACTIVITY_` | hierarchy | descendants are obsolete too, deleted |
+  | `ZSCHEDULEITEM.ZRANKNEXTACTIVITY_` / `ZRANKPREVIOUSACTIVITY_` | rank chain | all NULL in the demo |
+  | `ZDEPENDENCY.ZPREVIOUSACTIVITY_` / `ZNEXTACTIVITY_` | dependency | 2 |
+  | `ZOBJECTVIEWCONFIGURATION.ZSCHEDULEITEM_` | per-item view state | 11 |
+  | `Z_48ASSOCIATEDLISTVALUES.Z_48SCHEDULEITEMS` | many-to-many join to list values | 0 |
+  | `ZCOMMENT.ZSCHEDULEITEM` | comment on the activity | 0 |
+  | `ZATTACHMENT.ZSCHEDULEITEM` | attachment (check list, event, file, issue, risk, …) | 0 |
+  | `ZCOST.ZSCHEDULEITEM` | cost entry | 0 |
+  | `ZCUSTOMATTRIBUTEVALUE.ZSCHEDULEITEM` | custom attribute value | 0 |
+
+  Those owned rows have dependents of their own: `ZCOMMENTREADING.ZCOMMENT`
+  references a comment. `ZCOMMENT`, `ZCOST`, `ZCUSTOMATTRIBUTEVALUE` and
+  `ZOBJECTVIEWCONFIGURATION` can reference an ATTACHMENT (`ZATTACHMENT` /
+  `ZATTACHMENT_`), and `Z_1ASSOCIATEDLISTVALUES.Z_1ATTACHMENTS` joins
+  attachments to list values.
+
+  Concrete case: if the estimation renames the top-level group
+  "Implementation" (pk 6), the overwrite deletes its subtree of **31
+  activities** and **24 assignments**. It leaves **both** `ZDEPENDENCY` rows
+  (Initialisation → Implementation, Implementation → Closure) and **7**
+  `ZOBJECTVIEWCONFIGURATION` rows pointing at deleted rows.
+
+  `MerlinStructureDialog`'s text (`merlin.diffBody`) promises only that
+  obsolete activities are "deleted together with their assignments".
+
+  ## Target state
+
+  After an overwrite, no row anywhere in the document references a deleted
+  activity, nor a row deleted along with it. Deleting an activity removes
+  what Merlin would remove when the activity is deleted in Merlin itself:
+
+  - **References with no content of their own are deleted:** dependencies,
+    view configurations and list-value join rows.
+  - **Content owned by the activity is deleted with it, recursively:**
+    comments (and their readings), attachments (and their comments, readings,
+    costs, custom attribute values, view configurations and list-value
+    joins), costs and custom attribute values. The user already confirmed in
+    the dialog that the activity goes away. Its comments cannot survive
+    without it, because Merlin has nowhere to show them.
+  - The dialog says so. The confirmation text names dependencies, comments
+    and attachments, so the user knows what "Struktur überschreiben" destroys.
+  - `deleteObsolete` returns what it removed, so task-223's merge report can
+    list the removed dependencies by path. Return
+    `ObsoleteDeletion(activities: List<String>, removedDependencies:
+    List<Pair<String, String>>, removedRows: Map<String, Int>)`, where
+    activities and dependency endpoints are WBS paths and `removedRows` maps
+    table → count. task-222 only logs it.
+
+  ## Decisions
+
+  - **The reference list is explicit, not discovered at runtime.** It is
+    the table above, written in ONE ordered list in `MerlinExporter`
+    (dependents first, then owners, then the activities). Scanning
+    `pragma_table_info` at runtime would also delete through columns whose
+    meaning nobody checked. A table or column that is missing in a given
+    document (an older Merlin version) is skipped. Check
+    `pragma_table_info(<table>)` once per entry, and log the skip at DEBUG.
+  - **Rank-chain columns are cleared, not cascaded.** If a KEPT activity's
+    `ZRANKNEXTACTIVITY_`/`ZRANKPREVIOUSACTIVITY_` points at a deleted one,
+    set it to NULL (and bump `Z_OPT`). It is NULL throughout the demo file,
+    so this is a guard, not an observed case.
+  - **`ZRESOURCE.ZGIVENPERMISSIONFORACTIVITIES` is NOT a reference.** It is
+    an integer flag (1 in the demo), despite its name. Leave it alone.
+  - **Merlin's own handling is still unverified.** Before marking the task
+    done, the implementer cannot open the result in Merlin (macOS app, not in
+    CI). The report must say so, and ask the user to open one overwritten
+    document (the "Implementation renamed" case) in Merlin as a manual check.
+
+  ## Wireframes
+
+  ### Estimation detail: structure-drift dialog (changed text only)
+
+      +--------------------------------------------------------------+
+      | Struktur weicht ab                                           |
+      |                                                              |
+      | Die Struktur des Merlin-Projekts stimmt nicht mehr mit       |
+      | dieser Schätzung überein. Beim Fortfahren wird die Struktur  |
+      | in der Merlin-Kopie durch die Struktur dieser Anwendung      |
+      | ersetzt: fehlende Vorgänge werden angelegt, hier nicht mehr  |
+      | vorhandene Vorgänge werden mitsamt ihren Zuordnungen,        |
+      | Abhängigkeiten, Kommentaren und Anhängen gelöscht.           |
+      |                                                              |
+      | NUR IN DIESER ANWENDUNG (31)                                 |
+      | | Implementierung                                        |   |
+      | | Implementierung / Secure the Service Mesh              |   |
+      | | …                                                      |   |
+      | NUR IN MERLIN (31)                                           |
+      | | Implementation                                         |   |
+      | | Implementation / Secure the Service Mesh               |   |
+      | | …                                                      |   |
+      |                                                              |
+      |                   [ Abbrechen ]  [ Struktur überschreiben ]  |
+      +--------------------------------------------------------------+
+
+    - Only `merlin.diffBody` changes, in both catalogs. English: "… and
+      activities that no longer exist here are deleted together with their
+      assignments, dependencies, comments and attachments."
+    - No new element and no new testid. The dialog stays
+      `MerlinStructureDialog.svelte` with `merlin-structure.dialog` /
+      `.cancel` / `.overwrite`.
+    - Example data: the demo file imported, then the top-level group
+      "Implementation" renamed to "Implementierung".
+
+steps:
+  - |
+    Read `MerlinExporter.kt` (`reconcileStructure`, `deleteObsolete`),
+    `MerlinExporterTest.kt` (`overwriteStructure rewrites …`, `withSqlite`),
+    `.claude/skills/merlin-integration/SKILL.md` and
+    `src/frontend/src/lib/components/MerlinStructureDialog.svelte`.
+  - |
+    In `MerlinExporter`, add a private ordered list of the references from
+    the description's table, for example
+    `data class Reference(val table: String, val column: String, val target: Target)`
+    with `Target` = ACTIVITY | COMMENT | ATTACHMENT. Implement the cascade in
+    `deleteObsolete`:
+    1. Collect the obsolete activity pks (as today) and their WBS paths.
+    2. Collect the attachment pks owned by them
+       (`ZATTACHMENT.ZSCHEDULEITEM IN (…)`) and the comment pks owned by
+       either the activities or those attachments (`ZCOMMENT.ZSCHEDULEITEM`
+       / `ZCOMMENT.ZATTACHMENT`).
+    3. Before deleting, read the `ZDEPENDENCY` rows that touch an obsolete
+       activity and resolve both endpoints to WBS paths. Use the full
+       pre-deletion path map, since one endpoint may be a kept activity.
+    4. Delete in dependency order: comment readings → comments; list-value
+       joins (`Z_48ASSOCIATEDLISTVALUES`, `Z_1ASSOCIATEDLISTVALUES`), view
+       configurations, costs and custom attribute values for both the
+       activities and the attachments; attachments; dependencies; then
+       assignments and activities (the two existing statements).
+    5. Set kept activities' rank-chain columns to NULL where they point at a
+       deleted pk.
+    Skip any table/column absent from the document (`pragma_table_info`).
+    Use bound `?` placeholders as today, never string-concatenated ids. Build
+    the IN-lists with the existing placeholder pattern.
+  - |
+    Return `ObsoleteDeletion` from `deleteObsolete` (an empty one when nothing
+    is obsolete). Have `reconcileStructure` log it at INFO: activities
+    deleted, then one count per table that lost rows. Log each removed
+    dependency (as `from → to` paths) at DEBUG. Keep the existing behaviour
+    of `reconcileStructure` otherwise.
+  - |
+    Update `merlin.diffBody` in BOTH `src/frontend/src/lib/i18n/de.json`
+    and `en.json` as wireframed. Key-for-key parity stays.
+  - |
+    Tests in `MerlinExporterTest.kt`:
+    - A shared helper `danglingReferences(bytes): Map<String, Int>` that, for
+      every entry of a test-side copy of the reference list, counts rows with
+      a non-NULL reference to a pk that does not exist in its target table
+      (`SELECT count(*) FROM t WHERE c IS NOT NULL AND c NOT IN (SELECT Z_PK FROM target)`;
+      the targets are `ZSCHEDULEITEM`, `ZCOMMENT` and `ZATTACHMENT`).
+    - `overwrite that deletes a group leaves no dangling references`: rename
+      the top-level group "Implementation" in the version built by
+      `versionFromSample`, export with `overwriteStructure = true`, assert
+      `danglingReferences(...)` is all zero and `ZDEPENDENCY` has 0 rows
+      (both demo edges touch the deleted subtree). Assert the untouched sample
+      ALSO has no dangling references, so the helper is not vacuous: run it
+      on `sampleBytes()` first.
+    - `owned content is deleted with the activity`: on a temp copy of the
+      sample, INSERT a comment and a comment reading on "Final QA" (pk 49),
+      an attachment on pk 49 with its own comment, a cost and a custom
+      attribute value on pk 49, and a list-value join for pk 49. Rename
+      "Implementation", export with overwrite, and assert those rows are gone
+      and `danglingReferences` is all zero. Insert only the columns the
+      deletion keys on, plus `Z_PK`/`Z_ENT`/`Z_OPT`. Take `Z_ENT` from
+      `Z_PRIMARYKEY` by `Z_NAME` (Comment, CommentReading, Attachment, Cost,
+      CustomAttributeValue). The test does not need Merlin to accept them.
+    - `kept activities keep their dependencies`: rename only a LEAF that no
+      dependency touches (the existing `firstLeaf` case), export with
+      overwrite, assert both `ZDEPENDENCY` rows still exist.
+  - |
+    Prove the new test is a real guard: temporarily remove the ZDEPENDENCY
+    step from `deleteObsolete`, run
+    `./gradlew :backend:implementation:test --tests 'io.pythia.service.MerlinExporterTest'`,
+    see `overwrite that deletes a group leaves no dangling references` fail,
+    and restore it.
+  - |
+    Update `.claude/skills/merlin-integration/SKILL.md` ("Effort export",
+    the paragraph on the overwrite): replace "obsolete ones are DELETEd
+    together with the assignment rows referencing them via `ZACTIVITY_`"
+    with the cascade: the reference list, its order, the owned-content rule,
+    rank-chain clearing, the `ZGIVENPERMISSIONFORACTIVITIES` non-reference,
+    and that Merlin's acceptance of the result is manually verified only.
+    Also correct the comment above `reconcileStructure` in `MerlinExporter.kt`.
+  - |
+    ./gradlew :backend:implementation:test
+  - |
+    ./gradlew build && ./gradlew :frontend:check
+  - |
+    In the task report, ask the user to open one overwritten document (the
+    sample with "Implementation" renamed, exported through the UI) in
+    Merlin and confirm it opens and shows the expected plan. This cannot be
+    automated here.
+
+validation:
+  - |
+    F=src/backend/implementation/src/main/kotlin/io/pythia/service/MerlinExporter.kt
+    awk '/fun deleteObsolete/,/^    }$/' $F | grep -q 'ObsoleteDeletion'
+    grep -q 'ZDEPENDENCY' $F
+    grep -q 'ZOBJECTVIEWCONFIGURATION' $F
+    grep -q 'ZCOMMENTREADING' $F
+    grep -q 'pragma_table_info' $F
+    grep -q 'class ObsoleteDeletion' $F
+  - |
+    T=src/backend/implementation/src/test/kotlin/io/pythia/service/MerlinExporterTest.kt
+    grep -q 'danglingReferences' $T
+    grep -q 'leaves no dangling references' $T
+  - |
+    # The confirmation text names what is destroyed, in both catalogs
+    jq -e '.merlin.diffBody | test("Abhängigkeiten")' src/frontend/src/lib/i18n/de.json
+    jq -e '.merlin.diffBody | test("dependencies")' src/frontend/src/lib/i18n/en.json
+  - |
+    grep -q 'ZDEPENDENCY' .claude/skills/merlin-integration/SKILL.md
+  - |
+    ./gradlew :backend:implementation:test --tests 'io.pythia.service.MerlinExporterTest' --tests 'io.pythia.rest.MerlinExportResourceIT'
+  - |
+    ./gradlew build && ./gradlew :frontend:check
+
+outputs:
+  - modified: src/backend/implementation/src/main/kotlin/io/pythia/service/MerlinExporter.kt
+  - modified: src/backend/implementation/src/test/kotlin/io/pythia/service/MerlinExporterTest.kt
+  - modified: src/frontend/src/lib/i18n/de.json
+  - modified: src/frontend/src/lib/i18n/en.json
+  - modified: .claude/skills/merlin-integration/SKILL.md

@@ -16,6 +16,22 @@ tasks.named<org.cyclonedx.gradle.CyclonedxDirectTask>("cyclonedxDirectBom") {
     includeBomSerialNumber.set(false)
 }
 
+// The files of those same Kotlin/JS libraries, one absolute path per line, for
+// :frontend:generateThirdPartyLicenses (task-208), which reads their licence
+// and notice files. Resolved HERE because Gradle 9 forbids :frontend to resolve
+// this project's configuration ("attempted without an exclusive lock").
+val writeJsRuntimeJarList = tasks.register("writeJsRuntimeJarList") {
+    description = "Lists the jsRuntimeClasspath files for the third-party licence file (task-208)."
+    val classpath = configurations.named("jsRuntimeClasspath")
+    val out = layout.buildDirectory.file("third-party/js-runtime-jars.txt")
+    inputs.files(classpath)
+    outputs.file(out)
+    doLast {
+        val paths = classpath.get().files.map { it.absolutePath }.sorted()
+        out.get().asFile.writeText(paths.joinToString("\n", postfix = "\n"))
+    }
+}
+
 repositories {
     mavenCentral()
 }

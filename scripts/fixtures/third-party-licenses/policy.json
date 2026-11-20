@@ -1,0 +1,6 @@
+{
+  "aliases": { "The MIT License": "MIT" },
+  "exceptions": [
+    { "purl": "pkg:maven/com.acme/relicensed@1.0?type=jar", "license": "BSD-3-Clause", "reason": "fixture: the SBOM's name is wrong" }
+  ]
+}

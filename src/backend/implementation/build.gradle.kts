@@ -69,10 +69,12 @@ val imageLicensesDir = layout.projectDirectory.dir("src/main/jib/licenses/pythia
 
 val stageImageLicenses = tasks.register<Sync>("stageImageLicenses") {
     description = "Stages /licenses/pythia/ for the backend image into src/main/jib (task-219)."
-    // The SBOM part is cut by :frontend, where the build's pinned Node runs.
-    dependsOn(":frontend:writeBackendImageSbomPart")
+    // The SBOM part and THIRD-PARTY-LICENSES.txt (task-208) are made by :frontend,
+    // where the build's pinned Node runs.
+    dependsOn(":frontend:writeBackendImageSbomPart", ":frontend:generateBackendThirdPartyLicenses")
     from(rootProject.files("LICENSE", "NOTICE", "CONTRIBUTORS"))
     from(layout.buildDirectory.file("image-licenses/sbom.cdx.json"))
+    from(rootProject.layout.buildDirectory.file("third-party-licenses/pythia-backend/THIRD-PARTY-LICENSES.txt"))
     into(imageLicensesDir)
 }
 

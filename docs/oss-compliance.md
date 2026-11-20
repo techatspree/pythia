@@ -121,15 +121,15 @@ every published artifact carries it:
 |---|---|
 | deploy bundle `pythia-deploy-vX.Y.Z.tar.gz` | `LICENSE`, `NOTICE`, `CONTRIBUTORS` at its top level |
 | release SBOM `pythia-vX.Y.Z.cdx.json` | `Apache-2.0` on the root component and on both parts |
-| backend image `pythia/pythia-backend` | label `org.opencontainers.image.licenses=Apache-2.0`; `/licenses/pythia/` with `LICENSE`, `NOTICE`, `CONTRIBUTORS` and `sbom.cdx.json` (the image's part of the release SBOM) |
+| backend image `pythia/pythia-backend` | label `org.opencontainers.image.licenses=Apache-2.0`; `/licenses/pythia/` with `LICENSE`, `NOTICE`, `CONTRIBUTORS`, `sbom.cdx.json` (the image's part of the release SBOM) and `THIRD-PARTY-LICENSES.txt` (task-208, see "Attribution") |
 | frontend image `pythia/pythia-frontend` | the same label and the same `/licenses/pythia/`, as an image layer outside the web root (not served) |
 | backend app jar (`quarkus-app/app/implementation-*.jar`, the jar that runs) | `SPDX-License-Identifier: Apache-2.0` in its manifest, from `quarkus.package.jar.manifest.attributes` |
 
 **One place in both images: `/licenses/pythia/`.** `/licenses/` is the Red Hat
 UBI convention for licence files (the backend's base is UBI 9, and Red Hat's
 certification tooling looks there), so the one directory a tool does look at by
-name is the one used. All later licence material goes there too: task-208's
-`THIRD-PARTY-LICENSES.txt`.
+name is the one used. All later licence material goes there too, like
+task-208's `THIRD-PARTY-LICENSES.txt` (see "Attribution").
 
 **Why no label points at that directory.** No OCI annotation names a licence
 path: `org.opencontainers.image.licenses` is the standard key, and its value is
@@ -145,20 +145,112 @@ where scanners discover it without pulling, is task-220.
 images it has just built. It checks the jar's manifest, each image's label, the
 three files (byte-identical to the repository root), and each image's
 `sbom.cdx.json` against a fresh `scripts/sbom-part.mjs` cut of the build's SBOM,
-which catches an image built from a stale staging. With `--bundle <dir>` it also
+which catches an image built from a stale staging. It also checks that each
+image's `THIRD-PARTY-LICENSES.txt` lists every component of that SBOM part. With `--bundle <dir>` it also
 checks an unpacked deploy bundle. How the backend image gets its directory, and
 why that takes two Gradle invocations, is in [Deployment](deployment.md), "How
 the images are built".
 
+## Attribution
+
+Nearly every allowed and conditional licence requires its text and the
+component's copyright notice to accompany a binary distribution, and Apache-2.0
+§4(d) requires a dependency's NOTICE to be passed on. The minified SPA keeps no
+licence comments at all, and 127 of the 261 backend jars carry no licence file.
+So since task-208 **each image carries `/licenses/pythia/THIRD-PARTY-LICENSES.txt`**,
+next to Pythia's own files and its SBOM part.
+
+**How it is generated.** `scripts/generate-third-party-licenses.mjs` reads the
+image's part of the SBOM (`pythia-backend` or `pythia-frontend`) and finds each
+component's own files: npm packages in `src/frontend/node_modules`, backend jars
+in `build/quarkus-app/lib`, and the Kotlin/JS klibs compiled into the SPA through
+the list `:domain:writeJsRuntimeJarList` writes. `:frontend:generateThirdPartyLicenses`
+and `:frontend:generateBackendThirdPartyLicenses` run it on the build's pinned
+Node, and each image's `stageImageLicenses` (task-219) copies the result into
+`/licenses/pythia/`. A component whose files cannot be found fails the build.
+The output is sorted and has no timestamps, so the same SBOM gives the same bytes.
+
+**The format** is grouped by licence, so each text appears once:
+
+- `## <id>`: one line `  * <group/>name <version>` per component, then the
+  licence text. A component with `A OR B` is listed under both;
+- `## Package-supplied licence and notice files`: each package's own LICENSE
+  or COPYING verbatim, unless it equals the group's canonical text up to
+  whitespace, and every NOTICE verbatim;
+- `## Pythia itself`: our own modules, pointing at `/licenses/pythia/LICENSE`
+  and `NOTICE`.
+
+Licences are normalised as `checkOssCompliance` does (the policy's `aliases`).
+A component with an `exceptions` entry is grouped under the licence that entry
+records, because that is the one actually checked.
+
+**The texts are committed** in `compliance/license-texts/`, taken unchanged
+from `spdx/license-list-data` v3.29.0, because the build is offline. When a
+dependency brings a licence with no file there, the generator and its unit test
+fail and name the id; add the file as `compliance/license-texts/README.md`
+describes. That README also holds the explicit list of licence names that have
+no text at all (empty today).
+
+**The numbers, measured 2026-11-20:**
+
+| image | components | own licence file | canonical text only | no copyright holder |
+|---|---|---|---|---|
+| backend | 257 | 136 | 121 | 4 |
+| frontend | 21 | 17 | 4 | 0 |
+
+(Third-party components only; the four `io.pythia` modules of each part are
+listed under "Pythia itself".)
+
+**Known gap: the copyright line.** MIT- and BSD-family licences require the
+component's own copyright line, which the canonical text has only as a
+placeholder. A component under such a licence that ships no licence file is
+marked `copyright holder not stated in the package`. Today that is 4 backend
+jars: `org.crac:crac`, `com.github.virtuald:curvesapi`,
+`com.sun.istack:istack-commons-runtime` and `org.antlr:antlr4-runtime`. The
+holder cannot be recovered from the package itself. task-210's copyright
+enrichment narrows this.
+
+## Base images
+
+The base images' operating-system packages are not in Pythia's SBOM and not
+gated. They were reviewed once, on 2026-11-20, from SBOMs that Trivy 0.76.1
+(`aquasec/trivy:0.76.1 image --format cyclonedx`) made of the two images.
+Those SBOMs are working material and are not committed.
+
+- **Backend: Red Hat UBI 9.5** (`ubi9/openjdk-21-runtime`), 132 RPM packages.
+  The UBI End User Licence Agreement permits redistributing UBI-based images,
+  which is what publishing Pythia's image does.
+- **Frontend: Alpine 3.21.3** (the digest-pinned nginx base), 68 APK packages.
+- **The GPL packages are aggregation.** Both images contain GPL and LGPL
+  programs and libraries: bash, coreutils, glibc and the OpenJDK
+  (GPL-2.0-only WITH Classpath exception) in the backend; busybox and musl
+  utilities in the frontend. They are separate programs shipped side by side
+  with Pythia, and Pythia runs on them without being derived from them. Their
+  licences do not extend to Pythia.
+- **Their source is published upstream.** Red Hat publishes UBI's source RPMs,
+  and Alpine its aports. We redistribute the packages unmodified.
+- **Outside the usual pattern, all acceptable for an unmodified OS package:**
+  `cyrus-sasl-lib` (BSD-3-Clause WITH advertising), `openldap` (OLDAP-2.8),
+  `dejavu-sans-fonts` (Bitstream-Vera), `glibc` documentation (GFDL-1.3) and
+  two `gpg-pubkey` entries (signing keys, not software) in the backend.
+  `libmd` (Beerware among others) and packages under their own named licences
+  (`curl`, `libpng`, `libtiff`, `libgd`, `bzip2`) in the frontend. None is
+  copyleft beyond the GPL/LGPL aggregation above, and none restricts
+  redistribution.
+
+## Replaced components
+
+None, as of 2026-11-20. task-208 resolved the one pending exception,
+`org.jboss:jboss-transaction-spi:8.0.0.Final`. Its SBOM said "Public Domain",
+inherited from the `jboss-parent` POM. Its real licence at that version is
+LGPL-2.1-or-later (the upstream LICENSE and all its source headers), which is
+conditional and acceptable as an unmodified jar. No shipped component is under
+a forbidden licence, so nothing was replaced.
+
 ## What this does not cover
 
-- **The base images' operating-system packages.** The images also contain the
-  packages of their base images (UBI 9 for the backend, Alpine for the
-  frontend), including GPL tools such as busybox and coreutils. Those are
-  separate programs shipped side by side with ours (aggregation), we do not
-  build them, and a gate on them would break whenever a base image moves. They
-  are reviewed by hand and documented, not gated.
-- **Attribution.** Shipping the license texts and notices that the allowed and
-  conditional licenses require is separate work, not this check.
+- **The base images' operating-system packages.** Not gated: we do not build
+  them, and a gate would break whenever a base image moves. They were reviewed
+  by hand, see "Base images" above.
 - **Development tools.** Only what ships is in the SBOM; build and test tools
   (Gradle plugins, ESLint, Playwright, …) are not distributed and not checked.

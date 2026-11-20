@@ -1,0 +1,3 @@
+Apache License 2.0 (fixture)
+
+You must give recipients a copy of this License.

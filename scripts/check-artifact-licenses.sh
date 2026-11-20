@@ -12,6 +12,9 @@
 #   * each image has /licenses/pythia/sbom.cdx.json, byte-identical to a fresh
 #     scripts/sbom-part.mjs cut of <root>/build/sbom/pythia.cdx.json, which
 #     catches an image built from a stale staging;
+#   * each image has /licenses/pythia/THIRD-PARTY-LICENSES.txt (task-208),
+#     non-empty, listing every component of that sbom.cdx.json by its exact
+#     line `  * <group/>name <version>`;
 #   * with --bundle, the bundle has the three files, identical too.
 #
 # One line per check; every failure is reported, not just the first. Images are
@@ -98,6 +101,28 @@ check_image() {
         ok "$image: /licenses/pythia/sbom.cdx.json is the current $part part"
     else
         fail "$image: /licenses/pythia/sbom.cdx.json is missing or not the current $part part (stale staging?)"
+    fi
+
+    # THIRD-PARTY-LICENSES.txt (task-208): every component of the image's own SBOM
+    # part, by its exact line, so a name mentioned elsewhere in the file cannot pass.
+    local tpl="$dir/THIRD-PARTY-LICENSES.txt" missing
+    if ! docker cp "$c:/licenses/pythia/THIRD-PARTY-LICENSES.txt" "$tpl" > /dev/null 2>&1 || [ ! -s "$tpl" ]; then
+        fail "$image: /licenses/pythia/THIRD-PARTY-LICENSES.txt is missing or empty"
+    elif [ ! -s "$dir/sbom.cdx.json" ]; then
+        fail "$image: THIRD-PARTY-LICENSES.txt cannot be checked without /licenses/pythia/sbom.cdx.json"
+    else
+        # shellcheck disable=SC2016 # the ${...} are JavaScript template literals
+        missing=$(node -e '
+            const bom = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8"));
+            for (const c of bom.components ?? []) console.log(`  * ${c.group ? `${c.group}/` : ""}${c.name} ${c.version}`);
+        ' "$dir/sbom.cdx.json" | while IFS= read -r line; do
+            grep -qxF -- "$line" "$tpl" || echo "${line#  \* }"
+        done)
+        if [ -z "$missing" ]; then
+            ok "$image: /licenses/pythia/THIRD-PARTY-LICENSES.txt lists every component of its SBOM part"
+        else
+            fail "$image: /licenses/pythia/THIRD-PARTY-LICENSES.txt does not list: $(echo "$missing" | paste -sd, - | sed 's/,/, /g')"
+        fi
     fi
 }
 
