@@ -1,21 +1,21 @@
 <script lang="ts">
-	import Badge from '$lib/ui/Badge.svelte';
-	import Page from '$lib/ui/Page.svelte';
-	import Field from '$lib/ui/Field.svelte';
-	import Select from '$lib/ui/Select.svelte';
-	import Card from '$lib/ui/Card.svelte';
-	import Button from '$lib/ui/Button.svelte';
+	import Badge from '#lib/ui/Badge.svelte';
+	import Page from '#lib/ui/Page.svelte';
+	import Field from '#lib/ui/Field.svelte';
+	import Select from '#lib/ui/Select.svelte';
+	import Card from '#lib/ui/Card.svelte';
+	import Button from '#lib/ui/Button.svelte';
 	import { onMount } from 'svelte';
 	import { SvelteSet } from 'svelte/reactivity';
 	import { goto } from '$app/navigation';
 	import { resolve } from '$app/paths';
 	import { page } from '$app/state';
 	import { _ } from 'svelte-i18n';
-	import { apiFetch } from '$lib/api/fetch';
-	import { assertOk } from '$lib/api/errors';
-	import { log } from '$lib/log';
-	import ErrorBanner from '$lib/components/ErrorBanner.svelte';
-	import { createSession, listSessions, listJoinableSessions, type SessionDto } from '$lib/session/api';
+	import { apiFetch } from '#lib/api/fetch.ts';
+	import { assertOk } from '#lib/api/errors.ts';
+	import { log } from '#lib/log.ts';
+	import ErrorBanner from '#lib/components/ErrorBanner.svelte';
+	import { createSession, listSessions, listJoinableSessions, type SessionDto } from '#lib/session/api.ts';
 
 	// Moderator setup (task-066): pick a project → offer, flatten its draft's
 	// leaf items into a checkbox picker, name the session, create → navigate to

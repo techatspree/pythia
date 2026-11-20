@@ -1,5 +1,5 @@
 import type { AuthProvider } from './AuthProvider';
-import { getRuntimeConfig } from '$lib/config/runtimeConfig';
+import { getRuntimeConfig } from '#lib/config/runtimeConfig.ts';
 import { getDevAuthProvider } from './DevAuthProvider';
 import { getEntraAuthProvider } from './EntraAuthProvider';
 

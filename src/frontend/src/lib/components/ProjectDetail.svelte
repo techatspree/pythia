@@ -1,16 +1,16 @@
 <script lang="ts">
-	import Badge from '$lib/ui/Badge.svelte';
-	import Button from '$lib/ui/Button.svelte';
+	import Badge from '#lib/ui/Badge.svelte';
+	import Button from '#lib/ui/Button.svelte';
 	import { resolve } from '$app/paths';
 	import { goto } from '$app/navigation';
 	import { _, locale } from 'svelte-i18n';
-	import { formatDate, DEFAULT_LOCALE } from '$lib/format';
-	import RequiredRole from '$lib/auth/RequiredRole.svelte';
-	import CreateEstimationDialog from '$lib/components/CreateEstimationDialog.svelte';
-	import ChangeOwnerDialog from '$lib/components/ChangeOwnerDialog.svelte';
-	import { formatMethodLabel } from '$lib/methods/labels';
-	import type { components } from '$lib/api/schema';
-	import type { ApiProjectDetail } from '$lib/api/types';
+	import { formatDate, DEFAULT_LOCALE } from '#lib/format.ts';
+	import RequiredRole from '#lib/auth/RequiredRole.svelte';
+	import CreateEstimationDialog from '#lib/components/CreateEstimationDialog.svelte';
+	import ChangeOwnerDialog from '#lib/components/ChangeOwnerDialog.svelte';
+	import { formatMethodLabel } from '#lib/methods/labels.ts';
+	import type { components } from '#lib/api/schema.d.ts';
+	import type { ApiProjectDetail } from '#lib/api/types.ts';
 
 	type EstimationSummaryDto = components['schemas']['EstimationSummaryDto'];
 

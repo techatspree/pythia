@@ -1,6 +1,6 @@
-import { getAuthProvider } from '$lib/auth';
-import { log } from '$lib/log';
-import { connection } from '$lib/stores/connection.svelte';
+import { getAuthProvider } from '#lib/auth/index.ts';
+import { log } from '#lib/log.ts';
+import { connection } from '#lib/stores/connection.svelte.ts';
 
 // A hung backend (connection accepted, response never arrives) never rejects on
 // its own, so cap every request and treat the timeout as a connection loss.

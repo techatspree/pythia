@@ -1,5 +1,5 @@
 <script lang="ts">
-	import Button from '$lib/ui/Button.svelte';
+	import Button from '#lib/ui/Button.svelte';
 	import { _ } from 'svelte-i18n';
 
 	// Confirmation before a DESTRUCTIVE replace: importing a Merlin project when a

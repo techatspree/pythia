@@ -1,6 +1,6 @@
 import type { Component } from 'svelte';
-import type { components } from '$lib/api/schema';
-import { log } from '$lib/log';
+import type { components } from '#lib/api/schema.d.ts';
+import { log } from '#lib/log.ts';
 
 type EstimationMethod = components['schemas']['EstimationMethod'];
 

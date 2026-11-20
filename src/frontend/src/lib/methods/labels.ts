@@ -1,4 +1,4 @@
-import type { components } from '$lib/api/schema';
+import type { components } from '#lib/api/schema.d.ts';
 
 type EstimationMethod = components['schemas']['EstimationMethod'];
 

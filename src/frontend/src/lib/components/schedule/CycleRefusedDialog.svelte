@@ -1,5 +1,5 @@
 <script lang="ts">
-	import Button from '$lib/ui/Button.svelte';
+	import Button from '#lib/ui/Button.svelte';
 	import { _ } from 'svelte-i18n';
 
 	// Shown when a drop would close a dependency loop, INSTEAD of committing it

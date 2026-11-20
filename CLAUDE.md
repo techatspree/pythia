@@ -77,7 +77,7 @@ The domain is **four** projects since task-143, so the estimation-method boundar
 
 - **`src/domain`** — Kotlin Multiplatform (JVM + JS). Compiles to a JVM jar consumed by the backend and to TypeScript + JS for the frontend (`compileKotlinJvm`, `jvmTest`, `packageTypescript`); the packaged TS zip is exposed as a consumable `typescriptDist` configuration that `:frontend` unpacks into `src/lib/domain`.
 - **`src/backend/implementation`** — Quarkus 3 (Java 21, Kotlin), Hibernate ORM Panache, Flyway, Jib. REST endpoints under `/api/`.
-- **`src/frontend`** — SvelteKit 5 (runes) + TypeScript + Tailwind 4, Vite, adapter-static (SPA).
+- **`src/frontend`** — SvelteKit 3 + Svelte 5 (runes) + TypeScript + Tailwind 4, Vite, adapter-static (SPA).
 
 ## Conventions
 
@@ -89,15 +89,15 @@ Anything you'd want to call "business logic" (PERT, accumulation, risk surcharge
 
 Detail and rationale: `src/frontend/CLAUDE.md`. The bans themselves:
 
-- **All HTTP goes through `apiFetch`** (`$lib/api/fetch.ts`); raw `fetch(...)` is ESLint-banned.
+- **All HTTP goes through `apiFetch`** (`#lib/api/fetch.ts`); raw `fetch(...)` is ESLint-banned.
 - **File downloads are no exception** — a plain `<a href="/api/…" download>` carries no `Authorization` header and silently saves the 401 JSON body as the "export" file. Use `apiFetch` → `assertOk` → `res.blob()` → `downloadResponse(...)`.
 - **Every `try`/`catch` MUST surface failure via `ErrorBanner`.** A `catch` that only logs and returns a fallback is not acceptable — that is the pattern that hid a Kotlin/JS stack overflow as blank cells.
-- **Never write bare `console.*`** — use `log` from `$lib/log.ts`, in addition to (not instead of) the banner.
+- **Never write bare `console.*`** — use `log` from `#lib/log.ts`, in addition to (not instead of) the banner.
 - **Never inline UI strings** — they belong in the `svelte-i18n` catalogs, both `de.json` and `en.json`, key-for-key.
-- **Never call `.toFixed()`/`toLocale*()` or hardcode a locale** — all number/currency/date formatting goes through `$lib/format.ts`.
+- **Never call `.toFixed()`/`toLocale*()` or hardcode a locale** — all number/currency/date formatting goes through `#lib/format.ts`.
 - **Editor components use `$bindable` two-way binding**, never the "snapshot prop into local `$state` + onchange" pattern.
 - **e2e specs drive Page Objects, never a translated label** — classes in `src/frontend/e2e/pages/`, components carry `data-testid="<screen>.<element>"` (new ones only; the ~90 existing flat-kebab testids are never renamed). ESLint fails `:frontend:check` on `getByRole(…, { name: <literal> })`, `getByText(<literal>)`, `getByLabel`/`getByPlaceholder`/`getByTitle`/`getByAltText(<literal>)`, `locator('text=…')`, `{ hasText: <literal> }`, a literal value in a `[title|placeholder|aria-label|alt=…]` attribute selector, and `toHaveAttribute('aria-label'|'title'|'placeholder'|'alt', <literal>)` inside `e2e/**` (enforced by the blocking `lintE2e` gate), with `e2e/pages/**` and `e2e/language.test.ts` exempt. Detail in `src/frontend/CLAUDE.md`.
-- **Buttons and cards come from `$lib/ui/`** — never retype their utility strings. Three things are banned outright and `:frontend:check` fails on each: arbitrary colour values (`bg-[#abc]`), **raw neutral palette classes** (`text-gray-500` — use the `ink-*`/`surface-*`/`hairline` tokens, task-168), and a **raw disclosure-triangle glyph** outside `$lib/ui/DisclosureTriangle.svelte`. Add a token to `@theme` in `app.css` rather than reaching for a literal.
+- **Buttons and cards come from `#lib/ui/`** — never retype their utility strings. Three things are banned outright and `:frontend:check` fails on each: arbitrary colour values (`bg-[#abc]`), **raw neutral palette classes** (`text-gray-500` — use the `ink-*`/`surface-*`/`hairline` tokens, task-168), and a **raw disclosure-triangle glyph** outside `#lib/ui/DisclosureTriangle.svelte`. Add a token to `@theme` in `app.css` rather than reaching for a literal.
 
 ### Kotlin/JS gotcha — super-property recursion
 
@@ -117,7 +117,7 @@ One logging approach per module — use it; do not invent a second mechanism. Lo
 
 - **Backend** (Quarkus): the static `io.quarkus.logging.Log` API — no per-class logger field. See `src/backend/CLAUDE.md`.
 - **Domain** (KMP): the `io.github.oshai:kotlin-logging` facade, lambda form. See `src/domain/CLAUDE.md`.
-- **Frontend** (SvelteKit): `log` from `$lib/log.ts`, never bare `console.*` (see "Frontend hard rules" above). Detail in `src/frontend/CLAUDE.md`.
+- **Frontend** (SvelteKit): `log` from `#lib/log.ts`, never bare `console.*` (see "Frontend hard rules" above). Detail in `src/frontend/CLAUDE.md`.
 
 ## Planning system
 

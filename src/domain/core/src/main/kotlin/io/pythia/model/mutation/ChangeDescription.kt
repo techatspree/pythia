@@ -10,7 +10,7 @@ import kotlin.js.JsExport
 // snapshots (task-110). Produced by EstimationVersion.diffSummary and shipped to
 // the GUI so a history row shows WHAT a PUT changed, not the raw mutation kind.
 // Scalar oldValue/newValue are locale-NEUTRAL strings (plain numeric toString);
-// the FRONTEND formats numbers per locale via $lib/format.ts.
+// the FRONTEND formats numbers per locale via #lib/format.ts.
 @JsExport
 @DomainEntity
 sealed class ChangeDescription {

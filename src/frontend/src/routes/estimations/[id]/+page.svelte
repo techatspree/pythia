@@ -1,21 +1,21 @@
 <script lang="ts">
-	import Button from '$lib/ui/Button.svelte';
+	import Button from '#lib/ui/Button.svelte';
 	import { page } from '$app/state';
 	import { resolve } from '$app/paths';
 	import { onMount } from 'svelte';
 	import { _ } from 'svelte-i18n';
-	import EstimationDetail from '$lib/components/EstimationDetail.svelte';
-	import VersionList from '$lib/components/VersionList.svelte';
-	import ErrorBanner from '$lib/components/ErrorBanner.svelte';
-	import ReplaceDraftDialog from '$lib/components/ReplaceDraftDialog.svelte';
+	import EstimationDetail from '#lib/components/EstimationDetail.svelte';
+	import VersionList from '#lib/components/VersionList.svelte';
+	import ErrorBanner from '#lib/components/ErrorBanner.svelte';
+	import ReplaceDraftDialog from '#lib/components/ReplaceDraftDialog.svelte';
 	import MerlinStructureDialog, {
 		type MerlinStructureDiff
-	} from '$lib/components/MerlinStructureDialog.svelte';
-	import type { ApiEstimationDetail } from '$lib/api/types.js';
-	import { apiFetch } from '$lib/api/fetch';
-	import { assertOk } from '$lib/api/errors';
-	import { downloadResponse } from '$lib/api/download';
-	import { log } from '$lib/log';
+	} from '#lib/components/MerlinStructureDialog.svelte';
+	import type { ApiEstimationDetail } from '#lib/api/types.js';
+	import { apiFetch } from '#lib/api/fetch.ts';
+	import { assertOk } from '#lib/api/errors.ts';
+	import { downloadResponse } from '#lib/api/download.ts';
+	import { log } from '#lib/log.ts';
 
 	let estimation = $state<ApiEstimationDetail | null>(null);
 	let loading = $state(true);
@@ -54,12 +54,9 @@
 	// Launch a collaborative session pre-scoped to this offer. Route is resolved
 	// via resolve(); the dynamic estimationId/projectId query is appended
 	// separately because resolve() can only type-check a literal search suffix.
-	const sessionHref = $derived(
-		estimation?.id
-			? `${resolve('/sessions')}?estimationId=${estimation.id}` +
-				(estimation.projectId ? `&projectId=${estimation.projectId}` : '')
-			: ''
-	);
+	const sessionHref = $derived(estimation?.id
+		? `${resolve('sessions')}?estimationId=${estimation.id}` + (estimation.projectId ? `&projectId=${estimation.projectId}` : '')
+		: '');
 
 	// Import a Merlin project WBS as a new draft version. The backend accepts a
 	// zipped .mproject bundle or its raw state.sql; we POST it as multipart
@@ -187,9 +184,9 @@
 	const exportVersionRef = $derived.by<string | null>(() => {
 		const versions = estimation?.versions ?? [];
 		if (versions.some((v) => v.isDraft)) return 'draft';
-		const latest = versions
-			.filter((v) => !v.isDraft)
-			.reduce<number | null>((max, v) => (max == null || v.versionNumber > max ? v.versionNumber : max), null);
+
+		const latest = versions.filter((v) => !v.isDraft).reduce<number | null>((max, v) => max == null || v.versionNumber > max ? v.versionNumber : max, null);
+
 		return latest == null ? null : String(latest);
 	});
 
@@ -259,7 +256,11 @@
 	{#if loading}
 		<p class="text-ink-muted">{$_('estimation.pageLoading')}</p>
 	{:else}
-		<ErrorBanner message={bannerMessage} ondismiss={() => (bannerMessage = null)} />
+		<ErrorBanner
+			message={bannerMessage}
+			ondismiss={() => bannerMessage = null}
+		/>
+
 		{#if pendingMerlinFile}
 			<ReplaceDraftDialog
 				onconfirm={() => {
@@ -267,7 +268,7 @@
 					pendingMerlinFile = null;
 					if (file) runMerlinImport(file, true);
 				}}
-				oncancel={() => (pendingMerlinFile = null)}
+				oncancel={() => pendingMerlinFile = null}
 			/>
 		{/if}
 		{#if pendingXlsxFile}
@@ -277,7 +278,7 @@
 					pendingXlsxFile = null;
 					if (file) runXlsxImport(file, true);
 				}}
-				oncancel={() => (pendingXlsxFile = null)}
+				oncancel={() => pendingXlsxFile = null}
 			/>
 		{/if}
 		{#if structureDiff}
@@ -296,72 +297,72 @@
 			/>
 		{/if}
 		{#if estimation}
-		{#if estimation.projectId}
+			{#if estimation.projectId}
 			<a href={resolve('/projects/[id]', { id: estimation.projectId })} class="text-sm text-brand-green hover:underline mb-4 inline-block">{$_('estimation.pageBack', { values: { project: estimation.projectName ?? $_('estimation.pageProjectFallback') } })}</a>
-		{/if}
-		<div class="flex items-start justify-between gap-4">
-			<div class="flex-1"><EstimationDetail {estimation} /></div>
-			<div class="shrink-0 mt-1 flex items-center gap-2">
-				<input
-					type="file"
-					accept=".zip,.sql,.sqlite,.mproject"
-					class="hidden"
-					data-testid="merlin-import-input"
-					bind:this={fileInput}
-					onchange={onMerlinFileSelected}
-				/>
-				<Button
-					variant="secondary"
-					data-testid="estimation-detail.import-merlin"
-					onclick={() => fileInput?.click()}
-					disabled={importing}
-					title={$_('estimation.importMerlinHint')}
+			{/if}
+			<div class="flex items-start justify-between gap-4">
+				<div class="flex-1"><EstimationDetail estimation={estimation} /></div>
+				<div class="shrink-0 mt-1 flex items-center gap-2">
+					<input
+						type="file"
+						accept=".zip,.sql,.sqlite,.mproject"
+						class="hidden"
+						data-testid="merlin-import-input"
+						bind:this={fileInput}
+						onchange={onMerlinFileSelected}
+					/>
+					<Button
+						variant="secondary"
+						data-testid="estimation-detail.import-merlin"
+						onclick={() => fileInput?.click()}
+						disabled={importing}
+						title={$_('estimation.importMerlinHint')}
 				>
 					{$_('estimation.importMerlin')}
 				</Button>
-				<input
-					type="file"
-					accept=".xlsx"
-					class="hidden"
-					data-testid="xlsx-import-input"
-					bind:this={xlsxInput}
-					onchange={onXlsxFileSelected}
-				/>
-				<Button
-					variant="secondary"
-					data-testid="estimation-detail.import-xlsx"
-					onclick={() => xlsxInput?.click()}
-					disabled={importing}
-					title={$_('estimation.importXlsxHint')}
+					<input
+						type="file"
+						accept=".xlsx"
+						class="hidden"
+						data-testid="xlsx-import-input"
+						bind:this={xlsxInput}
+						onchange={onXlsxFileSelected}
+					/>
+					<Button
+						variant="secondary"
+						data-testid="estimation-detail.import-xlsx"
+						onclick={() => xlsxInput?.click()}
+						disabled={importing}
+						title={$_('estimation.importXlsxHint')}
 				>
 					{$_('estimation.importXlsx')}
 				</Button>
-				<input
-					type="file"
-					accept=".zip,.mproject,.sqlite,.sql"
-					class="hidden"
-					data-testid="merlin-export-input"
-					bind:this={exportInput}
-					onchange={onMerlinExportFileSelected}
-				/>
+					<input
+						type="file"
+						accept=".zip,.mproject,.sqlite,.sql"
+						class="hidden"
+						data-testid="merlin-export-input"
+						bind:this={exportInput}
+						onchange={onMerlinExportFileSelected}
+					/>
 				<Button variant="secondary"
-				
-					onclick={() => exportInput?.click()}
-					disabled={exporting || exportVersionRef == null}
-					title={$_('estimation.exportMerlinHint')}
-				
+
+						onclick={() => exportInput?.click()}
+						disabled={exporting || exportVersionRef == null}
+						title={$_('estimation.exportMerlinHint')}
+
 				>
 					{$_('estimation.exportMerlin')}
 				</Button>
-				<!-- sessionHref resolves the route via resolve(); only the dynamic
+					<!-- sessionHref resolves the route via resolve(); only the dynamic
 				     estimationId/projectId query is concatenated. The no-navigation-
 				     without-resolve suppression this line used to carry is gone with the
 				     raw <a>: the rule inspects anchor elements, not component props. -->
 				<Button href={sessionHref}>
 					{$_('estimation.startSession')}
 				</Button>
+				</div>
 			</div>
-		</div>
 		<VersionList versions={estimation.versions} estimationId={estimation.id ?? ''} oncreate={createVersion} onsubmit={submitVersion} />
 		{/if}
 	{/if}

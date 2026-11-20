@@ -2,10 +2,10 @@
 	import { page } from '$app/state';
 	import { resolve } from '$app/paths';
 	import { _ } from 'svelte-i18n';
-	import { log } from '$lib/log';
+	import { log } from '#lib/log.ts';
 
 	// Root error boundary (task-026): render a friendly message for uncaught
-	// load/render errors and log the error via the shared $lib/log helper.
+	// load/render errors and log the error via the shared #lib/log helper.
 	$effect(() => {
 		log.error(`Unhandled page error (${page.status})`, page.error);
 	});

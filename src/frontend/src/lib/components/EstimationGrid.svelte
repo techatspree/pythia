@@ -1,7 +1,7 @@
 <script lang="ts">
-	import Button from '$lib/ui/Button.svelte';
+	import Button from '#lib/ui/Button.svelte';
 	import { _, locale } from 'svelte-i18n';
-	import { formatFixed, formatNumber, DEFAULT_LOCALE } from '$lib/format';
+	import { formatFixed, formatNumber, DEFAULT_LOCALE } from '#lib/format.ts';
 	import TreeTable from './treetable/TreeTable.svelte';
 	import type { TreeColumn, TreeNodeContext } from './treetable/types';
 
@@ -13,9 +13,9 @@
 		type Group,
 		type NodePath,
 		type CalcEntry
-	} from '$lib/estimationNodes';
-	import { ZERO_TOTALS, type EstimationTotalsView } from '$lib/adapter';
-	import { EstimationDefaults } from '$lib/domain/domain.mjs';
+	} from '#lib/estimationNodes.ts';
+	import { ZERO_TOTALS, type EstimationTotalsView } from '#lib/adapter.ts';
+	import { EstimationDefaults } from '#lib/domain/domain.mjs';
 
 	// A module-level constant, not an inline `new Set()` default: a fresh set per
 	// render would be a new prop identity every time.

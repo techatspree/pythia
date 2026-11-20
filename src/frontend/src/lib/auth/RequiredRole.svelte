@@ -1,6 +1,6 @@
 <script lang="ts">
 	import type { Snippet } from 'svelte';
-	import { getAuthProvider } from '$lib/auth';
+	import { getAuthProvider } from '#lib/auth/index.ts';
 
 	let {
 		role,

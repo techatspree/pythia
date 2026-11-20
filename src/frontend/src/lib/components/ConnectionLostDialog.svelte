@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { _ } from 'svelte-i18n';
-	import { connection } from '$lib/stores/connection.svelte';
+	import { connection } from '#lib/stores/connection.svelte.ts';
 
 	// Blocking modal shown while the backend is unreachable (task-136). It is NOT
 	// dismissible by ESC or backdrop click on purpose: the app must stay paused so

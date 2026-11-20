@@ -1,9 +1,9 @@
 <script lang="ts">
-	import Button from '$lib/ui/Button.svelte';
+	import Button from '#lib/ui/Button.svelte';
 	import { _ } from 'svelte-i18n';
-	import { log } from '$lib/log';
-	import { submitVote, updateNotes, revealPhase2 } from '$lib/session/api';
-	import type { SessionStore } from '$lib/session/store.svelte';
+	import { log } from '#lib/log.ts';
+	import { submitVote, updateNotes, revealPhase2 } from '#lib/session/api.ts';
+	import type { SessionStore } from '#lib/session/store.svelte.ts';
 
 	// PHASE1 — blind individual estimate (task-067). Every participant (including
 	// the moderator, who also estimates) submits a PERT triple; only the

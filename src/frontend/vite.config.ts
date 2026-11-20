@@ -1,3 +1,4 @@
+import adapter from '@sveltejs/adapter-static';
 import { sveltekit } from '@sveltejs/kit/vite';
 import tailwindcss from '@tailwindcss/vite';
 import { defineConfig } from 'vite';
@@ -6,7 +7,13 @@ import sbom from 'rollup-plugin-sbom';
 export default defineConfig({
 	plugins: [
 		tailwindcss(),
-		sveltekit(),
+		sveltekit({
+			compilerOptions: {
+				runes: ({ filename }) => filename.split(/[/\\]/).includes('node_modules') ? undefined : true
+			},
+			adapter: adapter({ fallback: 'index.html' })
+		}),
+
 		// The npm part of the frontend SBOM (task-206): exactly the packages
 		// bundled into the SPA. Production builds only. It writes into the build
 		// output, and SvelteKit copies that into build/cyclonedx/, the directory

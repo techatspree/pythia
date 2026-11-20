@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { _, locale } from 'svelte-i18n';
-	import { formatFixed, formatNumber, DEFAULT_LOCALE } from '$lib/format';
-	import { ZERO_TOTALS, type EstimationTotalsView } from '$lib/adapter';
+	import { formatFixed, formatNumber, DEFAULT_LOCALE } from '#lib/format.ts';
+	import { ZERO_TOTALS, type EstimationTotalsView } from '#lib/adapter.ts';
 
 	// The summed figures of the WHOLE estimation, shown at the top of the version
 	// editor so a total exists for every method — the bucket+sampled editor

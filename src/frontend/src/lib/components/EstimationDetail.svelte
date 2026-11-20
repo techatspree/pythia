@@ -1,9 +1,9 @@
 <script lang="ts">
-	import Badge from '$lib/ui/Badge.svelte';
+	import Badge from '#lib/ui/Badge.svelte';
 	import { _ } from 'svelte-i18n';
-	import type { ApiEstimationDetail } from '$lib/api/types.js';
-	import { formatMethodLabel } from '$lib/methods/labels';
-	import MethodDetailPopover from '$lib/methods/MethodDetailPopover.svelte';
+	import type { ApiEstimationDetail } from '#lib/api/types.js';
+	import { formatMethodLabel } from '#lib/methods/labels.ts';
+	import MethodDetailPopover from '#lib/methods/MethodDetailPopover.svelte';
 	let { estimation }: { estimation: ApiEstimationDetail } = $props();
 
 	let popoverOpen = $state(false);

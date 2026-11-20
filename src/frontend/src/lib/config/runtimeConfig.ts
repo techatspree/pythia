@@ -1,6 +1,6 @@
 import { get } from 'svelte/store';
 import { _ } from 'svelte-i18n';
-import { log } from '$lib/log';
+import { log } from '#lib/log.ts';
 
 // RUNTIME configuration for the SPA (task-162).
 //

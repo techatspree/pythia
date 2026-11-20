@@ -1,8 +1,8 @@
 <script lang="ts">
 	import { _ } from 'svelte-i18n';
-	import { formatMethodLabel } from '$lib/methods/labels';
-	import { log } from '$lib/log';
-	import type { components } from '$lib/api/schema';
+	import { formatMethodLabel } from '#lib/methods/labels.ts';
+	import { log } from '#lib/log.ts';
+	import type { components } from '#lib/api/schema.d.ts';
 
 	type EstimationMethod = components['schemas']['EstimationMethod'];
 

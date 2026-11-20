@@ -2,10 +2,10 @@
 	import { _ } from 'svelte-i18n';
 	import { resolve } from '$app/paths';
 	import { page } from '$app/state';
-	import logo from '$lib/assets/logo.svg';
-	import UserMenu from '$lib/components/UserMenu.svelte';
-	import { system } from '$lib/stores/system.svelte';
-	import type { AuthAccount } from '$lib/auth/AuthProvider';
+	import logo from '#lib/assets/logo.svg';
+	import UserMenu from '#lib/components/UserMenu.svelte';
+	import { system } from '#lib/stores/system.svelte.ts';
+	import type { AuthAccount } from '#lib/auth/AuthProvider.ts';
 
 	// The ONE app header (task-141). Every route renders it through the root
 	// layout — including the session room, which used to substitute its own
@@ -22,11 +22,27 @@
 	// `$derived` because the System destination depends on the account's roles:
 	// it is ADMIN-only, and `account` arrives asynchronously.
 	const items = $derived([
-		{ key: 'nav.projects', href: resolve('/projects'), testid: 'nav-projects' },
-		{ key: 'nav.sessions', href: resolve('/sessions'), testid: 'nav-sessions' },
-		...(account?.roles.includes('ADMIN')
-			? [{ key: 'nav.system', href: resolve('/admin/system'), testid: 'nav-system' }]
-			: [])
+		{
+			key: 'nav.projects',
+			href: resolve('projects'),
+			testid: 'nav-projects'
+		},
+
+		{
+			key: 'nav.sessions',
+			href: resolve('sessions'),
+			testid: 'nav-sessions'
+		},
+
+		...account?.roles.includes('ADMIN')
+			? [
+				{
+					key: 'nav.system',
+					href: resolve('admin/system'),
+					testid: 'nav-system'
+				}
+			]
+			: []
 	]);
 
 	// A destination stays marked while the user is anywhere below it, so
@@ -39,7 +55,10 @@
 
 <header class="bg-white">
 	<div class="px-6 py-3 flex items-center gap-6">
-		<a href={resolve('/projects')} class="flex items-center gap-2 shrink-0">
+		<a
+			href={resolve('projects')}
+			class="flex items-center gap-2 shrink-0"
+		>
 			<!-- Decorative: the wordmark beside it already announces the product
 			     name, so a non-empty alt would be read out twice. -->
 			<img
@@ -81,9 +100,8 @@
 					</a>
 				{/each}
 			</nav>
-			<div class="ml-auto flex items-center gap-3">
-				<UserMenu {account} {onlogout} />
-			</div>
+
+			<div class="ml-auto flex items-center gap-3"><UserMenu account={account} onlogout={onlogout} /></div>
 		{/if}
 	</div>
 	<div class="h-0.75" style="background: var(--gradient-brand)"></div>

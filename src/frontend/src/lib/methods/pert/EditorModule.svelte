@@ -1,13 +1,13 @@
 <script lang="ts">
-	import { EstimationDefaults } from '$lib/domain/domain.mjs';
-	import EstimationGrid from '$lib/components/EstimationGrid.svelte';
-	import ParametersPanel from '$lib/components/ParametersPanel.svelte';
-	import EffortDriversPanel from '$lib/components/EffortDriversPanel.svelte';
-	import PhasesPanel from '$lib/components/PhasesPanel.svelte';
-	import AdditionalCostsPanel from '$lib/components/AdditionalCostsPanel.svelte';
-	import type { ApiAdditionalCost } from '$lib/api/types.js';
-	import type { CalcEntry } from '$lib/estimationNodes';
-	import { ZERO_TOTALS, type EstimationTotalsView } from '$lib/adapter';
+	import { EstimationDefaults } from '#lib/domain/domain.mjs';
+	import EstimationGrid from '#lib/components/EstimationGrid.svelte';
+	import ParametersPanel from '#lib/components/ParametersPanel.svelte';
+	import EffortDriversPanel from '#lib/components/EffortDriversPanel.svelte';
+	import PhasesPanel from '#lib/components/PhasesPanel.svelte';
+	import AdditionalCostsPanel from '#lib/components/AdditionalCostsPanel.svelte';
+	import type { ApiAdditionalCost } from '#lib/api/types.js';
+	import type { CalcEntry } from '#lib/estimationNodes.ts';
+	import { ZERO_TOTALS, type EstimationTotalsView } from '#lib/adapter.ts';
 
 	// Three-point PERT editor module (task-101). The route owns the state,
 	// autosave and undo/redo; this module is the pure $bindable view over the

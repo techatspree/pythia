@@ -25,10 +25,10 @@ const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const SRC = join(root, 'src');
 
 const SCANNED = new Set(['.svelte', '.ts', '.html', '.css']);
-const ARBITRARY_COLOUR = /-\[#[0-9a-fA-F]{3,8}\]/;
+const ARBITRARY_COLOUR = /-\[#[0-9a-fA-F]{3,8}]/;
 
 // task-168, rule 2: a raw disclosure-triangle glyph. The pair lives in
-// `$lib/ui/DisclosureTriangle.svelte` and nowhere else — retyped at seven sites
+// `#lib/ui/DisclosureTriangle.svelte` and nowhere else — retyped at seven sites
 // it had already drifted into two different Unicode pairs (full-size U+25BC/B6
 // at five sites, the visibly lighter SMALL variants U+25BE/B8 at two).
 const TRIANGLE = /[\u25B6\u25B7\u25BC\u25BD\u25B8\u25BE]/;
@@ -69,7 +69,7 @@ for (const file of walk(SRC)) {
 // original colour rule actionable rather than merely noisy.
 const failures = [
 	[colours, 'arbitrary colour value(s)', 'add a token to the @theme block in src/app.css and use it instead'],
-	[triangles, 'raw disclosure-triangle glyph(s)', 'use $lib/ui/DisclosureTriangle'],
+	[triangles, 'raw disclosure-triangle glyph(s)', 'use #lib/ui/DisclosureTriangle'],
 	[neutrals, 'raw neutral palette class(es)', 'use an ink-*/surface-*/hairline token from @theme']
 ];
 

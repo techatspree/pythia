@@ -1,4 +1,4 @@
-import { log } from '$lib/log';
+import { log } from '#lib/log.ts';
 
 // Global backend-connection watchdog (task-136). When `apiFetch` detects a
 // genuine connection loss — a network rejection, our request timeout, or a
@@ -61,7 +61,7 @@ class ConnectionStore {
 	acknowledge(): void {
 		this.stopHeartbeat();
 		this.blocked = false;
-		// Full reload (NOT invalidateAll): discards the unsaved editor state and
+		// Full reload (NOT refreshAll): discards the unsaved editor state and
 		// re-hydrates from the backend's last-saved version.
 		window.location.reload();
 	}

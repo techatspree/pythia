@@ -130,7 +130,7 @@ jobs:
       - uses: actions/setup-node@v7
         with:
           # Must equal nodeVersion in gradle.properties (task-197).
-          node-version: 22.14.0
+          node-version: 22.23.4
 
       # Materialises what the Vite dev server needs and the repository does not
       # carry: node_modules, src/lib/domain (the KMP/JS output) and the
@@ -567,7 +567,7 @@ jobs:
       - uses: actions/setup-node@v7
         with:
           # Must equal nodeVersion in gradle.properties (task-197).
-          node-version: 22.14.0
+          node-version: 22.23.4
 
       # Dev dependencies are IN scope (task-192). In a SvelteKit adapter-static
       # SPA the Svelte runtime, Kit's client runtime and `devalue` are

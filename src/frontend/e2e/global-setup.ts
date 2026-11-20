@@ -56,7 +56,7 @@ async function resetTestData(): Promise<void> {
 	// Playwright's own request context, the same idiom the specs use — not raw
 	// fetch, which is ESLint-banned here because `apiFetch` is what attaches the
 	// Authorization header. `apiFetch` is unavailable in this node-side setup (it
-	// is a `$lib` alias and reads a browser-held token), so this passes the dev
+	// is a `#lib` import and reads a browser-held token), so this passes the dev
 	// header explicitly instead.
 	const ctx = await playwrightRequest.newContext({
 		baseURL: API,

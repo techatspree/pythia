@@ -1,10 +1,10 @@
 <script lang="ts">
-	import Button from '$lib/ui/Button.svelte';
+	import Button from '#lib/ui/Button.svelte';
 	import { onMount } from 'svelte';
 	import { _, locale } from 'svelte-i18n';
-	import RequiredRole from '$lib/auth/RequiredRole.svelte';
-	import ErrorBanner from '$lib/components/ErrorBanner.svelte';
-	import { formatDate, DEFAULT_LOCALE } from '$lib/format';
+	import RequiredRole from '#lib/auth/RequiredRole.svelte';
+	import ErrorBanner from '#lib/components/ErrorBanner.svelte';
+	import { formatDate, DEFAULT_LOCALE } from '#lib/format.ts';
 	import {
 		getSystemSettings,
 		updateSystemSettings,
@@ -15,9 +15,9 @@
 		deleteSystemCss,
 		type EffortDriverDto,
 		type SystemSettingsDto
-	} from '$lib/api/system';
-	import { system } from '$lib/stores/system.svelte';
-	import { log } from '$lib/log';
+	} from '#lib/api/system.ts';
+	import { system } from '#lib/stores/system.svelte.ts';
+	import { log } from '#lib/log.ts';
 
 	// Admin surface for the per-installation settings (task-146): the display
 	// name, the standard effort-driver template, and the custom stylesheet.

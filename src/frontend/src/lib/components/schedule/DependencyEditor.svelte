@@ -1,12 +1,12 @@
 <script lang="ts">
 	import { _ } from 'svelte-i18n';
 	import { SvelteSet } from 'svelte/reactivity';
-	import { log } from '$lib/log';
-	import { formatFixed } from '$lib/format';
+	import { log } from '#lib/log.ts';
+	import { formatFixed } from '#lib/format.ts';
 	import { locale } from 'svelte-i18n';
-	import type { ProjectScheduleView, ScheduleEdge, ScheduledTaskView } from '$lib/adapter';
+	import type { ProjectScheduleView, ScheduleEdge, ScheduledTaskView } from '#lib/adapter.ts';
 	import CycleRefusedDialog from './CycleRefusedDialog.svelte';
-	import DisclosureTriangle from '$lib/ui/DisclosureTriangle.svelte';
+	import DisclosureTriangle from '#lib/ui/DisclosureTriangle.svelte';
 
 	// Graphical dependency editor (task-157) — Merlin's "Flow" net-plan shape.
 	//

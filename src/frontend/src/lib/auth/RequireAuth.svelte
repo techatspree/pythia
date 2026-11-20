@@ -1,9 +1,9 @@
 <script lang="ts">
 	import type { Snippet } from 'svelte';
-	import type { AuthAccount } from '$lib/auth/AuthProvider';
-	import { getAuthProvider } from '$lib/auth';
-	import DevLoginDialog from '$lib/components/DevLoginDialog.svelte';
-	import ErrorBanner from '$lib/components/ErrorBanner.svelte';
+	import type { AuthAccount } from '#lib/auth/AuthProvider.ts';
+	import { getAuthProvider } from '#lib/auth/index.ts';
+	import DevLoginDialog from '#lib/components/DevLoginDialog.svelte';
+	import ErrorBanner from '#lib/components/ErrorBanner.svelte';
 
 	let {
 		account,

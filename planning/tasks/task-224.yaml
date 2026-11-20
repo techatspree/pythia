@@ -1,0 +1,293 @@
+id: task-224
+phase: phase-14
+title: "Clear the npm audit: SvelteKit 3, Vite 8.3.8, Node 22.23"
+depends_on: [task-205]
+description: |
+  ## Why
+
+  CI's `security` job runs `npm audit --audit-level=high` over
+  `src/frontend`. It has failed on every run since at least 2026-10-23,
+  the oldest run checked. Nobody noticed, because the job is
+  `continue-on-error: true` (deliberately, so a CVE published overnight
+  cannot turn unrelated PRs red; see `docs/development.md`, "Dependency
+  vulnerabilities"). That design only works if somebody reads the job, and
+  the failure has been hiding real, fixable findings.
+
+  ## Current state (measured 2026-11-20)
+
+  `npm audit` reports 13 vulnerable packages: **2 high, 10 moderate, 1 low**.
+
+  | package | severity | advisories | fixed in |
+  |---|---|---|---|
+  | `vite` 8.3.2 (direct) | high | GHSA-9jrq-w75r-8gcw, GHSA-rq7h-c2jc-7f22, GHSA-vfpm-58rq-9qcg (dev server), GHSA-698v-4r3x-3vcv, GHSA-r825-w8mm-5pxw, GHSA-587h-7wmj-h5pm (`launch-editor`) | 8.3.8, via plain `npm audit fix` |
+  | `@sveltejs/kit` 2.70.3 (direct) | high | GHSA-mw6w-2fmv-pvw3 and GHSA-rqp5-r3wg-vg35 (`<2.70.4`) | 2.70.4, via plain `npm audit fix` |
+  | `@sveltejs/kit` | high | GHSA-pfhg-q3qv-9q6r (redirect via enhanced form submission, `<3.0.0`), GHSA-27mw-82g8-phjj (XSS via cache-control header in a prerendered page, `<3.0.0`), GHSA-3r8g-jcqq-3p5j (remote-function `form` DoS, `>=2.42.0 <=3.1.0`), GHSA-6cf5-gc4q-fm3x (`query.batch` collision, `>=2.60.1 <=3.1.0`) | **Kit 3.1.1 only** |
+  | `@sveltejs/adapter-static` 3.0.10 | moderate | GHSA-jf9x-2fg2-hx4w | 3.0.11 |
+  | `typescript-eslint` 8.61.0 and its 5 internal packages, `minimatch` 10.2.5 | moderate | GHSA-g3hv-75wg-m249 | typescript-eslint 8.73.0 |
+  | `cookie` <0.7.0 (via Kit 2) | low | GHSA-pxg6-pf52-xh8x | Kit 3, which depends on `cookie ^2.0.1` (measured on 3.1.1). Accepted today. |
+  | `esbuild` <=0.24.2 (via `svelte-i18n`) | moderate | GHSA-67mh-4wv8-2f99 | no non-downgrade fix. Accepted today. |
+
+  `npm audit fix --dry-run` (no `--force`) would change 22 packages and add
+  1: vite 8.3.2 → 8.3.8, Kit 2.70.3 → 2.70.4, adapter-static 3.0.10 → 3.0.11,
+  typescript-eslint 8.61.0 → 8.73.0, minimatch 10.2.5 → 11.0.9, plus their
+  transitive packages. **That does not make the audit pass.** The four Kit
+  advisories in the third row stay, and two of them are HIGH, so the exit
+  code stays 1.
+
+  Applicability, for the record: this app has `ssr = false`
+  (`src/routes/+layout.ts`), uses `adapter-static` with `fallback:
+  'index.html'`, imports nothing from `$app/forms` or `$app/server`, and
+  prerenders nothing. Probably none of the four is reachable. But
+  "accepting" a HIGH keeps `--audit-level=high` red forever, which is how
+  the failure got ignored in the first place. Kit 2 will also keep
+  collecting advisories that are fixed only on 3.
+
+  ## Decision: move to SvelteKit 3
+
+  - **`@sveltejs/kit` 3.1.1 and `@sveltejs/adapter-static` 4.0.1.** 3.1.1
+    (2026-10-29) is the first release outside every advisory range above.
+    adapter-static 4.0.1 (2026-10-29) is the release that declares Kit 3 as
+    its peer (`^3.0.0-next.0`).
+  - **Take only releases at least two weeks old.** Kit 3.2.0 (2026-11-10),
+    3.2.1, 3.3.x and 3.4.0 (2026-11-18) are too new today. Install the exact
+    version, then write a caret range into `package.json` (`^3.1.1`,
+    `^4.0.1`), as the Playwright upgrade did in `d940b2c`. The lockfile is
+    what CI installs (`npm ci`).
+  - **Kit 3 needs Node `>=22.17`.** The build pins `nodeVersion=22.14.0` in
+    the root `gradle.properties`, and `.npmrc` has `engine-strict=true`, so
+    the install is refused until Node moves. Take **Node 22.23.4**
+    (2026-10-20, the newest 22.x LTS "Jod" release older than two weeks;
+    22.23.5 is from 2026-11-11). The version is written in exactly three
+    places, and they must stay equal (task-197): `gradle.properties`
+    `nodeVersion`, and `node-version` in `.github/workflows/ci.yaml` at line
+    133 (e2e) and line 570 (security).
+  - **The esbuild finding stays accepted.** It's a moderate dev-server flaw
+    in `svelte-i18n`'s build-time CLI, and npm's only "fix" is a major
+    downgrade of `svelte-i18n`. The cookie row leaves the accepted table.
+    Kit 3 does NOT drop `cookie`: 3.1.1 depends on `cookie ^2.0.1`, which is
+    outside the advisory's `<0.7.0` range. The table's current wording,
+    "only Kit 3 removes it", is wrong and goes with the row.
+  - **Context, not dependencies:** task-208 made committed licence texts
+    mandatory for every licence in the SBOM, which the new Kit 3
+    dependencies must satisfy (see the licence step). Task-184 fixed the
+    drag flake and moved Playwright to 1.64.1 (commit `d940b2c`), so the
+    e2e suite this task relies on is green. Both changes are on `main`.
+  - **The `security` job stays `continue-on-error`.** The reasoning in
+    `docs/development.md` still holds. What changes is that the job is green
+    afterwards, so the next red run actually means something.
+  - **Out of scope:** `rollup-plugin-sbom` 4. `docs/development.md` (line
+    ~248) pins 3.2.3 because 4.x needs Node `^22.22.2`, which Node 22.23.4
+    now satisfies. Update that sentence so it no longer claims Node blocks
+    it, and leave the upgrade itself to a separate task: it changes the SBOM,
+    which has its own gates (`scripts/check-sbom.sh`, `checkOssCompliance`).
+
+  ## What Kit 3 will touch
+
+  Measured usage today: `$app/state` in 10 files, `$app/paths` in 14,
+  `$app/navigation` in 5; `$app/stores`, `$app/forms`, `$app/server`
+  and `$app/environment` in none. `svelte.config.js` has the static adapter
+  with `fallback: 'index.html'` and the runes compiler option only. The
+  implementer follows the official Kit 3 migration guide
+  (svelte.dev, "Migrating to SvelteKit v3"; read it, do not guess) and
+  changes only what it requires. Every e2e spec is the safety net.
+
+  ## Deviation found during implementation
+
+  Kit 3 was a real migration, not mostly a version bump. Per the migration
+  guide and Kit 3.1.1's own source (`module_removed_lib` in
+  `src/messages/build-errors.js`), **`$lib` is removed**, and the only way to
+  keep it is the deprecated `alias` option. The user decided (2026-11-20) to
+  migrate to `#lib` rather than keep the deprecated alias. What was done:
+
+  - **Migration tool.** Ran `npx sv@1.3.0 migrate sveltekit-3 --tasks all
+    --confirm --no-install --no-git-check`, pinned like every other tool.
+    1.3.0 (2026-11-04) is the newest `sv` older than two weeks that carries
+    the `sveltekit-3` migration. It rewrote 286 `$lib` imports in 64 files to
+    `#lib` with explicit extensions, added `imports` to `package.json`,
+    moved the adapter and `compilerOptions` from `svelte.config.js` into
+    `sveltekit({ … })` in `vite.config.ts`, **deleted `svelte.config.js`**,
+    rewrote `tsconfig.json` to extend `$app/tsconfig`, and dropped the
+    leading `/` from 25 pathname `resolve()` calls.
+  - **The tool's own version bumps were not kept.** It set Kit `^3.0.0`,
+    adapter-static `^4.0.0`, adapter-auto `^8.0.0`, svelte `^5.57.2` and
+    svelte-check `^4.7.5`. Kit and adapter-static were set to the task's
+    exact versions, and svelte and svelte-check went back to their original
+    ranges.
+  - **`@sveltejs/adapter-auto` removed.** It was a devDependency nothing
+    imported (0 references), and its v7 declares Kit 2 as a peer, which
+    blocks the Kit 3 install.
+  - **Manual fixes the tool listed.** `goto` options in `routes/+page.svelte`
+    and `routes/projects/+page.svelte`: `replaceState` → `replace`, and
+    `keepFocus` + `noScroll` → `reset: false`. Also
+    `new URL(page.url)` → `new URL(page.url.href)` (`page.url` is read-only),
+    and the 13 `#lib/api/schema` type imports → `#lib/api/schema.d.ts`. The
+    other flagged items needed no change: `AppHeader` only reads
+    `page.url`, every other `goto` goes through `resolve()` on a route ID,
+    and `invalidateAll` is unused.
+  - **`rewriteRelativeImportExtensions` removed from `tsconfig.json`.** It
+    came from the original project template. It forbids a `.ts` extension
+    on a non-relative import, so every `#lib/….ts` import failed svelte-check.
+    Kit 3's generated `$app/tsconfig` sets `allowImportingTsExtensions` with
+    `noEmit` instead.
+  - **A now-unused `eslint-disable` removed** in `routes/projects/+page.svelte`.
+    ESLint reported it, because the rule no longer flags that `goto`.
+  - **Docs.** Every remaining `$lib` in docs, CLAUDE.md files, skills,
+    command files, ESLint messages and code comments became `#lib` (34
+    occurrences). The one exception is the user's
+    `src/backend/.claude/settings.local.json`, which was not touched.
+    `src/frontend/CLAUDE.md` gained a "SvelteKit 3 conventions" section, and
+    the root `CLAUDE.md` stack line now says SvelteKit 3 + Svelte 5.
+  - **Stage A also moved the 19 `@rolldown/binding-*` platform packages**
+    (rolldown 1.2.12 → 1.2.19) and their wasm helpers. The dry run had listed
+    only the host's own binding.
+
+steps:
+  - |
+    Record the starting point in `src/frontend`:
+    `npm audit --json | jq '.metadata.vulnerabilities'` (expected: 2 high,
+    10 moderate, 1 low), then confirm `npm audit --audit-level=high` exits 1.
+  - |
+    Stage A, non-breaking fixes: in `src/frontend`, run `npm audit fix`.
+    NEVER with `--force`, which would downgrade `svelte-i18n` (see
+    `docs/development.md`, "Applying a fix"). Check that `git diff
+    package-lock.json` shows the dry-run's changes (vite 8.3.8, Kit 2.70.4,
+    adapter-static 3.0.11, typescript-eslint 8.73.0, minimatch 11.0.9) and
+    nothing else unexpected. An `ERESOLVE` means a peer mismatch: fix it as
+    the "Applying a fix" section says, never with `--legacy-peer-deps`.
+    Then run `./gradlew :frontend:check`. This stage must stay green on its
+    own, so it can land even if Stage B stalls. Finally confirm that
+    `npm audit --audit-level=high` still exits 1, and that
+    `npm audit --json | jq -r '.vulnerabilities | to_entries[] | select(.value.severity=="high") | .key'`
+    prints only `@sveltejs/kit`. That proves Stage B is needed for exactly
+    the four Kit advisories, and that Stage A fixed everything else that was high.
+  - |
+    Stage B, Node: set `nodeVersion=22.23.4` in the root
+    `gradle.properties`, and `node-version: 22.23.4` at both places in
+    `.github/workflows/ci.yaml` (the e2e job, line 133, and the security
+    job, line 570; each carries the "Must equal nodeVersion" comment). The
+    Gradle Node plugin and `:domain`'s Kotlin/JS toolchain both read
+    `nodeVersion` and download it on the next build. Verify with
+    `./gradlew :frontend:npmInstall` and `./gradlew :domain:build`.
+  - |
+    Stage B, Kit 3: in `src/frontend`,
+    `npm install --save-dev --save-exact @sveltejs/kit@3.1.1 @sveltejs/adapter-static@4.0.1`,
+    then change the two entries in `package.json` to `"^3.1.1"` and
+    `"^4.0.1"` and run `npm install` once more, so `package-lock.json`
+    records exactly 3.1.1 / 4.0.1. Read the official SvelteKit 3 migration
+    guide and apply what it requires to `svelte.config.js` and the `$app/*`
+    call sites (counts in the description). Keep `ssr = false`, the static
+    adapter and `fallback: 'index.html'`. Run `./gradlew :frontend:check`
+    and fix what it reports. svelte-check, ESLint and the `lintE2e` gate
+    must all pass.
+  - |
+    Confirm the audit: `npm audit --audit-level=high` exits 0, and
+    `npm audit --json | jq -r '.vulnerabilities | keys[]'` lists only the
+    accepted `esbuild` / `svelte-i18n` pair. In `docs/development.md`,
+    "Dependency vulnerabilities":
+    - remove the cookie row from the accepted table;
+    - add a sentence that the frontend is on Kit 3 since task-224, and why
+      (the four Kit advisories with no Kit 2 fix);
+    - rewrite the "Applying a fix" paragraph (lines ~317-320), which today
+      explains the `--force` ban with "the major 'fixes' npm proposes …
+      (Kit 3, new adapter majors, a downgrade of `svelte-i18n`)". Kit 3 and
+      adapter-static 4 are now the installed majors, so name only what
+      `--force` would still do: the `svelte-i18n` downgrade;
+    - update the `rollup-plugin-sbom` sentence (line ~248) as described.
+    Leave `docs/architecture.md` alone: line ~163 names only the property,
+    not a version.
+  - |
+    Licences and SBOM: `./gradlew build` runs `checkOssCompliance` over the
+    new dependency set. A new component with an unknown licence fails it, and
+    the remedy is an entry in `compliance/oss-policy.json` with a `reason`,
+    never a weaker check (`docs/oss-compliance.md`). Since task-208 every
+    licence in the SBOM must also have a committed text in
+    `compliance/license-texts/` (or a "no text" entry). Kit 3 brings new
+    dependencies (`magic-string` 1.x, `@rolldown/pluginutils`,
+    `@standard-schema/spec`, `cookie` 2.x), so add any text the check names,
+    unchanged from the upstream package, as `docs/oss-compliance.md`
+    ("The texts are committed") describes. Run `./gradlew sbom` and
+    `scripts/check-sbom.sh` as `docs/development.md` describes.
+  - |
+    Port protocol, then the full Playwright suite: check that :8090, :5173
+    and :5432 are free (`lsof -nP -iTCP:<port> -sTCP:LISTEN`); if one is
+    taken, stop and report. Start `./scripts/dev.sh` in the background, run
+    `cd src/frontend && npx playwright install chromium`, then
+    `E2E_LANG=en npx playwright test` and `E2E_LANG=de npx playwright test`.
+    Both must pass completely. Afterwards stop ONLY the `dev.sh` this task
+    started, with SIGTERM.
+  - |
+    `./gradlew staticAnalysis`
+  - |
+    ./gradlew build
+
+validation:
+  - |
+    # Node moved everywhere, in lockstep
+    grep -qx 'nodeVersion=22.23.4' gradle.properties
+    test "$(grep -c 'node-version: 22.23.4' .github/workflows/ci.yaml)" -eq 2
+    ! grep -q '22\.14\.0' gradle.properties .github/workflows/ci.yaml docs/development.md
+  - |
+    # SvelteKit 3 and adapter-static 4, at the decided versions
+    cd src/frontend
+    jq -e '.devDependencies["@sveltejs/kit"] == "^3.1.1"' package.json
+    jq -e '.devDependencies["@sveltejs/adapter-static"] == "^4.0.1"' package.json
+    jq -e '.packages["node_modules/@sveltejs/kit"].version == "3.1.1"' package-lock.json
+    jq -e '.packages["node_modules/@sveltejs/adapter-static"].version == "4.0.1"' package-lock.json
+  - |
+    # The audit passes, and only the accepted finding remains
+    cd src/frontend
+    npm audit --audit-level=high
+    test "$(npm audit --json | jq -r '[.vulnerabilities | keys[] | select(. != "esbuild" and . != "svelte-i18n")] | length')" -eq 0
+  - |
+    # The Kit 3 migration is complete (deviation): no $lib import, no svelte.config.js
+    cd src/frontend
+    ! grep -rqE "from '\\\$lib" src e2e
+    test ! -f svelte.config.js
+    jq -e '.imports["#lib/*"] == "./src/lib/*"' package.json
+    jq -e '.devDependencies["@sveltejs/adapter-auto"] == null' package.json
+  - |
+    # Documentation follows
+    ! grep -q 'GHSA-pxg6-pf52-xh8x' docs/development.md
+    grep -q 'GHSA-67mh-4wv8-2f99' docs/development.md
+    grep -q 'task-224' docs/development.md
+    # the --force paragraph no longer names Kit 3 as a forced "fix"
+    ! grep -q '(Kit 3, new adapter majors' docs/development.md
+  - |
+    ./gradlew :frontend:check
+  - |
+    ./gradlew staticAnalysis
+  - |
+    ./gradlew build
+  - |
+    # with a dev.sh stack started per the port protocol
+    cd src/frontend && E2E_LANG=en npx playwright test && E2E_LANG=de npx playwright test
+
+outputs:
+  - modified: gradle.properties
+  - modified: .github/workflows/ci.yaml
+  - modified: src/frontend/package.json
+  - modified: src/frontend/package-lock.json
+  - deleted: src/frontend/svelte.config.js                  # deviation: Kit 3 no longer reads it
+  - modified: src/frontend/vite.config.ts
+  - modified: src/frontend/tsconfig.json
+  - modified: src/frontend/eslint.config.js
+  - modified: src/frontend/src/**                           # $lib → #lib (64 files), goto options, page.url, schema type imports
+  - modified: src/frontend/e2e/**                           # comments only
+  - modified: src/frontend/scripts/check-design-tokens.mjs  # message text
+  - modified: src/frontend/CLAUDE.md
+  - modified: src/frontend/src/lib/**/CLAUDE.md
+  - modified: CLAUDE.md
+  - modified: src/backend/CLAUDE.md
+  - modified: src/backend/implementation/src/main/kotlin/io/pythia/auth/CLAUDE.md
+  - modified: src/domain/core/src/main/kotlin/io/pythia/model/mutation/ChangeDescription.kt   # comment only
+  - modified: src/domain/core/src/main/kotlin/io/pythia/model/mutation/DiffSummary.kt         # comment only
+  - modified: docs/architecture.md
+  - modified: docs/entra-setup.md
+  - modified: docs/estimation-sessions.md
+  - modified: .claude/commands/add-task.md
+  - modified: .claude/commands/improve-task.md
+  - modified: .claude/skills/estimation-sessions/SKILL.md
+  - modified: .gitignore                                    # comment only
+  - modified: docs/development.md
+  - modified: compliance/oss-policy.json                    # only if checkOssCompliance flags a new component
+  - created: compliance/license-texts/*                     # only for a new licence the SBOM text check names

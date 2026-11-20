@@ -3,18 +3,18 @@
 	import { resolve } from '$app/paths';
 	import { onMount } from 'svelte';
 	import { _, locale } from 'svelte-i18n';
-	import { formatFixed } from '$lib/format';
-	import { apiFetch } from '$lib/api/fetch';
-	import { assertOk } from '$lib/api/errors';
-	import { log } from '$lib/log';
-	import Page from '$lib/ui/Page.svelte';
-	import ErrorBanner from '$lib/components/ErrorBanner.svelte';
-	import DependencyEditor from '$lib/components/schedule/DependencyEditor.svelte';
-	import GanttChart from '$lib/components/schedule/GanttChart.svelte';
-	import { calculationHoursPerDay, computeEstimation, type ScheduleEdge } from '$lib/adapter.js';
-	import { system } from '$lib/stores/system.svelte';
-	import { normalizeRoots, labelsByLogicalId, type Node } from '$lib/estimationNodes';
-	import type { ApiVersionResponse } from '$lib/api/types.js';
+	import { formatFixed } from '#lib/format.ts';
+	import { apiFetch } from '#lib/api/fetch.ts';
+	import { assertOk } from '#lib/api/errors.ts';
+	import { log } from '#lib/log.ts';
+	import Page from '#lib/ui/Page.svelte';
+	import ErrorBanner from '#lib/components/ErrorBanner.svelte';
+	import DependencyEditor from '#lib/components/schedule/DependencyEditor.svelte';
+	import GanttChart from '#lib/components/schedule/GanttChart.svelte';
+	import { calculationHoursPerDay, computeEstimation, type ScheduleEdge } from '#lib/adapter.js';
+	import { system } from '#lib/stores/system.svelte.ts';
+	import { normalizeRoots, labelsByLogicalId, type Node } from '#lib/estimationNodes.ts';
+	import type { ApiVersionResponse } from '#lib/api/types.js';
 
 	// The dependency graph on its own route (task-167). It was a collapsible
 	// section in the version editor, which is the wrong shape for a working

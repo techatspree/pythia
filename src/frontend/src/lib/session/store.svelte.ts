@@ -1,4 +1,4 @@
-import type { components } from '$lib/api/schema';
+import type { components } from '#lib/api/schema.d.ts';
 import type { SessionDto } from './api';
 
 type SessionItemDto = components['schemas']['SessionItemDto'];

@@ -226,7 +226,7 @@ test('a non-sample leaf inherits the average of its bucket', async ({ page, requ
 
 	// PERT means: (1 + 4·2 + 3)/6 = 2 and (2 + 4·4 + 6)/6 = 4. Each bucket has a
 	// single sample, so its average IS that sample's mean — which is what the
-	// non-sample rows must now show. The grid formats through $lib/format.ts in
+	// non-sample rows must now show. The grid formats through #lib/format.ts in
 	// the user's language, so only the decimal separator is left free.
 	await expect(meanOf(page, leaf1)).toHaveText(/^2[.,]00$/);
 	await expect(meanOf(page, leaf2)).toHaveText(/^2[.,]00$/);

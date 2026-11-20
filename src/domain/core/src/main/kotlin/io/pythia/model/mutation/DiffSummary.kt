@@ -187,7 +187,7 @@ private fun nodeTypeOf(node: EstimationNode): String = when (node) {
 
 // Locale-NEUTRAL numeric string: whole numbers without a fractional part, the
 // rest via the platform toString (always a `.` decimal). The frontend re-formats
-// numeric values per locale via $lib/format.ts; never format for a locale here.
+// numeric values per locale via #lib/format.ts; never format for a locale here.
 private fun fmt(v: Double?): String? {
     if (v == null) return null
     return if (v % 1.0 == 0.0) v.toLong().toString() else v.toString()

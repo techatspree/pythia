@@ -1,8 +1,8 @@
 <script lang="ts">
 	import { _, locale } from 'svelte-i18n';
-	import { formatDate, DEFAULT_LOCALE } from '$lib/format';
-	import { log } from '$lib/log';
-	import type { SessionDto } from '$lib/session/api';
+	import { formatDate, DEFAULT_LOCALE } from '#lib/format.ts';
+	import { log } from '#lib/log.ts';
+	import type { SessionDto } from '#lib/session/api.ts';
 
 	// The bucket the group landed on plus every write that lost the LWW race
 	// (task-106). Only bucket+sampled sessions populate it; PERT sessions send

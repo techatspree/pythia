@@ -1,5 +1,5 @@
 import { register, init, locale, waitLocale } from 'svelte-i18n';
-import { SupportedLanguage } from '$lib/domain/domain.mjs';
+import { SupportedLanguage } from '#lib/domain/domain.mjs';
 
 // Frontend i18n foundation (phase-16, task-124/125). UI strings live in the JSON
 // catalogs in this folder and are rendered via svelte-i18n's `$_('key')`; no

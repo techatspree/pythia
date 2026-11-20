@@ -1,6 +1,6 @@
 import type { AuthAccount, AuthProvider } from './AuthProvider';
 import { fetchCurrentUserAccount } from './currentUser';
-import { log } from '$lib/log';
+import { log } from '#lib/log.ts';
 
 type DevUser = {
 	subjectId: string;

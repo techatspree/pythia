@@ -1,8 +1,8 @@
 <script lang="ts">
-	import Button from '$lib/ui/Button.svelte';
+	import Button from '#lib/ui/Button.svelte';
 	import { _, locale } from 'svelte-i18n';
-	import { formatFixed, DEFAULT_LOCALE } from '$lib/format';
-	import DisclosureTriangle from '$lib/ui/DisclosureTriangle.svelte';
+	import { formatFixed, DEFAULT_LOCALE } from '#lib/format.ts';
+	import DisclosureTriangle from '#lib/ui/DisclosureTriangle.svelte';
 
 	const num = (v: number, frac: number) => formatFixed(v, $locale ?? DEFAULT_LOCALE, frac);
 

@@ -1,16 +1,16 @@
 <script lang="ts">
 	import { _, locale } from 'svelte-i18n';
-	import Button from '$lib/ui/Button.svelte';
-	import { formatFixed, formatDate, DEFAULT_LOCALE } from '$lib/format';
-	import { downloadResponse } from '$lib/api/download';
-	import { log } from '$lib/log';
-	import type { ProjectScheduleView, ScheduledTaskView } from '$lib/adapter';
+	import Button from '#lib/ui/Button.svelte';
+	import { formatFixed, formatDate, DEFAULT_LOCALE } from '#lib/format.ts';
+	import { downloadResponse } from '#lib/api/download.ts';
+	import { log } from '#lib/log.ts';
+	import type { ProjectScheduleView, ScheduledTaskView } from '#lib/adapter.ts';
 
 	// Renders the levelled plan as bars and exports it as Mermaid text
 	// (task-158). Computes NOTHING about the schedule: every date and duration
 	// comes from the domain via `ProjectScheduleView`.
 	//
-	// `ProjectScheduleView` is the FRONTEND type from `$lib/adapter`;
+	// `ProjectScheduleView` is the FRONTEND type from `#lib/adapter.ts`;
 	// `ProjectSchedule` is the Kotlin name and does not exist in TypeScript.
 	let {
 		schedule,

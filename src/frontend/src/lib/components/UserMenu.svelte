@@ -1,13 +1,13 @@
 <script lang="ts">
 	import { _, locale } from 'svelte-i18n';
-	import { setUserLanguage } from '$lib/i18n';
-	import { SupportedLanguage } from '$lib/domain/domain.mjs';
-	import { apiFetch } from '$lib/api/fetch';
-	import { assertOk } from '$lib/api/errors';
-	import { log } from '$lib/log';
-	import ErrorBanner from '$lib/components/ErrorBanner.svelte';
-	import type { AuthAccount } from '$lib/auth/AuthProvider';
-	import { getAuthProvider } from '$lib/auth';
+	import { setUserLanguage } from '#lib/i18n/index.ts';
+	import { SupportedLanguage } from '#lib/domain/domain.mjs';
+	import { apiFetch } from '#lib/api/fetch.ts';
+	import { assertOk } from '#lib/api/errors.ts';
+	import { log } from '#lib/log.ts';
+	import ErrorBanner from '#lib/components/ErrorBanner.svelte';
+	import type { AuthAccount } from '#lib/auth/AuthProvider.ts';
+	import { getAuthProvider } from '#lib/auth/index.ts';
 
 	const ROLE_ORDER = [
 		'VIEWER',

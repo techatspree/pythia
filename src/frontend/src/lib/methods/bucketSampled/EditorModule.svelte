@@ -1,22 +1,22 @@
 <script lang="ts">
-	import Button from '$lib/ui/Button.svelte';
+	import Button from '#lib/ui/Button.svelte';
 	import type { Snippet } from 'svelte';
 	import { _, locale } from 'svelte-i18n';
-	import { formatFixed, formatNumber, DEFAULT_LOCALE } from '$lib/format';
-	import { EstimationDefaults } from '$lib/domain/domain.mjs';
-	import TreeTable from '$lib/components/treetable/TreeTable.svelte';
+	import { formatFixed, formatNumber, DEFAULT_LOCALE } from '#lib/format.ts';
+	import { EstimationDefaults } from '#lib/domain/domain.mjs';
+	import TreeTable from '#lib/components/treetable/TreeTable.svelte';
 	import type {
 		ChildrenChangeEvent,
 		TreeColumn,
 		TreeNodeContext
-	} from '$lib/components/treetable/types';
+	} from '#lib/components/treetable/types.ts';
 
 	const num = (v: number, frac: number) => formatFixed(v, $locale ?? DEFAULT_LOCALE, frac);
-	import ParametersPanel from '$lib/components/ParametersPanel.svelte';
-	import EffortDriversPanel from '$lib/components/EffortDriversPanel.svelte';
-	import PhasesPanel from '$lib/components/PhasesPanel.svelte';
-	import AdditionalCostsPanel from '$lib/components/AdditionalCostsPanel.svelte';
-	import ErrorBanner from '$lib/components/ErrorBanner.svelte';
+	import ParametersPanel from '#lib/components/ParametersPanel.svelte';
+	import EffortDriversPanel from '#lib/components/EffortDriversPanel.svelte';
+	import PhasesPanel from '#lib/components/PhasesPanel.svelte';
+	import AdditionalCostsPanel from '#lib/components/AdditionalCostsPanel.svelte';
+	import ErrorBanner from '#lib/components/ErrorBanner.svelte';
 	import BucketPanel from './BucketPanel.svelte';
 	import {
 		newId,
@@ -25,10 +25,10 @@
 		type Leaf,
 		type NodePath,
 		type CalcEntry
-	} from '$lib/estimationNodes';
-	import type { ApiAdditionalCost } from '$lib/api/types.js';
-	import type { EstimationTotalsView } from '$lib/adapter';
-	import { log } from '$lib/log';
+	} from '#lib/estimationNodes.ts';
+	import type { ApiAdditionalCost } from '#lib/api/types.js';
+	import type { EstimationTotalsView } from '#lib/adapter.ts';
+	import { log } from '#lib/log.ts';
 
 	type Bucket = { id: string; position: number; label: string };
 

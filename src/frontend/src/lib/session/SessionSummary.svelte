@@ -1,9 +1,9 @@
 <script lang="ts">
 	import { _, locale } from 'svelte-i18n';
 	import { resolve } from '$app/paths';
-	import { formatFixed, DEFAULT_LOCALE } from '$lib/format';
-	import ConflictBadge from '$lib/session/ConflictBadge.svelte';
-	import type { SessionStore } from '$lib/session/store.svelte';
+	import { formatFixed, DEFAULT_LOCALE } from '#lib/format.ts';
+	import ConflictBadge from '#lib/session/ConflictBadge.svelte';
+	import type { SessionStore } from '#lib/session/store.svelte.ts';
 
 	// FINALIZED view (task-067): every item with its written-back final PERT
 	// triple, plus a link back to the estimation (its draft now carries these

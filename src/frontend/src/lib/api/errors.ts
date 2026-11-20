@@ -1,5 +1,5 @@
 // The single seam that turns a failed HTTP Response into a user-facing message.
-// Complements the request seam `$lib/api/fetch.ts` (apiFetch). Call sites do the
+// Complements the request seam `#lib/api/fetch.ts` (apiFetch). Call sites do the
 // logging + ErrorBanner surfacing; this helper only produces the message.
 
 export interface ApiErrorBody {

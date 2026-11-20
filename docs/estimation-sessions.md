@@ -154,14 +154,14 @@ a client watchdog would have nothing to feed it and could not tell "idle" from
   running panel; a paused room shows a "this session is paused" panel with
   **Resume** / **End early**, and an `ENDED_EARLY` room renders the same
   `SessionSummary` a `FINALIZED` one does.
-- `$lib/session/PhaseOnePanel.svelte`, `PhaseTwoPanel.svelte`,
+- `#lib/session/PhaseOnePanel.svelte`, `PhaseTwoPanel.svelte`,
   `SessionSummary.svelte` — the phase panels.
-- `$lib/session/{api,socket,store.svelte}.ts` — REST wrappers, the socket
+- `#lib/session/{api,socket,store.svelte}.ts` — REST wrappers, the socket
   client, and the live `SessionStore`.
 
-All numbers render through `$lib/format.ts` (locale-aware), all strings through
+All numbers render through `#lib/format.ts` (locale-aware), all strings through
 the `session.*` svelte-i18n keys (`de.json` / `en.json`), and every error path
-both logs via `$lib/log.ts` and surfaces through `ErrorBanner`.
+both logs via `#lib/log.ts` and surfaces through `ErrorBanner`.
 
 ## End-to-end test
 

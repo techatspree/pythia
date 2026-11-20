@@ -1,10 +1,10 @@
 <script lang="ts">
-	import Badge from '$lib/ui/Badge.svelte';
-	import Button from '$lib/ui/Button.svelte';
+	import Badge from '#lib/ui/Badge.svelte';
+	import Button from '#lib/ui/Button.svelte';
 	import { resolve } from '$app/paths';
 	import { _, locale } from 'svelte-i18n';
-	import { formatDate, DEFAULT_LOCALE } from '$lib/format';
-	import type { ApiVersionSummary } from '$lib/api/types.js';
+	import { formatDate, DEFAULT_LOCALE } from '#lib/format.ts';
+	import type { ApiVersionSummary } from '#lib/api/types.js';
 	let { versions, estimationId, oncreate, onsubmit }: { versions: ApiVersionSummary[]; estimationId: string; oncreate: () => void; onsubmit: () => void } = $props();
 
 	let compareSelection = $state<string[]>([]);

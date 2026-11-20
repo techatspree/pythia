@@ -1,6 +1,6 @@
-import { apiFetch } from '$lib/api/fetch';
-import { log } from '$lib/log';
-import type { components } from '$lib/api/schema';
+import { apiFetch } from '#lib/api/fetch.ts';
+import { log } from '#lib/log.ts';
+import type { components } from '#lib/api/schema.d.ts';
 
 type MutationLogEntryDto = components['schemas']['MutationLogEntryDto'];
 type ConflictDetailsDto = components['schemas']['ConflictDetailsDto'];

@@ -1,6 +1,6 @@
-import { apiFetch } from '$lib/api/fetch';
-import { assertOk } from '$lib/api/errors';
-import type { components } from '$lib/api/schema';
+import { apiFetch } from '#lib/api/fetch.ts';
+import { assertOk } from '#lib/api/errors.ts';
+import type { components } from '#lib/api/schema.d.ts';
 
 // Thin typed wrappers over apiFetch for the collaborative-session REST surface
 // (task-064/065). apiFetch attaches the auth header; assertOk turns a non-ok

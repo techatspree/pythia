@@ -9,7 +9,7 @@
 	// the same font size and so read as a different control. Five versus two
 	// made the full-size pair the established one.
 	//
-	// An SVG chevron was considered and deliberately deferred: `$lib/ui/Select`
+	// An SVG chevron was considered and deliberately deferred: `#lib/ui/Select`
 	// draws one, and an SVG would render more consistently than a text glyph
 	// (whose weight and baseline depend on the font's coverage) — but switching
 	// changes how five existing toggles LOOK, which is a redesign rather than

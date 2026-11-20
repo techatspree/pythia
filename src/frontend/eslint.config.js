@@ -93,7 +93,7 @@ export default [
 
 	{
 		// Ban raw `fetch(...)`: every `/api` call must go through `apiFetch`
-		// (`$lib/api/fetch.ts`), which attaches the Authorization header.
+		// (`#lib/api/fetch.ts`), which attaches the Authorization header.
 		files: ['**/*.ts', '**/*.svelte'],
 		rules: {
 			'no-restricted-syntax': [
@@ -101,7 +101,7 @@ export default [
 				{
 					selector: "CallExpression[callee.name='fetch']",
 					message:
-						"Use apiFetch from '$lib/api/fetch' (it attaches the Authorization header) instead of raw fetch."
+						"Use apiFetch from '#lib/api/fetch.ts' (it attaches the Authorization header) instead of raw fetch."
 				}
 			]
 		}
@@ -138,7 +138,7 @@ export default [
 				{
 					selector: "CallExpression[callee.name='fetch']",
 					message:
-						"Use apiFetch from '$lib/api/fetch' (it attaches the Authorization header) instead of raw fetch."
+						"Use apiFetch from '#lib/api/fetch.ts' (it attaches the Authorization header) instead of raw fetch."
 				},
 				{
 					// getByRole(..., { name: <literal> }) — any role, not just 'button'.

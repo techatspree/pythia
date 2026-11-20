@@ -69,7 +69,7 @@ Check whether the task introduces work that the CLAUDE.md "Logging" conventions 
 
 - If `outputs`/`steps` add a **backend service or REST endpoint** (a JAX-RS resource method, an `@ApplicationScoped` service operation), the task must add `io.quarkus.logging.Log` statements at appropriate levels (INFO on the operation with key ids, DEBUG for finer detail, ERROR on failure paths). Flag if absent.
 - If they add a **domain operation** (a new `calculate()`-style computation or significant model behaviour), the task should add a `KotlinLogging.logger {}` debug observation (lambda form). Flag if a substantial new domain operation has none.
-- If they add a **significant frontend flow** (a new route load, store action, or data-mutation path with a `try`/`catch`), the task must log via `log` from `$lib/log.ts` — never bare `console.*` — while keeping `ErrorBanner` surfacing. Flag bare `console.*` or missing logging.
+- If they add a **significant frontend flow** (a new route load, store action, or data-mutation path with a `try`/`catch`), the task must log via `log` from `#lib/log.ts` — never bare `console.*` — while keeping `ErrorBanner` surfacing. Flag bare `console.*` or missing logging.
 - Reference the CLAUDE.md logging conventions in any finding. Purely structural/config/docs tasks with no new service, domain op, or frontend flow are exempt — rate PASS.
 
 ### 7. I18n completeness
@@ -108,7 +108,7 @@ Check whether the task adds or changes a **GUI function** — a screen, a dialog
 - A GUI task must have a `## Wireframes` section in `description`. If it has none, that is a FAIL — `/implement-task` would have to invent the layout.
 - There must be one `### <screen>: <state>` wireframe for **every** affected screen and every state the steps introduce. Compare against the steps: a dialog, an empty state, a disabled/hidden variant or a role-dependent view that the steps build but no wireframe shows is a FAIL.
 - Each wireframe is an ASCII box showing the German UI text as it will appear and realistic seeded test data, not `Lorem`/`XXX` placeholders. Placeholder content is a WARN.
-- Each wireframe is annotated with bullets naming the `data-testid` of every new element, the i18n key of every new string, who sees what (role/user), when elements are hidden or disabled, and which `$lib/ui` primitives or existing dialogs it reuses. Missing annotations are a WARN.
+- Each wireframe is annotated with bullets naming the `data-testid` of every new element, the i18n key of every new string, who sees what (role/user), when elements are hidden or disabled, and which `#lib/ui` primitives or existing dialogs it reuses. Missing annotations are a WARN.
 - **Consistency:** the testids and i18n keys in the wireframe annotations must match the steps, the i18n table and the `validation` greps exactly. Flag every mismatch (a testid in a step that no wireframe shows, a key in a wireframe missing from the catalog step) as FAIL.
 - Frontend steps should refer to the wireframes ("as wireframed") rather than re-describe the layout differently. Flag contradictions between a step and its wireframe as FAIL.
 - Backend-only, domain-only, infrastructure and documentation tasks with no GUI change are exempt — rate PASS and say so in one line.
@@ -166,9 +166,13 @@ If the user asks you to apply fixes after seeing the report:
 
 - Edit `planning/tasks/$ARGUMENTS.yaml` to address all FAIL items and any WARN items the user confirms.
 - For a missing or incomplete wireframe section, draw the missing wireframes into `description` from the steps and the current components (read the affected `.svelte` files and the i18n catalogs so the text and testids are real), then align steps, i18n table and validation with them.
-- If `status.json` is missing the entry for `$ARGUMENTS`, add it:
+- If `status.json` is missing the entry for `$ARGUMENTS`, add it under `tasks`:
   ```json
-  "$ARGUMENTS": { "status": "pending", "started_at": null, "completed_at": null, "notes": "" }
+  {
+    "tasks": {
+      "$ARGUMENTS": { "status": "pending", "started_at": null, "completed_at": null, "notes": "" }
+    }
+  }
   ```
 - Do not change any other task entries in `status.json`.
 - Do not create new task files or documentation files unless the task explicitly requires them.

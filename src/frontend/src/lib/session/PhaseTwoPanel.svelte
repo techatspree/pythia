@@ -1,17 +1,17 @@
 <script lang="ts">
-	import Button from '$lib/ui/Button.svelte';
+	import Button from '#lib/ui/Button.svelte';
 	import { _, locale } from 'svelte-i18n';
-	import { formatFixed, DEFAULT_LOCALE } from '$lib/format';
-	import { log } from '$lib/log';
-	import { submitVote, agree, finalize, updateNotes } from '$lib/session/api';
-	import ConflictBadge from '$lib/session/ConflictBadge.svelte';
-	import type { SessionStore } from '$lib/session/store.svelte';
+	import { formatFixed, DEFAULT_LOCALE } from '#lib/format.ts';
+	import { log } from '#lib/log.ts';
+	import { submitVote, agree, finalize, updateNotes } from '#lib/session/api.ts';
+	import ConflictBadge from '#lib/session/ConflictBadge.svelte';
+	import type { SessionStore } from '#lib/session/store.svelte.ts';
 	// Single source of truth for mean/spread: reduce the votes with the SAME
 	// domain code the backend uses (task-062), reached through the JS-friendly
 	// factory in DomainFactory.kt — the same pattern adapter.ts uses to call the
 	// Kotlin/JS bundle. The result must match the backend AggregateDto (asserted
 	// in the e2e); we compute it locally only for snappy display.
-	import { EstimatorVote, aggregateVotes } from '$lib/domain/domain.mjs';
+	import { EstimatorVote, aggregateVotes } from '#lib/domain/domain.mjs';
 
 	let {
 		store,

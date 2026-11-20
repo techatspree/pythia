@@ -1,5 +1,5 @@
 <script lang="ts" module>
-	import Button from '$lib/ui/Button.svelte';
+	import Button from '#lib/ui/Button.svelte';
 	// Body of the 409 the Merlin export answers with when the uploaded document's
 	// WBS no longer matches the estimation tree (task-133).
 	export type MerlinStructureDiff = {

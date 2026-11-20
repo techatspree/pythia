@@ -1,9 +1,9 @@
 <script lang="ts">
-	import Badge from '$lib/ui/Badge.svelte';
+	import Badge from '#lib/ui/Badge.svelte';
 	import { resolve } from '$app/paths';
-	import Button from '$lib/ui/Button.svelte';
+	import Button from '#lib/ui/Button.svelte';
 	import { _, locale } from 'svelte-i18n';
-	import { formatDate, DEFAULT_LOCALE } from '$lib/format';
+	import { formatDate, DEFAULT_LOCALE } from '#lib/format.ts';
 	let {
 		projects,
 		loading,

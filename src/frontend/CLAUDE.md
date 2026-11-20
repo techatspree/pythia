@@ -1,26 +1,37 @@
-# Frontend (`src/frontend`) — SvelteKit 5
+# Frontend (`src/frontend`) — SvelteKit 3
 
 Loaded when working under `src/frontend/`. The always-loaded hard rules live in the root `CLAUDE.md`; this file is the detail behind them.
 
-SvelteKit 5 (runes) + TypeScript + Tailwind 4, Vite, adapter-static (SPA).
+SvelteKit 3 + Svelte 5 (runes) + TypeScript + Tailwind 4, Vite, adapter-static (SPA).
+
+## SvelteKit 3 conventions (task-224)
+
+The frontend moved from Kit 2 to Kit 3 because Kit 2 carried four high-severity advisories with no Kit 2 fix (`docs/development.md`, "Dependency vulnerabilities"). The migration ran `npx sv@1.3.0 migrate sveltekit-3`. These conventions are what a new file has to follow:
+
+- **No `svelte.config.js`.** Kit 3 does not read it. The adapter (`adapter-static`, `fallback: 'index.html'`) and `compilerOptions` are arguments of `sveltekit({ … })` in `vite.config.ts`.
+- **`#lib`, not `$lib`.** `$lib` is removed. Imports use the `package.json` subpath import `#lib/*` → `./src/lib/*` and name the file **with its extension**: `#lib/log.ts`, `#lib/ui/Button.svelte`, and `#lib/api/schema.d.ts` for the generated types (always `import type`). An import without an extension does not resolve.
+- **`tsconfig.json` extends `$app/tsconfig`**, which Kit generates. It sets `allowImportingTsExtensions` with `noEmit`, which is what lets `#lib/….ts` type-check. Do not re-add `rewriteRelativeImportExtensions`: it forbids `.ts` on a non-relative import and fails svelte-check on every `#lib` import.
+- **`resolve()` takes a pathname without a leading `/`** (`resolve('projects')`). Only a route ID keeps it (`resolve('/estimations/[id]', { id })`).
+- **`goto` options were renamed:** `replace: true` (was `replaceState`), `reset: false` (was `keepFocus` + `noScroll`).
+- **`page.url` is read-only.** Copy it with `new URL(page.url.href)` before changing it.
 
 ## Detail next to the code
 
 Topic detail lives in a `CLAUDE.md` beside the code it describes and loads when you work there. **Read the file before changing that area from outside it** — e.g. before using `TreeTable` from a new component, or adding a Playwright spec.
 
-- `src/lib/ui/CLAUDE.md` — the `$lib/ui` primitives (`Button`, `Card`, `Select`, `Page`, `Field`, `Badge`, `DisclosureTriangle`), variant semantics, colour tokens and the gated bans; which `<select>`s must NOT become `Select`.
+- `src/lib/ui/CLAUDE.md` — the `#lib/ui` primitives (`Button`, `Card`, `Select`, `Page`, `Field`, `Badge`, `DisclosureTriangle`), variant semantics, colour tokens and the gated bans; which `<select>`s must NOT become `Select`.
 - `src/lib/config/CLAUDE.md` — runtime `/config.json` (task-162): no `VITE_*` auth config, fails closed, loaded in `+layout.ts` before anything reads it.
 - `src/lib/components/schedule/CLAUDE.md` — the schedule bridge (`computeEstimation`'s `scheduleInputs`), `DependencyEditor`, `GanttChart`, the Mermaid export, the schedule route and its partial PUT (the ONLY writer of `dependencies`).
 - `src/lib/methods/CLAUDE.md` — pluggable per-method editors and the bucket + sampled editor's two views.
 - `src/lib/stores/CLAUDE.md` — `UndoStore` and the undo keyboard shortcuts.
 - `src/lib/components/treetable/CLAUDE.md` — the generic `TreeTable`: dnd zones, cycle protection, the cross-zone publish queue, header fit, and why the bucket view's root zone refuses nested rows (`rootAcceptsDrops`, task-184).
 - `e2e/CLAUDE.md` — Page Objects, testid naming, the translated-label ESLint ban, `E2E_LANG`, and the pre-run database reset.
-- `src/lib/i18n/CLAUDE.md` — the catalogs, the language switcher, and `$lib/format.ts`.
+- `src/lib/i18n/CLAUDE.md` — the catalogs, the language switcher, and `#lib/format.ts`.
 - `src/lib/assets/CLAUDE.md` — the logo, generated icons and screenshots.
 
 ## Logging
 
-Import `log` from `$lib/log.ts` (a configured `loglevel` instance — `debug` under `import.meta.env.DEV`, else `warn`). **Never write bare `console.*`.** The error-surfacing rule below still holds: a `catch` must surface failure via `ErrorBanner` — `log.error(...)` is *in addition to*, not instead of, user-facing surfacing.
+Import `log` from `#lib/log.ts` (a configured `loglevel` instance — `debug` under `import.meta.env.DEV`, else `warn`). **Never write bare `console.*`.** The error-surfacing rule below still holds: a `catch` must surface failure via `ErrorBanner` — `log.error(...)` is *in addition to*, not instead of, user-facing surfacing.
 
 ## Container image (`:frontend:imageBuild`, task-195)
 
@@ -46,9 +57,9 @@ In CI (`CI` set), `npmInstall` runs `npm ci`, so the shipped bundle is built fro
 
 ## HTTP: `apiFetch` only
 
-Talks to the backend via `apiFetch` (`$lib/api/fetch.ts`), a thin `fetch` wrapper that attaches the active auth provider's `Authorization` header; request/response types are generated from the backend OpenAPI via openapi-typescript into `$lib/api/schema.d.ts`. Raw `fetch(...)` is banned by ESLint (`no-restricted-syntax`) in favour of `apiFetch` (task-090).
+Talks to the backend via `apiFetch` (`#lib/api/fetch.ts`), a thin `fetch` wrapper that attaches the active auth provider's `Authorization` header; request/response types are generated from the backend OpenAPI via openapi-typescript into `#lib/api/schema.d.ts`. Raw `fetch(...)` is banned by ESLint (`no-restricted-syntax`) in favour of `apiFetch` (task-090).
 
-**File downloads are no exception**: a plain `<a href="/api/…" download>` is banned too, because browser navigation carries no `Authorization` header — the strict dev module then answers `401` and the browser silently SAVES THAT JSON ERROR BODY as the "export" file (the xlsx/csv export menu shipped that way and produced no spreadsheet at all). Every download goes `apiFetch` → `assertOk` → `res.blob()` → the shared `downloadResponse(blob, contentDisposition, fallbackName)` in `$lib/api/download.ts`, which reads the filename out of the `Content-Disposition` header and clicks a temporary object-URL anchor; both the version editor's xlsx/csv export and the estimation detail page's Merlin export use it, and `e2e/export.test.ts` pins that the downloaded bytes are a real zip/CSV rather than a JSON error body.
+**File downloads are no exception**: a plain `<a href="/api/…" download>` is banned too, because browser navigation carries no `Authorization` header — the strict dev module then answers `401` and the browser silently SAVES THAT JSON ERROR BODY as the "export" file (the xlsx/csv export menu shipped that way and produced no spreadsheet at all). Every download goes `apiFetch` → `assertOk` → `res.blob()` → the shared `downloadResponse(blob, contentDisposition, fallbackName)` in `#lib/api/download.ts`, which reads the filename out of the `Content-Disposition` header and clicks a temporary object-URL anchor; both the version editor's xlsx/csv export and the estimation detail page's Merlin export use it, and `e2e/export.test.ts` pins that the downloaded bytes are a real zip/CSV rather than a JSON error body.
 
 ## Error surfacing rule
 
@@ -56,7 +67,7 @@ Every `try`/`catch` MUST surface failure to the user via the shared `ErrorBanner
 
 The request seam `apiFetch` itself **throws** `Authentication failed: <reason>` (with the original error as `cause`) when the auth provider cannot produce a token (e.g. MSAL silent-token acquisition fails after an Entra app-registration change) — it does NOT fall through and send an anonymous request that would only 401 with a misleading "session expired". A `null` header (not signed in) is not a failure: the request goes out anonymous and the backend 401 drives the sign-in message.
 
-A genuine **connection loss** (task-136) — `apiFetch`'s `fetch` rejecting, its ~10s `AbortController` timeout firing, or a `502/503/504` — is escalated (not to the banner) via the global `ConnectionStore` (`$lib/stores/connection.svelte.ts`, `connection.reportLost(...)`), which **blocks the whole app** with `ConnectionLostDialog` (mounted once in the root `+layout.svelte`, overlays every route). The block stays until a heartbeat — the unauthenticated `GET /api/ping` (`PingResource`, `@PermitAll`), polled every ~3s — answers AND the user acknowledges; acknowledging does a **full page reload** (`window.location.reload()`, not `invalidateAll()`) so the unsaved (lost) edit is discarded rather than silently re-saved by a later autosave. Ordinary 4xx/5xx business errors keep the non-blocking `ErrorBanner` path; a caller-initiated `AbortController` cancel is not treated as a connection loss.
+A genuine **connection loss** (task-136) — `apiFetch`'s `fetch` rejecting, its ~10s `AbortController` timeout firing, or a `502/503/504` — is escalated (not to the banner) via the global `ConnectionStore` (`#lib/stores/connection.svelte.ts`, `connection.reportLost(...)`), which **blocks the whole app** with `ConnectionLostDialog` (mounted once in the root `+layout.svelte`, overlays every route). The block stays until a heartbeat — the unauthenticated `GET /api/ping` (`PingResource`, `@PermitAll`), polled every ~3s — answers AND the user acknowledges; acknowledging does a **full page reload** (`window.location.reload()`, not `refreshAll()`, which replaced `invalidateAll()` in SvelteKit 3) so the unsaved (lost) edit is discarded rather than silently re-saved by a later autosave. Ordinary 4xx/5xx business errors keep the non-blocking `ErrorBanner` path; a caller-initiated `AbortController` cancel is not treated as a connection loss.
 
 ## Domain bridge (`adapter.ts`)
 
@@ -64,7 +75,7 @@ A genuine **connection loss** (task-136) — `apiFetch`'s `fetch` rejecting, its
 
 ## `$bindable` two-way binding (editor components)
 
-The version editor lets Svelte own state end-to-end. The page (`routes/estimations/[id]/versions/[versionNumber]/+page.svelte`) holds one source-of-truth `$state` per collection (`currentParameters`, `currentDrivers`, `currentPhases`, `currentAdditionalCosts`, `currentRoots`, `currentNotes`), normalised once in `loadVersion()` (roots via `normalizeRoots` from `$lib/estimationNodes`). It passes each down with `bind:` to the editor children — the four sibling panels (`ParametersPanel`, `EffortDriversPanel`, `PhasesPanel`, `AdditionalCostsPanel`) and `EstimationGrid` — which declare the data prop as `$bindable()` and **mutate it directly** (`push`/`splice`/field assignment, or reassign for wholesale replacement). There is no local snapshot, no `notify()`, and no `onchange` callback; Svelte propagates child mutations back to the page. Autosave is a single guarded `$effect` in the page: it deep-reads the editable state via `$state.snapshot(...)`, compares against a `lastSavedSnapshot` baseline set at load, and debounces a PUT only on an actual edit to a draft (never on load/reload). Do NOT reintroduce the old "snapshot prop into local `$state` + onchange" pattern. (`TreeTable`'s expand/collapse is the one exception that stays deliberately local — it is private UI state the page does not own. It holds only the rows the user has EXPLICITLY toggled (`expandedOverrides`), falling through to the caller's `defaultCollapsed(node)` rule for the rest — a live read, not a copy of the prop into `$state`.)
+The version editor lets Svelte own state end-to-end. The page (`routes/estimations/[id]/versions/[versionNumber]/+page.svelte`) holds one source-of-truth `$state` per collection (`currentParameters`, `currentDrivers`, `currentPhases`, `currentAdditionalCosts`, `currentRoots`, `currentNotes`), normalised once in `loadVersion()` (roots via `normalizeRoots` from `#lib/estimationNodes`). It passes each down with `bind:` to the editor children — the four sibling panels (`ParametersPanel`, `EffortDriversPanel`, `PhasesPanel`, `AdditionalCostsPanel`) and `EstimationGrid` — which declare the data prop as `$bindable()` and **mutate it directly** (`push`/`splice`/field assignment, or reassign for wholesale replacement). There is no local snapshot, no `notify()`, and no `onchange` callback; Svelte propagates child mutations back to the page. Autosave is a single guarded `$effect` in the page: it deep-reads the editable state via `$state.snapshot(...)`, compares against a `lastSavedSnapshot` baseline set at load, and debounces a PUT only on an actual edit to a draft (never on load/reload). Do NOT reintroduce the old "snapshot prop into local `$state` + onchange" pattern. (`TreeTable`'s expand/collapse is the one exception that stays deliberately local — it is private UI state the page does not own. It holds only the rows the user has EXPLICITLY toggled (`expandedOverrides`), falling through to the caller's `defaultCollapsed(node)` rule for the rest — a live read, not a copy of the prop into `$state`.)
 
 ## Whole-estimation totals (`EstimationSummaryPanel`)
 
@@ -92,7 +103,7 @@ The menu is a **flat row of `<a>`s inside a `<nav>`** — deliberately not a `<u
 
 ## System settings (name + custom stylesheet)
 
-The installation's display name and optional stylesheet (task-146) come from `GET /api/system`, which is unauthenticated so the login screen can be branded before an account exists. `$lib/stores/system.svelte.ts` loads it once from the root layout; the load is deliberately **not** awaited into the auth path and its failure only `log.error`s — branding must never gate rendering.
+The installation's display name and optional stylesheet (task-146) come from `GET /api/system`, which is unauthenticated so the login screen can be branded before an account exists. `#lib/stores/system.svelte.ts` loads it once from the root layout; the load is deliberately **not** awaited into the auth path and its failure only `log.error`s — branding must never gate rendering.
 
 The name is a **fallback chain, not a replacement**: `system.displayName ?? $_('brand.name')` in `AppHeader.svelte`, and `?? $_('brand.logoAlt')` for the standalone mark in `DevLoginDialog.svelte`. Keep the `brand.*` keys in both catalogs.
 

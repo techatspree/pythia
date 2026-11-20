@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { _ } from 'svelte-i18n';
-	import { EstimationDefaults } from '$lib/domain/domain.mjs';
-	import DisclosureTriangle from '$lib/ui/DisclosureTriangle.svelte';
+	import { EstimationDefaults } from '#lib/domain/domain.mjs';
+	import DisclosureTriangle from '#lib/ui/DisclosureTriangle.svelte';
 
 	// The three calculation inputs are TYPED FIELDS, not user-named rows
 	// (task-138). This panel used to let the user edit the parameter NAME while

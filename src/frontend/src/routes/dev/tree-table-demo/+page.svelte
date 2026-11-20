@@ -1,10 +1,10 @@
 <script lang="ts">
-	import TreeTable from '$lib/components/treetable/TreeTable.svelte';
+	import TreeTable from '#lib/components/treetable/TreeTable.svelte';
 	import type {
 		TreeColumn,
 		ChildrenChangeEvent,
 		TreeNodeContext
-	} from '$lib/components/treetable/types';
+	} from '#lib/components/treetable/types.ts';
 
 	type CatalogLeaf = {
 		kind: 'leaf';

@@ -1,10 +1,10 @@
 <script lang="ts">
-	import Button from '$lib/ui/Button.svelte';
+	import Button from '#lib/ui/Button.svelte';
 	import { _ } from 'svelte-i18n';
-	import ErrorBanner from '$lib/components/ErrorBanner.svelte';
-	import { apiFetch } from '$lib/api/fetch';
-	import { assertOk } from '$lib/api/errors';
-	import { log } from '$lib/log';
+	import ErrorBanner from '#lib/components/ErrorBanner.svelte';
+	import { apiFetch } from '#lib/api/fetch.ts';
+	import { assertOk } from '#lib/api/errors.ts';
+	import { log } from '#lib/log.ts';
 
 	let { open = $bindable(false), oncreated }: { open: boolean; oncreated: () => void } = $props();
 

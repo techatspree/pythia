@@ -1,8 +1,8 @@
 <script lang="ts">
 	import { _ } from 'svelte-i18n';
-	import { DEV_USERS, setDevSubject } from '$lib/auth/DevAuthProvider';
-	import { system } from '$lib/stores/system.svelte';
-	import logo from '$lib/assets/logo.svg';
+	import { DEV_USERS, setDevSubject } from '#lib/auth/DevAuthProvider.ts';
+	import { system } from '#lib/stores/system.svelte.ts';
+	import logo from '#lib/assets/logo.svg';
 
 	let { onlogin }: { onlogin: () => void } = $props();
 
@@ -41,8 +41,8 @@
 					class="w-full text-left px-3 py-2 border border-hairline rounded hover:bg-brand-green/10 hover:border-brand-green/40"
 					data-testid="dev-login-{user.subjectId}"
 				>
-					<div class="text-sm font-medium text-ink-strong">{user.displayName}</div>
-					<div class="text-xs text-ink-muted">{user.roles.join(', ')}</div>
+					<span class="block text-sm font-medium text-ink-strong">{user.displayName}</span>
+					<span class="block text-xs text-ink-muted">{user.roles.join(', ')}</span>
 				</button>
 			{/each}
 		</div>

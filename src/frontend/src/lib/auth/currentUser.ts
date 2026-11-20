@@ -1,7 +1,7 @@
-import { apiFetch } from '$lib/api/fetch';
-import { assertOk } from '$lib/api/errors';
-import { log } from '$lib/log';
-import type { components } from '$lib/api/schema';
+import { apiFetch } from '#lib/api/fetch.ts';
+import { assertOk } from '#lib/api/errors.ts';
+import { log } from '#lib/log.ts';
+import type { components } from '#lib/api/schema.d.ts';
 import type { AuthAccount } from './AuthProvider';
 
 type CurrentUserDto = components['schemas']['CurrentUserDto'];

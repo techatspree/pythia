@@ -7,8 +7,8 @@
 	import { dndzone } from 'svelte-dnd-action';
 	import { SvelteMap, SvelteSet } from 'svelte/reactivity';
 	import type { TreeNodeContext, TreeTableProps } from './types';
-	import DisclosureTriangle from '$lib/ui/DisclosureTriangle.svelte';
-	import { log } from '$lib/log';
+	import DisclosureTriangle from '#lib/ui/DisclosureTriangle.svelte';
+	import { log } from '#lib/log.ts';
 
 	let {
 		roots = $bindable<T[]>([]),

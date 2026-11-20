@@ -1,15 +1,15 @@
 <script lang="ts">
-	import Button from '$lib/ui/Button.svelte';
+	import Button from '#lib/ui/Button.svelte';
 	import { untrack } from 'svelte';
 	import { page } from '$app/state';
 	import { goto } from '$app/navigation';
 	import { _ } from 'svelte-i18n';
-	import ProjectList from '$lib/components/ProjectList.svelte';
-	import CreateProjectDialog from '$lib/components/CreateProjectDialog.svelte';
-	import ErrorBanner from '$lib/components/ErrorBanner.svelte';
-	import { apiFetch } from '$lib/api/fetch';
-	import { assertOk } from '$lib/api/errors';
-	import { log } from '$lib/log';
+	import ProjectList from '#lib/components/ProjectList.svelte';
+	import CreateProjectDialog from '#lib/components/CreateProjectDialog.svelte';
+	import ErrorBanner from '#lib/components/ErrorBanner.svelte';
+	import { apiFetch } from '#lib/api/fetch.ts';
+	import { assertOk } from '#lib/api/errors.ts';
+	import { log } from '#lib/log.ts';
 
 	let projects = $state<any[]>([]);
 	let loading = $state(true);
@@ -22,11 +22,11 @@
 	let onlyMine = $derived(page.url.searchParams.get('scope') !== 'all');
 
 	function setOnlyMine(on: boolean) {
-		const url = new URL(page.url);
+		const url = new URL(page.url.href);
 		if (on) url.searchParams.delete('scope');
 		else url.searchParams.set('scope', 'all');
-		// eslint-disable-next-line svelte/no-navigation-without-resolve -- same route, only the query changes
-		goto(url, { replaceState: true, keepFocus: true, noScroll: true });
+		// Same route, only the query changes.
+		goto(url, { replace: true, reset: false });
 	}
 
 	// Toggling quickly can leave two loads in flight; only the latest may land.

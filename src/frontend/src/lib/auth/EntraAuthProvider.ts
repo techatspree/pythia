@@ -4,7 +4,7 @@ import {
 	type Configuration
 } from '@azure/msal-browser';
 import type { AuthAccount, AuthProvider } from './AuthProvider';
-import { getRuntimeConfig } from '$lib/config/runtimeConfig';
+import { getRuntimeConfig } from '#lib/config/runtimeConfig.ts';
 import { fetchCurrentUserAccount } from './currentUser';
 
 class EntraAuthProviderImpl implements AuthProvider {

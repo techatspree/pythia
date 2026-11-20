@@ -1,6 +1,6 @@
-import { getSystemSettings, type SystemSettingsDto } from '$lib/api/system';
-import { EstimationDefaults } from '$lib/domain/domain.mjs';
-import { log } from '$lib/log';
+import { getSystemSettings, type SystemSettingsDto } from '#lib/api/system.ts';
+import { EstimationDefaults } from '#lib/domain/domain.mjs';
+import { log } from '#lib/log.ts';
 
 // The installation's settings, loaded once at startup (task-146).
 //

@@ -1,6 +1,6 @@
 import { getWsTicket, type SessionDto } from './api';
-import { ApiError } from '$lib/api/errors';
-import { log } from '$lib/log';
+import { ApiError } from '#lib/api/errors.ts';
+import { log } from '#lib/log.ts';
 import { get } from 'svelte/store';
 import { _ } from 'svelte-i18n';
 

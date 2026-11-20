@@ -1089,9 +1089,9 @@
       "notes": "No way to upload an xlsx: add the import endpoint and the upload UI, reusing the Merlin import shape"
     },
     "task-184": {
-      "status": "in_progress",
+      "status": "done",
       "started_at": "2026-10-12T13:59:13+00:00",
-      "completed_at": null,
+      "completed_at": "2026-11-20T12:16:45+00:00",
       "notes": "Pointer cross-bucket drop is a silent no-op under load (~1/20 full-suite runs); split from task-163, which fixed the keyboard publish defect and ruled out the anomaly-revert and zero-height-zone hypotheses"
     },
     "task-185": {
@@ -1327,6 +1327,12 @@
       "started_at": null,
       "completed_at": null,
       "notes": "Rename the Merlin export to 'Merge into Merlin': add Pythia's schedule dependencies (add-only) and show a dialog listing every change made to the Merlin file"
+    },
+    "task-224": {
+      "status": "done",
+      "started_at": "2026-11-20T11:54:05+00:00",
+      "completed_at": "2026-11-20T12:27:18+00:00",
+      "notes": "Frontend npm audit fails on high SvelteKit/Vite advisories (since at least 2026-10-23, hidden by continue-on-error): apply the non-breaking fixes, then move to SvelteKit 3 and Node 22.23"
     }
   }
 }

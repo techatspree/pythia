@@ -46,7 +46,7 @@ export function catalogText(key: string): string {
  */
 export function catalogPattern(key: string): RegExp {
 	const escaped = catalogText(key)
-		.split(/\{[^}]+\}/)
+		.split(/\{[^}]+}/)
 		.map((part) => part.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
 	return new RegExp(`^${escaped.join('.+')}$`);
 }
@@ -54,7 +54,7 @@ export function catalogPattern(key: string): RegExp {
 /**
  * Parses a number the app rendered in the run's language. The separators come
  * from `Intl` rather than being hardcoded; this is test-side PARSING of rendered
- * output, not a second formatter (and `$lib/format.ts` is unreachable here).
+ * output, not a second formatter (and `#lib/format.ts` is unreachable here).
  */
 export function parseNumber(text: string): number {
 	const parts = new Intl.NumberFormat(E2E_LANG).formatToParts(1234.5);

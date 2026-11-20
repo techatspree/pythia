@@ -3,12 +3,12 @@
 	import { resolve } from '$app/paths';
 	import { onMount } from 'svelte';
 	import { _, locale } from 'svelte-i18n';
-	import { formatFixed, DEFAULT_LOCALE } from '$lib/format';
-	import ErrorBanner from '$lib/components/ErrorBanner.svelte';
-	import type { ApiVersionComparison, ApiVersionResponse } from '$lib/api/types.js';
-	import { apiFetch } from '$lib/api/fetch';
-	import { assertOk } from '$lib/api/errors';
-	import { log } from '$lib/log';
+	import { formatFixed, DEFAULT_LOCALE } from '#lib/format.ts';
+	import ErrorBanner from '#lib/components/ErrorBanner.svelte';
+	import type { ApiVersionComparison, ApiVersionResponse } from '#lib/api/types.js';
+	import { apiFetch } from '#lib/api/fetch.ts';
+	import { assertOk } from '#lib/api/errors.ts';
+	import { log } from '#lib/log.ts';
 
 	let comparison = $state<ApiVersionComparison | null>(null);
 	let versionA = $state<ApiVersionResponse | null>(null);

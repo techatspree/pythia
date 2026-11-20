@@ -1,14 +1,14 @@
 <script lang="ts">
-	import Button from '$lib/ui/Button.svelte';
-	import Field from '$lib/ui/Field.svelte';
-	import Select from '$lib/ui/Select.svelte';
+	import Button from '#lib/ui/Button.svelte';
+	import Field from '#lib/ui/Field.svelte';
+	import Select from '#lib/ui/Select.svelte';
 	import { tick } from 'svelte';
 	import { _ } from 'svelte-i18n';
-	import ErrorBanner from '$lib/components/ErrorBanner.svelte';
-	import { apiFetch } from '$lib/api/fetch';
-	import { assertOk } from '$lib/api/errors';
-	import { log } from '$lib/log';
-	import type { ApiProjectDetail, ApiUserRef } from '$lib/api/types';
+	import ErrorBanner from '#lib/components/ErrorBanner.svelte';
+	import { apiFetch } from '#lib/api/fetch.ts';
+	import { assertOk } from '#lib/api/errors.ts';
+	import { log } from '#lib/log.ts';
+	import type { ApiProjectDetail, ApiUserRef } from '#lib/api/types.ts';
 
 	// Transfers a project to another person (task-200). Whether the caller may do
 	// this is the backend's call (`canChangeOwner`); this dialog is only shown

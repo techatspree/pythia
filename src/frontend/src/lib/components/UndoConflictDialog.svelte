@@ -1,8 +1,8 @@
 <script lang="ts">
-	import Button from '$lib/ui/Button.svelte';
+	import Button from '#lib/ui/Button.svelte';
 	import { _, locale } from 'svelte-i18n';
-	import { formatDate, DEFAULT_LOCALE } from '$lib/format';
-	import type { components } from '$lib/api/schema';
+	import { formatDate, DEFAULT_LOCALE } from '#lib/format.ts';
+	import type { components } from '#lib/api/schema.d.ts';
 
 	type ConflictDetailsDto = components['schemas']['ConflictDetailsDto'];
 

@@ -1,5 +1,5 @@
 <script module lang="ts">
-	import Badge from '$lib/ui/Badge.svelte';
+	import Badge from '#lib/ui/Badge.svelte';
 	import { get } from 'svelte/store';
 	import { _ } from 'svelte-i18n';
 
@@ -24,9 +24,9 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { locale } from 'svelte-i18n';
-	import type { components } from '$lib/api/schema';
-	import { formatNumber, DEFAULT_LOCALE } from '$lib/format';
-	import { log } from '$lib/log';
+	import type { components } from '#lib/api/schema.d.ts';
+	import { formatNumber, DEFAULT_LOCALE } from '#lib/format.ts';
+	import { log } from '#lib/log.ts';
 
 	type MutationLogEntryDto = components['schemas']['MutationLogEntryDto'];
 	type ChangeSummaryDto = components['schemas']['ChangeSummaryDto'];

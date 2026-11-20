@@ -101,7 +101,7 @@ enforcement and the frontend UI now derive roles from the **access token**
   access token directly.
 - **Frontend UI** (`RequiredRole.svelte`, the user menu) reads roles from the
   backend via `GET /api/auth/me` (the Entra provider's `loadAccount()` in
-  `EntraAuthProvider.ts` → `$lib/auth/currentUser.ts`), which the backend
+  `EntraAuthProvider.ts` → `#lib/auth/currentUser.ts`), which the backend
   computes from that same access token.
 
 Consequences:
@@ -192,7 +192,7 @@ The MSAL-based provider lives in
 Flow:
 
 Its coordinates come from the **runtime** config (task-162), not from
-`VITE_*` inlined at build time: `$lib/config/runtimeConfig.ts` fetches
+`VITE_*` inlined at build time: `#lib/config/runtimeConfig.ts` fetches
 `/config.json` once from the root `+layout.ts` load and validates it, so
 `getRuntimeConfig().entra` is available before any component initialises. All
 four fields — `tenantId`, `spaClientId`, `apiClientId`, `redirectUri` — are

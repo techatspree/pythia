@@ -1,8 +1,8 @@
 <script lang="ts">
-	import Badge from '$lib/ui/Badge.svelte';
-	import Page from '$lib/ui/Page.svelte';
-	import Card from '$lib/ui/Card.svelte';
-	import Button from '$lib/ui/Button.svelte';
+	import Badge from '#lib/ui/Badge.svelte';
+	import Page from '#lib/ui/Page.svelte';
+	import Card from '#lib/ui/Card.svelte';
+	import Button from '#lib/ui/Button.svelte';
 	import { onMount, onDestroy } from 'svelte';
 	import { page } from '$app/state';
 	import { resolve } from '$app/paths';
@@ -15,15 +15,15 @@
 		suspendSession,
 		resumeSession,
 		endSessionEarly
-	} from '$lib/session/api';
-	import { connectSessionSocket, type SessionSocketHandle } from '$lib/session/socket';
-	import { SessionStore } from '$lib/session/store.svelte';
-	import { getAuthProvider } from '$lib/auth';
-	import ErrorBanner from '$lib/components/ErrorBanner.svelte';
-	import PhaseOnePanel from '$lib/session/PhaseOnePanel.svelte';
-	import PhaseTwoPanel from '$lib/session/PhaseTwoPanel.svelte';
-	import SessionSummary from '$lib/session/SessionSummary.svelte';
-	import { log } from '$lib/log';
+	} from '#lib/session/api.ts';
+	import { connectSessionSocket, type SessionSocketHandle } from '#lib/session/socket.ts';
+	import { SessionStore } from '#lib/session/store.svelte.ts';
+	import { getAuthProvider } from '#lib/auth/index.ts';
+	import ErrorBanner from '#lib/components/ErrorBanner.svelte';
+	import PhaseOnePanel from '#lib/session/PhaseOnePanel.svelte';
+	import PhaseTwoPanel from '#lib/session/PhaseTwoPanel.svelte';
+	import SessionSummary from '#lib/session/SessionSummary.svelte';
+	import { log } from '#lib/log.ts';
 
 	// The session room (task-067): connect the live socket, auto-join as an
 	// estimator, and render the phase-appropriate panel — PHASE1 blind input,

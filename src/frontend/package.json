@@ -27,9 +27,8 @@
     "@html-eslint/parser": "^0.62.0",
     "@playwright/test": "^1.64.1",
     "@redocly/cli": "2.64.1",
-    "@sveltejs/adapter-auto": "^7.0.1",
-    "@sveltejs/adapter-static": "^3.0.10",
-    "@sveltejs/kit": "^2.70.3",
+    "@sveltejs/adapter-static": "^4.0.1",
+    "@sveltejs/kit": "^3.1.1",
     "@sveltejs/vite-plugin-svelte": "^7.0.0",
     "@tailwindcss/vite": "^4.2.4",
     "ajv": "8.20.0",
@@ -58,5 +57,9 @@
     "openapi-typescript": {
       "typescript": "$typescript"
     }
+  },
+  "imports": {
+    "#lib": "./src/lib/index.js",
+    "#lib/*": "./src/lib/*"
   }
 }

@@ -1,18 +1,18 @@
 <script lang="ts">
 	import '../app.css';
 	import { onMount } from 'svelte';
-	import logo from '$lib/assets/logo.svg';
-	import RequireAuth from '$lib/auth/RequireAuth.svelte';
-	import AppHeader from '$lib/components/AppHeader.svelte';
-	import ErrorBanner from '$lib/components/ErrorBanner.svelte';
-	import ConnectionLostDialog from '$lib/components/ConnectionLostDialog.svelte';
-	import { connection } from '$lib/stores/connection.svelte';
-	import { getAuthProvider } from '$lib/auth';
-	import type { AuthAccount } from '$lib/auth/AuthProvider';
-	import { setUserLanguage } from '$lib/i18n';
-	import { SupportedLanguage } from '$lib/domain/domain.mjs';
-	import { system } from '$lib/stores/system.svelte';
-	import { log } from '$lib/log';
+	import logo from '#lib/assets/logo.svg';
+	import RequireAuth from '#lib/auth/RequireAuth.svelte';
+	import AppHeader from '#lib/components/AppHeader.svelte';
+	import ErrorBanner from '#lib/components/ErrorBanner.svelte';
+	import ConnectionLostDialog from '#lib/components/ConnectionLostDialog.svelte';
+	import { connection } from '#lib/stores/connection.svelte.ts';
+	import { getAuthProvider } from '#lib/auth/index.ts';
+	import type { AuthAccount } from '#lib/auth/AuthProvider.ts';
+	import { setUserLanguage } from '#lib/i18n/index.ts';
+	import { SupportedLanguage } from '#lib/domain/domain.mjs';
+	import { system } from '#lib/stores/system.svelte.ts';
+	import { log } from '#lib/log.ts';
 
 	let { children, data } = $props();
 

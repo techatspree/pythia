@@ -1,12 +1,12 @@
 <script lang="ts">
-	import Select from '$lib/ui/Select.svelte';
-	import Button from '$lib/ui/Button.svelte';
+	import Select from '#lib/ui/Select.svelte';
+	import Button from '#lib/ui/Button.svelte';
 	import { _ } from 'svelte-i18n';
-	import ErrorBanner from '$lib/components/ErrorBanner.svelte';
-	import { apiFetch } from '$lib/api/fetch';
-	import { log } from '$lib/log';
-	import { availableMethods } from '$lib/methods/registry';
-	import type { components } from '$lib/api/schema';
+	import ErrorBanner from '#lib/components/ErrorBanner.svelte';
+	import { apiFetch } from '#lib/api/fetch.ts';
+	import { log } from '#lib/log.ts';
+	import { availableMethods } from '#lib/methods/registry.ts';
+	import type { components } from '#lib/api/schema.d.ts';
 
 	type EstimationSummaryDto = components['schemas']['EstimationSummaryDto'];
 	type EstimationMethod = components['schemas']['EstimationMethod'];

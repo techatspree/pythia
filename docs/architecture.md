@@ -205,7 +205,7 @@ props into local state. The version page
 (`routes/estimations/[id]/versions/[versionNumber]/+page.svelte`) keeps a single
 source-of-truth `$state` per collection — parameters, effort drivers, phases,
 additional costs, roots, notes — normalised once at load (`normalizeRoots` from
-`$lib/estimationNodes`). It passes each down with `bind:`; the editor children
+`#lib/estimationNodes`). It passes each down with `bind:`; the editor children
 (`ParametersPanel`, `EffortDriversPanel`, `PhasesPanel`, `AdditionalCostsPanel`,
 `EstimationGrid`) declare the data prop as `$bindable()` and **mutate it
 directly**. No local snapshot, no `notify()`, no `onchange` callback — Svelte

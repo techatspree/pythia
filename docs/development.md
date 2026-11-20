@@ -246,8 +246,11 @@ parts, `pythia-backend` and `pythia-frontend`, each listing exactly what ships:
   (`jsRuntimeClasspath`) and are merged in.
 - **Pinned to 3.2.3, not 4.x:** `rollup-plugin-sbom` 4 depends on
   `normalize-package-data` 9 and `hosted-git-info` 10, which require Node
-  `^22.22.2`. The project pins Node 22.14.0 (`nodeVersion`), and
-  `engine-strict=true` refuses the install.
+  `^22.22.2`. That used to block it: the project's Node pin was older than
+  that, and `engine-strict=true` refused the install. Since task-224 the build runs Node
+  22.23.4 (`nodeVersion`), so Node no longer blocks 4.x. The upgrade is still
+  its own decision, because it changes the SBOM, which `scripts/check-sbom.sh`
+  and `checkOssCompliance` gate.
 - **Never in the image:** the bundler writes its SBOM into the build output,
   and SvelteKit copies it to `src/frontend/build/cyclonedx/`, the directory the
   frontend image is made from. nginx would then serve every dependency version
@@ -306,18 +309,26 @@ What *can* apply is the client-side runtime: Svelte's DOM-clobbering XSS and
 `<svelte:element>` ReDoS, and `devalue`. Those are upgraded rather than argued
 away.
 
+**The frontend is on SvelteKit 3 since task-224.** Kit 2 carried four high
+advisories that no Kit 2 release fixes: GHSA-pfhg-q3qv-9q6r and
+GHSA-27mw-82g8-phjj (fixed in 3.0.0), GHSA-3r8g-jcqq-3p5j and
+GHSA-6cf5-gc4q-fm3x (fixed after 3.1.0). This app probably reaches none of
+them. But accepting a high keeps `--audit-level=high` red for good, and a red
+job nobody reads is how that failure went unnoticed from at least 2026-10-23
+until task-224. Kit 3 also depends on `cookie` 2.x, so the old low-severity
+`cookie <0.7.0` finding went with it.
+
 **Accepted findings.** These remain in the audit on purpose. Anything else in
 the log is new:
 
 | Advisory | Package (path) | Severity | Why it is accepted |
 |---|---|---|---|
-| GHSA-pxg6-pf52-xh8x | `cookie <0.7.0` (via `@sveltejs/kit`) | low | Every Kit 2.x declares `cookie: ^0.6.0`; only Kit 3 removes it. Cookie handling runs in a SvelteKit server, which this app does not have. Do not force `cookie@0.7` through npm `overrides`: Kit 2 pins `^0.6.0` deliberately. |
 | GHSA-67mh-4wv8-2f99 | `esbuild <=0.24.2` (via `svelte-i18n`) | moderate | A dev-server flaw, and `svelte-i18n` uses esbuild only for its build-time CLI. npm's only "fix" is a major *downgrade* of `svelte-i18n`. Accepted until `svelte-i18n` updates its esbuild. |
 
 **Applying a fix** (task-205). Run `npm audit fix` in `src/frontend`. Never add
-`--force`: it applies the major "fixes" npm proposes for the accepted findings
-above (Kit 3, new adapter majors, a downgrade of `svelte-i18n`). Then check that
-only the accepted advisories remain and run the full build and Playwright suite.
+`--force`: it applies whatever major "fix" npm proposes for an accepted finding,
+today a downgrade of `svelte-i18n`. Then check that only the accepted advisories
+remain and run the full build and Playwright suite.
 
 An `ERESOLVE` from `npm audit fix`, `npm update` or `npm install <pkg>` means a
 **peer-dependency mismatch in `package.json`**. CI never sees one, because
