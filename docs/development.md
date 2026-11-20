@@ -260,6 +260,16 @@ it against the build: jars, bundled packages, unique references, a resolvable
 graph, and Apache-2.0 on our own components. The finalize step is unit-tested
 (`node --test scripts/sbom-finalize.test.mjs`, part of `:frontend:check`).
 
+The SBOM scripts are tested on hand-written CycloneDX fixtures under
+`scripts/fixtures/`. The scripts read only a few fields, so an invalid fixture
+(a component without its required `type`) would still let every test pass.
+`scripts/sbom-schema.test.mjs` (`:frontend:testSbomSchema`, part of
+`:frontend:check`) therefore validates every fixture whose `bomFormat` is
+`CycloneDX` against the official CycloneDX 1.6 JSON schema. The schema files are
+committed in `compliance/cyclonedx-schema/`. The validator is `ajv`, a pinned
+devDependency of the frontend. A new fixture is picked up automatically; write
+it valid.
+
 ## Dependency vulnerabilities
 
 `./gradlew staticAnalysis` analyses **our** code (detekt, ESLint,
