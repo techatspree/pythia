@@ -1,0 +1,218 @@
+id: task-225
+phase: phase-16
+title: Translate the authorization error messages (401/403)
+depends_on: [task-093, task-190]
+description: |
+  A VIEWER who opens "Sitzungen" in a German UI gets an ErrorBanner reading
+  "You are not authorized to perform this action." (seen 2026-11-20 while
+  checking task-210's footer). Every 401/403 the SPA surfaces is English in
+  both languages. The text has two sources, measured on today's code:
+
+  1. `src/frontend/src/lib/api/errors.ts`, `messageForStatus(status, fallback)`,
+     has three hardcoded English strings (lines 39, 42, 45):
+       - 401: "Your session has expired or you are not signed in. Please sign in again."
+       - 403: "You are not authorized to perform this action. Ask an administrator if you need access."
+       - other, without a caller fallback: `The request failed (HTTP ${status}).`
+  2. The backend's `AuthorizationExceptionMappers.kt`
+     (`src/backend/implementation/src/main/kotlin/io/pythia/rest/error/`)
+     answers 403 with the JSON body `{"message": "You are not authorized to
+     perform this action.", "status": 403}` and 401 with
+     `{"message": "Authentication required.", "status": 401}`. `assertOk`
+     PREFERS a non-empty body `message` over `messageForStatus`, so for every
+     real 401/403 the backend's English sentence wins, and translating
+     `messageForStatus` alone would change nothing on screen. The banner in
+     the sessions page is exactly this backend sentence (no "Ask an
+     administrator" tail).
+
+  The existing e2e `src/frontend/e2e/authorization-error.test.ts` asserts
+  `banner.expectMessage(/not authorized/i)`: an English literal that passes in
+  the German run only BECAUSE the message is untranslated. It must move to
+  `catalogText()`.
+
+  ## Target
+
+  - `messageForStatus` returns catalog text, read in module context with
+    `get(_)` from `svelte-i18n` (the pattern of `src/lib/config/runtimeConfig.ts`),
+    from three new keys (table below). `errors.ts` is only called after the
+    root `+layout.ts` has awaited `waitLocale()`, so the catalog is loaded.
+  - `assertOk` uses the translated status message for **401 and 403**, ignoring
+    the body `message`. The backend's authorization bodies are fixed English
+    machine strings that carry nothing beyond the status, while the SPA's
+    sentences are more helpful ("Ask an administrator …") and translated. For
+    every OTHER status the body `message` keeps precedence over the caller's
+    fallback, unchanged: the business mappers (`UndoConflictExceptionMapper`,
+    `MerlinStructureChangedExceptionMapper`) and the callers that rely on a
+    body message keep working.
+  - The `ApiError` class, its `status` field and every call site
+    (`assertOk(res, $_('…'))`, 15 files today) stay as they are.
+  - **The backend stays English** (the backend source is English-only by
+    convention, and the body is an API contract for non-SPA clients). Only the
+    comment on `ApiError`/the mappers changes, to say the SPA shows its own
+    translated text for 401/403 and why the body is still sent.
+
+  ## Out of scope (measured, for a follow-up if wanted)
+
+  - `apiFetch`'s `Authentication failed: <reason>` (`src/lib/api/fetch.ts:27`):
+    the reason comes from the identity provider (MSAL), in English anyway.
+  - The 32 backend `NotFoundException("…")`/`BadRequestException("…")`/… throw
+    sites with English messages. Quarkus does not put those messages into a
+    JSON `message` body, so `assertOk` falls back to the caller's translated
+    fallback for them already.
+
+  ## Wireframes
+
+  Only the TEXT of an existing state changes: the shared `ErrorBanner`
+  (`data-testid="error-banner"`, unchanged) as any page shows it after a 403.
+
+  ### Sitzungen as VIEWER: 403 banner (German UI)
+
+      +--------------------------------------------------------------------------------------+
+      | (o) Pythia   Projekte  Sitzungen                 Dev Viewer [VIEWER] [ Deutsch v ] Abmelden |
+      +--------------------------------------------------------------------------------------+
+      | Schätzsitzung starten                                                                |
+      | +----------------------------------------------------------------------------------+ |
+      | | Sie sind für diese Aktion nicht berechtigt. Wenden Sie sich an eine              | |
+      | | Administratorin oder einen Administrator, wenn Sie Zugriff benötigen.        [x] | |
+      | +----------------------------------------------------------------------------------+ |
+      | OFFENE SITZUNGEN                                                                     |
+      | …                                                                                    |
+
+    - Text from `apiError.forbidden`; before this task the backend's English
+      "You are not authorized to perform this action.".
+    - Same banner, same place, same testid; any role that receives a 403 sees
+      it (in practice VIEWER on write actions and on the session setup).
+    - In English: "You are not authorized to perform this action. Ask an
+      administrator if you need access."
+
+  ### Any page: 401 banner (session expired), German UI
+
+      | +----------------------------------------------------------------------------------+ |
+      | | Ihre Sitzung ist abgelaufen oder Sie sind nicht angemeldet. Bitte melden Sie     | |
+      | | sich erneut an.                                                              [x] | |
+      | +----------------------------------------------------------------------------------+ |
+
+    - Text from `apiError.unauthorized`; before, "Authentication required."
+      from the backend body.
+
+  ### i18n keys (both catalogs, key for key)
+
+  | key | de | en |
+  |---|---|---|
+  | `apiError.unauthorized` | Ihre Sitzung ist abgelaufen oder Sie sind nicht angemeldet. Bitte melden Sie sich erneut an. | Your session has expired or you are not signed in. Please sign in again. |
+  | `apiError.forbidden` | Sie sind für diese Aktion nicht berechtigt. Wenden Sie sich an eine Administratorin oder einen Administrator, wenn Sie Zugriff benötigen. | You are not authorized to perform this action. Ask an administrator if you need access. |
+  | `apiError.requestFailed` | Die Anfrage ist fehlgeschlagen (HTTP {status}). | The request failed (HTTP {status}). |
+
+  `{status}` is the bare HTTP status code, passed as a string (no number
+  formatting: "HTTP 500", never "HTTP 5.00").
+
+steps:
+  - |
+    Add the three keys from the table to `src/frontend/src/lib/i18n/de.json`
+    and `src/frontend/src/lib/i18n/en.json`, key for key, as a new top-level
+    `apiError` object, with exactly the texts above.
+  - |
+    In `src/frontend/src/lib/api/errors.ts`:
+      - import `get` from `svelte/store` and `_` from `svelte-i18n`;
+      - `messageForStatus` returns `get(_)('apiError.unauthorized')` for 401,
+        `get(_)('apiError.forbidden')` for 403, the caller's `fallback` when
+        given for any other status, else
+        `get(_)('apiError.requestFailed', { values: { status: String(status) } })`;
+      - `assertOk`: when `res.status` is 401 or 403, throw
+        `new ApiError(messageForStatus(res.status, fallback), res.status)`
+        without reading the body; otherwise keep today's behaviour (body
+        `message` first, then `messageForStatus`).
+    Update the doc comments of both functions to say so, and why (the
+    backend's authorization bodies are fixed English strings; see the
+    description). No English sentence remains as a string literal in the file.
+  - |
+    In `src/backend/implementation/src/main/kotlin/io/pythia/rest/error/AuthorizationExceptionMappers.kt`,
+    change only the comment above `data class ApiError`: the body stays for
+    API clients; the SPA shows its own translated text for 401/403
+    (`errors.ts`, task-225) and does not display this message. No behaviour
+    change, no new log statement.
+  - |
+    In `src/frontend/e2e/authorization-error.test.ts`, replace
+    `banner.expectMessage(/not authorized/i)` with
+    `banner.expectMessage(catalogText('apiError.forbidden'))` (import
+    `catalogText` from `./helpers`) and update the comment above it: the
+    banner shows the translated SPA sentence, not the backend's English body.
+    No other spec asserts these texts today (grep `expired|not authorized|request failed` in `e2e/`).
+  - |
+    Docs: `src/frontend/CLAUDE.md` → "Error surfacing rule": the sentence
+    "it prefers the backend error body's `message`, else a status-specific
+    default (401/403 → fixed authorization strings)" becomes: 401/403 always
+    show the translated `apiError.unauthorized`/`apiError.forbidden`; for
+    every other status the body's `message` wins, else the caller's fallback,
+    else `apiError.requestFailed`.
+  - |
+    Run `./gradlew :frontend:check`.
+  - |
+    Playwright, with the port protocol: check that :8090, :5173 and :5432 are
+    free (`lsof -nP -iTCP:<port> -sTCP:LISTEN`); if any is bound, STOP and
+    report (the user's own stack is running and the tests would hit it).
+    Start `./scripts/dev.sh` in the background, wait for
+    `GET http://localhost:8090/api/ping` and `http://localhost:5173/`, then in
+    `src/frontend`: `E2E_LANG=en npx playwright test`, then
+    `E2E_LANG=de npx playwright test`. Prove the spec can fail: temporarily
+    restore the body-message precedence for 403 in `assertOk`, run
+    `E2E_LANG=de npx playwright test e2e/authorization-error.test.ts`, see it
+    fail on the English backend sentence, revert, and confirm the file is
+    restored. Afterwards stop only the `dev.sh` this task started (SIGTERM to
+    the script), and confirm the three ports are free.
+  - |
+    ./gradlew build
+
+validation:
+  - |
+    # no English sentence left in errors.ts (all three exist today)
+    F=src/frontend/src/lib/api/errors.ts
+    ! grep -qE "session has expired|not authorized to perform|The request failed" "$F"
+    grep -q "get(_)('apiError.unauthorized')" "$F"
+    grep -q "get(_)('apiError.forbidden')" "$F"
+    grep -q "apiError.requestFailed" "$F"
+  - |
+    # both catalogs carry the keys, translated (German differs from English)
+    for k in unauthorized forbidden requestFailed; do
+      de=$(jq -er --arg k "$k" '.apiError[$k]' src/frontend/src/lib/i18n/de.json)
+      en=$(jq -er --arg k "$k" '.apiError[$k]' src/frontend/src/lib/i18n/en.json)
+      test "$de" != "$en" || { echo "apiError.$k not translated"; exit 1; }
+    done
+  - |
+    # every catalog key for key
+    python3 - <<'PY'
+    import json, pathlib, sys
+    cats = {p.stem: json.loads(p.read_text())
+            for p in pathlib.Path('src/frontend/src/lib/i18n').glob('*.json')}
+    def flat(o, p=''):
+        s = set()
+        for k, v in o.items():
+            n = f'{p}.{k}' if p else k
+            s |= flat(v, n) if isinstance(v, dict) else {n}
+        return s
+    keys = {l: flat(d) for l, d in cats.items()}
+    ref = set().union(*keys.values())
+    bad = {l: sorted(ref - k) for l, k in keys.items() if ref - k}
+    print('missing keys:', bad or 'none')
+    sys.exit(1 if bad else 0)
+    PY
+  - |
+    # the e2e asserts the catalog text, not an English literal
+    S=src/frontend/e2e/authorization-error.test.ts
+    grep -q "catalogText('apiError.forbidden')" "$S"
+    ! grep -q "not authorized" "$S"
+    grep -q "from './pages'" "$S"
+  - |
+    grep -q "task-225" src/backend/implementation/src/main/kotlin/io/pythia/rest/error/AuthorizationExceptionMappers.kt
+    grep -q "apiError.forbidden" src/frontend/CLAUDE.md
+  - |
+    ./gradlew :frontend:check
+  - |
+    ./gradlew build
+
+outputs:
+  - modified: src/frontend/src/lib/api/errors.ts
+  - modified: src/frontend/src/lib/i18n/de.json
+  - modified: src/frontend/src/lib/i18n/en.json
+  - modified: src/frontend/e2e/authorization-error.test.ts
+  - modified: src/backend/implementation/src/main/kotlin/io/pythia/rest/error/AuthorizationExceptionMappers.kt
+  - modified: src/frontend/CLAUDE.md
