@@ -12,6 +12,11 @@
     "generic": "Ein unerwarteter Fehler ist aufgetreten.",
     "backHome": "Zurück zum Start"
   },
+  "apiError": {
+    "unauthorized": "Ihre Sitzung ist abgelaufen oder Sie sind nicht angemeldet. Bitte melden Sie sich erneut an.",
+    "forbidden": "Sie sind für diese Aktion nicht berechtigt. Wenden Sie sich an eine Administratorin oder einen Administrator, wenn Sie Zugriff benötigen.",
+    "requestFailed": "Die Anfrage ist fehlgeschlagen (HTTP {status})."
+  },
   "config": {
     "load": {
       "failed": "Die Konfiguration der Anwendung konnte nicht geladen werden.",

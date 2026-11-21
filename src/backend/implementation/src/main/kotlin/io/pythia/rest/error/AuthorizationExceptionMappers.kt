@@ -10,8 +10,11 @@ import jakarta.ws.rs.core.UriInfo
 import jakarta.ws.rs.ext.ExceptionMapper
 import jakarta.ws.rs.ext.Provider
 
-// Small machine-readable body for authorization failures so the frontend can
-// show a meaningful message instead of a generic one.
+// Small machine-readable body for authorization failures, kept for API clients.
+// The SPA does NOT display this message: for 401/403 it shows its own translated
+// text (`src/frontend/src/lib/api/errors.ts`, task-225), because these sentences
+// are fixed English strings that carry nothing beyond the status. Backend source
+// stays English-only, so the body does too.
 data class ApiError(val message: String, val status: Int)
 
 // @RolesAllowed denials throw io.quarkus.security.ForbiddenException (403); a

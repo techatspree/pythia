@@ -12,6 +12,11 @@
     "generic": "An unexpected error occurred.",
     "backHome": "Back to start"
   },
+  "apiError": {
+    "unauthorized": "Your session has expired or you are not signed in. Please sign in again.",
+    "forbidden": "You are not authorized to perform this action. Ask an administrator if you need access.",
+    "requestFailed": "The request failed (HTTP {status})."
+  },
   "config": {
     "load": {
       "failed": "The application configuration could not be loaded.",

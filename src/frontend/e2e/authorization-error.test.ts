@@ -1,5 +1,5 @@
 import { test } from '@playwright/test';
-import { loginAsDev } from './helpers';
+import { catalogText, loginAsDev } from './helpers';
 import { CreateProjectDialog, ErrorBanner, ProjectsListPage } from './pages';
 
 // A VIEWER can open the (intentionally ungated) create-project dialog and
@@ -25,10 +25,10 @@ test.describe('authorization failure surfaces a meaningful message', () => {
 		await dialog.fillName('E2E Viewer Denied');
 		await dialog.submit();
 
-		// The ErrorBanner shows the meaningful "not authorized" message, proving
-		// the 403 was mapped to a human string rather than a generic
-		// "Failed to create project".
+		// The ErrorBanner shows the SPA's translated authorization sentence
+		// (task-225), not the backend body's fixed English message and not a
+		// generic "Failed to create project".
 		await banner.expectVisible();
-		await banner.expectMessage(/not authorized/i);
+		await banner.expectMessage(catalogText('apiError.forbidden'));
 	});
 });

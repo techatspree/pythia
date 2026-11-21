@@ -54,8 +54,9 @@ description: |
 
   - `apiFetch`'s `Authentication failed: <reason>` (`src/lib/api/fetch.ts:27`):
     the reason comes from the identity provider (MSAL), in English anyway.
-  - The 32 backend `NotFoundException("…")`/`BadRequestException("…")`/… throw
-    sites with English messages. Quarkus does not put those messages into a
+  - The backend's `throw NotFoundException("…")`/`BadRequestException("…")`/…
+    sites with English messages (31 of the standard JAX-RS types, 36 counting
+    every `throw XxxException("…")`, measured 2026-11-21). Quarkus does not put those messages into a
     JSON `message` body, so `assertOk` falls back to the caller's translated
     fallback for them already.
 
@@ -124,6 +125,9 @@ steps:
     Update the doc comments of both functions to say so, and why (the
     backend's authorization bodies are fixed English strings; see the
     description). No English sentence remains as a string literal in the file.
+    Add a short comment at the `get(_)` use, as in `runtimeConfig.ts`: it relies
+    on the root `+layout.ts` having awaited `waitLocale()` before any page can
+    call `assertOk`.
   - |
     In `src/backend/implementation/src/main/kotlin/io/pythia/rest/error/AuthorizationExceptionMappers.kt`,
     change only the comment above `data class ApiError`: the body stays for
@@ -144,6 +148,9 @@ steps:
     show the translated `apiError.unauthorized`/`apiError.forbidden`; for
     every other status the body's `message` wins, else the caller's fallback,
     else `apiError.requestFailed`.
+    And `src/backend/CLAUDE.md` (the paragraph on `AuthorizationExceptionMappers.kt`,
+    task-093): add that the SPA shows its own translated 401/403 text and does
+    not display this `message` (task-225), so nobody "fixes" the English body.
   - |
     Run `./gradlew :frontend:check`.
   - |
@@ -156,7 +163,8 @@ steps:
     `E2E_LANG=de npx playwright test`. Prove the spec can fail: temporarily
     restore the body-message precedence for 403 in `assertOk`, run
     `E2E_LANG=de npx playwright test e2e/authorization-error.test.ts`, see it
-    fail on the English backend sentence, revert, and confirm the file is
+    fail on the English backend sentence "You are not authorized to perform
+    this action." (the banner then lacks the German catalog text), revert, and confirm the file is
     restored. Afterwards stop only the `dev.sh` this task started (SIGTERM to
     the script), and confirm the three ports are free.
   - |
@@ -200,10 +208,10 @@ validation:
     S=src/frontend/e2e/authorization-error.test.ts
     grep -q "catalogText('apiError.forbidden')" "$S"
     ! grep -q "not authorized" "$S"
-    grep -q "from './pages'" "$S"
   - |
     grep -q "task-225" src/backend/implementation/src/main/kotlin/io/pythia/rest/error/AuthorizationExceptionMappers.kt
     grep -q "apiError.forbidden" src/frontend/CLAUDE.md
+    grep -q "task-225" src/backend/CLAUDE.md
   - |
     ./gradlew :frontend:check
   - |
@@ -216,3 +224,4 @@ outputs:
   - modified: src/frontend/e2e/authorization-error.test.ts
   - modified: src/backend/implementation/src/main/kotlin/io/pythia/rest/error/AuthorizationExceptionMappers.kt
   - modified: src/frontend/CLAUDE.md
+  - modified: src/backend/CLAUDE.md

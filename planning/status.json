@@ -1335,9 +1335,9 @@
       "notes": "Frontend npm audit fails on high SvelteKit/Vite advisories (since at least 2026-10-23, hidden by continue-on-error): apply the non-breaking fixes, then move to SvelteKit 3 and Node 22.23"
     },
     "task-225": {
-      "status": "pending",
-      "started_at": null,
-      "completed_at": null,
+      "status": "done",
+      "started_at": "2026-11-21T19:27:22+00:00",
+      "completed_at": "2026-11-21T19:38:22+00:00",
       "notes": "Translate the hardcoded English authorization/status error messages in src/frontend/src/lib/api/errors.ts into the i18n catalogs"
     }
   }
