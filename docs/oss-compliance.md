@@ -123,6 +123,7 @@ every published artifact carries it:
 | release SBOM `pythia-vX.Y.Z.cdx.json` | `Apache-2.0` on the root component and on both parts |
 | backend image `pythia/pythia-backend` | label `org.opencontainers.image.licenses=Apache-2.0`; `/licenses/pythia/` with `LICENSE`, `NOTICE`, `CONTRIBUTORS`, `sbom.cdx.json` (the image's part of the release SBOM) and `THIRD-PARTY-LICENSES.txt` (task-208, see "Attribution") |
 | frontend image `pythia/pythia-frontend` | the same label and the same `/licenses/pythia/`, as an image layer outside the web root (not served) |
+| OCI referrer of each image (task-220) | the image's `sbom.cdx.json`, attached in the registry as `pythia-backend.cdx.json` / `pythia-frontend.cdx.json` (`application/vnd.cyclonedx+json`) to the index and both platform manifests; `Apache-2.0` on the part |
 | backend app jar (`quarkus-app/app/implementation-*.jar`, the jar that runs) | `SPDX-License-Identifier: Apache-2.0` in its manifest, from `quarkus.package.jar.manifest.attributes` |
 
 **One place in both images: `/licenses/pythia/`.** `/licenses/` is the Red Hat
@@ -138,8 +139,28 @@ package metadata and in SBOMs, not in a directory a label names. A custom label
 would be read by no tool, so the location is documented here instead. The SBOM
 is what tools actually use, and for the frontend it is the ONLY source: the
 minified bundle has no `package.json` or `node_modules` left. That is why each
-image carries its SBOM part. Attaching the SBOM to the images in the registry,
-where scanners discover it without pulling, is task-220.
+image carries its SBOM part.
+
+**The same SBOM next to the image: an OCI referrer** (task-220). Since task-220,
+each image's part is also attached in the registry, so a tool finds it without
+pulling the image. `scripts/attach-image-sbom.sh` does it in CI's `publish` job
+(GHCR) and, as a rehearsal, in the `images` job (the throwaway registry).
+Before attaching, it proves the file equals the copy inside the pushed image.
+What Trivy 0.76.1 does with each, measured against `registry:2` (which, like
+GHCR, lacks the referrers API, so oras uses the `sha256-<hex>` tag fallback):
+
+- **Plain `trivy image`** pulls the image, finds the in-image
+  `/licenses/pythia/sbom.cdx.json` (its SBOM analyzer picks up any `*.cdx.json`
+  file) and reports the npm components from it. That works with or without the
+  referrer.
+- **`trivy image --sbom-sources oci`** asks the registry first. With the
+  referrer present it logs `Found SBOM in the OCI referrers` and uses that SBOM
+  instead of scanning the layers: 25 components for the frontend, `svelte`
+  among them. Without the referrer the line is absent. The fallback tags are
+  enough; no referrers API is needed.
+
+Mirrors lose referrers unless copied with `oras cp -r`; see
+[Deployment](deployment.md), "Verifying and copying a release".
 
 **The gate.** CI's `images` job runs `scripts/check-artifact-licenses.sh` on the
 images it has just built. It checks the jar's manifest, each image's label, the

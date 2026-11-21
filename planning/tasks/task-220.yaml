@@ -6,98 +6,159 @@ description: |
   ## Why
 
   After task-219, each image carries its part of the SBOM inside, at
-  `/licenses/pythia/sbom.cdx.json`. A scanner that PULLS the image and looks
-  inside can use it. Tools that work against the REGISTRY, however, discover
-  an image's SBOM as an OCI **referrer**: an artifact pushed next to the
-  image whose `subject` is the image's digest. Trivy does this with
-  `--sbom-sources oci`, Docker Scout and GHCR's own package view do it too,
-  and `oras discover` lists referrers. Today Pythia's SBOM reaches GHCR only
-  as a release DOWNLOAD (`pythia-<tag>.cdx.json`), which no image-scanning
-  tool connects to the image. For the frontend this matters most. Its
-  minified bundle has no package metadata left, so without the SBOM a
-  scanner sees no npm component and no licence at all.
+  `/licenses/pythia/sbom.cdx.json`. A scanner that PULLS the image already
+  uses it. For example, Trivy 0.76.1's SBOM analyzer
+  (`pkg/fanal/analyzer/sbom/sbom.go`) picks up any `*.cdx.json` file in an
+  image's filesystem, so it reports the frontend's npm components even though
+  the minified bundle has no package metadata left.
 
-  ## Current state (measured 2026-11-19)
+  What is missing is discovery from the REGISTRY side, without pulling layers.
+  OCI tooling finds an image's SBOM as a **referrer**: an artifact pushed next
+  to the image whose `subject` is the image's digest. Two tools that use it:
+    - `oras discover` lists an image's referrers;
+    - `trivy image --sbom-sources oci` asks the registry for a CycloneDX
+      referrer. When it finds one, it logs `Found SBOM in the OCI referrers`
+      (`pkg/fanal/artifact/image/remote_sbom.go`) and uses that SBOM instead
+      of scanning the image's layers.
+  Today Pythia's SBOM reaches GHCR only as a release DOWNLOAD
+  (`pythia-<tag>.cdx.json`), which no registry-side tool connects to the
+  image. This task attaches it to the images themselves.
 
-  - `ci.yaml` `publish` job: pushes both images multi-arch to
-    `ghcr.io/<owner>/pythia/pythia-{backend,frontend}:<VER>`. It reads and
-    checks both INDEX digests (step "Read and check both index digests",
-    which exports `BACKEND_DIGEST`/`FRONTEND_DIGEST`), then attaches the
-    application SBOM and the bundle to the GitHub release. Nothing is
-    attached to the images. `permissions: packages: write` is already there.
-  - `ci.yaml` `images` job: pushes both images to a throwaway registry on
-    `localhost:5000` to prove the multi-arch index. That is the place to
-    exercise the attachment on every `main` build, without touching GHCR.
-  - After task-219, the per-image SBOM parts exist as build outputs:
-    `src/backend/implementation/build/image-licenses/sbom.cdx.json` and
-    `build/frontend-image/sbom.cdx.json`. They are byte-identical to the
-    copies inside the images (task-219's gate checks that).
-  - No `oras` in the workflow or on `ubuntu-latest` by default.
+  ## Current state (measured 2026-11-21)
+
+  - **`ci.yaml` `publish` job:**
+    - pushes both images multi-arch to
+      `ghcr.io/<owner>/pythia/pythia-{backend,frontend}:<VER>`;
+    - reads and checks both INDEX digests in the step "Read and check both
+      index digests", which exports `BACKEND_DIGEST`/`FRONTEND_DIGEST` and
+      logs skopeo into ghcr.io;
+    - builds the bundle, then writes the release notes into
+      `$RUNNER_TEMP/notes.md` and runs `gh release create … --notes-file`.
+    Nothing is attached to the images. `permissions: packages: write` and
+    `env: GH_TOKEN` are already there; `BASE=ghcr.io/<owner>/pythia` comes
+    from "Identify the release".
+  - **`ci.yaml` `images` job:** pushes both images to a throwaway `registry:2`
+    service on `localhost:5000` to prove the multi-arch index (step "Push
+    multi-arch images to a throwaway registry and check both platforms").
+    That is where the attachment gets exercised on every `main` build, without
+    touching GHCR.
+  - **The per-image SBOM parts** exist as build outputs:
+    - `src/backend/implementation/build/image-licenses/sbom.cdx.json`, staged
+      by `scripts/build-backend-image.sh`;
+    - `build/frontend-image/sbom.cdx.json`, written by `:frontend:imageBuild`.
+    task-219's `check-artifact-licenses.sh` proves them byte-identical to the
+    in-image copies, but only in the `images` job and only for the local
+    daemon images. Nothing proves it for what `publish` pushes.
+  - **Tools:** no `oras` in the workflow or on `ubuntu-latest`. Locally there
+    is no oras, Trivy or skopeo; Docker is available.
+  - **Port 5000 is taken on macOS:** ControlCenter (AirPlay Receiver) listens
+    there, measured with `lsof` and documented in `scripts/minikube-env.sh`.
+    Both image builds accept plain HTTP for the HOST `localhost`/`127.0.0.1`
+    on any port (Jib's localhost exception; `setAllowInsecureRegistries` in
+    `src/frontend/build.gradle.kts` checks the host only).
+  - **Pinned versions exist:** oras **v1.3.6** (2026-10-24), with
+    `oras_1.3.6_checksums.txt` and `linux_amd64`/`darwin_arm64`/`darwin_amd64`
+    tarballs; Trivy **v0.76.1** (2026-10-21). oras 1.4.0 (2026-11-17) is too
+    new to adopt.
 
   ## Target state
 
-  - **What is attached:** to each image, that image's SBOM part (the same
-    bytes as inside the image), with artifact type
-    `application/vnd.cyclonedx+json` and the file media type
-    `application/vnd.cyclonedx+json`. Nothing else is attached in this task.
+  - **What is attached:** to each image, that image's SBOM part, with artifact
+    type `application/vnd.cyclonedx+json` and the file media type
+    `application/vnd.cyclonedx+json`. The file is attached under a clean name,
+    `pythia-backend.cdx.json` / `pythia-frontend.cdx.json` (the image's name),
+    not its build path. oras records the file name as the layer's
+    `org.opencontainers.image.title`, which is the name a consumer gets when
+    pulling the referrer. Nothing else is attached in this task.
+  - **Same bytes as inside the image, proven per run.** Before attaching, the
+    script reads `/licenses/pythia/sbom.cdx.json` back from the image it is
+    given (`docker pull` → `docker create` → `docker cp`) and `cmp`s it with
+    the file. A mismatch exits non-zero. This closes the gap that only the
+    `images` job checked the in-image copy.
   - **To what:** the multi-arch INDEX digest and each platform manifest
-    (`linux/amd64`, `linux/arm64`). A scanner resolves a tag to ONE
-    platform's manifest and asks for that digest's referrers, while
-    `oras discover` on the tag sees the index. Attaching to all three makes
-    both paths work. The script reads the platform digests from the index;
-    nothing is hardcoded.
-  - **With what:** `oras` **v1.3.6** (released 2026-10-24), installed from
-    its GitHub release tarball and verified against the release's
-    `oras_1.3.6_checksums.txt` before use. It is not taken from a floating
-    action or `latest`. Registries without the OCI 1.1 referrers API get
-    oras' standard fallback (the referrers tag schema); GHCR and the
-    `registry:2` used by the `images` job are both handled by oras.
-  - **Idempotent:** the `publish` job can re-run on the same tag (it deletes
-    a draft release and pushes again). The attach script first lists
-    existing referrers (`oras discover --format json`) and skips a subject
-    that already has a CycloneDX referrer with the same blob digest. So a
-    re-run neither fails nor piles up duplicates.
-  - **One script for both jobs:** `scripts/attach-image-sbom.sh <image ref>
-    <sbom file>`. It resolves the index digest, attaches to the index and to
-    each platform manifest, and verifies with `oras discover` that every
-    subject now has the referrer. It exits non-zero otherwise.
-  - **Release notes** (the `gh release create` body) gain one line: each
-    image carries its SBOM as an OCI referrer, with the
-    `oras discover` command to list it.
-  - **Mirrors lose referrers.** The downstream copies released images into
-    an internal registry (`docs/deployment.md`, "Verifying and copying a
-    release"). A plain `skopeo copy` copies the image but NOT its referrers.
-    `oras cp -r` (or `skopeo copy` of the referrer separately) keeps them. The
-    public docs say so, generically and with no hostnames. The internal
-    pipeline is not this repository's business.
+    (`linux/amd64`, `linux/arm64`). A scanner resolves a tag to one platform's
+    manifest and may ask for that digest's referrers, while `oras discover`
+    on the tag sees the index; attaching to all three makes both paths work.
+    The script reads the platform digests from the index; nothing is
+    hardcoded. An image ref that is not an index with both platforms is an
+    error.
+  - **Registries without the referrers API:** GHCR and the `registry:2` used
+    in CI and locally do not implement the OCI 1.1 referrers API. oras then
+    uses the standard fallback (the referrers tag schema): it maintains a tag
+    `sha256-<hex of the subject digest>` per subject, pointing at an index of
+    its referrers. In GHCR these show up as extra tags on each package. The
+    docs say so, so nobody deletes them as clutter.
+  - **With what:** `oras` v1.3.6, installed from its GitHub release tarball
+    and verified against `oras_1.3.6_checksums.txt` before use, in CI and for
+    the local proof alike. Never from a floating action or `latest`.
+  - **Idempotent:** the `publish` job can re-run on the same tag (it deletes a
+    draft release and pushes again). A re-push usually yields NEW digests,
+    because Quarkus' augmentation is not byte-deterministic, so the attach
+    goes to the new subjects. For the case where a subject already has the
+    SBOM, the script skips it:
+      1. list the subject's referrers with
+         `oras discover --format json --artifact-type application/vnd.cyclonedx+json`
+         (v1.3.6's JSON is a tree: `.referrers[]` descriptors with `digest`,
+         `artifactType` and `annotations`, and NO layers);
+      2. fetch each referrer's manifest (`oras manifest fetch
+         <repo>@<referrer digest>`);
+      3. skip when one has a layer whose digest is the SBOM's
+         `sha256:<sha256sum>`.
+    So a re-run neither fails nor piles up duplicates.
+  - **One script for both jobs:** `scripts/attach-image-sbom.sh`. It checks
+    the file, proves it matches the image, attaches to the index and both
+    platform manifests, and verifies with the same discover+fetch logic that
+    every subject now carries the referrer. It exits non-zero otherwise.
+  - **Release notes** (the `notes.md` heredoc in `publish`) gain one line:
+    each image carries its SBOM as an OCI referrer, listable with
+    `oras discover <image>@<digest>`.
+  - **Mirrors lose referrers.** The downstream copies released images into an
+    internal registry (`docs/deployment.md`, "Verifying and copying a
+    release"). A plain `skopeo copy` copies the image but NOT its referrers;
+    `oras cp -r` keeps them. The public docs say so, generically and with no
+    hostnames. The internal pipeline is not this repository's business.
 
-  Out of scope: signing (cosign/attestations) and vulnerability reports.
-  Only the SBOM is attached.
-
-  No application behaviour, REST or GUI change.
+  Out of scope: signing (cosign/attestations) and vulnerability reports. Only
+  the SBOM is attached. No application behaviour, REST or GUI change, and no
+  Gradle change.
 
 steps:
   - |
-    Write `scripts/attach-image-sbom.sh` (bash, `set -euo pipefail`), usage
-      ./scripts/attach-image-sbom.sh [--plain-http] <image-ref> <sbom.cdx.json>
-    where `<image-ref>` is `registry/repo:tag` or `…@sha256:…`.
-      1. Resolve the index digest (`oras resolve`) and fetch the index
-         (`oras manifest fetch`). Collect the index digest plus every
-         `.manifests[].digest` whose platform is `linux/amd64` or `linux/arm64`.
-         Fail if either platform is missing.
-      2. For each subject `repo@<digest>`, list existing referrers
-         (`oras discover --format json --artifact-type application/vnd.cyclonedx+json`).
-         Skip the subject if one has a layer whose digest equals
-         `sha256sum` of the SBOM file. Otherwise
-         `oras attach --artifact-type application/vnd.cyclonedx+json repo@<digest> <file>:application/vnd.cyclonedx+json`.
-      3. Verify: every subject now lists such a referrer. Print one line per
-         subject (attached / already present) and exit non-zero on any miss.
-    `--plain-http` is passed through for the `localhost:5000` registry.
-    Credentials come from `oras login` done by the caller, never as
-    arguments.
+    Write `scripts/attach-image-sbom.sh`:
+      - bash, `set -euo pipefail`, the "refuse to be sourced" guard of
+        `scripts/smoke.sh`, and a header comment naming task-220;
+      - usage `./scripts/attach-image-sbom.sh [--plain-http] <image-ref> <sbom.cdx.json>`,
+        where `<image-ref>` is `registry/repo:tag` or `registry/repo@sha256:…`.
+    In this order:
+      0. **Check the file, before contacting any registry.** If the SBOM file
+         does not exist or is not valid JSON with `.bomFormat == "CycloneDX"`
+         (`jq -e`), exit non-zero with a message naming the path. Compute
+         `blob="sha256:$(sha256sum < file | cut -d' ' -f1)"` (use `shasum -a 256`
+         when `sha256sum` is missing, for macOS).
+      1. **Prove the bytes match the image.** `docker pull <image-ref>`, then
+         `docker create`, `docker cp <id>:/licenses/pythia/sbom.cdx.json` into
+         a `mktemp -d` dir, `docker rm`, and `cmp` with the file. Exit
+         non-zero on any difference: "differs from the copy inside the image".
+      2. **Collect the subjects.** Resolve the index digest (`oras resolve`),
+         fetch the index (`oras manifest fetch`), and collect the index digest
+         plus the `.manifests[].digest` of `linux/amd64` and `linux/arm64`.
+         If the ref is not an index (no `.manifests`) or a platform is
+         missing, exit non-zero naming what is missing.
+      3. **Attach.** Copy the file into the temp dir as `<repo basename>.cdx.json`
+         (e.g. `pythia-frontend.cdx.json`). For each subject `repo@<digest>`,
+         run the discover+fetch check from the description. Skip the subject
+         if the blob is already present; otherwise, from inside the temp dir,
+         run `oras attach --artifact-type application/vnd.cyclonedx+json
+         repo@<digest> <name>.cdx.json:application/vnd.cyclonedx+json`.
+      4. **Verify.** Re-run the check for every subject. Print one line per
+         subject, `attached` or `already present`, and exit non-zero on any
+         miss.
+    `--plain-http` is passed to every oras call. Credentials come from
+    `oras login`/`docker login` done by the caller, never as arguments. Remove
+    the temp dir and the created container in an EXIT trap.
   - |
-    Install oras in CI, pinned and verified. Add a step (used by both jobs)
-    before the first attach:
+    Install oras in CI, pinned and verified, as a step in BOTH the `images`
+    and `publish` jobs before their first attach:
       - name: Install oras 1.3.6 (verified)
         run: |
           v=1.3.6
@@ -107,95 +168,138 @@ steps:
           grep " oras_${v}_linux_amd64.tar.gz\$" "oras_${v}_checksums.txt" | sha256sum -c -
           mkdir -p oras-bin && tar -xzf "oras_${v}_linux_amd64.tar.gz" -C oras-bin oras
           echo "$RUNNER_TEMP/oras-bin" >> "$GITHUB_PATH"
-    Before writing it, check the asset and checksum file names on the v1.3.6
-    release page (`gh release view v1.3.6 -R oras-project/oras`) and adjust
-    if they differ.
+    Asset and checksum names were checked on the v1.3.6 release (2026-11-21).
   - |
-    `images` job (`.github/workflows/ci.yaml`): after the step that pushes
-    both images to `localhost:5000` and checks both platforms, add
+    `images` job (`.github/workflows/ci.yaml`): after "Push multi-arch images
+    to a throwaway registry and check both platforms", add
       - name: Attach each image's SBOM as an OCI referrer (task-220)
         run: |
           ./scripts/attach-image-sbom.sh --plain-http "localhost:5000/pythia/pythia-backend:$PYTHIA_VERSION" \
             src/backend/implementation/build/image-licenses/sbom.cdx.json
           ./scripts/attach-image-sbom.sh --plain-http "localhost:5000/pythia/pythia-frontend:$PYTHIA_VERSION" \
             build/frontend-image/sbom.cdx.json
-          # re-run: must report "already present" and add nothing
+          # re-run: must report "already present" and attach nothing
           ./scripts/attach-image-sbom.sh --plain-http "localhost:5000/pythia/pythia-backend:$PYTHIA_VERSION" \
-            src/backend/implementation/build/image-licenses/sbom.cdx.json | grep -q 'already present'
-    The SBOM part files exist there because task-219's staging runs before
-    the image builds in this job.
+            src/backend/implementation/build/image-licenses/sbom.cdx.json | tee "$RUNNER_TEMP/rerun.txt"
+          ! grep -q '^attached' "$RUNNER_TEMP/rerun.txt"
+    The SBOM part files exist there: the build steps before it stage them.
   - |
     `publish` job: after "Read and check both index digests", add
-      - name: Attach each image's SBOM as an OCI referrer
+      - name: Attach each image's SBOM as an OCI referrer (task-220)
         run: |
           oras login ghcr.io -u "$GITHUB_ACTOR" --password-stdin <<< "$GH_TOKEN"
+          docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin <<< "$GH_TOKEN"
           ./scripts/attach-image-sbom.sh "$BASE/pythia-backend@$BACKEND_DIGEST" \
             src/backend/implementation/build/image-licenses/sbom.cdx.json
           ./scripts/attach-image-sbom.sh "$BASE/pythia-frontend@$FRONTEND_DIGEST" \
             build/frontend-image/sbom.cdx.json
-    Attach by DIGEST, not by tag: it is the exact image just verified. Add
-    the release-notes line (see description) to the `gh release create`
-    body.
+    Attach by DIGEST, not by tag: it is the exact image just verified.
+    `docker login` is needed because the script pulls the image to compare
+    the in-image SBOM, and a new GHCR package may still be private. Add the
+    release-notes line from the description to the `notes.md` heredoc.
   - |
-    Prove it locally against a throwaway registry, with Docker:
-      docker run -d --rm -p 5000:5000 --name tpl-registry registry:2.8.3
-      ./scripts/build-backend-image.sh \
-        -Dquarkus.container-image.push=true -Dquarkus.container-image.registry=localhost:5000 \
-        -Dquarkus.container-image.insecure=true
-      ./gradlew :frontend:imageBuild -PfrontendImagePush=true -PfrontendImageRegistry=localhost:5000
-      then run the attach script for both, twice (second run: "already present"),
-    and check discovery from the SCANNER side with Trivy, pinned:
-      docker run --rm --network host aquasec/trivy:0.76.1 image --sbom-sources oci \
-        --format cyclonedx localhost:5000/pythia/pythia-frontend:<version>
-    It must report the npm components (e.g. `svelte`). Without the referrer
-    it reports none. Show that first by running the same command BEFORE
-    attaching. If Trivy needs `--insecure` for the plain-HTTP registry, add
-    it. If Trivy does NOT use the referrer for a plain `registry:2` (fallback
-    tag schema), say so in the report and in `docs/oss-compliance.md`, and
-    keep the `oras discover` verification as the gate. Stop the registry
-    container at the end.
+    Prove it locally against a throwaway registry. Do NOT use port 5000:
+    macOS ControlCenter holds it.
+      1. Pick `R=5001`. If `lsof -nP -iTCP:$R -sTCP:LISTEN` finds a listener,
+         try 5002, 5003… and use the first free one.
+      2. Install oras 1.3.6 for this Mac into the scratchpad:
+         `darwin_arm64` or `darwin_amd64` per `uname -m`, verified with
+         `shasum -a 256 -c` against `oras_1.3.6_checksums.txt`, put on PATH
+         for this shell only. No brew, no global install.
+      3. `docker network create tpl-net`, then
+         `docker run -d --rm --name tpl-registry --network tpl-net -p $R:5000 registry:2.8.3`.
+      4. Push both images:
+         - `./scripts/build-backend-image.sh -Dquarkus.container-image.push=true
+           -Dquarkus.container-image.registry=localhost:$R -Dquarkus.container-image.insecure=true`;
+         - `./gradlew :frontend:imageBuild -PfrontendImagePush=true -PfrontendImageRegistry=localhost:$R`.
+      5. BEFORE attaching, run Trivy from the scanner side, on the same Docker
+         network and pinned:
+         `docker run --rm --network tpl-net aquasec/trivy:0.76.1 image --insecure
+         --sbom-sources oci --format cyclonedx --output /dev/null
+         tpl-registry:5000/pythia/pythia-frontend:<version> 2>&1 | tee before.log`.
+         `before.log` must NOT contain `Found SBOM in the OCI referrers`. The
+         npm components may well appear anyway, from the in-image
+         `sbom.cdx.json`, so they are NOT the marker.
+      6. Run the attach script for both images, twice. The second run prints
+         only `already present`.
+      7. Run the same Trivy command into `after.log`. It must contain
+         `Found SBOM in the OCI referrers`.
+      8. If Trivy does not find the referrer on `registry:2` (tag-schema
+         fallback), say so in the report and in `docs/oss-compliance.md`, and
+         keep the script's own discover+fetch verification as the gate.
+      9. At the end, stop the registry container and remove `tpl-net`. Remove
+         only what this step created, and confirm port `$R` is free again.
   - |
-    Prove the script's failure path: run it with a SBOM file path that does
-    not exist, and against an image ref whose index lacks `linux/arm64`
-    (push a single-platform image with
-    `-Dquarkus.jib.platforms=linux/amd64` to a second tag). Both must exit
-    non-zero with a clear message.
+    Prove the script's failure paths, each exiting non-zero with a clear
+    message:
+      - a SBOM path that does not exist (no registry contact);
+      - the BACKEND's SBOM against the FRONTEND image (differs from the
+        in-image copy);
+      - an image that is not a two-platform index: push a single-platform
+        backend image with `-Dquarkus.jib.platforms=linux/amd64` to a second
+        tag on the local registry (still during the previous step, before the
+        registry is stopped).
   - |
-    Docs.
-      - `docs/deployment.md` → "What a release publishes": each image carries
-        its SBOM as an OCI referrer on the index and both platform manifests,
-        and how to list it: `oras discover ghcr.io/<owner>/pythia/pythia-frontend@<digest>`.
-        → "Verifying and copying a release": a plain `skopeo copy` does not
-        copy referrers; `oras cp -r` does. Placeholders only, no hostnames.
-      - `docs/oss-compliance.md`, task-219's section "Pythia's own licence in
-        the artifacts": add the referrer row to its artifact table, and the
-        Trivy finding from the proof step.
+    Docs:
+      - `docs/deployment.md` → "What a release publishes":
+          * each image carries its SBOM as an OCI referrer on the index and
+            both platform manifests, under the name `pythia-<image>.cdx.json`;
+          * how to list it:
+            `oras discover ghcr.io/<owner>/pythia/pythia-frontend@<digest>`;
+          * that GHCR shows the referrers-tag-schema tags `sha256-<hex>` on
+            each package, and that they must not be deleted.
+      - `docs/deployment.md` → "Verifying and copying a release": a plain
+        `skopeo copy` does not copy referrers; `oras cp -r` does. Placeholders
+        only, no hostnames.
+      - `docs/deployment.md` → "What `publish` does, and on a re-run": add the
+        attach step to the listed sequence (after reading the digests, before
+        the bundle). Say that it first proves the attached file equals the
+        in-image copy, and that a re-run attaches to the new digests.
+      - `docs/oss-compliance.md`, section "Pythia's own licence in the
+        artifacts":
+          * add a referrer row to its artifact table;
+          * add a paragraph with the measured Trivy finding from the proof
+            step: the in-image file is found by pull-scanning, and the
+            referrer is used with `--sbom-sources oci`, or not on
+            `registry:2`, as measured.
   - |
-    Final gates: `./gradlew build` (no Gradle change is expected; it guards
-    against accidental breakage of the shared scripts) and
-    `bash -n scripts/attach-image-sbom.sh`.
+    Final gates: `bash -n scripts/attach-image-sbom.sh`,
+    `shellcheck scripts/attach-image-sbom.sh`, and `./gradlew build` (no Gradle
+    change is expected; it guards against accidental breakage).
 
 validation:
   - |
-    test -x scripts/attach-image-sbom.sh
-    bash -n scripts/attach-image-sbom.sh
-    grep -q 'oras discover' scripts/attach-image-sbom.sh
-    grep -q 'application/vnd.cyclonedx+json' scripts/attach-image-sbom.sh
+    S=scripts/attach-image-sbom.sh
+    test -x "$S"
+    bash -n "$S"
+    shellcheck "$S"
+    grep -q 'oras discover' "$S"
+    grep -q 'oras manifest fetch' "$S"
+    grep -q 'application/vnd.cyclonedx+json' "$S"
+    grep -q '/licenses/pythia/sbom.cdx.json' "$S"
   - |
-    # oras is pinned and checksum-verified; never latest
-    grep -q 'v=1.3.6' .github/workflows/ci.yaml
-    grep -q 'sha256sum -c' .github/workflows/ci.yaml
+    # the missing-file failure path, without any registry
+    out=$(./scripts/attach-image-sbom.sh localhost:1/x/y:z /nonexistent/sbom.cdx.json 2>&1) && exit 1
+    echo "$out" | grep -q '/nonexistent/sbom.cdx.json'
+  - |
+    # oras is pinned and checksum-verified in both jobs; never latest
+    test "$(grep -c 'v=1.3.6' .github/workflows/ci.yaml)" -ge 2
+    grep -q 'oras_${v}_checksums.txt' .github/workflows/ci.yaml
     ! grep -qiE 'oras[^ ]*@latest|setup-oras@' .github/workflows/ci.yaml
   - |
-    # attached in both jobs, by digest in publish
-    test "$(grep -c 'attach-image-sbom.sh' .github/workflows/ci.yaml)" -ge 4
+    # attached in both jobs, by digest in publish, re-run proven idempotent
+    test "$(grep -c 'attach-image-sbom.sh' .github/workflows/ci.yaml)" -ge 5
     grep -q 'attach-image-sbom.sh "$BASE/pythia-backend@$BACKEND_DIGEST"' .github/workflows/ci.yaml
     grep -q 'attach-image-sbom.sh "$BASE/pythia-frontend@$FRONTEND_DIGEST"' .github/workflows/ci.yaml
+    grep -q "grep -q '^attached'" .github/workflows/ci.yaml
+    grep -q 'oras discover' .github/workflows/ci.yaml
   - |
     # docs
     grep -q 'oras discover' docs/deployment.md
     grep -q 'oras cp -r' docs/deployment.md
+    grep -q 'sha256-' docs/deployment.md
     grep -qi 'referrer' docs/oss-compliance.md
+    grep -q 'Found SBOM in the OCI referrers\|--sbom-sources oci' docs/oss-compliance.md
   - |
     ./gradlew build
 

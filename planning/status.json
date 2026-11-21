@@ -1305,9 +1305,9 @@
       "notes": "Every shipped artifact carries Pythia's licence information: the Quarkus app jar's SPDX manifest attribute, LICENSE/NOTICE/CONTRIBUTORS and an OCI licenses label in both images, checked in CI"
     },
     "task-220": {
-      "status": "pending",
-      "started_at": null,
-      "completed_at": null,
+      "status": "done",
+      "started_at": "2026-11-21T15:47:53+00:00",
+      "completed_at": "2026-11-21T15:51:53+00:00",
       "notes": "Attach each image's SBOM to the published GHCR images as an OCI referrer, so registry-side scanners discover the licence and component data"
     },
     "task-221": {

@@ -76,6 +76,25 @@ part of the release SBOM (`sbom.cdx.json`). See
 [Open-source compliance](oss-compliance.md), "Pythia's own licence in the
 artifacts".
 
+**Each image's SBOM as an OCI referrer** (task-220). The same SBOM part is also
+attached NEXT to each image in the registry, so registry-side tools find it
+without pulling the image. It is a CycloneDX artifact
+(`application/vnd.cyclonedx+json`) named `pythia-backend.cdx.json` /
+`pythia-frontend.cdx.json`. It is attached to the multi-arch index AND to both
+platform manifests, because a scanner resolves a tag to one platform's manifest
+and asks for that digest's referrers, while a lookup on the tag sees the index.
+List it with:
+
+```bash
+oras discover ghcr.io/<owner>/pythia/pythia-frontend@<digest>
+```
+
+GHCR does not implement the OCI 1.1 referrers API, so oras uses the standard
+fallback, the referrers tag schema. Each package therefore shows extra tags
+named `sha256-<64 hex>`, one per image digest. **Do not delete them**: they ARE
+the referrers on GHCR. Trivy uses them with `trivy image --sbom-sources oci`
+(see [Open-source compliance](oss-compliance.md)).
+
 **A deploy bundle**, attached to the GitHub Release of the tag:
 `pythia-deploy-vX.Y.Z.tar.gz` plus `pythia-deploy-vX.Y.Z.tar.gz.sha256`.
 
@@ -168,6 +187,20 @@ digest the overlays pin, so `deploy.sh` resolves the same image from the copy.
 The values are extracted, never `source`d: the bundle is downloaded data, and
 sourcing it would execute whatever a tampered `release.env` contains. `deploy.sh`
 parses it the same way.
+
+**`skopeo copy` does not copy referrers**, so the copy above loses each image's
+attached SBOM (see "What a release publishes"). To keep them, copy with
+`oras cp -r`, which copies an image together with its referrers:
+
+```bash
+oras cp -r ghcr.io/<owner>/pythia/pythia-backend@$BACKEND_DIGEST \
+  $REGISTRY/pythia/pythia-backend:1.2.0
+oras cp -r ghcr.io/<owner>/pythia/pythia-frontend@$FRONTEND_DIGEST \
+  $REGISTRY/pythia/pythia-frontend:1.2.0
+```
+
+It keeps the digests, and with them every platform of the index. The SBOM is
+not needed to deploy; it is for scanners that read the copy.
 
 ### How the images are built
 
@@ -516,10 +549,14 @@ releases are immutable; tag the next patch version. A **draft** left by a failed
 run is deleted and recreated (the tag stays). It pushes the backend, checks that
 augmentation for the Entra-not-dev auth module, pushes the frontend, reads both
 index digests back from GHCR (both platforms present, and equal to what Jib
-recorded), builds the bundle, creates the release as a draft with both assets,
+recorded), attaches each image's SBOM part as an OCI referrer to the index and
+both platform manifests (task-220, `scripts/attach-image-sbom.sh`, which first
+proves the file equals the copy inside the pushed image), builds the bundle, creates the release as a draft with both assets,
 and only then publishes it. A consumer can therefore only see a release whose
 images exist and passed the checks; a failed run leaves at most unreferenced
-images and a draft.
+images and a draft. A re-run pushes new digests (the image build is not
+byte-reproducible) and attaches the SBOM to those; a subject that already
+carries the same SBOM is skipped, so nothing piles up.
 
 GHCR occasionally answers a manifest PUT with a transient `500 UNKNOWN` (the
 first real publish, v1.0.1, hit it once). That run fails before the release
