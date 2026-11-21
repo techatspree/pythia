@@ -13,7 +13,8 @@ import jakarta.persistence.UniqueConstraint
 import java.util.UUID
 
 /**
- * One finish-to-start edge between two root nodes of a draft, by `logicalId`.
+ * One finish-to-start edge between two nodes of a draft (any node, group or
+ * leaf, task-164), by `logicalId`.
  *
  * The UNIQUE constraint is declared HERE as well as in `V19` on purpose:
  * `%test`/`%dev` build the schema from Hibernate with Flyway off, so a

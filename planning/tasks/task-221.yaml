@@ -1,7 +1,7 @@
 id: task-221
 phase: phase-19
 title: "Merlin import brings the activities' dependencies along"
-depends_on: [task-131, task-216]
+depends_on: [task-131, task-164]
 description: |
   ## Why
 
@@ -82,11 +82,35 @@ description: |
     but if it does, the domain already reports it as `ScheduleError(CYCLE)`
     with the user's ids, and the dependency editor can fix it. Rejecting it
     at import would lose the whole WBS over one edge.
+  - **Two texts still say "roots only"** and predate task-164: the
+    "Schedule inputs" section of
+    `src/backend/implementation/src/main/kotlin/io/pythia/domain/CLAUDE.md`
+    ("An edge naming a `logicalId` that is not a current root is accepted …")
+    and the KDoc of `DraftScheduleDependency.kt` ("between two root nodes").
+    task-164 superseded both: an edge may name any node. This task is the
+    first writer of non-root edges, so it corrects both.
+  - **The exporter can leave dangling rows.** `MerlinExporter`'s
+    `overwriteStructure` deletes `ZSCHEDULEITEM` rows but never `ZDEPENDENCY`
+    rows (measured: `MerlinExporter.kt` DELETEs only `ZSCHEDULEITEM`). A
+    re-import of such a file meets dangling endpoints, which this task skips
+    with a WARN. Documented as a known effect; the exporter is not changed.
   - **No GUI change.** The edges appear in the existing dependency editor and
     Gantt. Skipped edges are only logged, not surfaced to the user. That is
     accepted for now.
   - **Do not gate on `Z_ENT`** for the dependency rows, for the same reason
     `ACTIVITIES_QUERY` does not: entity ids differ across exports.
+
+  ## Deviation found during implementation
+
+  The edges are created in Merlin row order (`Z_PK`), as step 4 says, and
+  in the demo file row 1 is Implementation → Closure and row 2
+  Initialisation → Implementation. The test step's "assert exactly
+  [(Initialisation, Implementation), (Implementation, Closure)]" listed them
+  in plan order instead, which the specified behaviour never produces. Edge
+  order carries no meaning for the schedule, so the behaviour was kept: the
+  `DEPENDENCIES_QUERY` gained `ORDER BY Z_PK` to make the row order
+  explicit rather than SQLite's scan order, and the unit tests assert the
+  `Z_PK` order. The IT compares the edges as a set.
 
 steps:
   - |
@@ -153,14 +177,36 @@ steps:
       `DROP TABLE ZDEPENDENCY` on a temp copy, import, assert the WBS is
       unchanged (same root count as the untouched sample) and
       `scheduleDependencies` is empty.
-    Reuse the JDBC temp-copy pattern `MerlinExporterTest` already uses
-    (`withSqlite`), moving it into a small shared test helper if both
-    classes need it.
+    `MerlinExporterTest.withSqlite` does NOT fit: it deletes its temp file
+    after the block and hands the block only a `Connection`, so modified
+    bytes never come back. Add a private helper in `MerlinImporterTest`,
+    `sampleWith(vararg sql: String): ByteArray`: copy the sample to a temp
+    file, run each statement on a JDBC connection, CLOSE the connection,
+    read the file's bytes, delete the file, return the bytes.
   - |
     In `MerlinImportResourceIT.kt`, extend `import a Merlin WBS creates a
     draft…` (or add a test) to GET the draft and assert `dependencies` has
-    size 2. This proves the edges are persisted through
+    size 2, and resolve the two edges' ids to titles through `roots`
+    (Initialisation → Implementation, Implementation → Closure), so a
+    reversed edge fails too. This proves the edges are persisted through
     `importMerlinDraft`, not only built in memory.
+  - |
+    Docs for the stale "roots only" texts (see Decisions):
+    - `src/backend/implementation/src/main/kotlin/io/pythia/domain/CLAUDE.md`,
+      "Schedule inputs": an edge may name any node, group or leaf (task-164);
+      an id that is not a current node is still accepted on write and ignored
+      when computing. Add a sentence that the Merlin import creates edges from
+      `ZDEPENDENCY` (task-221).
+    - `DraftScheduleDependency.kt` KDoc: "between two nodes of a draft (any
+      node, group or leaf, task-164)".
+    - In `.claude/skills/merlin-integration/SKILL.md`, also note the exporter's
+      dangling-row effect from the Decisions.
+  - |
+    Prove the skip rules can fail: temporarily remove the duplicate collapse
+    in `applyDependencies`, run
+    `./gradlew :backend:implementation:test --tests 'io.pythia.service.MerlinImporterTest'`,
+    see the skip test fail on the duplicate pair, revert, and confirm the
+    file is restored (`git diff` shows only the task's change).
   - |
     ./gradlew :backend:implementation:test
   - |
@@ -184,6 +230,11 @@ validation:
   - |
     grep -q 'ZDEPENDENCY' .claude/skills/merlin-integration/SKILL.md
   - |
+    # the stale "roots only" texts are gone
+    ! grep -q 'not a current root' src/backend/implementation/src/main/kotlin/io/pythia/domain/CLAUDE.md
+    grep -q 'task-221' src/backend/implementation/src/main/kotlin/io/pythia/domain/CLAUDE.md
+    ! grep -q 'two root nodes' src/backend/implementation/src/main/kotlin/io/pythia/domain/draft/DraftScheduleDependency.kt
+  - |
     ./gradlew :backend:implementation:test --tests 'io.pythia.service.MerlinImporterTest' --tests 'io.pythia.rest.MerlinImportResourceIT'
   - |
     ./gradlew build
@@ -193,3 +244,5 @@ outputs:
   - modified: src/backend/implementation/src/test/kotlin/io/pythia/service/MerlinImporterTest.kt
   - modified: src/backend/implementation/src/test/kotlin/io/pythia/rest/MerlinImportResourceIT.kt
   - modified: .claude/skills/merlin-integration/SKILL.md
+  - modified: src/backend/implementation/src/main/kotlin/io/pythia/domain/CLAUDE.md
+  - modified: src/backend/implementation/src/main/kotlin/io/pythia/domain/draft/DraftScheduleDependency.kt

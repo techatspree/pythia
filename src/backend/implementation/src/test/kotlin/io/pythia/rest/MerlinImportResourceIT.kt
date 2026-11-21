@@ -5,6 +5,7 @@ import io.restassured.RestAssured.given
 import io.restassured.http.ContentType
 import org.hamcrest.Matchers.equalTo
 import org.hamcrest.Matchers.greaterThan
+import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Test
 
 // Drives the Merlin WBS import endpoint end-to-end with the real sample document
@@ -41,10 +42,22 @@ class MerlinImportResourceIT {
             .body("isDraft", equalTo(true))
             .body("roots.size()", greaterThan(0))
 
-        given().header("Authorization", user)
+        val draft = given().header("Authorization", user)
             .`when`().get("/api/estimations/$estimationId/versions/draft")
             .then().statusCode(200)
             .body("roots.size()", greaterThan(0))
+            .body("dependencies.size()", equalTo(2))
+            .extract().jsonPath()
+
+        // The Merlin dependencies were PERSISTED with the draft (task-221), not
+        // only built in memory: resolve each edge to the titles of the roots it
+        // names, so a reversed edge would fail too.
+        val titleById = draft.getList<Map<String, Any?>>("roots")
+            .associate { it["logicalId"].toString() to it["title"] }
+        val edges = draft.getList<Map<String, String>>("dependencies")
+            .map { titleById[it["fromLogicalId"]] to titleById[it["toLogicalId"]] }
+            .toSet()
+        assertEquals(setOf("Initialisation" to "Implementation", "Implementation" to "Closure"), edges)
 
         // A draft now exists → a second import is a conflict.
         given().header("Authorization", user)

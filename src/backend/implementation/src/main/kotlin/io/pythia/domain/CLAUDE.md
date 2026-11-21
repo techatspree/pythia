@@ -29,7 +29,9 @@ The two inputs `EstimationVersion.schedule(dependencies, teamFte)` takes (task-1
 
 **Three paths copy the schedule, and they are different files** — missing any one loses it in a different way: `EstimationVersionService.snapshotDraft` (draft → submitted, or a submitted version has no schedule), `EstimationVersionService.cloneFromSubmitted` (submitted → new draft, or continuing an estimate silently starts over), and `DraftSnapshotMapper.toUpdateDto()` (the undo capture — omit it and `apply(draft, draft.toUpdateDto())` stops being an identity, so an undo wipes the schedule). Each has a test.
 
-An edge naming a `logicalId` that is not a current root is **accepted** on write: task-155 ignores unknown ids when it computes, so rejecting them here would make a root deletion fail a later save.
+An edge may name **any** node, group or leaf (task-164 superseded task-155's roots-only rule). An edge naming a `logicalId` that is not a current node is **accepted** on write: the domain ignores unknown ids when it computes, so rejecting them here would make a node deletion fail a later save.
+
+Besides the PUT, **the Merlin import creates edges** (task-221): `MerlinImporter` turns the document's `ZDEPENDENCY` rows into `DraftScheduleDependency`s on the new draft, collapsing duplicates before they reach the UNIQUE constraint; see the `merlin-integration` skill.
 
 ### Undo log
 

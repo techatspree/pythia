@@ -7,12 +7,13 @@ import io.pythia.domain.draft.DraftEstimationNode
 import io.pythia.domain.draft.DraftEstimationVersion
 import io.pythia.domain.draft.DraftFixedItemNode
 import io.pythia.domain.draft.DraftGroupNode
+import io.pythia.domain.draft.DraftScheduleDependency
 import io.pythia.method.EstimationMethod
 import io.quarkus.logging.Log
 import jakarta.enterprise.context.ApplicationScoped
 import java.io.InputStream
 import java.nio.file.Files
-import java.nio.file.Path
+import java.sql.Connection
 import java.util.Properties
 import java.util.UUID
 import java.util.zip.ZipInputStream
@@ -25,6 +26,15 @@ import java.util.zip.ZipInputStream
 // method only decides the leaf type: THREE_POINT_PERT gets fixed leaves,
 // BUCKET_SAMPLED_PERT gets bucketed leaves assigned to one "Imported" bucket
 // (buckets classify items, they do not replace the tree grouping).
+//
+// Dependencies come along too (task-221): ZDEPENDENCY rows (ZPREVIOUSACTIVITY_ →
+// ZNEXTACTIVITY_, both ZSCHEDULEITEM.Z_PK) become the draft's finish-to-start
+// schedule edges, between any two imported nodes, groups included (task-164).
+// What Pythia cannot represent is skipped with a WARN, never fatal: another
+// dependency type, an endpoint that is no imported node, a self-edge. A lag is
+// dropped but the edge kept; duplicates collapse to one edge (the UNIQUE
+// constraint would otherwise abort the whole import). No ZDEPENDENCY table means
+// no edges.
 //
 // Column indices and unit factors here are the physical Merlin schema / the
 // day-week-hour conversion (MagicNumber); the parser is inherently branchy
@@ -43,6 +53,13 @@ class MerlinImporter {
         val workDays: Double
     )
 
+    private data class MerlinDependency(
+        val previousPk: Long?,
+        val nextPk: Long?,
+        val type: Int,
+        val hasLag: Boolean
+    )
+
     fun import(input: InputStream, estimation: Estimation, versionNumber: Int): DraftEstimationVersion {
         Log.info(
             "Importing Merlin project into estimation ${estimation.id} " +
@@ -52,8 +69,13 @@ class MerlinImporter {
         val temp = Files.createTempFile("merlin-", ".sqlite")
         try {
             Files.write(temp, sqliteBytes)
-            val activities = readActivities(temp)
-            return buildVersion(activities, estimation, versionNumber)
+            // Instantiate the driver directly (avoids DriverManager registration
+            // quirks under Quarkus classloading); read-only, single ad-hoc file.
+            org.sqlite.JDBC().connect("jdbc:sqlite:${temp.toAbsolutePath()}", Properties()).use { conn ->
+                val activities = readActivities(conn)
+                val dependencies = readDependencies(conn)
+                return buildVersion(activities, dependencies, estimation, versionNumber)
+            }
         } finally {
             Files.deleteIfExists(temp)
         }
@@ -61,19 +83,45 @@ class MerlinImporter {
 
     private fun extractSqlite(bytes: ByteArray): ByteArray = MerlinDocument.extractSqlite(bytes)
 
-    private fun readActivities(dbFile: Path): List<Activity> {
-        // Instantiate the driver directly (avoids DriverManager registration
-        // quirks under Quarkus classloading); read-only, single ad-hoc file.
-        org.sqlite.JDBC().connect("jdbc:sqlite:${dbFile.toAbsolutePath()}", Properties()).use { conn ->
-            conn.createStatement().use { st ->
-                st.executeQuery(ACTIVITIES_QUERY).use { rs ->
-                    val activities = mapActivities(rs)
-                    Log.debug("Read ${activities.size} Merlin activities")
-                    return activities
-                }
+    private fun readActivities(conn: Connection): List<Activity> =
+        conn.createStatement().use { st ->
+            st.executeQuery(ACTIVITIES_QUERY).use { rs ->
+                mapActivities(rs).also { Log.debug("Read ${it.size} Merlin activities") }
             }
         }
-        return emptyList()
+
+    // An older or stripped document may have no ZDEPENDENCY table: no edges, not an error.
+    private fun readDependencies(conn: Connection): List<MerlinDependency> {
+        val hasTable = conn.prepareStatement(DEPENDENCY_TABLE_QUERY).use { st ->
+            st.executeQuery().use { it.next() }
+        }
+        if (!hasTable) {
+            Log.debug("Merlin document has no ZDEPENDENCY table; importing no dependencies")
+            return emptyList()
+        }
+        return conn.createStatement().use { st ->
+            st.executeQuery(DEPENDENCIES_QUERY).use { rs ->
+                mapDependencies(rs).also { Log.debug("Read ${it.size} Merlin dependencies") }
+            }
+        }
+    }
+
+    private fun mapDependencies(rs: java.sql.ResultSet): List<MerlinDependency> {
+        val dependencies = mutableListOf<MerlinDependency>()
+        while (rs.next()) {
+            val previous = rs.getLong(1).let { if (rs.wasNull()) null else it }
+            val next = rs.getLong(2).let { if (rs.wasNull()) null else it }
+            dependencies.add(
+                MerlinDependency(
+                    previousPk = previous,
+                    nextPk = next,
+                    // A NULL ZTYPE reads as 0, Core Data's default for the attribute.
+                    type = rs.getInt(3),
+                    hasLag = rs.getInt(4) == 1
+                )
+            )
+        }
+        return dependencies
     }
 
     private fun mapActivities(rs: java.sql.ResultSet): List<Activity> {
@@ -113,6 +161,7 @@ class MerlinImporter {
 
     private fun buildVersion(
         activities: List<Activity>,
+        dependencies: List<MerlinDependency>,
         estimation: Estimation,
         versionNumber: Int
     ): DraftEstimationVersion {
@@ -134,17 +183,79 @@ class MerlinImporter {
         } else {
             null
         }
+        // Merlin Z_PK → the node built for it, groups included. The root
+        // activity IS the estimation and gets no node, so it is not in here.
+        val nodesByPk = mutableMapOf<Long, DraftEstimationNode>()
         topLevel.forEachIndexed { idx, act ->
-            val node = buildNode(version, byParent, act, bucket)
+            val node = buildNode(version, byParent, act, bucket, nodesByPk)
             node.parent = null
             node.position = idx
             version.roots.add(node)
         }
+        val edges = applyDependencies(version, nodesByPk, dependencies)
         Log.info(
             "Imported Merlin WBS (${activities.size} activities) into estimation ${estimation.id} " +
-                "as version $versionNumber (method=${estimation.method}), roots=${version.roots.size}"
+                "as version $versionNumber (method=${estimation.method}), roots=${version.roots.size}, " +
+                "dependencies=$edges"
         )
         return version
+    }
+
+    // Turns the Merlin dependencies into the draft's schedule edges and returns
+    // how many were added. Rows are taken in Merlin row order; a duplicate pair
+    // keeps its first occurrence.
+    private fun applyDependencies(
+        version: DraftEstimationVersion,
+        nodesByPk: Map<Long, DraftEstimationNode>,
+        dependencies: List<MerlinDependency>
+    ): Int {
+        val unsupportedTypes = sortedMapOf<Int, Int>()
+        var unplaceable = 0
+        var lagsIgnored = 0
+        val edges = LinkedHashSet<Pair<String, String>>()
+        for (dependency in dependencies) {
+            val from = dependency.previousPk?.let { nodesByPk[it] }
+            val to = dependency.nextPk?.let { nodesByPk[it] }
+            when {
+                // ZTYPE 0 = finish-to-start is taken from the OBSERVED data (both
+                // rows of the demo file, Merlin's default type), not from a spec.
+                // The other types (start-to-start, finish-to-finish,
+                // start-to-finish) have no Pythia equivalent; importing them as
+                // finish-to-start would invent a constraint nobody drew.
+                dependency.type != FINISH_TO_START -> unsupportedTypes.merge(dependency.type, 1, Int::plus)
+                from == null || to == null || from === to -> unplaceable++
+                else -> {
+                    // The lag's blob encoding is not decoded: the edge still
+                    // orders the two activities, which is closer to the plan
+                    // than no edge at all.
+                    if (dependency.hasLag) lagsIgnored++
+                    edges.add(from.logicalId.toString() to to.logicalId.toString())
+                }
+            }
+        }
+        edges.forEach { (fromId, toId) ->
+            version.scheduleDependencies.add(DraftScheduleDependency().apply {
+                this.fromLogicalId = fromId
+                this.toLogicalId = toId
+                this.version = version
+            })
+        }
+        if (unsupportedTypes.isNotEmpty()) {
+            Log.warn(
+                "Skipped ${unsupportedTypes.values.sum()} Merlin dependencies of unsupported types " +
+                    "(ZTYPE → count: $unsupportedTypes); only finish-to-start (0) is imported"
+            )
+        }
+        if (unplaceable > 0) {
+            Log.warn(
+                "Skipped $unplaceable Merlin dependencies whose endpoint is not an imported activity " +
+                    "or that point to themselves"
+            )
+        }
+        if (lagsIgnored > 0) {
+            Log.warn("Ignored the lag of $lagsIgnored imported Merlin dependencies (Pythia has no lags)")
+        }
+        return edges.size
     }
 
     // An activity with children is a group; a leaf carries the effort. A single
@@ -153,18 +264,20 @@ class MerlinImporter {
         version: DraftEstimationVersion,
         byParent: Map<Long?, List<Activity>>,
         activity: Activity,
-        bucket: EstimationBucket?
+        bucket: EstimationBucket?,
+        nodesByPk: MutableMap<Long, DraftEstimationNode>
     ): DraftEstimationNode {
         val children = (byParent[activity.pk] ?: emptyList()).sortedBy { it.order }
         if (children.isEmpty()) {
-            return buildLeaf(version, activity, bucket)
+            return buildLeaf(version, activity, bucket).also { nodesByPk[activity.pk] = it }
         }
         val group = DraftGroupNode().apply {
             this.version = version
             this.title = activity.title
         }
+        nodesByPk[activity.pk] = group
         children.forEachIndexed { idx, child ->
-            val childNode = buildNode(version, byParent, child, bucket)
+            val childNode = buildNode(version, byParent, child, bucket, nodesByPk)
             childNode.parent = group
             childNode.position = idx
             group.children.add(childNode)
@@ -215,6 +328,16 @@ class MerlinImporter {
             "SELECT Z_PK, ZPARENTACTIVITY_, ZORDERINPARENTACTIVITY, ZISMILESTONE, ZTITLE, " +
                 "CAST(ZGIVENWORK_ AS TEXT) FROM ZSCHEDULEITEM WHERE ZTITLE IS NOT NULL " +
                 "ORDER BY ZORDERINPARENTACTIVITY"
+
+        internal const val FINISH_TO_START = 0
+
+        internal const val DEPENDENCY_TABLE_QUERY =
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='ZDEPENDENCY'"
+
+        // Not gated on Z_ENT either, for the same reason as ACTIVITIES_QUERY.
+        // ORDER BY Z_PK makes "Merlin row order" (the edges' order) explicit.
+        internal const val DEPENDENCIES_QUERY = "SELECT ZPREVIOUSACTIVITY_, ZNEXTACTIVITY_, ZTYPE, " +
+            "ZLAG_ IS NOT NULL AND length(ZLAG_) > 0 FROM ZDEPENDENCY ORDER BY Z_PK"
     }
 }
 

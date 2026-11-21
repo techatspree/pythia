@@ -16,7 +16,17 @@ Two endpoints on `EstimationVersionResource`:
 
 The upload is accepted either as a **zipped** `.mproject` (the importer finds the `state.sql` entry) or the raw `state.sql`; it is read via a plain `org.xerial:sqlite-jdbc` `DriverManager` connection on a temp file — **not** a Quarkus datasource (the app DB stays PostgreSQL). Work maps to person-days (d×1, w×5, h×0.125) and a single value seeds optimistic=likely=pessimistic (the task's "single work → triple").
 
-Output **preserves the WBS tree (groups + nesting) for both methods**; only the leaf type is method-specific (off `estimation.method`): `THREE_POINT_PERT` → `DraftFixedItemNode`, `BUCKET_SAMPLED_PERT` → `DraftBucketedItemNode` assigned to a single "Imported" bucket (`isSample` = has work). Buckets classify items; they do NOT replace the tree grouping. `EstimationVersionService.importMerlinDraft` guards "one draft at a time" (`409`) and does the version-numbering/persistence like `createDraft`; the frontend control is on the estimation detail page.
+Output **preserves the WBS tree (groups + nesting) for both methods**; only the leaf type is method-specific (off `estimation.method`): `THREE_POINT_PERT` → `DraftFixedItemNode`, `BUCKET_SAMPLED_PERT` → `DraftBucketedItemNode` assigned to a single "Imported" bucket (`isSample` = has work). Buckets classify items; they do NOT replace the tree grouping. **Dependencies come along (task-221).** Merlin keeps them in `ZDEPENDENCY`: `ZPREVIOUSACTIVITY_` is the predecessor, `ZNEXTACTIVITY_` the successor (both a `ZSCHEDULEITEM.Z_PK`), `ZTYPE` the kind, `ZLAG_` an undecoded lag blob. Each row becomes a `DraftScheduleDependency` on the new draft, by the `logicalId`s of the nodes built for those activities; an edge may name a group or a leaf (task-164). Rules, all skips logged as one WARN per category and never fatal to the WBS import:
+- **Only `ZTYPE = 0` is imported, as finish-to-start.** That mapping is an assumption from observed data (both rows of the demo file, Merlin's default type), not from a spec. Other types (start-to-start, finish-to-finish, start-to-finish) have no Pythia equivalent and are skipped.
+- **A lag is dropped, the edge kept**: it still orders the two activities.
+- **Unplaceable edges are skipped**: an endpoint that is no imported node (the project root activity, which is the estimation itself; a title-less assignment row; a dangling reference) or a self-edge.
+- **Duplicates collapse** to one edge (first in `Z_PK` order), because the UNIQUE `(version_id, from_logical_id, to_logical_id)` constraint would otherwise abort the whole import.
+- **No `ZDEPENDENCY` table** (an older or stripped document) means no edges, logged at DEBUG. Cycles are imported as they are; the domain reports them as `ScheduleError(CYCLE)`.
+- **Known effect of the exporter:** `overwriteStructure` deletes `ZSCHEDULEITEM` rows but never their `ZDEPENDENCY` rows, so a re-import of such a file meets dangling endpoints, which are skipped as above.
+
+The demo file has two rows, Initialisation → Implementation and Implementation → Closure (top-level groups).
+
+`EstimationVersionService.importMerlinDraft` guards "one draft at a time" (`409`) and does the version-numbering/persistence like `createDraft`; the frontend control is on the estimation detail page.
 
 ## Effort export (task-133)
 

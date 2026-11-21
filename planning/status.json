@@ -1311,9 +1311,9 @@
       "notes": "Attach each image's SBOM to the published GHCR images as an OCI referrer, so registry-side scanners discover the licence and component data"
     },
     "task-221": {
-      "status": "pending",
-      "started_at": null,
-      "completed_at": null,
+      "status": "done",
+      "started_at": "2026-11-21T19:48:15+00:00",
+      "completed_at": "2026-11-21T19:53:00+00:00",
       "notes": "Merlin import reads ZDEPENDENCY: finish-to-start dependencies become the imported draft's schedule dependencies"
     },
     "task-222": {
