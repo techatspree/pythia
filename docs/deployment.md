@@ -288,6 +288,25 @@ ssh "$DEPLOY_HOST" "cd /opt/pythia/releases/pythia-deploy-$V && ./scripts/smoke.
 The manifests and the images come from the same release by construction: the
 bundle carries both the manifests of that tag and the digests of its images.
 
+**What the smoke test checks** (task-087). Everything goes through the ingress,
+with bash and curl only:
+
+1. `GET /api/system` must answer 200 with JSON containing `hoursPerDay`. The
+   endpoint is public and reads the installation's settings row, so this proves
+   the ingress reaches the backend AND the backend reaches PostgreSQL.
+2. `GET /api/projects` must answer 401, or 200 when `SMOKE_TOKEN` is set. An
+   anonymous 200 means authentication is not enforced and fails the test.
+   (It used to call `/api/estimations`, which has no collection GET and
+   answered 404 either way.)
+
+It deliberately does not probe `/q/health/ready`. The ingress routes every path
+to the frontend, whose nginx proxies only `/api/` and `/ws/` and answers
+anything else with `index.html` and 200, so that probe passed even with the
+database down. Readiness is still checked inside the cluster: it is the
+backend's readiness probe, and `deploy.sh`'s `kubectl rollout status` waits
+on it. `scripts/smoke.test.sh` (run in CI) runs the script against a stub
+server and proves it fails when the database or the backend is down.
+
 **Do not expose the minikube API server to the runner.** Its endpoint is the
 driver's internal IP; publishing it means certificate SANs and a firewall hole,
 and buys nothing over SSH.

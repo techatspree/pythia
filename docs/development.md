@@ -578,6 +578,50 @@ Or step by step:
    ./scripts/minikube-reset.sh
    ```
 
+### Smoke tests (minikube)
+
+A **read-only** smoke suite (task-087) checks a running stack. It sends GET
+requests only, assumes no data exists (minikube has no seed data) and is
+**never part of `./gradlew build`**: it runs only when you trigger it.
+
+```bash
+./scripts/minikube-smoke.sh                       # against the local minikube
+SMOKE_TOKEN=<bearer> ./scripts/minikube-smoke.sh  # plus an authenticated read
+```
+
+The script port-forwards `svc/backend` and `svc/frontend` (context `minikube`,
+namespace `MINIKUBE_NAMESPACE` from `scripts/minikube-env.sh`) and runs two
+layers:
+
+- the JUnit suite `:backend:end2end:smokeTest`
+  (`src/backend/end2end/src/test/java/io/pythia/e2e/smoke/MinikubeSmokeIT.java`):
+  - health, readiness and liveness are UP and `/q/openapi` is served;
+  - an anonymous `/api/projects` gets 401;
+  - the frontend serves the SPA, and its `/api/system` proxy reaches the
+    backend and its database;
+  - with `SMOKE_TOKEN` set, `/api/projects` returns a list (the test skips
+    itself without a token);
+- `scripts/smoke.sh`, the release smoke test the deploy pipeline runs, against
+  the forwarded frontend.
+
+The forwards use ports **18080/18081** (`SMOKE_BACKEND_PORT`,
+`SMOKE_FRONTEND_PORT`), not 8080. 8080 stays free for the port-forward above,
+and 8081 is the staging forward in `docs/deployment.md`. The script refuses to
+start when either port is already bound, because whatever holds it would
+silently be tested instead.
+
+The JUnit suite runs against any stack, including `./scripts/dev.sh`. The dev
+auth module also answers 401 to an anonymous call:
+
+```bash
+./gradlew :backend:end2end:smokeTest -Dbackend.url=http://localhost:8090 -Dfrontend.url=http://localhost:5173
+```
+
+`e2eTest` excludes the `smoke` tag, so the two suites never mix.
+`scripts/smoke.sh` stays the pipeline's post-deploy gate, because it needs only
+bash and curl. The JUnit suite adds the direct backend checks and needs a JDK
+and the source tree.
+
 ### Viewing backend logs on Minikube
 
 Minikube runs the dedicated **`dev-minikube`** profile — the overlay sets

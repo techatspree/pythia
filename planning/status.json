@@ -507,9 +507,9 @@
       "notes": "Prepare the Gradle build for Gradle 10 — remove all remaining deprecated build features"
     },
     "task-087": {
-      "status": "pending",
-      "started_at": null,
-      "completed_at": null,
+      "status": "done",
+      "started_at": "2026-11-21T15:29:50+00:00",
+      "completed_at": "2026-11-21T15:34:48+00:00",
       "notes": "Read-only smoke-test suite that runs against the local minikube deployment; excluded from the default build, explicitly triggered"
     },
     "task-088": {

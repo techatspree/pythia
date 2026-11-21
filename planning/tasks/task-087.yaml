@@ -1,166 +1,410 @@
 id: task-087
-phase: phase-10
-title: Read-only minikube smoke-test suite (explicitly triggered)
-depends_on: [task-082, task-083]
+phase: phase-18
+title: Read-only minikube smoke suite; make smoke.sh check the DB
+depends_on: [task-082, task-146, task-199]
 description: |
-  Add a **read-only smoke-test suite** that runs against the live local
-  minikube deployment to confirm the stack is up and wired correctly —
-  without mutating any data, and WITHOUT being part of the normal build.
-  It must be triggered explicitly.
+  Two related gaps in how a running Pythia is smoke-tested.
 
-  CURRENT STATE:
-    - The `:backend:end2end` Gradle module (created in task-082) already
-      hosts JVM tests that run against a RUNNING system via rest-assured.
-      Its default `test` task is disabled; an explicit `e2eTest` task runs
-      the suite. The only test today is `HealthEndpointIT` (GET `/q/health`
-      against `System.getProperty("backend.url", "http://localhost:8080")`).
-    - There is no suite aimed specifically at the minikube deployment, and
-      no runner that reaches the in-cluster services.
-    - Minikube specifics that constrain the suite:
-        * Auth is **Entra** (OIDC): every `/api/*` endpoint requires a valid
-          Bearer token, so an unauthenticated call returns **401**. The
-          Quarkus health (`/q/health*`) and OpenAPI/Swagger (`/q/openapi`,
-          `/q/swagger-ui`) endpoints are open (no token).
-        * There is **no seed data** — `TestDataSeeder` is
-          `@IfBuildProfile("dev")` only, and minikube runs the prod-style
-          profile — so the DB may be empty. Smoke assertions MUST NOT
-          assume any project/estimation exists.
-        * Services are reached via `kubectl port-forward` (backend
-          `svc/backend` :8080, frontend `svc/frontend` :80).
+  ## 1. scripts/smoke.sh's readiness check proves nothing (bug)
+
+  `scripts/smoke.sh <base-url>` (task-027, shipped in every release bundle
+  since task-199) runs after each staging and production rollout. It takes the
+  INGRESS URL (`./scripts/smoke.sh https://$INGRESS_HOST`) and checks two things:
+
+    1. `GET <base>/q/health/ready` returns 200. The comment claims this "proves
+       the pod reached PostgreSQL".
+    2. `GET <base>/api/estimations` returns 401 without a token, or 200 with
+       `SMOKE_TOKEN`.
+
+  Check 1 is vacuous (measured against today's manifests):
+    - `k8s/base/ingress.yaml` routes `/` to `svc/frontend` only;
+    - `src/frontend/nginx.conf` proxies only `/api/` and `/ws/` to the
+      backend, and its catch-all `location /` does
+      `try_files $uri $uri/ /index.html`.
+  So `/q/health/ready` through the ingress returns the SPA's index.html with
+  **200**, whatever the backend's state. The case it should catch passes:
+  backend up, PostgreSQL unreachable. The anonymous `/api/estimations` still
+  answers 401, because authentication runs before any query, so the whole
+  smoke test reports success.
+
+  Fix: replace check 1 with `GET <base>/api/system`, the installation's
+  settings. Measured on today's code, this endpoint is the right probe:
+    - it is `@PermitAll` (`SystemSettingsResource.getSystemSettings`; the
+      login screen needs the branding before any account exists);
+    - it is reached through the existing `/api/` proxy;
+    - it READS THE DATABASE (`SystemSettingsService.settings()` →
+      `settingsRepository.get()`);
+    - it returns JSON with a required `hoursPerDay` field (`SystemSettingsDto`
+      in `src/frontend/src/lib/api/openapi.json`).
+  The new check requires all three of: status 200, a `Content-Type` of
+  `application/json`, and a body containing `"hoursPerDay"`. index.html
+  fails the second and third condition, and a backend without its database
+  fails the first.
+
+  `/api/ping` was considered and rejected: it never touches the database, so
+  it would make check 1 honest about reachability but still miss the
+  "PostgreSQL down" case.
+
+  `/q/health/ready` stays what it is: the in-cluster readiness probe
+  (`k8s/base/backend/deployment.yaml`) that `deploy.sh`'s
+  `kubectl rollout status` waits on. It is deliberately NOT exposed through
+  nginx: no new public surface for this.
+
+  The script's PUBLIC CONTRACT is unchanged, because the internal pipeline
+  calls it from the bundle (`docs/deployment.md` → "What a release
+  publishes"):
+    - usage `./scripts/smoke.sh <base-url>`;
+    - the optional `SMOKE_TOKEN`;
+    - exit 0 on success, non-zero with a message on failure;
+    - check 2 is untouched.
+  Only check 1, its echo line and the header comment change. The script must
+  keep running with bash and curl only (the deploy host has no jq guarantee),
+  so match the body with `grep`.
+
+  The fix is proven by a new `scripts/smoke.test.sh`, in the pattern of
+  `scripts/task.test.sh` (task-214), wired into CI's `build` job next to it.
+  It needs only bash, curl and python3; all three are on CI's ubuntu runner
+  and on macOS. It starts a stub HTTP server on a free localhost port. The
+  stub imitates nginx in front of the backend, in modes:
+    - `healthy`: `/api/system` → 200 JSON with `hoursPerDay`;
+      `/api/estimations` → 401 without a token, 200 JSON `[]` with
+      `Authorization: Bearer good`; every other path → 200 text/html (the
+      SPA fallback).
+    - `db-down`: like healthy, but `/api/system` → 500 JSON. **Today's
+      smoke.sh passes here**; that is the bug.
+    - `backend-down`: every `/api/*` → 502 text/html (nginx's bad gateway);
+      the rest is the SPA fallback.
+    - `api-open`: like healthy, but `/api/estimations` → 200 without a token.
+  It runs `smoke.sh` against each mode and expects:
+
+  | mode | SMOKE_TOKEN | expected exit |
+  |---|---|---|
+  | healthy | unset | 0 |
+  | healthy | `good` | 0 |
+  | db-down | unset | non-zero |
+  | backend-down | unset | non-zero |
+  | api-open | unset | non-zero |
+
+  ### Deviation found during implementation: check 2 called a route that does not exist
+
+  Running the fixed `smoke.sh` against a `dev.sh` stack (via Vite on :5173)
+  showed that check 2 also never worked. `GET /api/estimations` has no
+  collection GET: `openapi.json` lists only `/api/estimations/{estimationId}/…`.
+  So the call answered **404**, with or without a token. No
+  `quarkus.http.auth.permission` policy exists that would answer 401 before
+  routing, so the same 404 happens in every environment: the pipeline's smoke
+  step could not pass. Check 2 now calls `GET /api/projects`, a VIEWER-gated
+  collection read: 401 anonymous, 200 and a list with a token. That is exactly
+  what the check meant to prove. The usage, `SMOKE_TOKEN` and the meaning of
+  its 401/200 are unchanged.
+
+  The stub server mirrors the real routing: `/api/projects` behaves as
+  described for `/api/estimations` above, and any other `/api/*` path answers
+  404. As a result the UNCHANGED `smoke.sh` now fails the stub test first on
+  `healthy` (the 404 bug). The `db-down` proof runs against HEAD's script with
+  only the check-2 path patched to `/api/projects`, so it isolates bug 1.
+
+  ## 2. A read-only smoke suite for the local minikube stack (feature)
+
+  CURRENT STATE (measured):
+    - The `:backend:end2end` Gradle module (task-082) hosts JVM tests that run
+      against a RUNNING system via rest-assured. Its `test` task is disabled.
+      The explicit `e2eTest` task runs `useJUnitPlatform()` with NO tag filter,
+      and the only test is `HealthEndpointIT` (`GET /q/health` against
+      `System.getProperty("backend.url", "http://localhost:8080")`).
+      `./gradlew :backend:end2end:build` passes today.
+    - `scripts/smoke.sh` takes an ingress URL. The local minikube has no
+      ingress host the developer's machine resolves, so nothing smoke-tests
+      that stack today.
+    - Minikube runs the Entra auth module (`APP_AUTH_PROVIDER: "entra"` in
+      `k8s/overlays/minikube/backend-oidc.yaml`). Every `/api/*` endpoint
+      except the `@PermitAll` ones needs a Bearer token, so an anonymous call
+      answers **401**. `/q/health*` and `/q/openapi` are open.
+    - There is **no seed data**: `TestDataSeeder` is `@IfBuildProfile("dev")`,
+      and minikube runs `dev-minikube`. Assertions MUST NOT assume any project
+      or estimation exists.
+    - The services are `svc/backend` :8080 and `svc/frontend` :80, in
+      `MINIKUBE_NAMESPACE` (default `estimation`, from
+      `scripts/minikube-env.sh`).
 
   TARGET STATE:
-    - A JUnit5 + rest-assured smoke suite tagged `@Tag("smoke")` in the
-      `:backend:end2end` module, containing ONLY read-only (GET) checks
-      that never change data and never assume seeded data:
-        * `GET /q/health`, `/q/health/ready`, `/q/health/live` → 200 (+ UP)
-          — proves the backend booted and its DB/OIDC wiring is healthy.
-        * `GET /q/openapi` (or `/q/swagger-ui`) → 200 — API surface served.
-        * `GET /api/projects` with NO `Authorization` header → **401** —
-          proves the Entra auth gate is enforced (read-only, no token, no
-          data change).
-        * Frontend root `GET /` → 200 and returns HTML (the SPA is served).
-        * OPTIONAL authenticated read: if a `SMOKE_BEARER_TOKEN` env var is
-          present, `GET /api/projects` with that Bearer token → 200 and a
-          JSON array (which may be empty). If the env var is absent, the
-          test self-skips via a JUnit `Assumptions.assumeTrue(...)`. Still
-          read-only.
-    - A dedicated Gradle task `:backend:end2end:smokeTest` that runs ONLY
-      the `@Tag("smoke")` tests, is NOT wired into `build`/`check`, and
-      reads `backend.url` / `frontend.url` from system properties and
-      `SMOKE_BEARER_TOKEN` from the environment.
-    - A convenience runner `scripts/minikube-smoke.sh` that port-forwards
-      the backend and frontend services, waits for them, runs the smoke
-      task against those URLs, and always tears the port-forwards down.
-    - Docs describing how to run it.
+    - **JUnit suite.** A JUnit5 + rest-assured suite, `@Tag("smoke")`, in
+      `:backend:end2end`, with ONLY read-only GET checks and no reliance on
+      data:
+        * the backend directly: `/q/health`, `/q/health/ready` and
+          `/q/health/live` → 200 with `status == "UP"`; `/q/openapi` → 200;
+        * anonymous `GET /api/projects` → 401 (the auth gate is enforced);
+        * the frontend: `GET /` → 200 text/html; `GET /api/system` → 200 JSON
+          with `hoursPerDay` (nginx's `/api/` proxy reaches the backend and
+          the backend reaches PostgreSQL, the same probe as smoke.sh);
+        * optionally, with `SMOKE_TOKEN` set (the SAME variable as smoke.sh,
+          never a second name): `GET /api/projects` with that Bearer token →
+          200 and a JSON array, which may be empty. Without the token, the
+          test skips itself via `Assumptions.assumeTrue`.
+    - **`smokeTest` task.** `:backend:end2end:smokeTest` runs ONLY the smoke
+      tag. It is NOT wired into `build`/`check`. It reads `backend.url` and
+      `frontend.url` from system properties and `SMOKE_TOKEN` from the
+      environment. `e2eTest` excludes the smoke tag, so the two suites never
+      mix.
+    - **Runner script.** `scripts/minikube-smoke.sh`:
+        * port-forwards both services with `--context minikube` into
+          `MINIKUBE_NAMESPACE`, on `SMOKE_BACKEND_PORT` / `SMOKE_FRONTEND_PORT`
+          (defaults 18080 / 18081);
+        * REFUSES to start when either port is already bound. CLAUDE.md
+          documents that trap: a forward or stack already on the port would
+          silently be tested instead. 8080 also stays free for the
+          documented `port-forward svc/frontend 8080:80`, and 8081 for
+          `docs/deployment.md`'s staging forward;
+        * runs the JUnit suite, then `scripts/smoke.sh` against the forwarded
+          frontend, so the release smoke test is exercised locally too;
+        * always tears the forwards down.
 
-  KEY DECISIONS (leave no ambiguity):
-    - Read-only ONLY: no POST/PUT/DELETE anywhere in the suite; no reliance
-      on pre-existing data. This is the core invariant — a smoke run against
-      a production-like cluster must be safe and idempotent.
-    - Explicitly triggered, never in the default build: the task is
-      standalone (like `e2eTest`); `./gradlew build` must not run it.
-    - Token-free by default so the suite is runnable without obtaining an
-      Entra token; the authenticated read is strictly optional and skips
-      cleanly when no token is provided.
-    - This is test + script + docs only — no backend service, REST
-      endpoint, domain operation, or frontend flow is added, so the
-      CLAUDE.md "Logging" conventions add nothing here.
+  KEY DECISIONS:
+    - **Read-only only.** No POST/PUT/PATCH/DELETE anywhere in the suite and
+      no reliance on data, so a run against a production-like cluster is safe
+      and idempotent.
+    - **Explicitly triggered, never in the default build.**
+    - **Token-free by default.** The authenticated read is optional and skips
+      cleanly.
+    - **The JUnit suite complements smoke.sh; it does not replace it.**
+      smoke.sh is the pipeline's post-deploy gate, needs only bash+curl and is
+      part of the bundle contract. The JUnit suite adds the direct backend
+      checks (health/live, openapi) and the frontend shell, and needs a JDK
+      and the source tree.
+    - **No new logging.** Tests, scripts and docs only: no backend service,
+      REST endpoint, domain operation or frontend flow is added, so the
+      CLAUDE.md "Logging" conventions add nothing.
+    - **The suite also runs against `./scripts/dev.sh`.** The backend is on
+      :8090 and Vite on :5173, which proxies `/api` to it. The strict dev auth
+      module answers 401 to an anonymous call (`auth/CLAUDE.md`), and Vite
+      serves the SPA. That is how this task proves the suite can pass AND
+      fail without needing a minikube.
 
 steps:
   - |
+    Fix check 1 of `scripts/smoke.sh` as described in section 1:
+      - Replace the `/q/health/ready` probe with `GET "$BASE_URL/api/system"`.
+        Fetch status, content type and body in one curl call (`-w` for
+        `%{http_code}` and `%{content_type}`, body to a `mktemp` file removed
+        by a `trap`). Keep `--max-time 20` and the `|| true` connection-failure
+        handling.
+      - Pass only on status 200 AND a content type starting with
+        `application/json` AND `grep -q '"hoursPerDay"'` on the body.
+      - On failure, name which condition failed. For a 200 with a non-JSON
+        content type, say the request was answered by the SPA fallback, not
+        the backend.
+      - Echo `  /api/system ... ` in place of `  /q/health/ready ... `.
+      - Rewrite the header comment's check 1 to say what is proven now (the
+        ingress reaches the backend and the backend reaches PostgreSQL) and
+        why `/q/health/ready` is not usable through the ingress (nginx's SPA
+        fallback, task-087).
+    Leave usage, `SMOKE_TOKEN`, check 2 and the source-guard untouched.
+  - |
+    Create `scripts/smoke.test.sh` (executable, `set -euo pipefail`, bash 3.2
+    compatible, header comment in the style of `scripts/task.test.sh`).
+    Behaviour:
+      - Write the stub server to a `mktemp -d` directory: a small python3
+        `http.server` script taking the mode as an argument, with the
+        responses from the table in the description. It binds port 0 on
+        127.0.0.1 and prints the port it got.
+      - Start one stub per mode, wait until it answers, and run
+        `"$SCRIPT_DIR/smoke.sh" http://127.0.0.1:<port>` with and without
+        `SMOKE_TOKEN=good` as tabulated, checking the exit status.
+      - Print one `ok <mode> …`/`FAIL <mode> …` line per case, naming the
+        mode, so a failure says which case broke (validation greps for
+        `FAIL.*db-down`).
+      - Kill every stub and remove the temp dir in an EXIT trap.
+    In `.github/workflows/ci.yaml`'s `build` job, add a step right after
+    "task.sh behaves": `name: smoke.sh behaves`, `run: ./scripts/smoke.test.sh`,
+    with a one-line comment naming task-087.
+  - |
+    Prove the new test catches the bug. Run `./scripts/smoke.test.sh` against
+    TODAY's check 1: temporarily restore it with `git stash push --
+    scripts/smoke.sh`, or `git show HEAD:scripts/smoke.sh > <scratch>` and
+    point the test at the copy. Watch the `db-down` case fail (today's script
+    exits 0 there). Then restore the fixed script, confirm with
+    `git diff --stat` that `scripts/smoke.sh` carries the fix, and run the
+    test green.
+  - |
     Create the smoke suite
     `src/backend/end2end/src/test/java/io/pythia/e2e/smoke/MinikubeSmokeIT.java`
-    (package `io.pythia.e2e.smoke`). Annotate the class with
-    `@org.junit.jupiter.api.Tag("smoke")`. In `@BeforeAll`, set the backend
-    base URI from `System.getProperty("backend.url", "http://localhost:8080")`.
-    Read the frontend base URL from `System.getProperty("frontend.url",
-    "http://localhost:8081")` and the optional token from
-    `System.getenv("SMOKE_BEARER_TOKEN")`. Add ONLY read-only tests:
-      - health / ready / live each return 200 (and `/q/health` body
-        `status == "UP"`);
-      - `GET /q/openapi` returns 200;
-      - unauthenticated `GET /api/projects` returns 401;
-      - `GET <frontend.url>/` returns 200 with `Content-Type` text/html;
-      - an authenticated `GET /api/projects` (Bearer `SMOKE_BEARER_TOKEN`)
-        returning 200 + a JSON array, guarded by
-        `org.junit.jupiter.api.Assumptions.assumeTrue(token != null && !token.isBlank())`
-        so it self-skips without a token.
-    Use no POST/PUT/DELETE and assert nothing that requires seeded data.
-
+    (package `io.pythia.e2e.smoke`, Java like `HealthEndpointIT`). Annotate the
+    class with `@org.junit.jupiter.api.Tag("smoke")`. Read:
+      - `System.getProperty("backend.url", "http://localhost:18080")`;
+      - `System.getProperty("frontend.url", "http://localhost:18081")`;
+      - `System.getenv("SMOKE_TOKEN")`.
+    Pass each URL per request (`given().baseUri(...)`) instead of setting
+    the global `RestAssured.baseURI`, since two hosts are involved. Add ONLY
+    read-only GET tests, one `@Test` per bullet of section 2's JUnit suite:
+      - `/q/health`, `/q/health/ready` and `/q/health/live` → 200 and
+        `status == "UP"`;
+      - `/q/openapi` → 200;
+      - anonymous `/api/projects` → `statusCode(401)`;
+      - frontend `/` → 200 and a `Content-Type` starting with `text/html`;
+      - frontend `/api/system` → 200, `ContentType.JSON`, and
+        `body("hoursPerDay", notNullValue())`;
+      - authenticated `/api/projects` with `Authorization: Bearer <SMOKE_TOKEN>`
+        → 200 and a JSON array (`body("$", instanceOf(List.class))`), guarded
+        by `Assumptions.assumeTrue(token != null && !token.isBlank())`.
+    No POST/PUT/PATCH/DELETE; nothing that needs seeded data.
   - |
-    In `src/backend/end2end/build.gradle.kts`, register a task
-    `smokeTest` of type `Test` that runs only the tagged smoke tests and is
-    NOT wired into `build`/`check`:
-      - `useJUnitPlatform { includeTags("smoke") }`
-      - `testClassesDirs = sourceSets.test.get().output.classesDirs`,
-        `classpath = sourceSets.test.get().runtimeClasspath`
-      - forward the targeting inputs:
-        `systemProperty("backend.url", providers.systemProperty("backend.url").getOrElse("http://localhost:8080"))`,
-        the same for `frontend.url` (default `http://localhost:8081`), and
-        pass `SMOKE_BEARER_TOKEN` through via
-        `environment("SMOKE_BEARER_TOKEN", providers.environmentVariable("SMOKE_BEARER_TOKEN").getOrElse(""))`
-      - `group = "verification"`, a clear `description`, and
-        `outputs.upToDateWhen { false }` so it always re-runs.
-    Leave the existing disabled `test` task and the `e2eTest` task untouched.
-
+    In `src/backend/end2end/build.gradle.kts`:
+      - Change `e2eTest` to `useJUnitPlatform { excludeTags("smoke") }`.
+      - Register `tasks.register<Test>("smokeTest")` with:
+          * `useJUnitPlatform { includeTags("smoke") }`;
+          * the same `testClassesDirs`/`classpath` as `e2eTest`;
+          * `systemProperty("backend.url", providers.systemProperty("backend.url").getOrElse("http://localhost:18080"))`,
+            the same for `frontend.url` (default `http://localhost:18081`);
+          * `environment("SMOKE_TOKEN", providers.environmentVariable("SMOKE_TOKEN").getOrElse(""))`;
+          * `group = "verification"`, a description saying it is read-only and
+            needs a running stack, and `outputs.upToDateWhen { false }`.
+    Do NOT hook it into `build`/`check`. Extend the existing comment above
+    `tasks.test` to mention `smokeTest`.
   - |
-    Create `scripts/minikube-smoke.sh` (executable, `set -euo pipefail`):
-      - `kubectl -n estimation port-forward svc/backend 8080:8080 &` and
-        `kubectl -n estimation port-forward svc/frontend 8081:80 &`, tracking
-        both PIDs and killing them in a `trap ... EXIT`.
-      - Poll `http://localhost:8080/q/health` and `http://localhost:8081/`
-        until reachable (bounded retries).
-      - Run `"$PROJECT_ROOT/gradlew" :backend:end2end:smokeTest
-        -Dbackend.url=http://localhost:8080 -Dfrontend.url=http://localhost:8081`
-        (SMOKE_BEARER_TOKEN is inherited from the environment if the user
-        exported one).
-      - Echo that the run is READ-ONLY and print the smoke result.
-
+    Create `scripts/minikube-smoke.sh` (executable, `set -euo pipefail`, the
+    same "refuse to be sourced" guard as `scripts/smoke.sh`). Behaviour:
+      - Source `scripts/minikube-env.sh` for `MINIKUBE_NAMESPACE`.
+        `: "${SMOKE_BACKEND_PORT:=18080}"` and `: "${SMOKE_FRONTEND_PORT:=18081}"`.
+      - For both ports: if `lsof -nP -iTCP:<port> -sTCP:LISTEN` finds a
+        listener, print what holds it and exit 1 without forwarding.
+      - Start `kubectl --context minikube -n "$MINIKUBE_NAMESPACE"
+        port-forward svc/backend "$SMOKE_BACKEND_PORT:8080"` and `… svc/frontend
+        "$SMOKE_FRONTEND_PORT:80"` in the background. Record both PIDs and kill
+        them in a `trap … EXIT`.
+      - Poll `http://localhost:$SMOKE_BACKEND_PORT/q/health` and
+        `http://localhost:$SMOKE_FRONTEND_PORT/` with a bounded retry (30 × 1s).
+        On timeout, fail naming the one that did not come up.
+      - Echo that the run is READ-ONLY, then run
+        `"$PROJECT_ROOT/gradlew" :backend:end2end:smokeTest
+        -Dbackend.url=http://localhost:$SMOKE_BACKEND_PORT
+        -Dfrontend.url=http://localhost:$SMOKE_FRONTEND_PORT`. `SMOKE_TOKEN`
+        is inherited when exported.
+      - Then run `"$PROJECT_ROOT/scripts/smoke.sh" http://localhost:$SMOKE_FRONTEND_PORT`.
+      - Exit non-zero if either fails; print which one.
   - |
-    Document the suite: add a "Smoke tests (minikube)" subsection to
-    `docs/development.md` explaining it is read-only, explicitly triggered
-    (`./scripts/minikube-smoke.sh`, or `./gradlew :backend:end2end:smokeTest`
-    with `-Dbackend.url`/`-Dfrontend.url`), never part of `./gradlew build`,
-    and how to supply an optional `SMOKE_BEARER_TOKEN` for the authenticated
-    read. Add a one-line pointer in `CLAUDE.md`'s "Build & run" block.
-
+    Prove the JUnit suite can pass and fail without minikube, against a
+    `dev.sh` stack, with the port protocol:
+      1. Check that :8090, :5173 and :5432 are free
+         (`lsof -nP -iTCP:<port> -sTCP:LISTEN`). If any is bound, STOP and
+         report: the user's own stack is running and the tests would hit it.
+      2. Start `./scripts/dev.sh` in the background. Wait for
+         `GET http://localhost:8090/api/ping` and `http://localhost:5173/`.
+      3. Run `./gradlew :backend:end2end:smokeTest
+         -Dbackend.url=http://localhost:8090 -Dfrontend.url=http://localhost:5173`.
+         It must be green, with the token test reported as SKIPPED.
+      4. Mutate: change the anonymous test's `statusCode(401)` to
+         `statusCode(200)`, rerun, see it fail on 401, revert, and confirm
+         with `git diff` that the file is restored. Also run
+         `./scripts/smoke.sh http://localhost:5173` (Vite proxies `/api`, so
+         it must pass).
+      5. Stop ONLY the `dev.sh` this step started (SIGTERM to the script).
+         Confirm the three ports are free and no Dev Services PostgreSQL
+         container is left.
+    If a minikube with the stack is running (`kubectl --context minikube -n
+    estimation get deploy backend`), also run `./scripts/minikube-smoke.sh`
+    and report the result. Otherwise say it was not run; it is not a gate.
   - |
-    Build check — the suite must COMPILE and the task must exist, but it is
-    NOT run here (it needs a live minikube). Compile the module and confirm
-    the task is registered:
-      ./gradlew :backend:end2end:build
-      ./gradlew :backend:end2end:smokeTest --dry-run
+    Docs:
+      - `docs/development.md`: add a subsection `### Smoke tests (minikube)`
+        under "dev-minikube — Full stack on Minikube", before "Viewing backend
+        logs on Minikube". It covers:
+          * the suite is read-only and explicitly triggered;
+          * `./scripts/minikube-smoke.sh` and its two port variables, and why
+            not 8080;
+          * `./gradlew :backend:end2end:smokeTest -Dbackend.url=… -Dfrontend.url=…`
+            against any stack, including dev.sh on 8090/5173;
+          * it is never part of `./gradlew build`;
+          * the optional `SMOKE_TOKEN`;
+          * how it relates to `scripts/smoke.sh`.
+      - `docs/deployment.md`: wherever it describes what `smoke.sh` checks,
+        say it probes `/api/system` (ingress → backend → PostgreSQL) and why
+        not `/q/health/ready`. Mention `scripts/smoke.test.sh`.
+      - Root `CLAUDE.md`: add one line to the "Build & run" block,
+        `./scripts/minikube-smoke.sh   # read-only smoke suite against the
+        local minikube (never in build)`.
+  - |
+    Run the gates: `bash -n` and `shellcheck` on `scripts/smoke.sh`,
+    `scripts/smoke.test.sh` and `scripts/minikube-smoke.sh`, then
+    `./scripts/smoke.test.sh`, then `./gradlew build`.
 
 validation:
   - |
-    Smoke suite exists, is tagged, and is strictly read-only:
-      test -f src/backend/end2end/src/test/java/io/pythia/e2e/smoke/MinikubeSmokeIT.java
-      grep -q '@Tag("smoke")' src/backend/end2end/src/test/java/io/pythia/e2e/smoke/MinikubeSmokeIT.java
-      grep -q "statusCode(401)" src/backend/end2end/src/test/java/io/pythia/e2e/smoke/MinikubeSmokeIT.java
-      ! grep -qE "\.(post|put|delete|patch)\(" src/backend/end2end/src/test/java/io/pythia/e2e/smoke/MinikubeSmokeIT.java
+    # smoke.sh probes /api/system with all three conditions, and no longer
+    # /q/health/ready (today's script has the opposite)
+    S=scripts/smoke.sh
+    grep -q '/api/system' "$S"
+    ! grep -q 'q/health/ready"' "$S"
+    grep -q 'hoursPerDay' "$S"
+    grep -q 'application/json' "$S"
+    grep -q 'Usage: ./scripts/smoke.sh <base-url>' "$S"
+    grep -q 'SMOKE_TOKEN' "$S"
+    grep -q '/api/projects' "$S"
+    ! grep -q '/api/estimations"' "$S"
   - |
-    Dedicated task exists, filters to the smoke tag, and is NOT in the
-    default build:
-      grep -q 'register<Test>("smokeTest")' src/backend/end2end/build.gradle.kts
-      grep -q 'includeTags("smoke")' src/backend/end2end/build.gradle.kts
-      ! grep -qE 'tasks.named\("(build|check)"\)\s*\{[^}]*smokeTest' src/backend/end2end/build.gradle.kts
+    # the stub test exists, covers the bug case, is wired into CI, and passes
+    test -x scripts/smoke.test.sh
+    grep -q 'db-down' scripts/smoke.test.sh
+    grep -q 'scripts/smoke.test.sh' .github/workflows/ci.yaml
+    ./scripts/smoke.test.sh
   - |
-    Runner script exists and is executable:
-      test -x scripts/minikube-smoke.sh
-      grep -q "port-forward svc/backend" scripts/minikube-smoke.sh
-      grep -q ":backend:end2end:smokeTest" scripts/minikube-smoke.sh
+    # the stub test catches both bugs of HEAD's smoke.sh, without touching the
+    # working tree: unchanged, it fails on `healthy` (the 404 of check 2); with
+    # only check 2's path patched, it fails on `db-down` (the vacuous check 1)
+    T=$(mktemp -d); trap 'rm -rf "$T"' EXIT
+    cp scripts/smoke.test.sh "$T/"
+    git show HEAD:scripts/smoke.sh > "$T/smoke.sh"; chmod +x "$T/smoke.sh" "$T/smoke.test.sh"
+    "$T/smoke.test.sh" 2>&1 | grep -q 'FAIL healthy'
+    git show HEAD:scripts/smoke.sh | sed 's#/api/estimations#/api/projects#g' > "$T/smoke.sh"
+    "$T/smoke.test.sh" 2>&1 | grep -q 'FAIL db-down'
   - |
-    Docs mention the smoke suite:
-      grep -qi "smoke" docs/development.md
+    # the smoke suite exists, is tagged, is read-only, and uses SMOKE_TOKEN
+    F=src/backend/end2end/src/test/java/io/pythia/e2e/smoke/MinikubeSmokeIT.java
+    test -f "$F"
+    grep -q '@Tag("smoke")' "$F"
+    grep -q 'statusCode(401)' "$F"
+    grep -q '/api/system' "$F"
+    grep -q 'SMOKE_TOKEN' "$F"
+    ! grep -q 'SMOKE_BEARER_TOKEN' "$F"
+    ! grep -qE '\.(post|put|delete|patch)\(' "$F"
   - |
-    The module compiles and the task is registered (NOT run — needs live
-    minikube):
-      ./gradlew :backend:end2end:build
-      ./gradlew :backend:end2end:smokeTest --dry-run
+    # smokeTest exists and filters to the tag; e2eTest excludes it
+    G=src/backend/end2end/build.gradle.kts
+    grep -q 'register<Test>("smokeTest")' "$G"
+    grep -q 'includeTags("smoke")' "$G"
+    grep -q 'excludeTags("smoke")' "$G"
+  - |
+    # smokeTest is NOT part of the default build
+    ./gradlew :backend:end2end:smokeTest --dry-run | grep -q ':backend:end2end:smokeTest'
+    ! ./gradlew build --dry-run | grep -q ':backend:end2end:smokeTest'
+  - |
+    # the runner: right namespace source, safe ports, port check, both smoke layers
+    R=scripts/minikube-smoke.sh
+    test -x "$R"
+    grep -q 'minikube-env.sh' "$R"
+    grep -q 'MINIKUBE_NAMESPACE' "$R"
+    grep -q 'SMOKE_BACKEND_PORT:=18080' "$R"
+    grep -q 'lsof' "$R"
+    grep -q ':backend:end2end:smokeTest' "$R"
+    grep -q 'scripts/smoke.sh' "$R"
+    ! grep 'port-forward' "$R" | grep -q ' 8080:'
+  - |
+    for s in scripts/smoke.sh scripts/smoke.test.sh scripts/minikube-smoke.sh; do
+      bash -n "$s" && shellcheck "$s"
+    done
+  - |
+    grep -q '^### Smoke tests (minikube)' docs/development.md
+    grep -q '/api/system' docs/deployment.md
+    grep -q 'minikube-smoke.sh' CLAUDE.md
+  - |
+    ./gradlew build
 
 outputs:
+  - modified: scripts/smoke.sh
+  - created: scripts/smoke.test.sh
+  - modified: .github/workflows/ci.yaml
   - created: src/backend/end2end/src/test/java/io/pythia/e2e/smoke/MinikubeSmokeIT.java
   - modified: src/backend/end2end/build.gradle.kts
   - created: scripts/minikube-smoke.sh
   - modified: docs/development.md
+  - modified: docs/deployment.md
   - modified: CLAUDE.md

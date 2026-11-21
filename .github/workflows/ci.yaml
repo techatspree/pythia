@@ -54,6 +54,11 @@ jobs:
       - name: task.sh behaves
         run: ./scripts/task.test.sh
 
+      # The post-deploy smoke test against a stub server (task-087): proves it
+      # fails when the database is down. Needs only bash, curl and python3.
+      - name: smoke.sh behaves
+        run: ./scripts/smoke.test.sh
+
       # Verifies gradle/wrapper/gradle-wrapper.jar against Gradle's published
       # checksums before anything executes it — on a public repo that accepts
       # fork PRs, a swapped wrapper jar runs arbitrary code with the build.

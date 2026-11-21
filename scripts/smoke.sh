@@ -10,12 +10,21 @@
 # fails its first database query — is exactly the failure this catches.
 #
 # Two checks:
-#   1. /q/health/ready must return 200. That is the Quarkus readiness probe,
-#      which includes the datasource, so it proves the pod reached PostgreSQL.
-#   2. A known API endpoint must answer through the same ingress. With
-#      SMOKE_TOKEN set the call must return 200; without it, 401 — which still
-#      proves the route reaches the backend AND that authentication is enforced.
-#      An unauthenticated 200 would mean the API is wide open and is a failure.
+#   1. GET /api/system must return the backend's JSON (200, application/json,
+#      a body with "hoursPerDay"). The endpoint is @PermitAll and reads the
+#      installation's settings row, so it proves the ingress reaches the backend
+#      AND the backend reaches PostgreSQL. It used to probe /q/health/ready, which
+#      cannot work through the ingress: the ingress routes everything to the
+#      frontend, whose nginx proxies only /api/ and /ws/ and answers any other
+#      path with index.html and 200 — whatever state the backend is in
+#      (task-087). /q/health/ready stays the in-cluster readiness probe that
+#      deploy.sh's `kubectl rollout status` waits on.
+#   2. GET /api/projects (a VIEWER read) must answer through the same ingress.
+#      With SMOKE_TOKEN set the call must return 200; without it, 401 — which
+#      still proves the route reaches the backend AND that authentication is
+#      enforced. An unauthenticated 200 would mean the API is wide open and is a
+#      failure. It used to call /api/estimations, which has no collection GET
+#      and answered 404 with or without a token (task-087).
 
 # Refuse to be sourced: `set -euo pipefail` would leak into the caller's shell.
 _sourced=0
@@ -54,22 +63,42 @@ status_of() {
 
 echo "Smoke-testing $BASE_URL"
 
-echo -n "  /q/health/ready ... "
-ready="$(status_of "$BASE_URL/q/health/ready")"
-if [ "$ready" != "200" ]; then
-    echo "$ready"
-    echo "Error: the backend is not ready (expected 200, got $ready)." >&2
+echo -n "  /api/system ... "
+body_file="$(mktemp)"
+trap 'rm -f "$body_file"' EXIT
+# One request: the body goes to the file, status and content type to stdout.
+# Same --max-time / `|| true` reasoning as status_of above.
+meta="$(curl -sS -o "$body_file" -w '%{http_code} %{content_type}' --max-time 20 \
+    "$BASE_URL/api/system" || true)"
+system_status="${meta%% *}"
+system_type="${meta#* }"
+if [ "$system_status" != "200" ]; then
+    echo "$system_status"
+    echo "Error: /api/system answered $system_status, expected 200 — the backend or its database is not available." >&2
+    exit 1
+fi
+case "$system_type" in
+    application/json*) ;;
+    *)
+        echo "$system_status ($system_type)"
+        echo "Error: /api/system answered with '$system_type', not JSON — the request was answered by the SPA fallback, not the backend." >&2
+        exit 1
+        ;;
+esac
+if ! grep -q '"hoursPerDay"' "$body_file"; then
+    echo "$system_status"
+    echo "Error: /api/system returned JSON without \"hoursPerDay\" — not the backend's settings." >&2
     exit 1
 fi
 echo "200"
 
-echo -n "  /api/estimations ... "
+echo -n "  /api/projects ... "
 if [ -n "${SMOKE_TOKEN:-}" ]; then
     expected=200
-    api="$(status_of -H "Authorization: Bearer $SMOKE_TOKEN" "$BASE_URL/api/estimations")"
+    api="$(status_of -H "Authorization: Bearer $SMOKE_TOKEN" "$BASE_URL/api/projects")"
 else
     expected=401
-    api="$(status_of "$BASE_URL/api/estimations")"
+    api="$(status_of "$BASE_URL/api/projects")"
 fi
 if [ "$api" != "$expected" ]; then
     echo "$api"

@@ -45,6 +45,7 @@ cd src/frontend && npm run test:e2e        # Playwright
 ./scripts/dev.sh                           # PostgreSQL (Dev Services) backend + Vite frontend, one command
 #   → backend on :8090 (NOT 8080), Vite on :5173
 ./scripts/minikube-deploy.sh               # full PostgreSQL + Quarkus stack on minikube
+./scripts/minikube-smoke.sh                # read-only smoke suite against the local minikube (never in build)
 ./scripts/release.sh <X.Y.Z>               # cut release vX.Y.Z (see docs/deployment.md, "Releasing")
 ./gradlew sbom                             # the one application SBOM, build/sbom/pythia.cdx.json
                                            #   (CycloneDX; part of build; see docs/development.md, "The SBOM")
