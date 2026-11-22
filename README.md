@@ -130,7 +130,7 @@ flowchart LR
     D --> S[Dependencies → critical path<br/>→ project length]
     S --> G
     G --> H[Compare versions]
-    G --> I[Export xlsx / CSV / Merlin]
+    G --> I[Export xlsx / CSV · Merge into Merlin]
     G --> A
 ```
 

@@ -19,7 +19,7 @@ class MerlinStructureChangedExceptionMapper : ExceptionMapper<MerlinStructureCha
     override fun toResponse(exception: MerlinStructureChangedException): Response {
         val diff = exception.diff
         Log.info(
-            "Merlin export refused: structure drifted " +
+            "Merlin merge refused: structure drifted " +
                 "(missingInMerlin=${diff.missingInMerlin.size}, " +
                 "missingInEstimation=${diff.missingInEstimation.size}, " +
                 "reordered=${diff.reordered.size})"
@@ -30,8 +30,8 @@ class MerlinStructureChangedExceptionMapper : ExceptionMapper<MerlinStructureCha
             reordered = diff.reordered,
             inSync = false
         )
-        // The export endpoint @Produces octet-stream (it returns a document);
-        // pin JSON here or the diff would be rendered with toString().
+        // Pin JSON explicitly, so the diff's rendering never depends on the
+        // endpoint's @Produces (it was octet-stream before task-223).
         return Response.status(Response.Status.CONFLICT)
             .entity(dto)
             .type(MediaType.APPLICATION_JSON)

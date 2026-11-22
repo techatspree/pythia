@@ -12,10 +12,21 @@ import java.sql.Connection
 import java.util.Base64
 import java.util.Properties
 
-// Writes estimated effort back into a Merlin Project document (task-133) — the
-// mirror of MerlinImporter. Only ever edits a COPY: the uploaded bytes are
-// written to a temp file, modified there, and returned; the user's own document
-// is never touched.
+// Merges an estimation into a Merlin Project document (task-133, renamed from
+// "export" in task-223) — the mirror of MerlinImporter. Only ever edits a COPY:
+// the uploaded bytes are written to a temp file, modified there, and returned;
+// the user's own document is never touched. Everything Pythia does not own
+// (dates, resources, assignments, calendars) stays as Merlin had it.
+//
+// What the merge writes, and what it reports back (MerlinMergeReport):
+// - effort, only on leaves whose value CHANGES (compared at the precision the
+//   writer stores, `formatDays` on both sides, so re-merging a merged file is a
+//   no-op);
+// - after confirmation, Pythia's structure (activities created, deleted with
+//   their assignments and content — ObsoleteCascade —, moved);
+// - Pythia's schedule dependencies, ADD-ONLY (DependencyMerge): a Merlin edge
+//   Pythia lacks is never deleted, and an edge that would close a cycle or links
+//   a group with its own sub-activity is skipped and reported.
 //
 // The value written is the calculated offerPT (mean + risk surcharge) of each
 // LEAF, taken off the resolved version — Merlin derives a parent's work from
@@ -26,11 +37,11 @@ import java.util.Properties
 //
 // Column names, entity ids and unit factors here are the physical Merlin /
 // Core Data schema (MagicNumber); the reconciliation is inherently branchy
-// (CyclomaticComplexMethod) and this is one cohesive exporter split into small
+// (CyclomaticComplexMethod) and this is one cohesive merger split into small
 // helpers (TooManyFunctions).
 @Suppress("MagicNumber", "CyclomaticComplexMethod", "TooManyFunctions")
 @ApplicationScoped
-class MerlinExporter {
+class MerlinMerger(private val importer: MerlinImporter) {
 
     data class MerlinStructureDiff(
         val missingInMerlin: List<String>,
@@ -49,10 +60,13 @@ class MerlinExporter {
     data class ObsoleteDeletion(
         val activities: List<String>,
         val removedDependencies: List<Pair<String, String>>,
-        val removedRows: Map<String, Int>
+        val removedRows: Map<String, Int>,
+        // The deleted activities' assignment rows (task-223). removedRows counts
+        // them inside ZSCHEDULEITEM together with the activities.
+        val assignments: Int
     ) {
         companion object {
-            val NONE = ObsoleteDeletion(emptyList(), emptyList(), emptyMap())
+            val NONE = ObsoleteDeletion(emptyList(), emptyList(), emptyMap(), 0)
         }
     }
 
@@ -60,7 +74,8 @@ class MerlinExporter {
         val pk: Long,
         val parentPk: Long?,
         val order: Double,
-        val title: String
+        val title: String,
+        val work: String?
     )
 
     // One estimation node flattened to its WBS path plus what to write. The
@@ -74,31 +89,35 @@ class MerlinExporter {
         val title: String,
         val depth: Int,
         val isLeaf: Boolean,
-        val offerPT: Double
+        val offerPT: Double,
+        val logicalId: String
     )
 
     fun diff(input: ByteArray, version: SubmittedEstimationVersion): MerlinStructureDiff =
         withDocument(input) { conn -> computeDiff(readActivities(conn), estimationEntries(version)) }
 
-    fun export(
+    fun merge(
         input: ByteArray,
         version: SubmittedEstimationVersion,
         overwriteStructure: Boolean
-    ): ByteArray {
+    ): MerlinMergeResult {
         val entries = estimationEntries(version)
         Log.info(
-            "Exporting estimation ${version.estimation?.id} version ${version.versionNumber} " +
+            "Merging estimation ${version.estimation?.id} version ${version.versionNumber} " +
                 "into a Merlin copy (${entries.count { it.isLeaf }} leaves, " +
                 "overwriteStructure=$overwriteStructure)"
         )
-        val modified = modifyDocument(input, version, entries, overwriteStructure)
+        val (modified, report) = modifyDocument(input, version, entries, overwriteStructure)
         val result = if (MerlinDocument.isZip(input)) {
             MerlinDocument.repackWithSqlite(input, modified)
         } else {
             modified
         }
-        Log.info("Merlin export finished for estimation ${version.estimation?.id} (${result.size} bytes)")
-        return result
+        Log.info(
+            "Merlin merge finished for estimation ${version.estimation?.id} (${result.size} bytes, " +
+                "${report.effortChanges.size} effort changes, ${report.dependenciesAdded.size} dependencies added)"
+        )
+        return MerlinMergeResult(result, report)
     }
 
     // The extension a caller should give the returned document: a bundle stays
@@ -114,17 +133,19 @@ class MerlinExporter {
         version: SubmittedEstimationVersion,
         entries: List<EstimationEntry>,
         overwriteStructure: Boolean
-    ): ByteArray {
+    ): Pair<ByteArray, MerlinMergeReport> {
         val sqlite = MerlinDocument.extractSqlite(input)
-        val temp = Files.createTempFile("merlin-export-", ".sqlite")
+        val temp = Files.createTempFile("merlin-merge-", ".sqlite")
         try {
             Files.write(temp, sqlite)
-            openConnection(temp).use { conn -> applyToConnection(conn, version, entries, overwriteStructure) }
-            return Files.readAllBytes(temp)
+            val report = openConnection(temp).use { conn ->
+                applyToConnection(conn, version, entries, overwriteStructure)
+            }
+            return Files.readAllBytes(temp) to report
         } catch (e: MerlinStructureChangedException) {
             throw e
         } catch (e: Exception) {
-            Log.error("Merlin export failed for estimation ${version.estimation?.id}", e)
+            Log.error("Merlin merge failed for estimation ${version.estimation?.id}", e)
             throw e
         } finally {
             Files.deleteIfExists(temp)
@@ -136,7 +157,7 @@ class MerlinExporter {
         version: SubmittedEstimationVersion,
         entries: List<EstimationEntry>,
         overwriteStructure: Boolean
-    ) {
+    ): MerlinMergeReport {
         conn.autoCommit = false
         val activities = readActivities(conn)
         val structureDiff = computeDiff(activities, entries)
@@ -149,14 +170,26 @@ class MerlinExporter {
             )
             if (!overwriteStructure) throw MerlinStructureChangedException(structureDiff)
         }
-        val current = if (structureDiff.inSync) {
-            activities
+        val deletion = if (structureDiff.inSync) {
+            ObsoleteDeletion.NONE
         } else {
             reconcileStructure(conn, activities, entries)
-            readActivities(conn)
         }
-        writeWork(conn, current, entries)
+        val current = if (structureDiff.inSync) activities else readActivities(conn)
+        val effortChanges = writeWork(conn, current, entries)
+        val dependencies = mergeDependencies(conn, version, entries, current)
         conn.commit()
+        val applied = !structureDiff.inSync
+        return MerlinMergeReport(
+            effortChanges = effortChanges,
+            activitiesAdded = if (applied) structureDiff.missingInMerlin else emptyList(),
+            activitiesRemoved = deletion.activities,
+            activitiesMoved = if (applied) structureDiff.reordered else emptyList(),
+            dependenciesAdded = dependencies.added,
+            dependenciesRemoved = deletion.removedDependencies.map { (from, to) -> MerlinMergedDependency(from, to) },
+            dependenciesSkipped = dependencies.skipped,
+            contentRemoved = MerlinRemovedContent.of(deletion)
+        )
     }
 
     // ── Reading ─────────────────────────────────────────────────────────────
@@ -189,7 +222,8 @@ class MerlinExporter {
                     pk = rs.getLong(1),
                     parentPk = parent,
                     order = rs.getDouble(3),
-                    title = rs.getString(5).trim()
+                    title = rs.getString(5).trim(),
+                    work = rs.getString(6)
                 )
             )
         }
@@ -223,7 +257,9 @@ class MerlinExporter {
                 val segment = if (node is SubmittedGroupNode) node.title ?: "" else node.description ?: ""
                 val path = if (prefix.isEmpty()) segment else "$prefix / $segment"
                 val isLeaf = node !is SubmittedGroupNode
-                entries.add(EstimationEntry(path, prefix, segment, depth, isLeaf, node.offerPT))
+                entries.add(
+                    EstimationEntry(path, prefix, segment, depth, isLeaf, node.offerPT, node.logicalId.toString())
+                )
                 if (!isLeaf) walk(node.children, path, depth + 1)
             }
         }
@@ -248,27 +284,37 @@ class MerlinExporter {
 
     // ── Writing effort ──────────────────────────────────────────────────────
 
+    // Writes only where the value CHANGES. Both sides are compared as
+    // `formatDays` strings — the 2-decimal form the writer stores — so a value
+    // this merge wrote earlier compares equal exactly; a numeric tolerance could
+    // land on formatDays' HALF_UP boundary. "No work" (NULL / offerPT <= 0) is
+    // null on both sides.
     private fun writeWork(
         conn: Connection,
         activities: List<Activity>,
         entries: List<EstimationEntry>
-    ) {
+    ): List<MerlinEffortChange> {
         val merlin = merlinPaths(activities)
-        var written = 0
+        val workByPk = activities.associate { it.pk to it.work }
+        val changes = mutableListOf<MerlinEffortChange>()
         conn.prepareStatement(
             "UPDATE ZSCHEDULEITEM SET ZGIVENWORK_ = ?, Z_OPT = Z_OPT + 1 WHERE Z_PK = ?"
         ).use { st ->
             entries.filter { it.isLeaf }.forEach { entry ->
                 val pk = merlin[entry.path] ?: return@forEach
+                val before = importer.parseWorkToPersonDays(workByPk[pk]).takeIf { it > 0.0 }
+                val after = entry.offerPT.takeIf { it > 0.0 }
+                if (before?.let(::formatDays) == after?.let(::formatDays)) return@forEach
                 val blob = encodeWork(entry.offerPT)
                 if (blob == null) st.setNull(1, java.sql.Types.BLOB) else st.setBytes(1, blob)
                 st.setLong(2, pk)
                 st.executeUpdate()
-                written++
-                Log.debug("Merlin export: wrote ${entry.offerPT} PT to activity $pk (${entry.path})")
+                changes.add(MerlinEffortChange(entry.path, before, after?.let { Math.round(it * 100.0) / 100.0 }))
+                Log.debug("Merlin merge: wrote ${entry.offerPT} PT to activity $pk (${entry.path}), was $before")
             }
         }
-        Log.info("Merlin export: wrote work to $written leaf activities")
+        Log.info("Merlin merge: wrote work to ${changes.size} leaf activities whose value changed")
+        return changes
     }
 
     // Merlin stores work as a short ASCII string plus a trailing 0x3F marker
@@ -302,7 +348,7 @@ class MerlinExporter {
         conn: Connection,
         activities: List<Activity>,
         entries: List<EstimationEntry>
-    ) {
+    ): ObsoleteDeletion {
         val root = activities.firstOrNull { it.parentPk == null }
             ?: throw IllegalArgumentException("Merlin document has no root activity")
         val merlin = merlinPaths(activities).toMutableMap()
@@ -311,16 +357,17 @@ class MerlinExporter {
         val deletion = deleteObsolete(conn, merlin, wanted)
         if (deletion.activities.isNotEmpty()) {
             Log.info(
-                "Merlin export: deleted ${deletion.activities.size} activities no longer in the estimation; " +
+                "Merlin merge: deleted ${deletion.activities.size} activities no longer in the estimation; " +
                     "rows removed per table: ${deletion.removedRows}"
             )
             deletion.removedDependencies.forEach { (from, to) ->
-                Log.debug("Merlin export: removed dependency $from → $to")
+                Log.debug("Merlin merge: removed dependency $from → $to")
             }
         }
         insertMissing(conn, entries, merlin, root.pk)
         repositionKept(conn, entries, merlin, root.pk)
-        Log.info("Merlin export: structure overwritten to match the estimation (${entries.size} nodes)")
+        Log.info("Merlin merge: structure overwritten to match the estimation (${entries.size} nodes)")
+        return deletion
     }
 
     private fun deleteObsolete(
@@ -356,7 +403,7 @@ class MerlinExporter {
             merlin[entry.path] = nextPk
             nextPk++
         }
-        Log.debug("Merlin export: inserted ${missing.size} activities from the estimation")
+        Log.debug("Merlin merge: inserted ${missing.size} activities from the estimation")
     }
 
     // Core Data allocates primary keys from Z_PRIMARYKEY. ScheduleItem (Z_ENT
@@ -415,11 +462,234 @@ class MerlinExporter {
         }
     }
 
-    // Merlin's own ids are 16 random bytes in URL-safe base64 without padding.
-    private fun newUniqueId(): String {
-        val bytes = ByteArray(16)
-        SecureRandom().nextBytes(bytes)
-        return Base64.getUrlEncoder().withoutPadding().encodeToString(bytes)
+    // ── Dependencies ────────────────────────────────────────────────────────
+
+    // Pythia's schedule edges → Merlin activity pks, then DependencyMerge adds
+    // the ones Merlin lacks. Runs on the activities as they are AFTER any
+    // structure overwrite, so an edge of a re-created activity resolves to its
+    // new row. An edge whose node is not in the version, or whose path has no
+    // activity, is skipped silently — the domain ignores such edges too.
+    private fun mergeDependencies(
+        conn: Connection,
+        version: SubmittedEstimationVersion,
+        entries: List<EstimationEntry>,
+        activities: List<Activity>
+    ): DependencyMerge.Outcome {
+        val pathByLogicalId = entries.associate { it.logicalId to it.path }
+        val merlin = merlinPaths(activities)
+        val edges = version.scheduleDependencies.mapNotNull { dependency ->
+            val from = pathByLogicalId[dependency.fromLogicalId]?.takeIf { it in merlin }
+            val to = pathByLogicalId[dependency.toLogicalId]?.takeIf { it in merlin }
+            if (from == null || to == null) {
+                Log.debug(
+                    "Merlin merge: edge ${dependency.fromLogicalId} -> ${dependency.toLogicalId} " +
+                        "has no Merlin activity on both ends; skipped"
+                )
+                null
+            } else {
+                DependencyMerge.Edge(from, to, merlin.getValue(from), merlin.getValue(to))
+            }
+        }
+        val root = activities.firstOrNull { it.parentPk == null }
+        val outcome = DependencyMerge(conn, activities.associate { it.pk to it.parentPk }, root?.pk).merge(edges)
+        Log.info(
+            "Merlin merge: ${outcome.added.size} dependencies added, ${outcome.skipped.size} skipped " +
+                "(${version.scheduleDependencies.size} Pythia edges, ${edges.size} mapped onto Merlin activities)"
+        )
+        return outcome
+    }
+}
+
+// Merlin's own ids are 16 random bytes in URL-safe base64 without padding.
+private const val UNIQUE_ID_BYTES = 16
+
+private fun newUniqueId(): String {
+    val bytes = ByteArray(UNIQUE_ID_BYTES)
+    SecureRandom().nextBytes(bytes)
+    return Base64.getUrlEncoder().withoutPadding().encodeToString(bytes)
+}
+
+// ── The merge's result (task-223) ───────────────────────────────────────────
+
+// A plain class, not a data class: equality over a ByteArray would be identity.
+class MerlinMergeResult(val document: ByteArray, val report: MerlinMergeReport)
+
+data class MerlinMergeReport(
+    val effortChanges: List<MerlinEffortChange>,
+    val activitiesAdded: List<String>,
+    val activitiesRemoved: List<String>,
+    val activitiesMoved: List<String>,
+    val dependenciesAdded: List<MerlinMergedDependency>,
+    val dependenciesRemoved: List<MerlinMergedDependency>,
+    val dependenciesSkipped: List<MerlinSkippedDependency>,
+    val contentRemoved: MerlinRemovedContent
+)
+
+// null = no work on that side.
+data class MerlinEffortChange(val path: String, val beforePT: Double?, val afterPT: Double?)
+
+data class MerlinMergedDependency(val fromPath: String, val toPath: String)
+
+data class MerlinSkippedDependency(
+    val fromPath: String,
+    val toPath: String,
+    val reason: MerlinDependencySkipReason
+)
+
+enum class MerlinDependencySkipReason {
+    // Merlin already leads from the edge's successor back to its predecessor.
+    WOULD_CREATE_CYCLE,
+
+    // One end is an ancestor of the other: a group's dates come from its own
+    // children, so such a link is circular by construction.
+    PARENT_CHILD
+}
+
+// User content deleted together with obsolete activities. Comment readings,
+// view configurations and list-value joins are bookkeeping, not reported.
+data class MerlinRemovedContent(
+    val assignments: Int,
+    val comments: Int,
+    val attachments: Int,
+    val costs: Int,
+    val customAttributeValues: Int
+) {
+    companion object {
+        fun of(deletion: MerlinMerger.ObsoleteDeletion) = MerlinRemovedContent(
+            assignments = deletion.assignments,
+            comments = deletion.removedRows["ZCOMMENT"] ?: 0,
+            attachments = deletion.removedRows["ZATTACHMENT"] ?: 0,
+            costs = deletion.removedRows["ZCOST"] ?: 0,
+            customAttributeValues = deletion.removedRows["ZCUSTOMATTRIBUTEVALUE"] ?: 0
+        )
+    }
+}
+
+// Adds Pythia's finish-to-start edges to a Merlin document, ADD-ONLY (task-223):
+// a Merlin dependency Pythia lacks is never deleted, because the merge cannot
+// tell "deleted in Pythia" from "added in Merlin". Per edge, in order:
+// - already present from → to (any ZTYPE): nothing to do;
+// - one end an ancestor of the other: skipped, PARENT_CHILD;
+// - `to` already reaches `from` through the document's edges (including the
+//   ones added so far): skipped, WOULD_CREATE_CYCLE;
+// - otherwise INSERTed with ZTYPE 0 and no lag. Z_ENT and the pk come from the
+//   Z_PRIMARYKEY row named 'Dependency', read by name like any Core Data id.
+// MagicNumber: JDBC parameter indices of the INSERT.
+@Suppress("MagicNumber")
+private class DependencyMerge(
+    private val conn: Connection,
+    private val parentByPk: Map<Long, Long?>,
+    private val rootPk: Long?
+) {
+
+    data class Edge(val fromPath: String, val toPath: String, val fromPk: Long, val toPk: Long)
+
+    data class Outcome(val added: List<MerlinMergedDependency>, val skipped: List<MerlinSkippedDependency>)
+
+    fun merge(edges: List<Edge>): Outcome {
+        val entity = if (edges.isEmpty()) null else dependencyEntity()
+        if (entity == null) {
+            if (edges.isNotEmpty()) {
+                Log.warn("Merlin merge: document cannot hold dependencies; ${edges.size} edges not added")
+            }
+            return Outcome(emptyList(), emptyList())
+        }
+        val successors = readSuccessors()
+        val added = mutableListOf<Edge>()
+        val skipped = mutableListOf<MerlinSkippedDependency>()
+        edges.forEach { edge ->
+            val reason = when {
+                successors[edge.fromPk]?.contains(edge.toPk) == true -> null
+                isAncestor(edge.fromPk, edge.toPk) || isAncestor(edge.toPk, edge.fromPk) ->
+                    MerlinDependencySkipReason.PARENT_CHILD
+                reaches(edge.toPk, edge.fromPk, successors) -> MerlinDependencySkipReason.WOULD_CREATE_CYCLE
+                else -> {
+                    successors.getOrPut(edge.fromPk) { mutableSetOf() }.add(edge.toPk)
+                    added.add(edge)
+                    null
+                }
+            }
+            if (reason != null) skipped.add(MerlinSkippedDependency(edge.fromPath, edge.toPath, reason))
+            Log.debug("Merlin merge: edge ${edge.fromPath} → ${edge.toPath}: ${reason ?: "added or present"}")
+        }
+        insert(added, entity)
+        return Outcome(added.map { MerlinMergedDependency(it.fromPath, it.toPath) }, skipped)
+    }
+
+    // (Z_ENT, Z_MAX) of the Dependency entity, or null when the document has
+    // no ZDEPENDENCY table or no such Z_PRIMARYKEY row.
+    private fun dependencyEntity(): Pair<Int, Long>? {
+        val hasTable = conn.prepareStatement(MerlinImporter.DEPENDENCY_TABLE_QUERY).use { st ->
+            st.executeQuery().use { it.next() }
+        }
+        return if (hasTable) readEntityRow() else null
+    }
+
+    private fun readEntityRow(): Pair<Int, Long>? =
+        conn.prepareStatement("SELECT Z_ENT, Z_MAX FROM Z_PRIMARYKEY WHERE Z_NAME = 'Dependency'").use { st ->
+            st.executeQuery().use { rs -> if (rs.next()) rs.getInt(1) to rs.getLong(2) else null }
+        }
+
+    private fun projectOf(pk: Long): Long? =
+        conn.prepareStatement("SELECT ZPROJECT FROM ZSCHEDULEITEM WHERE Z_PK = ?").use { st ->
+            st.setLong(1, pk)
+            st.executeQuery().use { rs -> if (rs.next()) rs.getLong(1) else null }
+        }
+
+    private fun readSuccessors(): MutableMap<Long, MutableSet<Long>> {
+        val successors = mutableMapOf<Long, MutableSet<Long>>()
+        conn.prepareStatement("SELECT ZPREVIOUSACTIVITY_, ZNEXTACTIVITY_ FROM ZDEPENDENCY").use { st ->
+            st.executeQuery().use { rs ->
+                while (rs.next()) successors.getOrPut(rs.getLong(1)) { mutableSetOf() }.add(rs.getLong(2))
+            }
+        }
+        return successors
+    }
+
+    private fun isAncestor(ancestor: Long, of: Long): Boolean =
+        generateSequence(parentByPk[of]) { parentByPk[it] }.any { it == ancestor }
+
+    // Depth-first: can `from` reach `target` along the edges?
+    private fun reaches(from: Long, target: Long, successors: Map<Long, Set<Long>>): Boolean {
+        val seen = mutableSetOf<Long>()
+        val stack = ArrayDeque(listOf(from))
+        while (stack.isNotEmpty()) {
+            val pk = stack.removeLast()
+            if (pk == target) return true
+            if (seen.add(pk)) stack.addAll(successors[pk].orEmpty())
+        }
+        return false
+    }
+
+    private fun insert(edges: List<Edge>, entity: Pair<Int, Long>) {
+        if (edges.isEmpty()) return
+        val (ent, max) = entity
+        val project = rootPk?.let(::projectOf)
+        conn.prepareStatement(
+            "INSERT INTO ZDEPENDENCY (Z_PK, Z_ENT, Z_OPT, ZTYPE, ZPREVIOUSACTIVITY_, Z49_PREVIOUSACTIVITY_, " +
+                "ZNEXTACTIVITY_, Z49_NEXTACTIVITY_, ZPROJECT, ZUNIQUEID, ZLAG_) " +
+                "VALUES (?, ?, 1, ${MerlinImporter.FINISH_TO_START}, ?, $ACTIVITY_ENTITY, " +
+                "?, $ACTIVITY_ENTITY, ?, ?, NULL)"
+        ).use { st ->
+            edges.forEachIndexed { i, edge ->
+                st.setLong(1, max + i + 1)
+                st.setInt(2, ent)
+                st.setLong(3, edge.fromPk)
+                st.setLong(4, edge.toPk)
+                if (project == null) st.setNull(5, java.sql.Types.INTEGER) else st.setLong(5, project)
+                st.setString(6, newUniqueId())
+                st.executeUpdate()
+            }
+        }
+        conn.prepareStatement("UPDATE Z_PRIMARYKEY SET Z_MAX = ? WHERE Z_NAME = 'Dependency'").use { st ->
+            st.setLong(1, max + edges.size)
+            st.executeUpdate()
+        }
+    }
+
+    private companion object {
+        // The Activity entity's id, the assumption insertActivity already makes.
+        const val ACTIVITY_ENTITY = 49
     }
 }
 
@@ -464,8 +734,9 @@ private class ObsoleteCascade(private val conn: Connection) {
         obsoletePaths: List<String>,
         obsoletePks: Set<Long>,
         pathByPk: Map<Long, String>
-    ): MerlinExporter.ObsoleteDeletion {
-        val items = obsoletePks + select("ZSCHEDULEITEM", "ZACTIVITY_", obsoletePks)
+    ): MerlinMerger.ObsoleteDeletion {
+        val assignments = select("ZSCHEDULEITEM", "ZACTIVITY_", obsoletePks)
+        val items = obsoletePks + assignments
         val comments = mutableSetOf<Long>()
         val attachments = mutableSetOf<Long>()
         do {
@@ -490,7 +761,7 @@ private class ObsoleteCascade(private val conn: Connection) {
             if (removed > 0) removedRows.merge(ref.table, removed, Int::plus)
         }
         clearRankChain(items)
-        return MerlinExporter.ObsoleteDeletion(obsoletePaths, removedDependencies, removedRows)
+        return MerlinMerger.ObsoleteDeletion(obsoletePaths, removedDependencies, removedRows, assignments.size)
     }
 
     private fun label(pk: Long, pathByPk: Map<Long, String>): String = pathByPk[pk] ?: "#$pk"
@@ -502,7 +773,7 @@ private class ObsoleteCascade(private val conn: Connection) {
                 st.setString(2, column)
                 st.executeQuery().use { it.next() }
             }.also { present ->
-                if (!present) Log.debug("Merlin export: document has no $table.$column; skipped")
+                if (!present) Log.debug("Merlin merge: document has no $table.$column; skipped")
             }
         }
 
@@ -552,7 +823,7 @@ private class ObsoleteCascade(private val conn: Connection) {
                 bind(st, deleted)
                 st.executeUpdate()
             }
-            if (cleared > 0) Log.debug("Merlin export: cleared $cleared $column links to deleted activities")
+            if (cleared > 0) Log.debug("Merlin merge: cleared $cleared $column links to deleted activities")
         }
     }
 

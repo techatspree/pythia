@@ -7,6 +7,7 @@ import io.pythia.rest.dto.ConflictDetailsDto
 import io.pythia.rest.dto.DraftUpdateDto
 import io.pythia.rest.dto.EstimationVersionDto
 import io.pythia.rest.dto.EstimationVersionSummaryDto
+import io.pythia.rest.dto.MerlinMergeResultDto
 import io.pythia.rest.dto.MerlinStructureDiffDto
 import io.pythia.rest.dto.MutationLogEntryDto
 import io.pythia.rest.dto.VersionComparisonDto
@@ -21,7 +22,7 @@ import io.pythia.service.DraftUpdateApplier
 import io.pythia.service.DraftVersionMapper
 import io.pythia.service.EstimationVersionService
 import io.pythia.service.ExcelExporter
-import io.pythia.service.MerlinExporter
+import io.pythia.service.MerlinMerger
 import io.pythia.service.UndoService
 import io.pythia.service.VersionComparisonService
 import io.pythia.service.toUpdateDto
@@ -51,6 +52,7 @@ import org.eclipse.microprofile.openapi.annotations.media.Content
 import org.eclipse.microprofile.openapi.annotations.media.Schema
 import org.eclipse.microprofile.openapi.annotations.responses.APIResponse
 import org.eclipse.microprofile.openapi.annotations.tags.Tag
+import java.util.Base64
 import java.util.UUID
 
 @Path("/api/estimations/{estimationId}/versions")
@@ -64,7 +66,7 @@ class EstimationVersionResource(
     private val estimationRepository: EstimationRepository,
     private val excelExporter: ExcelExporter,
     private val csvExporter: CsvExporter,
-    private val merlinExporter: MerlinExporter,
+    private val merlinMerger: MerlinMerger,
     private val draftUpdateApplier: DraftUpdateApplier,
     private val undoService: UndoService,
     private val draftVersionMapper: DraftVersionMapper,
@@ -413,20 +415,21 @@ class EstimationVersionResource(
     }
 
     @POST
-    @Path("/{versionNumber}/export/merlin")
+    @Path("/{versionNumber}/merge/merlin")
     @Transactional
     @RolesAllowed("ESTIMATOR")
     @Consumes(MediaType.MULTIPART_FORM_DATA)
-    @Produces("application/octet-stream")
+    @Produces(MediaType.APPLICATION_JSON)
     @Operation(
-        summary = "Write this version's calculated offerPT back into a COPY of an uploaded Merlin " +
-            "project and return it. Refuses with 409 when the document's WBS drifted from the " +
-            "estimation, unless overwriteStructure=true."
+        summary = "Merge this version into a COPY of an uploaded Merlin project: changed efforts, and " +
+            "Pythia's schedule dependencies add-only. Returns the merged document (base64) and a report " +
+            "of every change. Refuses with 409 when the document's WBS drifted from the estimation, " +
+            "unless overwriteStructure=true."
     )
     @APIResponse(
         responseCode = "200",
-        description = "The modified Merlin document (the upload is never changed)",
-        content = [Content(mediaType = "application/octet-stream")]
+        description = "The merged Merlin document (the upload is never changed) and the merge report",
+        content = [Content(schema = Schema(implementation = MerlinMergeResultDto::class))]
     )
     @APIResponse(responseCode = "400", description = "The upload is not a readable Merlin/SQLite file")
     @APIResponse(responseCode = "404", description = "Version not found for this estimation")
@@ -435,26 +438,32 @@ class EstimationVersionResource(
         description = "The Merlin structure differs from the estimation",
         content = [Content(schema = Schema(implementation = MerlinStructureDiffDto::class))]
     )
-    fun exportMerlin(
+    fun mergeIntoMerlin(
         @PathParam("estimationId") estimationId: UUID,
         @PathParam("versionNumber") versionNumber: String,
         @QueryParam("overwriteStructure") @DefaultValue("false") overwriteStructure: Boolean,
         @RestForm("file") file: FileUpload
     ): Response {
+        Log.info(
+            "Merge into Merlin requested: estimation=$estimationId version=$versionNumber " +
+                "overwriteStructure=$overwriteStructure"
+        )
         ensureEstimationExists(estimationId)
         val version = resolveVersion(estimationId, versionNumber)
         val uploaded = file.uploadedFile().toFile().readBytes()
         val result = try {
-            merlinExporter.export(uploaded, version, overwriteStructure)
+            merlinMerger.merge(uploaded, version, overwriteStructure)
         } catch (e: IllegalArgumentException) {
             throw BadRequestException(e.message ?: "Unreadable Merlin document", e)
         }
         val label = if (versionNumber == "draft") "draft" else "v$versionNumber"
-        val extension = merlinExporter.filenameExtension(result)
-        return Response.ok(result)
-            .type("application/octet-stream")
-            .header("Content-Disposition", "attachment; filename=\"merlin-$label-estimated.$extension\"")
-            .build()
+        val extension = merlinMerger.filenameExtension(result.document)
+        val dto = MerlinMergeResultDto(
+            fileName = "merlin-$label-merged.$extension",
+            document = Base64.getEncoder().encodeToString(result.document),
+            report = result.report.toDto()
+        )
+        return Response.ok(dto).type(MediaType.APPLICATION_JSON).build()
     }
 
     // Resolve a version ref ("draft" or a number) to a submitted snapshot, or

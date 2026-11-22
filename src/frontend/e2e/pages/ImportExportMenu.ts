@@ -18,6 +18,11 @@ export class ImportExportMenu {
 		return this.page.getByTestId('estimation-detail.import-xlsx');
 	}
 
+	/** The "merge into Merlin" trigger (task-223); its file input is `merlin-export-input`. */
+	get mergeMerlinButton(): Locator {
+		return this.page.getByTestId('estimation-detail.merge-merlin');
+	}
+
 	async expectImportMerlinVisible(): Promise<void> {
 		await expect(this.importMerlinButton).toBeVisible();
 	}

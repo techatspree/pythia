@@ -20,11 +20,11 @@ description: |
      still lost on the way back.
   2. **The user cannot see what the merge did.** The download arrives
      silently. Which efforts changed, which activities were created or deleted
-     (with `overwriteStructure`), and which dependencies came and went (task-222
-     deletes those that touched a deleted activity) is visible only in the
+     (with `overwriteStructure`), and which dependencies, assignments and
+     content went with them (task-222's cascade) is visible only in the
      backend log.
 
-  ## Current state (measured 2026-11-20)
+  ## Current state (measured 2026-11-22, after task-222)
 
   - `POST /api/estimations/{eid}/versions/{n}/export/merlin?overwriteStructure=`
     on `EstimationVersionResource.exportMerlin`, `@Produces("application/octet-stream")`.
@@ -33,29 +33,52 @@ description: |
     on drift, `400` unreadable, `404` unknown version.
   - `MerlinExporter.export(input, version, overwriteStructure): ByteArray`.
     `writeWork` UPDATEs EVERY leaf's `ZGIVENWORK_` and bumps `Z_OPT`, even
-    when the value did not change. It never reads or writes `ZDEPENDENCY`.
-  - Frontend: `src/routes/estimations/[id]/+page.svelte`, `runMerlinExport`.
+    when the value did not change. `ZDEPENDENCY` is only touched by task-222's
+    `ObsoleteCascade`, which reads and deletes the rows of deleted activities;
+    nothing ever INSERTs one.
+  - `ObsoleteDeletion(activities, removedDependencies, removedRows)` is
+    returned by `deleteObsolete` and only logged. `removedRows` is keyed by
+    TABLE, so `ZSCHEDULEITEM` counts the deleted activities and their
+    assignments together; the assignment count cannot be read from it.
+  - `MerlinExporter.MerlinStructureDiff` is also referenced by
+    `MerlinStructureChangedException.kt`, and the words "Merlin export"
+    appear in `MerlinStructureChangedExceptionMapper.kt` (log), in the comments
+    of `MerlinStructureDiffDto.kt`, `MerlinStructureDialog.svelte` and the
+    page, in the exporter's `Log` lines and in `README.md` (mermaid node
+    `Export xlsx / CSV / Merlin`).
+  - Frontend: `src/routes/estimations/[id]/+page.svelte`, `runMerlinExport`,
+    state `exporting`, `exportVersionRef`, `pendingExportFile`, `exportInput`.
     The button (no testid today) is labelled `estimation.exportMerlin`
     ("Nach Merlin exportieren" / "Export to Merlin"). The hidden input is
     `data-testid="merlin-export-input"`. On success it calls
     `downloadResponse(blob, Content-Disposition, 'merlin-estimated.sql')`
-    (`$lib/api/download.ts`). Keys in use: `estimation.exportMerlin`,
+    (`#lib/api/download.ts`). Keys in use: `estimation.exportMerlin`,
     `.exportMerlinHint`, `.exportMerlinFailed`, `.exportMerlinNoVersion`.
   - e2e: `e2e/merlin-export.test.ts` (3 tests, asserting the file name
     contains `estimated`), POM `e2e/pages/MerlinStructureDialog.ts`.
-  - The demo Merlin file's two dependencies are Initialisation → Implementation
-    and Implementation → Closure. After task-221 a draft imported from it
-    carries exactly those two edges.
+  - The demo Merlin file (`planning/inputdata/MerlinDemoProject.mproject/state.sql`):
+    activities Initialisation = pk 4, Implementation = 6, Closure = 9; two
+    dependencies, Implementation → Closure (Z_PK 1) and Initialisation →
+    Implementation (Z_PK 2), both `ZTYPE 0`, `ZLAG_` NULL; `Z_PRIMARYKEY`
+    row `Dependency` has `Z_ENT 24`, `Z_MAX 4`. The Implementation subtree is
+    31 activities with 24 assignments and no comments, attachments, costs or
+    custom attribute values. After task-221 a draft imported from it carries
+    exactly the two edges.
+  - The test helper `convert(...)` in `MerlinExporterTest` builds submitted
+    nodes WITHOUT copying the draft node's `logicalId`, so every submitted
+    node gets a random one.
 
   ## Target state
 
   - The operation is called **"merge"** everywhere a person reads it: button
     "In Merlin zusammenführen" / "Merge into Merlin", the endpoint
     `POST /api/estimations/{eid}/versions/{n}/merge/merlin?overwriteStructure=`
-    (operationId `mergeIntoMerlin`), the service `MerlinMerger`, the
-    downloaded file `merlin-<draft|vN>-merged.<zip|sql>`. The old
-    `/export/merlin` path is REMOVED, not aliased. The only client is this
-    frontend, and the response shape changes anyway (below).
+    (operationId `mergeIntoMerlin`, from the method name), the service
+    `MerlinMerger`, the downloaded file `merlin-<draft|vN>-merged.<zip|sql>`,
+    the backend log lines ("Merlin merge: …"), the code comments and the
+    README diagram. The old `/export/merlin` path is REMOVED, not aliased.
+    The only client is this frontend, and the response shape changes anyway
+    (below).
   - **Dependencies are merged ADD-ONLY** (the user's decision): for every
     Pythia edge whose two endpoints correspond to Merlin activities, a
     finish-to-start `ZDEPENDENCY` row is inserted unless Merlin already has
@@ -64,16 +87,25 @@ description: |
     cannot tell "deleted in Pythia" from "added in Merlin", and deleting
     would destroy planning done in Merlin. Consequence, stated in the dialog:
     an edge removed in Pythia stays in Merlin.
-  - **An edge that would close a cycle in Merlin is skipped and reported.**
-    Merlin may hold edges Pythia lacks, so adding a Pythia edge can close a
-    loop. Check it over the document's dependency graph (direct edges between
-    activity pks, after the edges added so far in this merge) with a DFS from
-    the edge's successor to its predecessor.
-  - **Efforts are written only where they change.** A leaf whose current
-    Merlin work equals the new value (both parsed to person-days with
-    `MerlinImporter.parseWorkToPersonDays`, equal within 0.005) is not
-    UPDATEd and gets no `Z_OPT` bump. The report then lists real changes,
-    not every leaf.
+  - **Two kinds of edge are skipped and reported, never written:**
+    - `WOULD_CREATE_CYCLE`: Merlin may hold edges Pythia lacks, so adding a
+      Pythia edge can close a loop. Checked over the document's dependency
+      graph (direct edges between activity pks, including the edges added so
+      far in this merge) with a DFS from the edge's successor to its
+      predecessor.
+    - `PARENT_CHILD`: one endpoint is an ancestor of the other in Merlin's
+      activity tree. Pythia lets an edge name any node (task-164), but a
+      group's dates are derived from its own children, so a link between a
+      group and its own sub-activity is circular by construction (planning
+      tools refuse it). Checked first, by walking `ZPARENTACTIVITY_`.
+  - **Efforts are written only where they change.** A leaf is unchanged when
+    `formatDays(parseWorkToPersonDays(current ZGIVENWORK_))` equals
+    `formatDays(offerPT)` — both sides at the 2-decimal precision the writer
+    stores, so a value the merge wrote compares equal exactly, without a
+    tolerance that `formatDays`' HALF_UP rounding could fall on. A NULL
+    current value and an `offerPT <= 0` both mean "no work" and are equal.
+    An unchanged leaf is not UPDATEd and gets no `Z_OPT` bump. The report
+    then lists real changes, not every leaf.
   - **The response carries the document AND a report.** One request, because
     the merge is stateless and a second request would mean a second upload:
     `200 application/json`
@@ -96,17 +128,24 @@ description: |
         MerlinEffortChangeDto(path: String, beforePT: Double?, afterPT: Double?)   // null = no work
         MerlinDependencyDto(fromPath: String, toPath: String)
         MerlinSkippedDependencyDto(fromPath: String, toPath: String,
-                                   reason: MerlinDependencySkipReason)   // enum: WOULD_CREATE_CYCLE
-        MerlinRemovedContentDto(comments: Int, attachments: Int, costs: Int,
-                                customAttributeValues: Int)
+                                   reason: MerlinDependencySkipReason)
+                                   // enum: WOULD_CREATE_CYCLE, PARENT_CHILD
+        MerlinRemovedContentDto(assignments: Int, comments: Int, attachments: Int,
+                                costs: Int, customAttributeValues: Int)
 
-    `activitiesAdded`/`Removed`/`Moved` are the drift lists actually applied.
-    They are empty when the structure was in sync. `contentRemoved` comes from
-    task-222's `ObsoleteDeletion.removedRows`. View configurations and
-    list-value joins are not user content and are not reported. Paths use the
-    `" / "` join the structure dialog already shows. The JSON body is about
-    4/3 of the file size, inside the existing 32m/32M limits, which apply
-    to REQUESTS only.
+    `activitiesAdded` and `activitiesMoved` are the drift lists
+    (`missingInMerlin`, `reordered`) actually applied; `activitiesRemoved` is
+    `ObsoleteDeletion.activities`, i.e. what was really deleted. All three are
+    empty when the structure was in sync. `contentRemoved` comes from
+    task-222's cascade: `assignments` from a new
+    `ObsoleteDeletion.assignments: Int` (the assignment rows the cascade
+    selected through `ZACTIVITY_`), the others from `removedRows` by table —
+    `ZCOMMENT` → comments, `ZATTACHMENT` → attachments, `ZCOST` → costs,
+    `ZCUSTOMATTRIBUTEVALUE` → customAttributeValues (0 when the key is
+    absent). Comment readings, view configurations and list-value joins are
+    not user content and are not reported. Paths use the `" / "` join the
+    structure dialog already shows. The JSON body is about 4/3 of the file
+    size; the existing 32m/32M limits apply to REQUESTS only.
   - **After a successful merge the page downloads the file, then opens
     `MerlinMergeReportDialog`**, which lists the report as wireframed. The
     409 flow is unchanged: structure dialog → overwrite → merge → download →
@@ -116,11 +155,11 @@ description: |
 
   ### Estimation detail: action bar (button renamed)
 
-      +--------------------------------------------------------------------------------------------+
-      | …                                                                                          |
-      | [ Aus Merlin importieren ] [ Aus Excel importieren ] [ In Merlin zusammenführen ] [ Sitzung starten ] |
-      | …                                                                                          |
-      +--------------------------------------------------------------------------------------------+
+      +------------------------------------------------------------------------------------------------------+
+      | …                                                                                                    |
+      | [ Aus Merlin importieren ] [ Aus Excel importieren ] [ In Merlin zusammenführen ] [ Schätzsitzung starten ] |
+      | …                                                                                                    |
+      +------------------------------------------------------------------------------------------------------+
 
     - Same position and `Button variant="secondary"` as today. Only the label,
       its tooltip and a NEW testid `estimation-detail.merge-merlin` change.
@@ -133,7 +172,7 @@ description: |
       übernommen, Ihre Datei bleibt unverändert." / "Choose a Merlin project
       (.mproject as ZIP) or its state.sql. The estimation is merged into a
       copy; your file stays unchanged."
-    - Disabled exactly as today (`merging || mergeVersionRef == null`).
+    - Disabled exactly as today, renamed (`merging || mergeVersionRef == null`).
     - The other labels in the row are the existing ones. Only the third
       button changes.
 
@@ -146,36 +185,46 @@ description: |
       | Folgende Änderungen wurden an der Merlin-Datei vorgenommen.  |
       | Abhängigkeiten werden nur ergänzt, nie gelöscht.             |
       |                                                              |
+      | ABHÄNGIGKEITEN ERGÄNZT (1)                                   |
+      | | Initialisation → Closure                                 | |
+      |                                                              |
+      | ABHÄNGIGKEITEN NICHT ERGÄNZT (1)                             |
+      | | Closure → Initialisation – würde einen Zyklus bilden     | |
+      |                                                              |
       | AUFWÄNDE GEÄNDERT (3)                                        |
       | | Initialisation / Setup Project Management   1 → 1,08 PT  | |
       | | Implementation / Cluster Setup              – → 4,5 PT   | |
       | | Closure / Project Completion                2 → – PT     | |
       |                                                              |
-      | ABHÄNGIGKEITEN ERGÄNZT (1)                                   |
-      | | Initialisation → Closure                                 | |
-      |                                                              |
-      | ABHÄNGIGKEITEN NICHT ERGÄNZT – WÜRDEN EINEN ZYKLUS BILDEN (1)|
-      | | Closure → Initialisation                                 | |
-      |                                                              |
       |                                          [ Schließen ]       |
       +--------------------------------------------------------------+
 
-    - Component `src/lib/components/MerlinMergeReportDialog.svelte`, built like
-      `MerlinStructureDialog.svelte` (fixed overlay, `role="dialog"`,
+    - Component `src/frontend/src/lib/components/MerlinMergeReportDialog.svelte`,
+      built like `MerlinStructureDialog.svelte` (fixed overlay, `role="dialog"`,
       `aria-modal`, scrollable `ul` per section, section heading with
-      count). One button, `Button` from `$lib/ui/` (primary), focused on
+      count). One button, `Button` from `#lib/ui/` (primary), focused on
       open. ESC and the button both close.
+    - Section order, in every state: activities added, removed, moved,
+      dependencies removed, dependencies added, dependencies skipped, content
+      removed, efforts. The structural changes come first because they
+      explain the rest; efforts come last because they are the longest list.
     - Testids: `merlin-merge-report.dialog`, `merlin-merge-report.close`, one
       `ul` per section `merlin-merge-report.section.<key>` with
-      `<key>` ∈ `efforts`, `activities-added`, `activities-removed`,
-      `activities-moved`, `dependencies-added`, `dependencies-removed`,
-      `dependencies-skipped`, `content-removed`.
+      `<key>` ∈ `activities-added`, `activities-removed`, `activities-moved`,
+      `dependencies-removed`, `dependencies-added`, `dependencies-skipped`,
+      `content-removed`, `efforts`.
     - A section with no entries is NOT rendered.
     - Effort numbers go through `formatNumber(value, $locale ?? DEFAULT_LOCALE,
-      { maximumFractionDigits: 2 })` from `$lib/format.ts`. A null side shows
+      { maximumFractionDigits: 2 })` from `#lib/format.ts`. A null side shows
       `merlinMerge.noEffort` ("–"). The line is
-      `merlinMerge.effortChange` = "{before} → {after} PT".
+      `merlinMerge.effortChange` = "{before} → {after} PT" (both catalogs:
+      the English UI also writes PT, e.g. "Expected effort (PT)").
     - A dependency line is `merlinMerge.dependency` = "{from} → {to}" (paths).
+      A skipped line is `merlinMerge.skippedDependency` = "{from} → {to} –
+      {reason}", the reason from `merlinMerge.skipReason.WOULD_CREATE_CYCLE`
+      "würde einen Zyklus bilden" / "would create a cycle" or
+      `merlinMerge.skipReason.PARENT_CHILD` "Sammelvorgang und eigener
+      Untervorgang" / "a group and its own sub-activity".
     - i18n: `merlinMerge.title` "In Merlin zusammengeführt" / "Merged into
       Merlin"; `merlinMerge.intro` "Die Datei {fileName} wurde
       heruntergeladen. Folgende Änderungen wurden an der Merlin-Datei
@@ -185,14 +234,13 @@ description: |
       never deleted."; `merlinMerge.efforts` "Aufwände geändert" / "Efforts
       changed"; `merlinMerge.dependenciesAdded` "Abhängigkeiten ergänzt" /
       "Dependencies added"; `merlinMerge.dependenciesSkipped`
-      "Abhängigkeiten nicht ergänzt – würden einen Zyklus bilden" /
-      "Dependencies not added – they would create a cycle";
+      "Abhängigkeiten nicht ergänzt" / "Dependencies not added";
       `merlinMerge.close` "Schließen" / "Close".
     - Data: the demo file imported, and a Pythia edge Initialisation →
-      Closure added (the e2e test drives exactly this). The skipped line is
-      illustrative. It needs a Pythia edge whose reverse path already exists
-      in the Merlin file, which `MerlinMergerTest` covers, not the e2e
-      suite.
+      Closure added (the e2e test drives exactly this). The effort numbers and
+      the skipped line are illustrative. A skipped edge needs a Pythia edge
+      whose reverse path already exists in the Merlin file, which
+      `MerlinMergerTest` covers, not the e2e suite.
 
   ### Merge report dialog: after a structure overwrite
 
@@ -216,32 +264,39 @@ description: |
       | ABHÄNGIGKEITEN ERGÄNZT (2)                                   |
       | | Initialisation → Implementierung                         | |
       | | Implementierung → Closure                                | |
-      | AUFWÄNDE GEÄNDERT (24)                                       |
+      | MITGELÖSCHTE INHALTE                                         |
+      | | 24 Zuordnungen                                           | |
+      | AUFWÄNDE GEÄNDERT (…)                                        |
       | | …                                                        | |
       |                                          [ Schließen ]       |
       +--------------------------------------------------------------+
 
     - Data: the demo file imported, the top-level group "Implementation"
       renamed to "Implementierung" in Pythia, merged with overwrite. The
-      group keeps its logicalId in Pythia, so its two imported edges are
-      re-added against the newly created activity.
-    - Section order: activities added, removed, moved, dependencies removed,
-      dependencies added, dependencies skipped, content removed, efforts.
-      The structural changes come first because they explain the rest.
+      subtree is 31 activities with 24 assignments (measured). The group
+      keeps its logicalId in Pythia, so its two imported edges are re-added
+      against the newly created activity.
     - i18n: `merlinMerge.activitiesAdded` "Vorgänge angelegt" / "Activities
       created"; `merlinMerge.activitiesRemoved` "Vorgänge gelöscht" /
       "Activities deleted"; `merlinMerge.activitiesMoved` "Vorgänge
       verschoben" / "Activities moved"; `merlinMerge.dependenciesRemoved`
       "Abhängigkeiten gelöscht (mit gelöschten Vorgängen)" / "Dependencies
       deleted (with deleted activities)".
-    - `content-removed` (not drawn, shown only when a count is non-zero): one
-      line per non-zero kind, `merlinMerge.contentRemoved` "Mitgelöschte
-      Inhalte" / "Content deleted with them", with lines
-      `merlinMerge.comments` "{count} Kommentare" / "{count} comments",
-      `merlinMerge.attachments` "{count} Anhänge" / "{count} attachments",
-      `merlinMerge.costs` "{count} Kosteneinträge" / "{count} cost entries",
-      `merlinMerge.customAttributeValues` "{count} Werte eigener Attribute" /
-      "{count} custom attribute values".
+    - `content-removed` has no count in its heading. One line per NON-ZERO
+      kind, under `merlinMerge.contentRemoved` "Mitgelöschte Inhalte" /
+      "Content deleted with them". The lines are ICU plurals:
+      `merlinMerge.assignments` "{count, plural, one {# Zuordnung} other
+      {# Zuordnungen}}" / "{count, plural, one {# assignment} other
+      {# assignments}}"; `merlinMerge.comments` "… {# Kommentar} other
+      {# Kommentare}" / "… {# comment} other {# comments}";
+      `merlinMerge.attachments` "… {# Anhang} other {# Anhänge}" /
+      "… {# attachment} other {# attachments}"; `merlinMerge.costs`
+      "… {# Kosteneintrag} other {# Kosteneinträge}" / "… {# cost entry}
+      other {# cost entries}"; `merlinMerge.customAttributeValues`
+      "… {# Wert eines eigenen Attributs} other {# Werte eigener Attribute}"
+      / "… {# custom attribute value} other {# custom attribute values}".
+      Rendered as in the demo, a document with comments would add e.g.
+      "| 2 Kommentare |" below the assignments line.
 
   ### Merge report dialog: nothing changed
 
@@ -255,13 +310,13 @@ description: |
       |                                          [ Schließen ]       |
       +--------------------------------------------------------------+
 
-    - Shown when every list is empty and every content count is 0. Only the
-      first sentence of `merlinMerge.intro` would then be misleading, so the
+    - Shown when every list is empty and every content count is 0. The second
+      sentence of `merlinMerge.intro` would then be misleading, so the
       dialog uses `merlinMerge.introNoChanges` "Die Datei {fileName} wurde
       heruntergeladen." / "{fileName} has been downloaded." plus
       `merlinMerge.empty` "Keine Änderungen – die Merlin-Datei war bereits
       aktuell." / "No changes – the Merlin file was already up to date." in an
-      element `merlin-merge-report.empty`.
+      element `merlin-merge-report.empty`. No `addOnlyNote`.
     - Data: merge the same version twice. The second merge uses the file the
       first one produced.
 
@@ -271,18 +326,22 @@ description: |
   `estimation.exportMerlinHint` → `estimation.mergeMerlinHint`,
   `estimation.exportMerlinFailed` → `estimation.mergeMerlinFailed` ("Zusammenführen
   mit Merlin fehlgeschlagen" / "Merging into Merlin failed"),
-  `estimation.exportMerlinNoVersion` → `estimation.mergeMerlinNoVersion` (text
-  "…keine Version zum Zusammenführen…" / "…no version to merge…"). The old
+  `estimation.exportMerlinNoVersion` → `estimation.mergeMerlinNoVersion` ("Für
+  dieses Angebot gibt es keine Version zum Zusammenführen. Legen Sie einen
+  Entwurf an oder schreiben Sie eine Version fest." / "This offer has no
+  version to merge. Create a draft or submit a version first."). The old
   keys are deleted from both catalogs.
 
 steps:
   - |
     Read `MerlinExporter.kt` (as left by task-222, including
-    `ObsoleteDeletion`), `MerlinImporter.kt` (as left by task-221),
+    `ObsoleteDeletion` and `ObsoleteCascade`), `MerlinImporter.kt` (as left by
+    task-221), `MerlinStructureChangedException.kt`,
+    `rest/MerlinStructureChangedExceptionMapper.kt`,
     `EstimationVersionResource.exportMerlin`, `MerlinStructureDiffDto.kt`,
     `MerlinExporterTest.kt`, `MerlinExportResourceIT.kt`, the page
     `src/frontend/src/routes/estimations/[id]/+page.svelte`,
-    `MerlinStructureDialog.svelte`, `$lib/api/download.ts`, `$lib/format.ts`,
+    `MerlinStructureDialog.svelte`, `#lib/api/download.ts`, `#lib/format.ts`,
     `e2e/merlin-export.test.ts`, `e2e/pages/MerlinStructureDialog.ts`,
     `e2e/pages/ImportExportMenu.ts`, `src/frontend/CLAUDE.md` and
     `.claude/skills/merlin-integration/SKILL.md`.
@@ -292,65 +351,94 @@ steps:
     `MerlinExporterTest.kt` → `MerlinMergerTest.kt`,
     `MerlinExportResourceIT.kt` → `MerlinMergeResourceIT.kt`,
     `e2e/merlin-export.test.ts` → `e2e/merlin-merge.test.ts`. Update every
-    reference (`grep -rn 'MerlinExporter\|exportMerlin\|export/merlin' src`
-    must come back empty apart from the regenerated OpenAPI files, which
-    the build rewrites).
+    reference, including `MerlinStructureChangedException.kt`
+    (`MerlinMerger.MerlinStructureDiff`). Reword "export" to "merge" in the
+    `Log` lines of `MerlinMerger` ("Merlin merge: …", the temp-file prefix
+    `merlin-merge-`), in `MerlinStructureChangedExceptionMapper.kt`'s log
+    ("Merlin merge refused: …"), and in the comments of
+    `MerlinStructureDiffDto.kt`, `MerlinStructureDialog.svelte` and the page.
+    In `README.md` the mermaid node becomes `Export xlsx / CSV · Merge into
+    Merlin`. `grep -rn 'MerlinExporter\|exportMerlin\|export/merlin' src`
+    must come back empty apart from the regenerated OpenAPI files, which the
+    build rewrites.
   - |
     Give `MerlinMerger.merge(input, version, overwriteStructure)` the return
     type `MerlinMergeResult(document: ByteArray, report: MerlinMergeReport)`.
-    `MerlinMergeReport` is a backend data class with the DTO's fields. Build it
-    as the merge runs:
-    - drift lists from `computeDiff` when `overwriteStructure` applied them;
-    - `dependenciesRemoved` + `contentRemoved` from `ObsoleteDeletion`;
+    `MerlinMergeReport` is a backend data class with the DTO's fields
+    (`MerlinRemovedContent` for the counts, `MerlinDependencySkipReason`
+    enum with `WOULD_CREATE_CYCLE` and `PARENT_CHILD`). Build it as the
+    merge runs:
+    - `activitiesAdded`/`activitiesMoved` from `computeDiff`
+      (`missingInMerlin`/`reordered`) when `overwriteStructure` applied them;
+    - `activitiesRemoved`, `dependenciesRemoved` and `contentRemoved` from
+      `ObsoleteDeletion`. Add `assignments: Int` to `ObsoleteDeletion` (in
+      `ObsoleteCascade.delete`: the size of the `ZACTIVITY_` selection, i.e.
+      `items.size - obsoletePks.size`), and map `removedRows` by table as
+      the Target state lists;
     - `effortChanges` from `writeWork`, which now reads the current
-      `ZGIVENWORK_` first and skips unchanged leaves (see Target state);
+      `ZGIVENWORK_` of each leaf first (as a string, as the importer does),
+      compares with `formatDays` on both sides and skips unchanged leaves
+      (see Target state). `beforePT` is null for no work, else the parsed
+      value; `afterPT` null for `offerPT <= 0`, else `offerPT` rounded to 2
+      decimals;
     - dependency results from the new `mergeDependencies` (next step).
   - |
-    Add `mergeDependencies(conn, version, entries, activities)`, called
-    after `writeWork` and before commit:
+    Add `mergeDependencies(conn, version, entries)`, called after
+    `writeWork` and before commit. It re-reads the activities, so after an
+    overwrite it sees the newly created ones:
     1. Extend `EstimationEntry` with the node's `logicalId` (captured in
        `estimationEntries`), and map `version.scheduleDependencies`
        (`SubmittedScheduleDependency.fromLogicalId/toLogicalId`) →
        entry path → Merlin pk via `merlinPaths(current activities)`. Skip
-       silently an edge whose logicalId is not in the version or whose path
-       has no activity. The domain ignores such edges too.
+       silently (DEBUG log) an edge whose logicalId is not in the version or
+       whose path has no activity. The domain ignores such edges too.
     2. Skip if Merlin already has a `ZDEPENDENCY` row from → to (any `ZTYPE`).
-    3. Skip and report `WOULD_CREATE_CYCLE` if `to` reaches `from` through
+    3. Skip and report `PARENT_CHILD` if one pk is an ancestor of the other
+       (walk `parentPk` of the re-read activities).
+    4. Skip and report `WOULD_CREATE_CYCLE` if `to` reaches `from` through
        the current dependency edges (including the ones added in this merge).
-    4. Otherwise INSERT `ZDEPENDENCY (Z_PK, Z_ENT, Z_OPT, ZTYPE,
+    5. Otherwise INSERT `ZDEPENDENCY (Z_PK, Z_ENT, Z_OPT, ZTYPE,
        ZPREVIOUSACTIVITY_, Z49_PREVIOUSACTIVITY_, ZNEXTACTIVITY_,
        Z49_NEXTACTIVITY_, ZPROJECT, ZUNIQUEID, ZLAG_)` with `ZTYPE = 0`,
        `Z_OPT = 1`, `ZLAG_` NULL, `Z49_*` = 49 (the Activity entity id, the
        assumption `insertActivity` already makes), and `ZPROJECT` copied from
-       the root activity's `ZPROJECT`. `Z_ENT` and the pk come from the
-       `Z_PRIMARYKEY` row WHERE `Z_NAME = 'Dependency'` (24 in the demo
-       file, read by name, not hardcoded), advancing its `Z_MAX` like
-       `allocatePks` does for ScheduleItem. `ZUNIQUEID` from `newUniqueId()`.
+       the root activity's `ZPROJECT` (read it; 1 in the demo file). `Z_ENT`
+       and the pk come from the `Z_PRIMARYKEY` row WHERE
+       `Z_NAME = 'Dependency'` (Z_ENT 24, Z_MAX 4 in the demo file; read by
+       name, not hardcoded), advancing its `Z_MAX` like `allocatePks` does
+       for ScheduleItem. A document without that row or without `ZDEPENDENCY`
+       gets no edges and a WARN. `ZUNIQUEID` from `newUniqueId()`.
     Log INFO with added/skipped counts and DEBUG per edge.
   - |
     REST, in `EstimationVersionResource`: replace `exportMerlin` with
     `mergeIntoMerlin` on `@Path("/{versionNumber}/merge/merlin")`,
     `@Produces(MediaType.APPLICATION_JSON)`, same roles, same `400`/`404`/`409`
     handling, `200` documented with `@Schema(implementation =
-    MerlinMergeResultDto::class)`. The DTOs go in a new
-    `rest/dto/MerlinMergeDtos.kt` beside `MerlinStructureDiffDto.kt`, with a
-    mapper from `MerlinMergeReport`. `fileName` is
-    `merlin-<draft|vN>-merged.<ext>` with `ext` from
-    `filenameExtension(document)`. `document` is `Base64.getEncoder()` (standard,
-    padded). Log INFO on the request with estimation id, version and
-    overwriteStructure, as the old method did.
+    MerlinMergeResultDto::class)`. Rename the injected field to
+    `merlinMerger`. The DTOs go in a new `rest/dto/MerlinMergeDtos.kt` beside
+    `MerlinStructureDiffDto.kt`, with a mapper from `MerlinMergeReport`.
+    `fileName` is `merlin-<draft|vN>-merged.<ext>` with `ext` from
+    `filenameExtension(document)`. `document` is `Base64.getEncoder()`
+    (standard, padded). Log INFO on the request with estimation id, version
+    and overwriteStructure, as the old method did.
   - |
     Backend tests (`MerlinMergerTest`, `MerlinMergeResourceIT`), adapting the
-    renamed existing ones to the new return type, plus:
+    renamed existing ones to the new return type. First make the test helper
+    `convert(...)` copy `logicalId = node.logicalId` onto every submitted
+    node, so edges resolve. Then add:
     - `an unchanged leaf is not rewritten`: build the version so that each
       leaf's `offerPT` equals that leaf's own work in the sample ("1d" → 1.0,
       no work → 0.0; `versionFromSample` stamps ONE value on every leaf, so
-      give it a per-leaf variant), merge, and assert
-      `effortChanges` is empty and no activity's `Z_OPT` changed.
+      give it a per-leaf variant), merge, and assert `effortChanges` is empty
+      and no activity's `Z_OPT` changed.
+    - `merging the merged document again changes nothing`: merge a version
+      with offerPT 1.0833 per leaf, merge the RESULT again with the same
+      version, and assert the second report is entirely empty (pins the
+      `formatDays` comparison at a rounding boundary).
     - `a Pythia edge Merlin lacks is added as finish-to-start`: give the
       version an edge Initialisation → Closure (by their entries'
       logicalIds), merge, assert one new `ZDEPENDENCY` row with `ZTYPE = 0`
-      between pks 4 and 9, the Dependency row of `Z_PRIMARYKEY` advanced,
+      from pk 4 to pk 9, the Dependency row of `Z_PRIMARYKEY` advanced to 5,
       and the report's `dependenciesAdded` = `[Initialisation → Closure]`.
     - `an edge Merlin already has is not duplicated`: the version carries
       Initialisation → Implementation, merge, assert still 2 rows and no
@@ -361,72 +449,96 @@ steps:
       carries Closure → Initialisation (Merlin has Initialisation →
       Implementation → Closure), merge, assert no row added and
       `dependenciesSkipped` = one `WOULD_CREATE_CYCLE`.
+    - `an edge between a group and its own child is skipped`: the version
+      carries Implementation → its first child, merge, assert no row added and
+      one `PARENT_CHILD`.
     - `overwrite re-adds the edges of a renamed group`: rename
-      "Implementation", keep its logicalId and its two edges in the
-      version, merge with overwrite, assert `dependenciesRemoved` lists the
-      two old edges, `dependenciesAdded` the two new ones against the new
-      activity, and no dangling `ZDEPENDENCY` reference.
+      "Implementation" to "Implementierung", keep its logicalId and its two
+      edges in the version, merge with overwrite, assert
+      `dependenciesRemoved` lists the two old edges, `dependenciesAdded` the
+      two new ones against the new activity, `contentRemoved.assignments`
+      = 24, `activitiesRemoved` has 31 entries, and no dangling
+      `ZDEPENDENCY` reference.
     - Resource IT: `200`, `Content-Type` JSON, `fileName` ends with
       `-merged.sql`, `document` decodes to a SQLite file (magic
       `SQLite format 3`), `report` present. `409` and `400` as before.
       `POST …/export/merlin` now answers `404` or `405`.
   - |
+    Prove the new tests can fail, one mutation at a time, restoring the file
+    after each (`git diff` shows only the intended change afterwards):
+    remove the existing-edge check → `an edge Merlin already has is not
+    duplicated` fails; remove the cycle DFS → the cycle test fails; remove
+    the ancestor check → the parent-child test fails; compare raw values
+    instead of `formatDays` → `merging the merged document again changes
+    nothing` fails. Name each in the report.
+  - |
     Frontend download helper: add `downloadBlob(blob: Blob, fileName: string)`
-    to `$lib/api/download.ts` and make `downloadResponse` delegate to it.
+    to `#lib/api/download.ts` and make `downloadResponse` delegate to it.
     Add a small `base64ToBlob(b64: string, type: string): Blob` beside it.
   - |
     Create `src/frontend/src/lib/components/MerlinMergeReportDialog.svelte`
-    as wireframed (three states). Export its `MerlinMergeResult` /
-    `MerlinMergeReport` types from the module script, as
-    `MerlinStructureDialog` does for `MerlinStructureDiff`. Props
-    `{ result: MerlinMergeResult; onclose: () => void }`. No inline strings, no
-    raw palette classes, `Button` from `$lib/ui/`, numbers via `$lib/format.ts`.
+    as wireframed (three states, the fixed section order). Export its
+    `MerlinMergeResult` / `MerlinMergeReport` types from the module script,
+    as `MerlinStructureDialog` does for `MerlinStructureDiff`. Props
+    `{ result: MerlinMergeResult; onclose: () => void }`. No inline strings,
+    no raw palette classes, `Button` from `#lib/ui/`, numbers via
+    `#lib/format.ts`.
   - |
     In `src/routes/estimations/[id]/+page.svelte`: rename the export state and
     functions to merge (`merging`, `mergeVersionRef`, `runMerlinMerge`,
-    `pendingMergeFile`, …), call `…/merge/merlin`, read the JSON, call
+    `onMerlinMergeFileSelected`, `pendingMergeFile`, `mergeInput`), call
+    `…/merge/merlin`, read the JSON, call
     `downloadBlob(base64ToBlob(result.document, 'application/octet-stream'),
     result.fileName)`, then set `mergeResult = result` to open the dialog.
     Give the button `data-testid="estimation-detail.merge-merlin"` and the
-    renamed keys. Errors still go to `bannerMessage` (ErrorBanner) plus
-    `log.error`. Never a bare `console.*`.
+    renamed keys, as wireframed. Errors still go to `bannerMessage`
+    (ErrorBanner) plus `log.error`. Never a bare `console.*`.
   - |
     i18n: add every key named in the wireframes and "Renamed i18n keys" to
-    BOTH `de.json` and `en.json`, delete the four `estimation.exportMerlin*`
-    keys, and keep the catalogs key-for-key.
+    BOTH `de.json` and `en.json` (`merlinMerge.skipReason` is a nested object
+    with the two enum names as keys), delete the four
+    `estimation.exportMerlin*` keys, and keep the catalogs key-for-key.
   - |
     e2e through the POM:
     - New `e2e/pages/MerlinMergeReportDialog.ts` (`dialog`, `expectVisible()`,
-      `section(key)`, `expectEmpty()`, `close()`), exported from
-      `e2e/pages/index.ts`. Add `mergeMerlinButton` to `ImportExportMenu.ts`.
+      `section(key: MerlinMergeReportSection)` where
+      `MerlinMergeReportSection` is a union of the eight section keys,
+      `expectEmpty()`, `close()`), exported from `e2e/pages/index.ts`. Add
+      `mergeMerlinButton` to `ImportExportMenu.ts`.
     - `e2e/merlin-merge.test.ts` (renamed): the three existing tests,
-      asserting `suggestedFilename()` contains `merged` and that the report
-      dialog is visible after the download. The 409 test also asserts
-      `section('activities-added')` contains `Added after the import`
+      asserting `suggestedFilename()` contains `merged`, that the request URL
+      contains `/merge/merlin`, and that the report dialog is visible after
+      the download. The first test also asserts
+      `ImportExportMenu.mergeMerlinButton` is enabled. The 409 test also
+      asserts `section('activities-added')` contains `Added after the import`
       (test data, so a literal is legal). New:
       `merging adds a Pythia dependency and reports it`. Via the API, GET
       the draft, read the logicalIds of the roots titled Initialisation and
       Closure, PUT `{ dependencies: [...existing, {fromLogicalId,
       toLogicalId}] }`, merge through the UI, and assert
       `section('dependencies-added')` contains both titles. New:
-      `merging the merged file again reports no changes`. Merge, take the
-      downloaded file (`download.path()`), merge it again, and assert
-      `expectEmpty()`.
+      `merging the merged file again reports no changes`. Merge, close the
+      report, take the downloaded file (`download.path()`), merge it again,
+      and assert `expectEmpty()`.
     - No translated literal anywhere in `e2e/**` outside `e2e/pages/**`.
   - |
     Port protocol before Playwright: check that :8090, :5173 and :5432 are
     free (`lsof -nP -iTCP:<port> -sTCP:LISTEN`). If any is taken, stop and
-    report. Start `./scripts/dev.sh` in the background, then run
-    `cd src/frontend && E2E_LANG=en npx playwright test e2e/merlin-merge.test.ts`
-    and the same with `E2E_LANG=de`. Afterwards stop ONLY the `dev.sh` this
-    task started (SIGTERM, never `pkill` the JVMs).
+    report. Start `./scripts/dev.sh` in the background, wait for
+    `/api/ping` and `:5173`, then run the FULL suite
+    `cd src/frontend && E2E_LANG=en npx playwright test`, then the same with
+    `E2E_LANG=de` (the renamed keys and testids live on a page other specs
+    drive). Afterwards stop ONLY the `dev.sh` this task started (SIGTERM,
+    never `pkill` the JVMs), and confirm the ports are free and no Dev
+    Services PostgreSQL container is left.
   - |
     Docs: `.claude/skills/merlin-integration/SKILL.md`. Rename the section
-    and the endpoint, and describe the add-only dependency merge, the cycle
-    skip, the "only changed efforts" rule, the JSON result with base64
-    document and the report. Update its frontmatter `description` (it names
-    `MerlinExporter` and `/versions/{n}/export/merlin`). Update the
-    `MerlinMerger` header comment.
+    and the endpoint, and describe the add-only dependency merge, the two
+    skip reasons, the "only changed efforts" rule (`formatDays` on both
+    sides), the JSON result with base64 document and the report (including
+    where `contentRemoved` comes from). Update its frontmatter `description`
+    (it names `MerlinExporter`, "effort export" and
+    `/versions/{n}/export/merlin`). Update the `MerlinMerger` header comment.
   - |
     ./gradlew build
   - |
@@ -445,7 +557,11 @@ validation:
     grep -q 'fun mergeDependencies' $B/service/MerlinMerger.kt
     grep -q "Z_NAME = 'Dependency'" $B/service/MerlinMerger.kt
     grep -q 'WOULD_CREATE_CYCLE' $B/service/MerlinMerger.kt
+    grep -q 'PARENT_CHILD' $B/service/MerlinMerger.kt
+    grep -q 'val assignments: Int' $B/service/MerlinMerger.kt
     awk '/fun mergeDependencies/,/^    }$/' $B/service/MerlinMerger.kt | grep -q 'Log\.info'
+    awk '/private fun writeWork/,/^    }$/' $B/service/MerlinMerger.kt | grep -q 'formatDays'
+    grep -q 'MerlinMerger.MerlinStructureDiff' $B/service/MerlinStructureChangedException.kt
   - |
     B=src/backend/implementation/src/main/kotlin/io/pythia
     grep -q '@Path("/{versionNumber}/merge/merlin")' $B/rest/EstimationVersionResource.kt
@@ -453,14 +569,19 @@ validation:
     ! grep -q 'export/merlin' $B/rest/EstimationVersionResource.kt
     grep -q 'class MerlinMergeResultDto' $B/rest/dto/MerlinMergeDtos.kt
     grep -q 'class MerlinMergeReportDto' $B/rest/dto/MerlinMergeDtos.kt
+    grep -q 'assignments' $B/rest/dto/MerlinMergeDtos.kt
   - |
-    ! grep -rn 'MerlinExporter\|exportMerlin' src/backend/implementation/src src/frontend/src src/frontend/e2e --include='*.kt' --include='*.ts' --include='*.svelte' --include='*.json' | grep -v 'openapi.json\|schema.d.ts'
+    ! grep -rn 'MerlinExporter\|exportMerlin\|export/merlin' src/backend/implementation/src src/frontend/src src/frontend/e2e --include='*.kt' --include='*.ts' --include='*.svelte' --include='*.json' | grep -v 'openapi.json\|schema.d.ts'
+    ! grep -rn -i 'merlin export' src/backend/implementation/src/main src/frontend/src
+    ! grep -q 'Export xlsx / CSV / Merlin' README.md
   - |
     T=src/backend/implementation/src/test/kotlin/io/pythia
     test -f $T/service/MerlinMergerTest.kt
     test -f $T/rest/MerlinMergeResourceIT.kt
     grep -q 'WOULD_CREATE_CYCLE' $T/service/MerlinMergerTest.kt
+    grep -q 'PARENT_CHILD' $T/service/MerlinMergerTest.kt
     grep -q 'never deleted' $T/service/MerlinMergerTest.kt
+    grep -q 'logicalId = node.logicalId' $T/service/MerlinMergerTest.kt
   - |
     C=src/frontend/src/lib/components/MerlinMergeReportDialog.svelte
     test -f $C
@@ -475,44 +596,72 @@ validation:
     grep -q 'data-testid="estimation-detail.merge-merlin"' "$P"
     grep -q 'merge/merlin' "$P"
     grep -q 'MerlinMergeReportDialog' "$P"
+    grep -q 'downloadBlob' "$P"
     grep -q 'log\.error' "$P"
   - |
     for f in de en; do
       J=src/frontend/src/lib/i18n/$f.json
       jq -e '.estimation.mergeMerlin and .estimation.mergeMerlinHint and .estimation.mergeMerlinFailed and .estimation.mergeMerlinNoVersion' $J
-      jq -e '.estimation.exportMerlin == null and .estimation.exportMerlinHint == null' $J
+      jq -e '.estimation.exportMerlin == null and .estimation.exportMerlinHint == null and .estimation.exportMerlinFailed == null and .estimation.exportMerlinNoVersion == null' $J
       jq -e '.merlinMerge.title and .merlinMerge.intro and .merlinMerge.introNoChanges and .merlinMerge.empty and .merlinMerge.close and .merlinMerge.addOnlyNote' $J
-      jq -e '.merlinMerge.efforts and .merlinMerge.effortChange and .merlinMerge.noEffort and .merlinMerge.dependency' $J
+      jq -e '.merlinMerge.efforts and .merlinMerge.effortChange and .merlinMerge.noEffort and .merlinMerge.dependency and .merlinMerge.skippedDependency' $J
       jq -e '.merlinMerge.dependenciesAdded and .merlinMerge.dependenciesRemoved and .merlinMerge.dependenciesSkipped' $J
+      jq -e '.merlinMerge.skipReason.WOULD_CREATE_CYCLE and .merlinMerge.skipReason.PARENT_CHILD' $J
       jq -e '.merlinMerge.activitiesAdded and .merlinMerge.activitiesRemoved and .merlinMerge.activitiesMoved' $J
-      jq -e '.merlinMerge.contentRemoved and .merlinMerge.comments and .merlinMerge.attachments and .merlinMerge.costs and .merlinMerge.customAttributeValues' $J
+      jq -e '.merlinMerge.contentRemoved and .merlinMerge.assignments and .merlinMerge.comments and .merlinMerge.attachments and .merlinMerge.costs and .merlinMerge.customAttributeValues' $J
     done
     jq -e '.estimation.mergeMerlin == "In Merlin zusammenführen"' src/frontend/src/lib/i18n/de.json
     jq -e '.estimation.mergeMerlin == "Merge into Merlin"' src/frontend/src/lib/i18n/en.json
+  - |
+    python3 - <<'PY'
+    import json, pathlib, sys
+    cats = {p.stem: json.loads(p.read_text())
+            for p in pathlib.Path('src/frontend/src/lib/i18n').glob('*.json')}
+    def flat(o, p=''):
+        s = set()
+        for k, v in o.items():
+            n = f'{p}.{k}' if p else k
+            s |= flat(v, n) if isinstance(v, dict) else {n}
+        return s
+    keys = {l: flat(d) for l, d in cats.items()}
+    ref = set().union(*keys.values())
+    bad = {l: sorted(ref - k) for l, k in keys.items() if ref - k}
+    print(f'catalogs: {sorted(cats)}')
+    print('missing keys:', bad or 'none')
+    sys.exit(1 if bad else 0)
+    PY
   - |
     E=src/frontend/e2e
     test -f $E/merlin-merge.test.ts
     test ! -f $E/merlin-export.test.ts
     test -f $E/pages/MerlinMergeReportDialog.ts
     grep -q "MerlinMergeReportDialog" $E/pages/index.ts
+    grep -q "mergeMerlinButton" $E/pages/ImportExportMenu.ts
     grep -q "from './pages'" $E/merlin-merge.test.ts
     grep -q 'merged' $E/merlin-merge.test.ts
     grep -q 'dependencies-added' $E/merlin-merge.test.ts
+    grep -q 'expectEmpty' $E/merlin-merge.test.ts
   - |
-    grep -q 'merge/merlin' .claude/skills/merlin-integration/SKILL.md
-    grep -q 'add-only\|ADD-ONLY\|Add-only' .claude/skills/merlin-integration/SKILL.md
+    S=.claude/skills/merlin-integration/SKILL.md
+    grep -q 'merge/merlin' $S
+    grep -q 'add-only\|ADD-ONLY\|Add-only' $S
+    grep -q 'PARENT_CHILD' $S
+    ! grep -q 'MerlinExporter\|export/merlin' $S
   - |
     ./gradlew build
   - |
     ./gradlew :frontend:check
   - |
     # with a dev.sh stack started per the port protocol
-    cd src/frontend && E2E_LANG=en npx playwright test e2e/merlin-merge.test.ts && E2E_LANG=de npx playwright test e2e/merlin-merge.test.ts
+    cd src/frontend && E2E_LANG=en npx playwright test && E2E_LANG=de npx playwright test
 
 outputs:
   - deleted: src/backend/implementation/src/main/kotlin/io/pythia/service/MerlinExporter.kt
   - created: src/backend/implementation/src/main/kotlin/io/pythia/service/MerlinMerger.kt
+  - modified: src/backend/implementation/src/main/kotlin/io/pythia/service/MerlinStructureChangedException.kt
+  - modified: src/backend/implementation/src/main/kotlin/io/pythia/rest/MerlinStructureChangedExceptionMapper.kt
   - modified: src/backend/implementation/src/main/kotlin/io/pythia/rest/EstimationVersionResource.kt
+  - modified: src/backend/implementation/src/main/kotlin/io/pythia/rest/dto/MerlinStructureDiffDto.kt
   - created: src/backend/implementation/src/main/kotlin/io/pythia/rest/dto/MerlinMergeDtos.kt
   - deleted: src/backend/implementation/src/test/kotlin/io/pythia/service/MerlinExporterTest.kt
   - created: src/backend/implementation/src/test/kotlin/io/pythia/service/MerlinMergerTest.kt
@@ -520,6 +669,7 @@ outputs:
   - created: src/backend/implementation/src/test/kotlin/io/pythia/rest/MerlinMergeResourceIT.kt
   - modified: src/frontend/src/routes/estimations/[id]/+page.svelte
   - created: src/frontend/src/lib/components/MerlinMergeReportDialog.svelte
+  - modified: src/frontend/src/lib/components/MerlinStructureDialog.svelte
   - modified: src/frontend/src/lib/api/download.ts
   - modified: src/frontend/src/lib/i18n/de.json
   - modified: src/frontend/src/lib/i18n/en.json
@@ -531,3 +681,4 @@ outputs:
   - modified: src/frontend/src/lib/api/openapi.json
   - modified: src/frontend/src/lib/api/schema.d.ts
   - modified: .claude/skills/merlin-integration/SKILL.md
+  - modified: README.md

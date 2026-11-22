@@ -9,6 +9,7 @@ export { DevLoginDialog } from './DevLoginDialog';
 export { ErrorBanner } from './ErrorBanner';
 export { EstimationGrid } from './EstimationGrid';
 export { ImportExportMenu } from './ImportExportMenu';
+export { MerlinMergeReportDialog, type MerlinMergeReportSection } from './MerlinMergeReportDialog';
 export { MerlinStructureDialog } from './MerlinStructureDialog';
 export { OssNoticesDialog, stubNotices, stubNoticesStatus } from './OssNoticesDialog';
 export { PhasesPanel } from './PhasesPanel';

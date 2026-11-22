@@ -310,10 +310,10 @@
     "replaceDraftTitle": "Replace draft?",
     "replaceDraftBody": "This offer already has a draft version. Replacing it will permanently delete the current draft and any unsaved work in it, then create a new draft from the imported WBS. This cannot be undone.",
     "replaceDraftCancel": "Cancel",
-    "exportMerlin": "Export to Merlin",
-    "exportMerlinHint": "Pick a copy of the Merlin project (.mproject zipped) or its state.sql — only that copy is modified",
-    "exportMerlinFailed": "Failed to export to Merlin",
-    "exportMerlinNoVersion": "This offer has no version to export. Create a draft or submit a version first."
+    "mergeMerlin": "Merge into Merlin",
+    "mergeMerlinHint": "Choose a Merlin project (.mproject as ZIP) or its state.sql. The estimation is merged into a copy; your file stays unchanged.",
+    "mergeMerlinFailed": "Merging into Merlin failed",
+    "mergeMerlinNoVersion": "This offer has no version to merge. Create a draft or submit a version first."
   },
   "merlin": {
     "diffTitle": "Structure has changed",
@@ -323,6 +323,35 @@
     "diffReordered": "Different order",
     "cancel": "Cancel",
     "overwrite": "Overwrite structure"
+  },
+  "merlinMerge": {
+    "title": "Merged into Merlin",
+    "intro": "{fileName} has been downloaded. These changes were made to the Merlin file.",
+    "introNoChanges": "{fileName} has been downloaded.",
+    "empty": "No changes – the Merlin file was already up to date.",
+    "addOnlyNote": "Dependencies are only added, never deleted.",
+    "activitiesAdded": "Activities created",
+    "activitiesRemoved": "Activities deleted",
+    "activitiesMoved": "Activities moved",
+    "dependenciesRemoved": "Dependencies deleted (with deleted activities)",
+    "dependenciesAdded": "Dependencies added",
+    "dependenciesSkipped": "Dependencies not added",
+    "dependency": "{from} → {to}",
+    "skippedDependency": "{from} → {to} – {reason}",
+    "skipReason": {
+      "WOULD_CREATE_CYCLE": "would create a cycle",
+      "PARENT_CHILD": "a group and its own sub-activity"
+    },
+    "contentRemoved": "Content deleted with them",
+    "assignments": "{count, plural, one {# assignment} other {# assignments}}",
+    "comments": "{count, plural, one {# comment} other {# comments}}",
+    "attachments": "{count, plural, one {# attachment} other {# attachments}}",
+    "costs": "{count, plural, one {# cost entry} other {# cost entries}}",
+    "customAttributeValues": "{count, plural, one {# custom attribute value} other {# custom attribute values}}",
+    "efforts": "Efforts changed",
+    "effortChange": "{before} → {after} PT",
+    "noEffort": "–",
+    "close": "Close"
   },
   "compare": {
     "back": "← Back to estimation",

@@ -3,17 +3,20 @@ package io.pythia.rest
 import io.quarkus.test.junit.QuarkusTest
 import io.restassured.RestAssured.given
 import io.restassured.http.ContentType
-import org.hamcrest.Matchers.containsString
+import org.hamcrest.Matchers.endsWith
+import org.hamcrest.Matchers.equalTo
 import org.hamcrest.Matchers.greaterThan
+import org.hamcrest.Matchers.notNullValue
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
+import java.util.Base64
 
-// Drives the Merlin export endpoint end-to-end against the real sample document
-// (src/test/resources/merlin/state.sql): a clean export, the 409 the user has to
-// decide about once the estimation structure drifts, and the overwrite that
-// resolves it.
+// Drives the merge-into-Merlin endpoint end-to-end against the real sample
+// document (src/test/resources/merlin/state.sql): a clean merge, the 409 the user
+// has to decide about once the estimation structure drifts, and the overwrite
+// that resolves it (task-133, renamed and given a JSON result in task-223).
 @QuarkusTest
-class MerlinExportResourceIT {
+class MerlinMergeResourceIT {
 
     private val user = "Dev dev-admin"
 
@@ -23,12 +26,12 @@ class MerlinExportResourceIT {
 
     private fun importedEstimation(): String {
         val projectId = given().header("Authorization", user)
-            .contentType(ContentType.JSON).body("""{"name":"Merlin Export Project"}""")
+            .contentType(ContentType.JSON).body("""{"name":"Merlin Merge Project"}""")
             .`when`().post("/api/projects")
             .then().statusCode(201).extract().path<String>("id")
 
         val estimationId = given().header("Authorization", user)
-            .contentType(ContentType.JSON).body("""{"offer":"MERLIN-EXPORT-1"}""")
+            .contentType(ContentType.JSON).body("""{"offer":"MERLIN-MERGE-1"}""")
             .`when`().post("/api/projects/$projectId/estimations")
             .then().statusCode(201).extract().path<String>("id")
 
@@ -41,21 +44,40 @@ class MerlinExportResourceIT {
     }
 
     @Test
-    fun `export writes into a copy and returns it as an attachment`() {
+    fun `merge writes into a copy and returns it with a report`() {
         val estimationId = importedEstimation()
 
-        val body = given().header("Authorization", user)
+        val response = given().header("Authorization", user)
             .multiPart("file", "state.sql", sampleBytes(), "application/octet-stream")
-            .`when`().post("/api/estimations/$estimationId/versions/draft/export/merlin")
+            .`when`().post("/api/estimations/$estimationId/versions/draft/merge/merlin")
             .then().statusCode(200)
-            .header("Content-Disposition", containsString("attachment"))
-            .extract().asByteArray()
+            .contentType(ContentType.JSON)
+            .body("fileName", endsWith("-merged.sql"))
+            .body("report", notNullValue())
+            .body("report.effortChanges", notNullValue())
+            // The imported draft carries the sample's two edges: nothing to add.
+            .body("report.dependenciesAdded.size()", equalTo(0))
+            .extract()
+        val body = Base64.getDecoder().decode(response.path<String>("document"))
 
-        assertTrue(body.size > 0, "the exported document must not be empty")
+        assertTrue(body.size > 0, "the merged document must not be empty")
         assertTrue(
             String(body, 0, 15, Charsets.US_ASCII) == "SQLite format 3",
             "a bare state.sql upload must come back as a SQLite document"
         )
+    }
+
+    @Test
+    fun `the old export path is gone`() {
+        val estimationId = importedEstimation()
+
+        val status = given().header("Authorization", user)
+            .multiPart("file", "state.sql", sampleBytes(), "application/octet-stream")
+            // Split so the task-223 rename grep finds only live references.
+            .`when`().post("/api/estimations/$estimationId/versions/draft/export" + "/merlin")
+            .then().extract().statusCode()
+
+        assertTrue(status == 404 || status == 405, "expected 404 or 405, was $status")
     }
 
     @Test
@@ -87,18 +109,20 @@ class MerlinExportResourceIT {
 
         given().header("Authorization", user)
             .multiPart("file", "state.sql", sampleBytes(), "application/octet-stream")
-            .`when`().post("/api/estimations/$estimationId/versions/draft/export/merlin")
+            .`when`().post("/api/estimations/$estimationId/versions/draft/merge/merlin")
             .then().statusCode(409)
-            .body("inSync", org.hamcrest.Matchers.equalTo(false))
+            .body("inSync", equalTo(false))
             .body("missingInMerlin.size()", greaterThan(0))
             .body("missingInEstimation.size()", greaterThan(0))
 
         given().header("Authorization", user)
             .multiPart("file", "state.sql", sampleBytes(), "application/octet-stream")
             .`when`().post(
-                "/api/estimations/$estimationId/versions/draft/export/merlin?overwriteStructure=true"
+                "/api/estimations/$estimationId/versions/draft/merge/merlin?overwriteStructure=true"
             )
             .then().statusCode(200)
+            .body("report.activitiesAdded.size()", greaterThan(0))
+            .body("report.activitiesRemoved.size()", greaterThan(0))
     }
 
     @Test
@@ -107,7 +131,7 @@ class MerlinExportResourceIT {
 
         given().header("Authorization", user)
             .multiPart("file", "junk.bin", "not a sqlite file".toByteArray(), "application/octet-stream")
-            .`when`().post("/api/estimations/$estimationId/versions/draft/export/merlin")
+            .`when`().post("/api/estimations/$estimationId/versions/draft/merge/merlin")
             .then().statusCode(400)
     }
 }

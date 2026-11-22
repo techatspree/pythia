@@ -11,10 +11,13 @@
 	import MerlinStructureDialog, {
 		type MerlinStructureDiff
 	} from '#lib/components/MerlinStructureDialog.svelte';
+	import MerlinMergeReportDialog, {
+		type MerlinMergeResult
+	} from '#lib/components/MerlinMergeReportDialog.svelte';
 	import type { ApiEstimationDetail } from '#lib/api/types.js';
 	import { apiFetch } from '#lib/api/fetch.ts';
 	import { assertOk } from '#lib/api/errors.ts';
-	import { downloadResponse } from '#lib/api/download.ts';
+	import { base64ToBlob, downloadBlob } from '#lib/api/download.ts';
 	import { log } from '#lib/log.ts';
 
 	let estimation = $state<ApiEstimationDetail | null>(null);
@@ -167,21 +170,23 @@
 		}
 	}
 
-	// Export (task-133): upload a COPY of the Merlin document, get it back with
-	// this estimation's offerPT written into the matching activities. Mirrors
-	// the import flow above — the chosen File is kept in state so a 409 (the
-	// Merlin structure drifted) can be retried with overwriteStructure once the
-	// user decides.
-	let exportInput = $state<HTMLInputElement | null>(null);
-	let exporting = $state(false);
-	let pendingExportFile = $state<File | null>(null);
+	// Merge into Merlin (task-133, renamed in task-223): upload a COPY of the
+	// Merlin document, get it back with this estimation's changed efforts and
+	// its dependencies merged in, plus a report that opens after the download.
+	// Mirrors the import flow above — the chosen File is kept in state so a 409
+	// (the Merlin structure drifted) can be retried with overwriteStructure once
+	// the user decides.
+	let mergeInput = $state<HTMLInputElement | null>(null);
+	let merging = $state(false);
+	let pendingMergeFile = $state<File | null>(null);
 	let structureDiff = $state<MerlinStructureDiff | null>(null);
+	let mergeResult = $state<MerlinMergeResult | null>(null);
 
-	// Which version to export: the draft while one exists, otherwise the highest
+	// Which version to merge: the draft while one exists, otherwise the highest
 	// submitted version. Submitting CONSUMES the draft, so hardcoding "draft"
 	// would 404 exactly when the estimate is finished — the moment you actually
 	// want to push it back into Merlin. Null disables the button.
-	const exportVersionRef = $derived.by<string | null>(() => {
+	const mergeVersionRef = $derived.by<string | null>(() => {
 		const versions = estimation?.versions ?? [];
 		if (versions.some((v) => v.isDraft)) return 'draft';
 
@@ -190,52 +195,54 @@
 		return latest == null ? null : String(latest);
 	});
 
-	async function onMerlinExportFileSelected(e: Event) {
+	async function onMerlinMergeFileSelected(e: Event) {
 		const input = e.currentTarget as HTMLInputElement;
 		const file = input.files?.[0];
 		input.value = '';
 		if (!file) return;
-		await runMerlinExport(file, false);
+		await runMerlinMerge(file, false);
 	}
 
-	async function runMerlinExport(file: File, overwriteStructure: boolean) {
+	async function runMerlinMerge(file: File, overwriteStructure: boolean) {
 		if (!estimation?.id) return;
-		const versionRef = exportVersionRef;
+		const versionRef = mergeVersionRef;
 		if (versionRef == null) {
-			bannerMessage = $_('estimation.exportMerlinNoVersion');
+			bannerMessage = $_('estimation.mergeMerlinNoVersion');
 			return;
 		}
-		exporting = true;
+		merging = true;
 		bannerMessage = null;
 		try {
 			const form = new FormData();
 			form.append('file', file);
 			const res = await apiFetch(
-				`/api/estimations/${estimation.id}/versions/${versionRef}/export/merlin?overwriteStructure=${overwriteStructure}`,
+				`/api/estimations/${estimation.id}/versions/${versionRef}/merge/merlin?overwriteStructure=${overwriteStructure}`,
 				{ method: 'POST', body: form }
 			);
 			// The Merlin WBS no longer matches the estimation → let the user
 			// decide whether to overwrite it, rather than silently rewriting.
 			if (res.status === 409 && !overwriteStructure) {
 				structureDiff = await res.json();
-				pendingExportFile = file;
+				pendingMergeFile = file;
 				return;
 			}
 			const fallback =
 				res.status === 404
-					? $_('estimation.exportMerlinNoVersion')
+					? $_('estimation.mergeMerlinNoVersion')
 					: res.status === 400
 						? $_('estimation.importMerlinInvalidFile')
-						: $_('estimation.exportMerlinFailed');
+						: $_('estimation.mergeMerlinFailed');
 			await assertOk(res, fallback);
 			structureDiff = null;
-			pendingExportFile = null;
-			downloadResponse(await res.blob(), res.headers.get('Content-Disposition'), 'merlin-estimated.sql');
+			pendingMergeFile = null;
+			const result: MerlinMergeResult = await res.json();
+			downloadBlob(base64ToBlob(result.document, 'application/octet-stream'), result.fileName);
+			mergeResult = result;
 		} catch (e: any) {
-			log.error('exportMerlin failed:', e);
+			log.error('mergeIntoMerlin failed:', e);
 			bannerMessage = e.message;
 		} finally {
-			exporting = false;
+			merging = false;
 		}
 	}
 
@@ -285,16 +292,19 @@
 			<MerlinStructureDialog
 				diff={structureDiff}
 				onconfirm={() => {
-					const file = pendingExportFile;
+					const file = pendingMergeFile;
 					structureDiff = null;
-					pendingExportFile = null;
-					if (file) runMerlinExport(file, true);
+					pendingMergeFile = null;
+					if (file) runMerlinMerge(file, true);
 				}}
 				oncancel={() => {
 					structureDiff = null;
-					pendingExportFile = null;
+					pendingMergeFile = null;
 				}}
 			/>
+		{/if}
+		{#if mergeResult}
+			<MerlinMergeReportDialog result={mergeResult} onclose={() => (mergeResult = null)} />
 		{/if}
 		{#if estimation}
 			{#if estimation.projectId}
@@ -342,17 +352,17 @@
 						accept=".zip,.mproject,.sqlite,.sql"
 						class="hidden"
 						data-testid="merlin-export-input"
-						bind:this={exportInput}
-						onchange={onMerlinExportFileSelected}
+						bind:this={mergeInput}
+						onchange={onMerlinMergeFileSelected}
 					/>
-				<Button variant="secondary"
-
-						onclick={() => exportInput?.click()}
-						disabled={exporting || exportVersionRef == null}
-						title={$_('estimation.exportMerlinHint')}
-
+				<Button
+						variant="secondary"
+						data-testid="estimation-detail.merge-merlin"
+						onclick={() => mergeInput?.click()}
+						disabled={merging || mergeVersionRef == null}
+						title={$_('estimation.mergeMerlinHint')}
 				>
-					{$_('estimation.exportMerlin')}
+					{$_('estimation.mergeMerlin')}
 				</Button>
 					<!-- sessionHref resolves the route via resolve(); only the dynamic
 				     estimationId/projectId query is concatenated. The no-navigation-

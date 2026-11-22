@@ -834,6 +834,161 @@
           }
         }
       },
+      "MerlinDependencyDto" : {
+        "description" : "A dependency between two activities, by WBS path",
+        "type" : "object",
+        "required" : [ "fromPath", "toPath" ],
+        "properties" : {
+          "fromPath" : {
+            "type" : "string"
+          },
+          "toPath" : {
+            "type" : "string"
+          }
+        }
+      },
+      "MerlinDependencySkipReason" : {
+        "type" : "string",
+        "enum" : [ "WOULD_CREATE_CYCLE", "PARENT_CHILD" ]
+      },
+      "MerlinEffortChangeDto" : {
+        "description" : "One leaf's effort before and after the merge, in person-days; null = no work",
+        "type" : "object",
+        "required" : [ "path", "beforePT", "afterPT" ],
+        "properties" : {
+          "path" : {
+            "type" : "string"
+          },
+          "beforePT" : {
+            "type" : [ "number", "null" ],
+            "format" : "double"
+          },
+          "afterPT" : {
+            "type" : [ "number", "null" ],
+            "format" : "double"
+          }
+        }
+      },
+      "MerlinMergeReportDto" : {
+        "description" : "Every change the merge made to the Merlin document",
+        "type" : "object",
+        "required" : [ "effortChanges", "activitiesAdded", "activitiesRemoved", "activitiesMoved", "dependenciesAdded", "dependenciesRemoved", "dependenciesSkipped", "contentRemoved" ],
+        "properties" : {
+          "effortChanges" : {
+            "type" : "array",
+            "items" : {
+              "$ref" : "#/components/schemas/MerlinEffortChangeDto"
+            },
+            "description" : "Leaves whose effort changed, in tree order"
+          },
+          "activitiesAdded" : {
+            "type" : "array",
+            "items" : {
+              "type" : "string"
+            },
+            "description" : "Activities created by a structure overwrite"
+          },
+          "activitiesRemoved" : {
+            "type" : "array",
+            "items" : {
+              "type" : "string"
+            },
+            "description" : "Activities deleted by a structure overwrite"
+          },
+          "activitiesMoved" : {
+            "type" : "array",
+            "items" : {
+              "type" : "string"
+            },
+            "description" : "Activities moved by a structure overwrite"
+          },
+          "dependenciesAdded" : {
+            "type" : "array",
+            "items" : {
+              "$ref" : "#/components/schemas/MerlinDependencyDto"
+            },
+            "description" : "Pythia dependencies added to the document (finish-to-start)"
+          },
+          "dependenciesRemoved" : {
+            "type" : "array",
+            "items" : {
+              "$ref" : "#/components/schemas/MerlinDependencyDto"
+            },
+            "description" : "Dependencies deleted together with deleted activities"
+          },
+          "dependenciesSkipped" : {
+            "type" : "array",
+            "items" : {
+              "$ref" : "#/components/schemas/MerlinSkippedDependencyDto"
+            },
+            "description" : "Pythia dependencies that were not added, with the reason"
+          },
+          "contentRemoved" : {
+            "$ref" : "#/components/schemas/MerlinRemovedContentDto"
+          }
+        }
+      },
+      "MerlinMergeResultDto" : {
+        "description" : "The merged Merlin document and the report of what the merge changed",
+        "type" : "object",
+        "required" : [ "fileName", "document", "report" ],
+        "properties" : {
+          "fileName" : {
+            "type" : "string",
+            "description" : "File name to save the document under, e.g. merlin-v2-merged.zip"
+          },
+          "document" : {
+            "type" : "string",
+            "description" : "The merged Merlin document, standard (padded) base64"
+          },
+          "report" : {
+            "$ref" : "#/components/schemas/MerlinMergeReportDto"
+          }
+        }
+      },
+      "MerlinRemovedContentDto" : {
+        "type" : "object",
+        "description" : "User content deleted together with deleted activities, as counts",
+        "required" : [ "assignments", "comments", "attachments", "costs", "customAttributeValues" ],
+        "properties" : {
+          "assignments" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "comments" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "attachments" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "costs" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "customAttributeValues" : {
+            "type" : "integer",
+            "format" : "int32"
+          }
+        }
+      },
+      "MerlinSkippedDependencyDto" : {
+        "type" : "object",
+        "description" : "A Pythia dependency the merge did not add",
+        "required" : [ "fromPath", "toPath", "reason" ],
+        "properties" : {
+          "fromPath" : {
+            "type" : "string"
+          },
+          "toPath" : {
+            "type" : "string"
+          },
+          "reason" : {
+            "$ref" : "#/components/schemas/MerlinDependencySkipReason"
+          }
+        }
+      },
       "MerlinStructureDiffDto" : {
         "description" : "How the Merlin document's WBS differs from the estimation tree",
         "type" : "object",
@@ -862,7 +1017,7 @@
           },
           "inSync" : {
             "type" : "boolean",
-            "description" : "True when the structures match and the export can proceed"
+            "description" : "True when the structures match and the merge can proceed"
           }
         }
       },
@@ -2266,10 +2421,10 @@
         } ]
       }
     },
-    "/api/estimations/{estimationId}/versions/{versionNumber}/export/merlin" : {
+    "/api/estimations/{estimationId}/versions/{versionNumber}/merge/merlin" : {
       "post" : {
-        "summary" : "Write this version's calculated offerPT back into a COPY of an uploaded Merlin project and return it. Refuses with 409 when the document's WBS drifted from the estimation, unless overwriteStructure=true.",
-        "operationId" : "exportMerlin",
+        "summary" : "Merge this version into a COPY of an uploaded Merlin project: changed efforts, and Pythia's schedule dependencies add-only. Returns the merged document (base64) and a report of every change. Refuses with 409 when the document's WBS drifted from the estimation, unless overwriteStructure=true.",
+        "operationId" : "mergeIntoMerlin",
         "tags" : [ "Estimation versions" ],
         "parameters" : [ {
           "name" : "estimationId",
@@ -2313,9 +2468,13 @@
         },
         "responses" : {
           "200" : {
-            "description" : "The modified Merlin document (the upload is never changed)",
+            "description" : "The merged Merlin document (the upload is never changed) and the merge report",
             "content" : {
-              "application/octet-stream" : { }
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/MerlinMergeResultDto"
+                }
+              }
             }
           },
           "400" : {
@@ -2327,7 +2486,7 @@
           "409" : {
             "description" : "The Merlin structure differs from the estimation",
             "content" : {
-              "application/octet-stream" : {
+              "application/json" : {
                 "schema" : {
                   "$ref" : "#/components/schemas/MerlinStructureDiffDto"
                 }

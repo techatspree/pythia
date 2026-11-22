@@ -245,7 +245,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/estimations/{estimationId}/versions/{versionNumber}/export/merlin": {
+    "/api/estimations/{estimationId}/versions/{versionNumber}/merge/merlin": {
         parameters: {
             query?: never;
             header?: never;
@@ -254,8 +254,8 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Write this version's calculated offerPT back into a COPY of an uploaded Merlin project and return it. Refuses with 409 when the document's WBS drifted from the estimation, unless overwriteStructure=true. */
-        post: operations["exportMerlin"];
+        /** Merge this version into a COPY of an uploaded Merlin project: changed efforts, and Pythia's schedule dependencies add-only. Returns the merged document (base64) and a report of every change. Refuses with 409 when the document's WBS drifted from the estimation, unless overwriteStructure=true. */
+        post: operations["mergeIntoMerlin"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1014,6 +1014,66 @@ export interface components {
         LanguageUpdateDto: {
             language: string;
         };
+        /** @description A dependency between two activities, by WBS path */
+        MerlinDependencyDto: {
+            fromPath: string;
+            toPath: string;
+        };
+        /** @enum {string} */
+        MerlinDependencySkipReason: "WOULD_CREATE_CYCLE" | "PARENT_CHILD";
+        /** @description One leaf's effort before and after the merge, in person-days; null = no work */
+        MerlinEffortChangeDto: {
+            path: string;
+            /** Format: double */
+            beforePT: number | null;
+            /** Format: double */
+            afterPT: number | null;
+        };
+        /** @description Every change the merge made to the Merlin document */
+        MerlinMergeReportDto: {
+            /** @description Leaves whose effort changed, in tree order */
+            effortChanges: components["schemas"]["MerlinEffortChangeDto"][];
+            /** @description Activities created by a structure overwrite */
+            activitiesAdded: string[];
+            /** @description Activities deleted by a structure overwrite */
+            activitiesRemoved: string[];
+            /** @description Activities moved by a structure overwrite */
+            activitiesMoved: string[];
+            /** @description Pythia dependencies added to the document (finish-to-start) */
+            dependenciesAdded: components["schemas"]["MerlinDependencyDto"][];
+            /** @description Dependencies deleted together with deleted activities */
+            dependenciesRemoved: components["schemas"]["MerlinDependencyDto"][];
+            /** @description Pythia dependencies that were not added, with the reason */
+            dependenciesSkipped: components["schemas"]["MerlinSkippedDependencyDto"][];
+            contentRemoved: components["schemas"]["MerlinRemovedContentDto"];
+        };
+        /** @description The merged Merlin document and the report of what the merge changed */
+        MerlinMergeResultDto: {
+            /** @description File name to save the document under, e.g. merlin-v2-merged.zip */
+            fileName: string;
+            /** @description The merged Merlin document, standard (padded) base64 */
+            document: string;
+            report: components["schemas"]["MerlinMergeReportDto"];
+        };
+        /** @description User content deleted together with deleted activities, as counts */
+        MerlinRemovedContentDto: {
+            /** Format: int32 */
+            assignments: number;
+            /** Format: int32 */
+            comments: number;
+            /** Format: int32 */
+            attachments: number;
+            /** Format: int32 */
+            costs: number;
+            /** Format: int32 */
+            customAttributeValues: number;
+        };
+        /** @description A Pythia dependency the merge did not add */
+        MerlinSkippedDependencyDto: {
+            fromPath: string;
+            toPath: string;
+            reason: components["schemas"]["MerlinDependencySkipReason"];
+        };
         /** @description How the Merlin document's WBS differs from the estimation tree */
         MerlinStructureDiffDto: {
             /** @description Paths the estimation has that the Merlin document lacks */
@@ -1022,7 +1082,7 @@ export interface components {
             missingInEstimation: string[];
             /** @description Paths present on both sides but at a different sibling position */
             reordered: string[];
-            /** @description True when the structures match and the export can proceed */
+            /** @description True when the structures match and the merge can proceed */
             inSync: boolean;
         };
         MutationLogEntryDto: {
@@ -2040,7 +2100,7 @@ export interface operations {
             };
         };
     };
-    exportMerlin: {
+    mergeIntoMerlin: {
         parameters: {
             query: {
                 overwriteStructure: boolean;
@@ -2061,13 +2121,13 @@ export interface operations {
             };
         };
         responses: {
-            /** @description The modified Merlin document (the upload is never changed) */
+            /** @description The merged Merlin document (the upload is never changed) and the merge report */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/octet-stream": unknown;
+                    "application/json": components["schemas"]["MerlinMergeResultDto"];
                 };
             };
             /** @description The upload is not a readable Merlin/SQLite file */
@@ -2104,7 +2164,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/octet-stream": components["schemas"]["MerlinStructureDiffDto"];
+                    "application/json": components["schemas"]["MerlinStructureDiffDto"];
                 };
             };
         };

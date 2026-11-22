@@ -1323,9 +1323,9 @@
       "notes": "Merlin structure overwrite leaves dangling rows (ZDEPENDENCY, view configurations, comments, attachments) when it deletes obsolete activities"
     },
     "task-223": {
-      "status": "pending",
-      "started_at": null,
-      "completed_at": null,
+      "status": "done",
+      "started_at": "2026-11-22T19:19:38+00:00",
+      "completed_at": "2026-11-22T19:35:23+00:00",
       "notes": "Rename the Merlin export to 'Merge into Merlin': add Pythia's schedule dependencies (add-only) and show a dialog listing every change made to the Merlin file"
     },
     "task-224": {
