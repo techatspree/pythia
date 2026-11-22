@@ -41,6 +41,21 @@ class MerlinExporter {
             get() = missingInMerlin.isEmpty() && missingInEstimation.isEmpty() && reordered.isEmpty()
     }
 
+    /**
+     * What an overwrite's deletion removed (task-222): the obsolete activities
+     * and both endpoints of every removed dependency as WBS paths, and the
+     * number of rows removed per table. task-223's merge report lists these.
+     */
+    data class ObsoleteDeletion(
+        val activities: List<String>,
+        val removedDependencies: List<Pair<String, String>>,
+        val removedRows: Map<String, Int>
+    ) {
+        companion object {
+            val NONE = ObsoleteDeletion(emptyList(), emptyList(), emptyMap())
+        }
+    }
+
     private data class Activity(
         val pk: Long,
         val parentPk: Long?,
@@ -280,7 +295,9 @@ class MerlinExporter {
 
     // Reconciles by path rather than wiping and rebuilding, so activities that
     // still exist keep their row — and with it their Merlin-side dates,
-    // dependencies and assignments.
+    // dependencies and assignments. An obsolete activity is deleted together
+    // with everything that refers to it (ObsoleteCascade, task-222), so no row
+    // of the returned document points at a row that is gone.
     private fun reconcileStructure(
         conn: Connection,
         activities: List<Activity>,
@@ -291,29 +308,34 @@ class MerlinExporter {
         val merlin = merlinPaths(activities).toMutableMap()
         val wanted = entries.map { it.path }.toSet()
 
-        deleteObsolete(conn, merlin, wanted)
+        val deletion = deleteObsolete(conn, merlin, wanted)
+        if (deletion.activities.isNotEmpty()) {
+            Log.info(
+                "Merlin export: deleted ${deletion.activities.size} activities no longer in the estimation; " +
+                    "rows removed per table: ${deletion.removedRows}"
+            )
+            deletion.removedDependencies.forEach { (from, to) ->
+                Log.debug("Merlin export: removed dependency $from → $to")
+            }
+        }
         insertMissing(conn, entries, merlin, root.pk)
         repositionKept(conn, entries, merlin, root.pk)
         Log.info("Merlin export: structure overwritten to match the estimation (${entries.size} nodes)")
     }
 
-    private fun deleteObsolete(conn: Connection, merlin: MutableMap<String, Long>, wanted: Set<String>) {
+    private fun deleteObsolete(
+        conn: Connection,
+        merlin: MutableMap<String, Long>,
+        wanted: Set<String>
+    ): ObsoleteDeletion {
         val obsolete = merlin.filterKeys { it !in wanted }
-        if (obsolete.isEmpty()) return
-        val pks = obsolete.values.toList()
-        val placeholders = pks.joinToString(",") { "?" }
-        // Assignments reference their activity through ZACTIVITY_; drop them
-        // first so no row is left dangling.
-        conn.prepareStatement("DELETE FROM ZSCHEDULEITEM WHERE ZACTIVITY_ IN ($placeholders)").use { st ->
-            pks.forEachIndexed { i, pk -> st.setLong(i + 1, pk) }
-            st.executeUpdate()
-        }
-        conn.prepareStatement("DELETE FROM ZSCHEDULEITEM WHERE Z_PK IN ($placeholders)").use { st ->
-            pks.forEachIndexed { i, pk -> st.setLong(i + 1, pk) }
-            st.executeUpdate()
-        }
+        if (obsolete.isEmpty()) return ObsoleteDeletion.NONE
+        // The FULL pre-deletion path map: a removed dependency's other end may
+        // be a kept activity.
+        val pathByPk = merlin.entries.associate { (path, pk) -> pk to path }
+        val deletion = ObsoleteCascade(conn).delete(obsolete.keys.toList(), obsolete.values.toSet(), pathByPk)
         obsolete.keys.forEach { merlin.remove(it) }
-        Log.debug("Merlin export: deleted ${pks.size} activities no longer in the estimation")
+        return deletion
     }
 
     private fun insertMissing(
@@ -398,5 +420,168 @@ class MerlinExporter {
         val bytes = ByteArray(16)
         SecureRandom().nextBytes(bytes)
         return Base64.getUrlEncoder().withoutPadding().encodeToString(bytes)
+    }
+}
+
+// Deletes obsolete activities together with every row that refers to them
+// (task-222), so an overwritten document holds no reference to a row that is
+// gone. What goes is what Merlin itself removes with a deleted activity:
+//
+// - the activities' ASSIGNMENTS (ZSCHEDULEITEM.ZACTIVITY_); from here on the
+//   "deleted schedule items" are the activities AND their assignments, since
+//   anything below may name either;
+// - content OWNED by a deleted item, recursively: comments (and their
+//   readings) and attachments (and everything that hangs off them). Ownership
+//   is circular — a comment may belong to an attachment and an attachment to a
+//   comment (ZATTACHMENT.ZCOMMENT) — so both sets are collected until nothing
+//   new is found;
+// - references with no content of their own: dependencies, view
+//   configurations, list-value join rows, costs, custom attribute values.
+//
+// The list is EXPLICIT (REFERENCES, measured on the demo file by scanning every
+// column), not discovered at runtime: a scan would also delete through columns
+// whose meaning nobody checked. A table or column a document lacks (an older
+// Merlin) is skipped. NOT references despite their names:
+// ZGIVENPERMISSIONFORACTIVITIES / ZGIVENPERMISSIONFORATTACHMENTS on ZRESOURCE
+// and ZRESOURCEGROUP (integer flags), and ZPROJECT.ZROOTACTIVITY (the root is
+// never obsolete). The Z1_/Z48_/Z49_ columns beside a reference are Core
+// Data's entity-type columns for it and go with their row.
+//
+// Rank-chain links of KEPT activities that pointed at a deleted one are cleared
+// (with their Z49_ entity-type column), not cascaded.
+//
+// Whether Merlin accepts the result is verified manually only (it is a macOS
+// app, not available in CI).
+private class ObsoleteCascade(private val conn: Connection) {
+
+    private enum class Target { SCHEDULE_ITEM, COMMENT, ATTACHMENT }
+
+    private data class Reference(val table: String, val column: String, val target: Target)
+
+    private val columnPresence = mutableMapOf<Pair<String, String>, Boolean>()
+
+    fun delete(
+        obsoletePaths: List<String>,
+        obsoletePks: Set<Long>,
+        pathByPk: Map<Long, String>
+    ): MerlinExporter.ObsoleteDeletion {
+        val items = obsoletePks + select("ZSCHEDULEITEM", "ZACTIVITY_", obsoletePks)
+        val comments = mutableSetOf<Long>()
+        val attachments = mutableSetOf<Long>()
+        do {
+            val before = comments.size + attachments.size
+            attachments += select("ZATTACHMENT", "ZSCHEDULEITEM", items)
+            attachments += select("ZATTACHMENT", "ZCOMMENT", comments)
+            comments += select("ZCOMMENT", "ZSCHEDULEITEM", items)
+            comments += select("ZCOMMENT", "ZATTACHMENT", attachments)
+        } while (comments.size + attachments.size != before)
+
+        val removedDependencies = readDependencies(items).map { (from, to) ->
+            label(from, pathByPk) to label(to, pathByPk)
+        }
+        val targets = mapOf(
+            Target.SCHEDULE_ITEM to items,
+            Target.COMMENT to comments,
+            Target.ATTACHMENT to attachments
+        )
+        val removedRows = sortedMapOf<String, Int>()
+        REFERENCES.forEach { ref ->
+            val removed = deleteWhere(ref.table, ref.column, targets.getValue(ref.target))
+            if (removed > 0) removedRows.merge(ref.table, removed, Int::plus)
+        }
+        clearRankChain(items)
+        return MerlinExporter.ObsoleteDeletion(obsoletePaths, removedDependencies, removedRows)
+    }
+
+    private fun label(pk: Long, pathByPk: Map<Long, String>): String = pathByPk[pk] ?: "#$pk"
+
+    private fun hasColumn(table: String, column: String): Boolean =
+        columnPresence.getOrPut(table to column) {
+            conn.prepareStatement("SELECT 1 FROM pragma_table_info(?) WHERE name = ?").use { st ->
+                st.setString(1, table)
+                st.setString(2, column)
+                st.executeQuery().use { it.next() }
+            }.also { present ->
+                if (!present) Log.debug("Merlin export: document has no $table.$column; skipped")
+            }
+        }
+
+    // Table and column names come from the constant list above, never from
+    // input; the ids are bound.
+    private fun select(table: String, column: String, ids: Set<Long>): Set<Long> {
+        if (ids.isEmpty() || !hasColumn(table, column)) return emptySet()
+        val sql = "SELECT Z_PK FROM $table WHERE $column IN (${placeholders(ids)})"
+        return conn.prepareStatement(sql).use { st ->
+            bind(st, ids)
+            st.executeQuery().use { rs ->
+                buildSet { while (rs.next()) add(rs.getLong(1)) }
+            }
+        }
+    }
+
+    private fun readDependencies(items: Set<Long>): List<Pair<Long, Long>> {
+        val columns = listOf("ZPREVIOUSACTIVITY_", "ZNEXTACTIVITY_")
+        if (items.isEmpty() || columns.any { !hasColumn("ZDEPENDENCY", it) }) return emptyList()
+        val sql = "SELECT ZPREVIOUSACTIVITY_, ZNEXTACTIVITY_ FROM ZDEPENDENCY " +
+            "WHERE ZPREVIOUSACTIVITY_ IN (${placeholders(items)}) OR ZNEXTACTIVITY_ IN (${placeholders(items)}) " +
+            "ORDER BY Z_PK"
+        return conn.prepareStatement(sql).use { st ->
+            bind(st, items)
+            bind(st, items, offset = items.size)
+            st.executeQuery().use { rs ->
+                buildList { while (rs.next()) add(rs.getLong(1) to rs.getLong(2)) }
+            }
+        }
+    }
+
+    private fun deleteWhere(table: String, column: String, ids: Set<Long>): Int {
+        if (ids.isEmpty() || !hasColumn(table, column)) return 0
+        return conn.prepareStatement("DELETE FROM $table WHERE $column IN (${placeholders(ids)})").use { st ->
+            bind(st, ids)
+            st.executeUpdate()
+        }
+    }
+
+    private fun clearRankChain(deleted: Set<Long>) {
+        RANK_COLUMNS.filter { hasColumn("ZSCHEDULEITEM", it) }.forEach { column ->
+            val entityColumn = "Z49_$column"
+            val clearEntity = if (hasColumn("ZSCHEDULEITEM", entityColumn)) ", $entityColumn = NULL" else ""
+            val sql = "UPDATE ZSCHEDULEITEM SET $column = NULL$clearEntity, Z_OPT = Z_OPT + 1 " +
+                "WHERE $column IN (${placeholders(deleted)})"
+            val cleared = conn.prepareStatement(sql).use { st ->
+                bind(st, deleted)
+                st.executeUpdate()
+            }
+            if (cleared > 0) Log.debug("Merlin export: cleared $cleared $column links to deleted activities")
+        }
+    }
+
+    private fun placeholders(ids: Set<Long>): String = ids.joinToString(",") { "?" }
+
+    private fun bind(st: java.sql.PreparedStatement, ids: Set<Long>, offset: Int = 0) {
+        ids.forEachIndexed { i, id -> st.setLong(offset + i + 1, id) }
+    }
+
+    private companion object {
+        val RANK_COLUMNS = listOf("ZRANKNEXTACTIVITY_", "ZRANKPREVIOUSACTIVITY_")
+
+        // Deleted in this order: dependents first, then the owners, then the
+        // schedule items themselves (activities and their assignments).
+        val REFERENCES = listOf(
+            Reference("ZCOMMENTREADING", "ZCOMMENT", Target.COMMENT),
+            Reference("Z_48ASSOCIATEDLISTVALUES", "Z_48SCHEDULEITEMS", Target.SCHEDULE_ITEM),
+            Reference("Z_1ASSOCIATEDLISTVALUES", "Z_1ATTACHMENTS", Target.ATTACHMENT),
+            Reference("ZOBJECTVIEWCONFIGURATION", "ZSCHEDULEITEM_", Target.SCHEDULE_ITEM),
+            Reference("ZOBJECTVIEWCONFIGURATION", "ZATTACHMENT_", Target.ATTACHMENT),
+            Reference("ZCOST", "ZSCHEDULEITEM", Target.SCHEDULE_ITEM),
+            Reference("ZCOST", "ZATTACHMENT", Target.ATTACHMENT),
+            Reference("ZCUSTOMATTRIBUTEVALUE", "ZSCHEDULEITEM", Target.SCHEDULE_ITEM),
+            Reference("ZCUSTOMATTRIBUTEVALUE", "ZATTACHMENT", Target.ATTACHMENT),
+            Reference("ZDEPENDENCY", "ZPREVIOUSACTIVITY_", Target.SCHEDULE_ITEM),
+            Reference("ZDEPENDENCY", "ZNEXTACTIVITY_", Target.SCHEDULE_ITEM),
+            Reference("ZCOMMENT", "Z_PK", Target.COMMENT),
+            Reference("ZATTACHMENT", "Z_PK", Target.ATTACHMENT),
+            Reference("ZSCHEDULEITEM", "Z_PK", Target.SCHEDULE_ITEM)
+        )
     }
 }

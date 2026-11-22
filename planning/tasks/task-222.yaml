@@ -1,7 +1,7 @@
 id: task-222
 phase: phase-19
 title: "Merlin structure overwrite leaves no dangling rows"
-depends_on: [task-133]
+depends_on: [task-133, task-221]
 description: |
   ## Why
 
@@ -36,7 +36,20 @@ description: |
   references a comment. `ZCOMMENT`, `ZCOST`, `ZCUSTOMATTRIBUTEVALUE` and
   `ZOBJECTVIEWCONFIGURATION` can reference an ATTACHMENT (`ZATTACHMENT` /
   `ZATTACHMENT_`), and `Z_1ASSOCIATEDLISTVALUES.Z_1ATTACHMENTS` joins
-  attachments to list values.
+  attachments to list values. **`ZATTACHMENT.ZCOMMENT`** references a
+  comment (0 rows in the demo). So ownership is circular: a comment can
+  belong to an attachment and an attachment to a comment.
+
+  (Measured 2026-11-21 by scanning every column of every table whose name
+  contains SCHEDULEITEM, ACTIVIT, ATTACHMENT or COMMENT. The `Z1_`/`Z48_`/
+  `Z49_` columns beside each reference are Core Data's entity-type columns
+  for it, not references of their own. `ZPROJECT.ZROOTACTIVITY` points at
+  the root activity, which is never obsolete.)
+
+  The 24 deleted ASSIGNMENTS are `ZSCHEDULEITEM` rows too. A cost, comment,
+  custom attribute value or view configuration may name an assignment just
+  as well as an activity (0 such rows in the demo, but the columns allow
+  it).
 
   Concrete case: if the estimation renames the top-level group
   "Implementation" (pk 6), the overwrite deletes its subtree of **31
@@ -81,10 +94,20 @@ description: |
     `pragma_table_info(<table>)` once per entry, and log the skip at DEBUG.
   - **Rank-chain columns are cleared, not cascaded.** If a KEPT activity's
     `ZRANKNEXTACTIVITY_`/`ZRANKPREVIOUSACTIVITY_` points at a deleted one,
-    set it to NULL (and bump `Z_OPT`). It is NULL throughout the demo file,
+    set it to NULL together with its entity-type column
+    (`Z49_RANKNEXTACTIVITY_`/`Z49_RANKPREVIOUSACTIVITY_`), and bump `Z_OPT`. It is NULL throughout the demo file,
     so this is a guard, not an observed case.
-  - **`ZRESOURCE.ZGIVENPERMISSIONFORACTIVITIES` is NOT a reference.** It is
-    an integer flag (1 in the demo), despite its name. Leave it alone.
+  - **The cascade runs over every deleted `ZSCHEDULEITEM` row**: the obsolete
+    activities AND their assignments, not the activities alone.
+  - **Owned comments and attachments are collected until nothing new is
+    found**, because ownership is circular (comment ↔ attachment): start from
+    the deleted schedule items, then repeatedly add attachments owned by a
+    collected item or comment and comments owned by a collected item or
+    attachment.
+  - **`ZGIVENPERMISSIONFORACTIVITIES` / `ZGIVENPERMISSIONFORATTACHMENTS` are
+    NOT references**, on both `ZRESOURCE` and `ZRESOURCEGROUP`. They are
+    integer flags (`ZRESOURCE.ZGIVENPERMISSIONFORACTIVITIES` is the integer 2
+    in the demo), despite their names. Leave them alone.
   - **Merlin's own handling is still unverified.** Before marking the task
     done, the implementer cannot open the result in Merlin (macOS app, not in
     CI). The report must say so, and ask the user to open one overwritten
@@ -137,11 +160,13 @@ steps:
     `data class Reference(val table: String, val column: String, val target: Target)`
     with `Target` = ACTIVITY | COMMENT | ATTACHMENT. Implement the cascade in
     `deleteObsolete`:
-    1. Collect the obsolete activity pks (as today) and their WBS paths.
-    2. Collect the attachment pks owned by them
-       (`ZATTACHMENT.ZSCHEDULEITEM IN (…)`) and the comment pks owned by
-       either the activities or those attachments (`ZCOMMENT.ZSCHEDULEITEM`
-       / `ZCOMMENT.ZATTACHMENT`).
+    1. Collect the obsolete activity pks (as today) and their WBS paths, then
+       the pks of their assignments (`ZSCHEDULEITEM.ZACTIVITY_ IN (…)`). The
+       deleted schedule items are both sets together.
+    2. Collect owned comments and attachments until nothing new is found:
+       attachments with `ZSCHEDULEITEM` in the deleted items or `ZCOMMENT`
+       in the collected comments; comments with `ZSCHEDULEITEM` in the
+       deleted items or `ZATTACHMENT` in the collected attachments.
     3. Before deleting, read the `ZDEPENDENCY` rows that touch an obsolete
        activity and resolve both endpoints to WBS paths. Use the full
        pre-deletion path map, since one endpoint may be a kept activity.
@@ -150,8 +175,9 @@ steps:
        configurations, costs and custom attribute values for both the
        activities and the attachments; attachments; dependencies; then
        assignments and activities (the two existing statements).
-    5. Set kept activities' rank-chain columns to NULL where they point at a
-       deleted pk.
+    5. Set kept activities' rank-chain columns (and their `Z49_` entity-type
+       columns) to NULL where they point at a deleted pk.
+    Fold the existing DEBUG line of `deleteObsolete` into the new logging.
     Skip any table/column absent from the document (`pragma_table_info`).
     Use bound `?` placeholders as today, never string-concatenated ids. Build
     the IN-lists with the existing placeholder pattern.
@@ -167,7 +193,9 @@ steps:
   - |
     Tests in `MerlinExporterTest.kt`:
     - A shared helper `danglingReferences(bytes): Map<String, Int>` that, for
-      every entry of a test-side copy of the reference list, counts rows with
+      every entry of a test-side copy of the reference list (written out
+      independently in the test, NOT imported from production, so a missing
+      production entry shows up as a non-zero count), counts rows with
       a non-NULL reference to a pk that does not exist in its target table
       (`SELECT count(*) FROM t WHERE c IS NOT NULL AND c NOT IN (SELECT Z_PK FROM target)`;
       the targets are `ZSCHEDULEITEM`, `ZCOMMENT` and `ZATTACHMENT`).
@@ -180,8 +208,10 @@ steps:
       on `sampleBytes()` first.
     - `owned content is deleted with the activity`: on a temp copy of the
       sample, INSERT a comment and a comment reading on "Final QA" (pk 49),
-      an attachment on pk 49 with its own comment, a cost and a custom
-      attribute value on pk 49, and a list-value join for pk 49. Rename
+      an attachment on pk 49 with its own comment, an attachment hanging off
+      that first COMMENT (`ZATTACHMENT.ZCOMMENT`, the circular case), a cost
+      and a custom attribute value on pk 49, a cost on one of pk 49's
+      ASSIGNMENTS (a row with `ZACTIVITY_ = 49`), and a list-value join for pk 49. Rename
       "Implementation", export with overwrite, and assert those rows are gone
       and `danglingReferences` is all zero. Insert only the columns the
       deletion keys on, plus `Z_PK`/`Z_ENT`/`Z_OPT`. Take `Z_ENT` from
@@ -203,6 +233,8 @@ steps:
     with the cascade: the reference list, its order, the owned-content rule,
     rank-chain clearing, the `ZGIVENPERMISSIONFORACTIVITIES` non-reference,
     and that Merlin's acceptance of the result is manually verified only.
+    Remove the "**Known effect of the exporter:**" bullet that task-221 added
+    to "WBS import": the exporter no longer leaves dangling `ZDEPENDENCY` rows.
     Also correct the comment above `reconcileStructure` in `MerlinExporter.kt`.
   - |
     ./gradlew :backend:implementation:test
@@ -232,7 +264,14 @@ validation:
     jq -e '.merlin.diffBody | test("Abhängigkeiten")' src/frontend/src/lib/i18n/de.json
     jq -e '.merlin.diffBody | test("dependencies")' src/frontend/src/lib/i18n/en.json
   - |
-    grep -q 'ZDEPENDENCY' .claude/skills/merlin-integration/SKILL.md
+    # task-221's "known effect" note is gone, and the cascade is documented
+    ! grep -q 'Known effect of the exporter' .claude/skills/merlin-integration/SKILL.md
+    grep -q 'ZCOMMENTREADING' .claude/skills/merlin-integration/SKILL.md
+  - |
+    # the circular case and the assignments are covered
+    F=src/backend/implementation/src/main/kotlin/io/pythia/service/MerlinExporter.kt
+    grep -q 'ZATTACHMENT.*ZCOMMENT\|"ZCOMMENT"' $F
+    grep -q 'ZACTIVITY_' $F
   - |
     ./gradlew :backend:implementation:test --tests 'io.pythia.service.MerlinExporterTest' --tests 'io.pythia.rest.MerlinExportResourceIT'
   - |

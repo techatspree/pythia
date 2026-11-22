@@ -317,7 +317,7 @@
   },
   "merlin": {
     "diffTitle": "Struktur weicht ab",
-    "diffBody": "Die Struktur des Merlin-Projekts stimmt nicht mehr mit dieser Schätzung überein. Beim Fortfahren wird die Struktur in der Merlin-Kopie durch die Struktur dieser Anwendung ersetzt: fehlende Vorgänge werden angelegt, hier nicht mehr vorhandene Vorgänge werden mitsamt ihren Zuordnungen gelöscht.",
+    "diffBody": "Die Struktur des Merlin-Projekts stimmt nicht mehr mit dieser Schätzung überein. Beim Fortfahren wird die Struktur in der Merlin-Kopie durch die Struktur dieser Anwendung ersetzt: fehlende Vorgänge werden angelegt, hier nicht mehr vorhandene Vorgänge werden mitsamt ihren Zuordnungen, Abhängigkeiten, Kommentaren und Anhängen gelöscht.",
     "diffAdded": "Nur in dieser Anwendung",
     "diffRemoved": "Nur in Merlin",
     "diffReordered": "Andere Reihenfolge",

@@ -214,6 +214,141 @@ class MerlinExporterTest {
         assertEquals(0x3F.toByte(), exporter.encodeWork(1.0)!!.last())
     }
 
+    // ── task-222: no dangling rows after an overwrite ────────────────────────
+
+    // Every column of the Merlin schema that points at a ZSCHEDULEITEM,
+    // ZCOMMENT or ZATTACHMENT row (measured by scanning every column of the
+    // demo file). Written out HERE, independently of the production list, so a
+    // reference the exporter forgets shows up as a non-zero count.
+    private val referenceColumns = listOf(
+        Triple("ZSCHEDULEITEM", "ZACTIVITY_", "ZSCHEDULEITEM"),
+        Triple("ZSCHEDULEITEM", "ZPARENTACTIVITY_", "ZSCHEDULEITEM"),
+        Triple("ZSCHEDULEITEM", "ZRANKNEXTACTIVITY_", "ZSCHEDULEITEM"),
+        Triple("ZSCHEDULEITEM", "ZRANKPREVIOUSACTIVITY_", "ZSCHEDULEITEM"),
+        Triple("ZDEPENDENCY", "ZPREVIOUSACTIVITY_", "ZSCHEDULEITEM"),
+        Triple("ZDEPENDENCY", "ZNEXTACTIVITY_", "ZSCHEDULEITEM"),
+        Triple("ZOBJECTVIEWCONFIGURATION", "ZSCHEDULEITEM_", "ZSCHEDULEITEM"),
+        Triple("ZOBJECTVIEWCONFIGURATION", "ZATTACHMENT_", "ZATTACHMENT"),
+        Triple("Z_48ASSOCIATEDLISTVALUES", "Z_48SCHEDULEITEMS", "ZSCHEDULEITEM"),
+        Triple("Z_1ASSOCIATEDLISTVALUES", "Z_1ATTACHMENTS", "ZATTACHMENT"),
+        Triple("ZCOMMENT", "ZSCHEDULEITEM", "ZSCHEDULEITEM"),
+        Triple("ZCOMMENT", "ZATTACHMENT", "ZATTACHMENT"),
+        Triple("ZCOMMENTREADING", "ZCOMMENT", "ZCOMMENT"),
+        Triple("ZATTACHMENT", "ZSCHEDULEITEM", "ZSCHEDULEITEM"),
+        Triple("ZATTACHMENT", "ZCOMMENT", "ZCOMMENT"),
+        Triple("ZCOST", "ZSCHEDULEITEM", "ZSCHEDULEITEM"),
+        Triple("ZCOST", "ZATTACHMENT", "ZATTACHMENT"),
+        Triple("ZCUSTOMATTRIBUTEVALUE", "ZSCHEDULEITEM", "ZSCHEDULEITEM"),
+        Triple("ZCUSTOMATTRIBUTEVALUE", "ZATTACHMENT", "ZATTACHMENT")
+    )
+
+    // table.column → rows whose non-NULL reference names a row that does not exist.
+    private fun danglingReferences(bytes: ByteArray): Map<String, Int> = withSqlite(bytes) { conn ->
+        referenceColumns.associate { (table, column, target) ->
+            "$table.$column" to count(
+                conn,
+                "SELECT count(*) FROM $table WHERE $column IS NOT NULL AND $column NOT IN (SELECT Z_PK FROM $target)"
+            )
+        }
+    }
+
+    private fun count(conn: java.sql.Connection, sql: String): Int =
+        conn.createStatement().use { st -> st.executeQuery(sql).use { rs -> rs.next(); rs.getInt(1) } }
+
+    private fun rowCount(bytes: ByteArray, sql: String): Int = withSqlite(bytes) { count(it, sql) }
+
+    // A copy of the sample with [sql] applied; the connection is closed before
+    // the bytes are read back.
+    private fun sampleWith(vararg sql: String): ByteArray {
+        val temp = Files.createTempFile("merlin-export-test-", ".sqlite")
+        try {
+            Files.write(temp, sampleBytes())
+            org.sqlite.JDBC().connect("jdbc:sqlite:${temp.toAbsolutePath()}", Properties()).use { conn ->
+                conn.createStatement().use { st -> sql.forEach { st.executeUpdate(it) } }
+            }
+            return Files.readAllBytes(temp)
+        } finally {
+            Files.deleteIfExists(temp)
+        }
+    }
+
+    // The demo's top-level group "Implementation" (pk 6) renamed: the overwrite
+    // deletes its whole subtree (31 activities, 24 assignments).
+    private fun versionWithImplementationRenamed(): SubmittedEstimationVersion =
+        versionFromSample(offerPTPerLeaf = 1.0).also { version ->
+            version.roots.filterIsInstance<SubmittedGroupNode>()
+                .first { it.title == "Implementation" }
+                .title = "Implementierung"
+        }
+
+    private fun allZero(counts: Map<String, Int>) = counts.filterValues { it != 0 }
+
+    @Test
+    fun `overwrite that deletes a group leaves no dangling references`() {
+        // The helper is not vacuous: the untouched sample has none either, and
+        // the old exporter left 2 dependency rows and 7 view configurations.
+        assertEquals(emptyMap<String, Int>(), allZero(danglingReferences(sampleBytes())))
+
+        val exported = exporter.export(sampleBytes(), versionWithImplementationRenamed(), overwriteStructure = true)
+
+        assertEquals(emptyMap<String, Int>(), allZero(danglingReferences(exported)))
+        // Both demo edges touch the deleted subtree (Initialisation → Implementation → Closure).
+        assertEquals(0, rowCount(exported, "SELECT count(*) FROM ZDEPENDENCY"))
+    }
+
+    @Test
+    fun `owned content is deleted with the activity`() {
+        fun ent(name: String) = "(SELECT Z_ENT FROM Z_PRIMARYKEY WHERE Z_NAME = '$name')"
+        // pk 49 "Final QA" lies inside "Implementation". 9xxx pks are free in the sample.
+        val bytes = sampleWith(
+            // an assignment of pk 49 (Assignment, Z_ENT 51), with a cost on it
+            "INSERT INTO ZSCHEDULEITEM (Z_PK, Z_ENT, Z_OPT, ZACTIVITY_) VALUES (9010, 51, 1, 49)",
+            "INSERT INTO ZCOST (Z_PK, Z_ENT, Z_OPT, ZSCHEDULEITEM) VALUES (9011, ${ent("Cost")}, 1, 9010)",
+            // a comment on pk 49 and a reading of it
+            "INSERT INTO ZCOMMENT (Z_PK, Z_ENT, Z_OPT, ZSCHEDULEITEM) VALUES (9001, ${ent("Comment")}, 1, 49)",
+            "INSERT INTO ZCOMMENTREADING (Z_PK, Z_ENT, Z_OPT, ZCOMMENT) VALUES (9002, ${ent("CommentReading")}, 1, 9001)",
+            // an attachment on pk 49 with a comment of its own
+            "INSERT INTO ZATTACHMENT (Z_PK, Z_ENT, Z_OPT, ZSCHEDULEITEM) VALUES (9003, ${ent("Attachment")}, 1, 49)",
+            "INSERT INTO ZCOMMENT (Z_PK, Z_ENT, Z_OPT, ZATTACHMENT) VALUES (9004, ${ent("Comment")}, 1, 9003)",
+            // the circular case: an attachment hanging off the first COMMENT
+            "INSERT INTO ZATTACHMENT (Z_PK, Z_ENT, Z_OPT, ZCOMMENT) VALUES (9005, ${ent("Attachment")}, 1, 9001)",
+            // a cost and a custom attribute value on pk 49
+            "INSERT INTO ZCOST (Z_PK, Z_ENT, Z_OPT, ZSCHEDULEITEM) VALUES (9006, ${ent("Cost")}, 1, 49)",
+            "INSERT INTO ZCUSTOMATTRIBUTEVALUE (Z_PK, Z_ENT, Z_OPT, ZSCHEDULEITEM) " +
+                "VALUES (9007, ${ent("CustomAttributeValue")}, 1, 49)",
+            // a list-value join for pk 49
+            "INSERT INTO Z_48ASSOCIATEDLISTVALUES (Z_48SCHEDULEITEMS, Z_34ASSOCIATEDLISTVALUES) VALUES (49, 1)"
+        )
+
+        val exported = exporter.export(bytes, versionWithImplementationRenamed(), overwriteStructure = true)
+
+        val inserted = mapOf(
+            "ZSCHEDULEITEM" to "Z_PK = 9010",
+            "ZCOST" to "Z_PK IN (9006, 9011)",
+            "ZCOMMENT" to "Z_PK IN (9001, 9004)",
+            "ZCOMMENTREADING" to "Z_PK = 9002",
+            "ZATTACHMENT" to "Z_PK IN (9003, 9005)",
+            "ZCUSTOMATTRIBUTEVALUE" to "Z_PK = 9007",
+            "Z_48ASSOCIATEDLISTVALUES" to "Z_48SCHEDULEITEMS = 49"
+        )
+        inserted.forEach { (table, where) ->
+            assertEquals(0, rowCount(exported, "SELECT count(*) FROM $table WHERE $where"), "$table $where must be gone")
+        }
+        assertEquals(emptyMap<String, Int>(), allZero(danglingReferences(exported)))
+    }
+
+    @Test
+    fun `kept activities keep their dependencies`() {
+        // The first leaf is touched by no dependency (both demo edges join top-level groups).
+        val version = versionFromSample(offerPTPerLeaf = 1.0)
+        firstLeaf(version).description = "Renamed by the estimator"
+
+        val exported = exporter.export(sampleBytes(), version, overwriteStructure = true)
+
+        assertEquals(2, rowCount(exported, "SELECT count(*) FROM ZDEPENDENCY"))
+        assertEquals(emptyMap<String, Int>(), allZero(danglingReferences(exported)))
+    }
+
     private fun firstLeaf(version: SubmittedEstimationVersion): SubmittedEstimationNode {
         fun find(nodes: List<SubmittedEstimationNode>): SubmittedEstimationNode? {
             nodes.forEach { node ->

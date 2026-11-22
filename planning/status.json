@@ -1317,9 +1317,9 @@
       "notes": "Merlin import reads ZDEPENDENCY: finish-to-start dependencies become the imported draft's schedule dependencies"
     },
     "task-222": {
-      "status": "pending",
-      "started_at": null,
-      "completed_at": null,
+      "status": "done",
+      "started_at": "2026-11-21T19:59:17+00:00",
+      "completed_at": "2026-11-21T20:06:34+00:00",
       "notes": "Merlin structure overwrite leaves dangling rows (ZDEPENDENCY, view configurations, comments, attachments) when it deletes obsolete activities"
     },
     "task-223": {
