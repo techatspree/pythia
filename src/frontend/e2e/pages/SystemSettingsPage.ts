@@ -1,7 +1,7 @@
 import type { Locator, Page } from '@playwright/test';
 import { expect } from '@playwright/test';
 
-/** The admin system-settings page (task-146); the working-time section is task-213. */
+/** The admin system-settings page (task-146); the working-time section is task-213, the MCP switch task-218. */
 export class SystemSettingsPage {
 	constructor(private readonly page: Page) {}
 
@@ -18,6 +18,25 @@ export class SystemSettingsPage {
 	async saveHoursPerDay(value: string): Promise<void> {
 		await this.hoursPerDayInput.fill(value);
 		await this.page.getByTestId('system.save-hours-per-day').click();
+	}
+
+	/** The MCP interface switch (task-218). */
+	get mcpEnabledCheckbox(): Locator {
+		return this.page.getByTestId('system.mcp-enabled');
+	}
+
+	/** The endpoint line; shown only while the SAVED setting is on. */
+	get mcpEndpoint(): Locator {
+		return this.page.getByTestId('system.mcp-endpoint');
+	}
+
+	get mcpEndpointUrl(): Locator {
+		return this.page.getByTestId('system.mcp-endpoint-url');
+	}
+
+	async saveMcp(enabled: boolean): Promise<void> {
+		await this.mcpEnabledCheckbox.setChecked(enabled);
+		await this.page.getByTestId('system.save-mcp').click();
 	}
 
 	async expectNotice(): Promise<void> {

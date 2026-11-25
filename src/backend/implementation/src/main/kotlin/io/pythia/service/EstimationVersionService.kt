@@ -32,6 +32,8 @@ import io.pythia.model.EstimationVersion
 import io.pythia.repository.DraftEstimationVersionRepository
 import io.pythia.repository.EstimationRepository
 import io.pythia.repository.SubmittedEstimationVersionRepository
+import io.pythia.rest.dto.EstimationVersionSummaryDto
+import io.pythia.rest.dto.toSummaryDto
 import io.quarkus.logging.Log
 import jakarta.enterprise.context.ApplicationScoped
 import jakarta.transaction.Transactional
@@ -84,6 +86,29 @@ class EstimationVersionService(
 
     fun calculateDraft(draft: DraftEstimationVersion): EstimationVersion =
         draftVersionMapper.toDomain(draft, systemSettingsService.hoursPerDay()).calculate()
+
+    // The version list as the UI and the MCP tools show it: the draft first,
+    // with its live calculated total, then the submitted versions. Shared by
+    // GET …/versions and the list_versions tool (task-218).
+    fun versionSummaries(estimationId: UUID): List<EstimationVersionSummaryDto> {
+        val summaries = mutableListOf<EstimationVersionSummaryDto>()
+        findDraft(estimationId)?.let { draft ->
+            summaries.add(draft.toSummaryDto(calculateDraft(draft).totalEffort))
+        }
+        summaries.addAll(findSubmittedVersions(estimationId).map { it.toSummaryDto() })
+        return summaries
+    }
+
+    // A version ref ("draft" or a version number) resolved to a submitted
+    // snapshot (the draft is snapshotted on the fly), or null when there is no
+    // such version. Shared by compare, export, the Merlin merge and the MCP
+    // tools (task-218); the callers decide how "not found" is reported.
+    fun resolveVersion(estimationId: UUID, ref: String): SubmittedEstimationVersion? =
+        if (ref == "draft") {
+            findDraft(estimationId)?.let { snapshotDraft(it) }
+        } else {
+            ref.toIntOrNull()?.let { findSubmittedVersion(estimationId, it) }
+        }
 
     @Transactional
     fun createDraft(estimationId: UUID): DraftEstimationVersion {

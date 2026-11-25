@@ -711,6 +711,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/system/mcp": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Admin: switch the read-only MCP interface on or off */
+        put: operations["updateMcpEnabled"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/users": {
         parameters: {
             query?: never;
@@ -1230,10 +1247,14 @@ export interface components {
             customCssUpdatedAt: string | null;
             /** Format: double */
             hoursPerDay: number;
+            mcpEnabled: boolean;
         };
         SystemSettingsHoursPerDayDto: {
             /** Format: double */
             hoursPerDay: number;
+        };
+        SystemSettingsMcpDto: {
+            enabled: boolean;
         };
         SystemSettingsUpdateDto: {
             displayName?: string | null;
@@ -3568,6 +3589,49 @@ export interface operations {
                 content?: never;
             };
             /** @description Not Authorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Not an administrator */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    updateMcpEnabled: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SystemSettingsMcpDto"];
+            };
+        };
+        responses: {
+            /** @description Stored */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Not authenticated */
             401: {
                 headers: {
                     [name: string]: unknown;

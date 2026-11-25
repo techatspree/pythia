@@ -1464,7 +1464,7 @@
       },
       "SystemSettingsDto" : {
         "type" : "object",
-        "required" : [ "displayName", "hasCustomCss", "customCssFilename", "customCssUpdatedAt", "hoursPerDay" ],
+        "required" : [ "displayName", "hasCustomCss", "customCssFilename", "customCssUpdatedAt", "hoursPerDay", "mcpEnabled" ],
         "properties" : {
           "displayName" : {
             "type" : [ "string", "null" ]
@@ -1481,6 +1481,9 @@
           "hoursPerDay" : {
             "type" : "number",
             "format" : "double"
+          },
+          "mcpEnabled" : {
+            "type" : "boolean"
           }
         }
       },
@@ -1491,6 +1494,15 @@
           "hoursPerDay" : {
             "type" : "number",
             "format" : "double"
+          }
+        }
+      },
+      "SystemSettingsMcpDto" : {
+        "type" : "object",
+        "required" : [ "enabled" ],
+        "properties" : {
+          "enabled" : {
+            "type" : "boolean"
           }
         }
       },
@@ -3789,6 +3801,40 @@
           },
           "401" : {
             "description" : "Not Authorized"
+          }
+        },
+        "security" : [ {
+          "SecurityScheme" : [ "ADMIN" ]
+        } ]
+      }
+    },
+    "/api/system/mcp" : {
+      "put" : {
+        "summary" : "Admin: switch the read-only MCP interface on or off",
+        "operationId" : "updateMcpEnabled",
+        "tags" : [ "System" ],
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/SystemSettingsMcpDto"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "204" : {
+            "description" : "Stored"
+          },
+          "401" : {
+            "description" : "Not authenticated"
+          },
+          "403" : {
+            "description" : "Not an administrator"
+          },
+          "400" : {
+            "description" : "Bad Request"
           }
         },
         "security" : [ {

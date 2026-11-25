@@ -13,7 +13,6 @@ import io.pythia.rest.dto.MutationLogEntryDto
 import io.pythia.rest.dto.VersionComparisonDto
 import io.pythia.rest.dto.toDto
 import io.pythia.rest.dto.toLogDto
-import io.pythia.rest.dto.toSummaryDto
 import io.pythia.service.CsvExporter
 import io.quarkus.logging.Log
 import io.pythia.service.CurrentUserService
@@ -87,17 +86,7 @@ class EstimationVersionResource(
     @APIResponse(responseCode = "404", description = "Estimation not found")
     fun listVersions(@PathParam("estimationId") estimationId: UUID): Response {
         ensureEstimationExists(estimationId)
-        val submitted = versionService.findSubmittedVersions(estimationId)
-        val draft = versionService.findDraft(estimationId)
-
-        val summaries = mutableListOf<EstimationVersionSummaryDto>()
-        if (draft != null) {
-            val result = versionService.calculateDraft(draft)
-            summaries.add(draft.toSummaryDto(result.totalEffort))
-        }
-        summaries.addAll(submitted.map { it.toSummaryDto() })
-
-        return Response.ok(summaries).build()
+        return Response.ok(versionService.versionSummaries(estimationId)).build()
     }
 
     @POST
@@ -367,8 +356,8 @@ class EstimationVersionResource(
         @PathParam("versionB") versionB: String
     ): Response {
         ensureEstimationExists(estimationId)
-        val a = resolveVersion(estimationId, versionA)
-        val b = resolveVersion(estimationId, versionB)
+        val a = versionOr404(estimationId, versionA)
+        val b = versionOr404(estimationId, versionB)
         return Response.ok(comparisonService.compare(a, b)).build()
     }
 
@@ -397,7 +386,7 @@ class EstimationVersionResource(
         val estimation = estimationRepository.findById(estimationId)
             ?: throw NotFoundException("Estimation not found: $estimationId")
         val method = estimation.method
-        val version = resolveVersion(estimationId, versionNumber)
+        val version = versionOr404(estimationId, versionNumber)
         Log.info("Exporting estimation $estimationId version $versionNumber as $format (method $method)")
 
         val label = if (versionNumber == "draft") "draft" else "v$versionNumber"
@@ -449,7 +438,7 @@ class EstimationVersionResource(
                 "overwriteStructure=$overwriteStructure"
         )
         ensureEstimationExists(estimationId)
-        val version = resolveVersion(estimationId, versionNumber)
+        val version = versionOr404(estimationId, versionNumber)
         val uploaded = file.uploadedFile().toFile().readBytes()
         val result = try {
             merlinMerger.merge(uploaded, version, overwriteStructure)
@@ -466,17 +455,12 @@ class EstimationVersionResource(
         return Response.ok(dto).type(MediaType.APPLICATION_JSON).build()
     }
 
-    // Resolve a version ref ("draft" or a number) to a submitted snapshot, or
-    // 404. Shared by compare and export; kept to <=2 throws.
-    private fun resolveVersion(estimationId: UUID, ref: String): SubmittedEstimationVersion {
-        if (ref == "draft") {
-            return versionService.findDraft(estimationId)
-                ?.let { versionService.snapshotDraft(it) }
-                ?: throw NotFoundException("No draft found")
-        }
-        val version = ref.toIntOrNull()?.let { versionService.findSubmittedVersion(estimationId, it) }
-        return version ?: throw NotFoundException("Version $ref not found")
-    }
+    // A version ref ("draft" or a number) resolved by the service, or 404 with
+    // the same messages as before task-218. The one place "not found" becomes a
+    // response for compare, export and the Merlin merge.
+    private fun versionOr404(estimationId: UUID, ref: String): SubmittedEstimationVersion =
+        versionService.resolveVersion(estimationId, ref)
+            ?: throw NotFoundException(if (ref == "draft") "No draft found" else "Version $ref not found")
 
     private fun ensureEstimationExists(estimationId: UUID) {
         estimationRepository.findById(estimationId)

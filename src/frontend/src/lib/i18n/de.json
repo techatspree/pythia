@@ -606,7 +606,14 @@
       "hoursLabel": "Stunden pro Arbeitstag",
       "hoursSave": "Arbeitszeit speichern",
       "hoursSaved": "Arbeitszeit gespeichert.",
-      "hoursInvalid": "Bitte eine Zahl größer als 0 und höchstens 24 eingeben."
+      "hoursInvalid": "Bitte eine Zahl größer als 0 und höchstens 24 eingeben.",
+      "mcpSection": "KI-Schnittstelle (MCP)",
+      "mcpHint": "Stellt Projekte, Schätzungen und Versionen KI-Assistenten über das Model Context Protocol zur Verfügung – nur lesend. Zugriff erhalten nur angemeldete Benutzer mit mindestens Leserechten.",
+      "mcpLabel": "MCP-Schnittstelle aktivieren",
+      "mcpSave": "KI-Schnittstelle speichern",
+      "mcpSaved": "KI-Schnittstelle gespeichert.",
+      "mcpEndpoint": "Endpunkt:",
+      "mcpAuthHint": "Clients melden sich wie die Weboberfläche an (Bearer-Token des Mandanten)."
     }
   },
   "footer": {

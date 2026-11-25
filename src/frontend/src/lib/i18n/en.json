@@ -606,7 +606,14 @@
       "hoursLabel": "Hours per working day",
       "hoursSave": "Save working time",
       "hoursSaved": "Working time saved.",
-      "hoursInvalid": "Please enter a number greater than 0 and at most 24."
+      "hoursInvalid": "Please enter a number greater than 0 and at most 24.",
+      "mcpSection": "AI interface (MCP)",
+      "mcpHint": "Makes projects, estimations and versions available to AI assistants through the Model Context Protocol – read-only. Only signed-in users with at least viewer rights get access.",
+      "mcpLabel": "Enable the MCP interface",
+      "mcpSave": "Save AI interface",
+      "mcpSaved": "AI interface saved.",
+      "mcpEndpoint": "Endpoint:",
+      "mcpAuthHint": "Clients sign in like the web UI does (the tenant's bearer token)."
     }
   },
   "footer": {

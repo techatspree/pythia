@@ -17,7 +17,7 @@ description: |
   "Tenant" means one installation, as in task-213: the singleton
   `system_settings` row, edited on `/admin/system`.
 
-  ## Current state (measured 2026-11-19)
+  ## Current state (measured 2026-11-19, re-checked 2026-11-22)
 
   - Quarkus platform 3.40.1 (`src/backend/implementation/gradle.properties`).
     The platform publishes `io.quarkus.platform:quarkus-mcp-server-bom:3.40.1`,
@@ -45,8 +45,29 @@ description: |
     `ProjectResource.listProjects/getProject`, `EstimationResource.getEstimation`,
     and `EstimationVersionResource.listVersions/getDraft/getSubmittedVersion/compareVersions`.
     Their private glue includes `EstimationVersionResource.resolveVersion`
-    ("draft" or a version number, resolved to a version) and the
-    draft-first assembly of version summaries in `listVersions`.
+    ("draft" or a version number, resolved to a version, else 404 "No draft
+    found" / "Version $ref not found") and the draft-first assembly of version
+    summaries in `listVersions`. `resolveVersion` has FOUR callers today:
+    `compareVersions` (twice), the xlsx/csv `exportVersion`, and task-223's
+    `mergeIntoMerlin`.
+  - The `%test` profile seeds NO data: `TestDataSeeder` is
+    `@IfBuildProfile("dev")`. A `@QuarkusTest` creates its own fixtures.
+  - The MCP extension 2.0.1 (read from its runtime bytecode and config
+    model): `quarkus.mcp.server.http.root-path` (default `/mcp`, fixed at
+    build time); `quarkus.mcp.server.http.dns-rebinding-check.enabled`
+    (default `true`). That check reads the **`Origin`** header, not `Host`,
+    and is active only while `quarkus.http.host` is a localhost name
+    (`localhost`, `127.0.0.1`, `::1`): then a request whose `Origin` is not
+    localhost gets `403 Invalid origin`; a request without `Origin` passes.
+    `%dev`/`%test` bind `localhost`, so the check is ON there; the container
+    binds `0.0.0.0` (Quarkus' prod default), so it is OFF in the cluster and
+    nginx's forwarded `Host` is irrelevant. The extension registers its
+    endpoint as a framework route (`RouteBuildItem.newFrameworkRoute`) with no
+    explicit order. The BOM also manages `quarkus-mcp-server-test`
+    (`McpAssured`, a test client).
+  - `src/frontend/src/lib/api/system.ts` takes `SystemSettingsDto` from the
+    generated `schema.d.ts` (`components['schemas']`); `types.ts` does not
+    mirror it.
 
   ## Target state
 
@@ -87,9 +108,15 @@ description: |
     An anonymous request is `401`, whether the switch is on or off, exactly
     like every other `/api` path. Authentication runs first, so the 404 is
     only ever seen by authenticated callers.
-  - **Authorization: VIEWER**, the same role every REST read requires. Each
-    tool is `@RolesAllowed("VIEWER")`. A caller without it gets an MCP error
-    result for every tool call, never data.
+  - **Authorization: VIEWER**, the same role every REST read requires
+    (class-level `@RolesAllowed("VIEWER")` on the read resources). Each tool
+    is `@RolesAllowed("VIEWER")`. By design a caller without it gets an error
+    for every tool call, never data. This is NOT tested: every dev user has
+    VIEWER, so no caller without it exists in `%test`.
+  - **DNS-rebinding check: the extension's default stays.** It protects a
+    developer's local `quarkus dev` from a malicious web page (foreign
+    `Origin`), is inactive in the cluster (see Current state), and never
+    affects an MCP client, which sends no `Origin`. Tests pin both halves.
   - **Read-only.** This task exposes reads only. Write tools are deliberately
     out of scope: they would need the provisioning, audit and undo semantics
     of the mutating REST endpoints, which is a design of its own.
@@ -119,9 +146,13 @@ description: |
     `@ToolArg(description = …)`. These are what the AI reads to pick a tool.
   - Shared glue is MOVED, not copied. `resolveVersion` and the version-summary
     assembly become public methods of `EstimationVersionService`
-    (`resolveVersionForComparison(estimationId, ref)`,
+    (`resolveVersion(estimationId, ref): SubmittedEstimationVersion?`,
     `versionSummaries(estimationId)`), and both the resource and the tools
-    call them.
+    call them. The resource keeps ONE private helper,
+    `versionOr404(estimationId, ref)`, that turns null into the same
+    `NotFoundException` messages as today ("No draft found" /
+    "Version $ref not found"); all four current callers use it. The tools
+    use the same two messages in their `ToolCallException`.
 
   ### Out of scope (follow-ups, not this task)
 
@@ -136,6 +167,27 @@ description: |
     `docs/mcp.md` says so.
   - Write tools, MCP resources/prompts, and per-user (rather than per-tenant)
     opt-in.
+
+  ## Deviations found during implementation
+
+  - **Gate order.** `ROUTE_ORDER_BEFORE_DEFAULT` (1000) ran AFTER the
+    extension's route (Vert.x numbers unordered routes from 0), so the gate
+    never fired and test cases 1 and 7 failed. The gate runs at order `-1`:
+    after Quarkus' security filters (negative orders), before every unordered
+    route. Recorded in `McpGate` and `mcp/CLAUDE.md`.
+  - **`SystemSettingsService.mcpEnabled` is a property**, not `fun mcpEnabled()`:
+    a second function pushed the class over detekt's TooManyFunctions
+    threshold. `SystemSettingsResource` carries a justified
+    `@Suppress("TooManyFunctions")` (one method per endpoint).
+  - **`PythiaMcpTools` reads projects through `ProjectRepository`**
+    (`findByStatus`/`listAll`, which is all `ProjectService` delegates to)
+    instead of also injecting `ProjectService`, to stay within detekt's
+    LongParameterList; its error throw is a top-level `toolError(...)`
+    (ThrowsCount).
+  - **`updateMcpEnabled`'s fallback message is an English literal**, like every
+    other function in `#lib/api/system.ts`: that is the file's existing pattern,
+    which the step said to follow. It shows only when the response has no body
+    message; 401/403 get the translated text from `assertOk` (task-225).
 
   ## Wireframes
 
@@ -171,7 +223,7 @@ description: |
     - Checkbox `data-testid="system.mcp-enabled"`, label `admin.system.mcpLabel`,
       styled like `projects.only-mine` (`accent-brand-green`, label wraps the
       input). Bound to local `$state`, initialised from `settings.mcpEnabled`.
-    - Button from `$lib/ui/Button.svelte`, `data-testid="system.save-mcp"`,
+    - Button from `#lib/ui/Button.svelte`, `data-testid="system.save-mcp"`,
       text `admin.system.mcpSave`. Saving shows the existing `system-notice`
       with `admin.system.mcpSaved`. A failure goes through the page's existing
       ErrorBanner path.
@@ -188,6 +240,7 @@ description: |
       | [x] MCP-Schnittstelle aktivieren                                      |
       |                                                                       |
       | Endpunkt: http://localhost:5173/api/mcp                               |
+      |           ^ <code>, the URL only                                      |
       | Clients melden sich wie die Weboberfläche an (Bearer-Token des        |
       | Mandanten).                                                           |
       |                                                                       |
@@ -196,11 +249,12 @@ description: |
 
       Saved.  (system-notice: "KI-Schnittstelle gespeichert.")
 
-    - `data-testid="system.mcp-endpoint"` holds
-      `admin.system.mcpEndpoint` = "Endpunkt: {url}", where `url` is
+    - `data-testid="system.mcp-endpoint"` is the line: the label
+      `admin.system.mcpEndpoint` = "Endpunkt:" / "Endpoint:", followed by a
+      `<code data-testid="system.mcp-endpoint-url">` holding
       `${window.location.origin}/api/mcp`, computed in the browser, so no host
-      is ever in the code (the example shows the dev stack). Rendered in a
-      `<code>` element for the URL part.
+      is ever in the code (the example shows the dev stack). The URL is not
+      part of any translated string.
     - Below it `admin.system.mcpAuthHint` (muted text).
     - Both lines show only while the SAVED value is on (after a successful
       PUT, or on load when `mcpEnabled` is true), not merely while the box is
@@ -244,12 +298,16 @@ steps:
     public `versionSummaries(estimationId: UUID): List<EstimationVersionSummaryDto>`
     (draft first with its calculated total, then submitted, exactly the body
     of `EstimationVersionResource.listVersions` today) and
-    `resolveVersionForComparison(estimationId: UUID, ref: String): SubmittedEstimationVersion?`
+    `resolveVersion(estimationId: UUID, ref: String): SubmittedEstimationVersion?`
     (the body of the private `resolveVersion`, returning null instead of
-    throwing). Make `listVersions` and `compareVersions` in the resource call
-    them, mapping null to the same `NotFoundException` messages as today.
-    Delete the private `resolveVersion`. The REST behaviour must stay identical:
-    the existing `EstimationVersionResource*` tests are the proof.
+    throwing). In the resource, `listVersions` calls `versionSummaries`, and
+    the private `resolveVersion` is replaced by
+    `private fun versionOr404(estimationId, ref)`, which calls the service
+    and throws `NotFoundException(if (ref == "draft") "No draft found" else
+    "Version $ref not found")` on null. ALL FOUR current callers use it:
+    `compareVersions` (twice), `exportVersion`, `mergeIntoMerlin`. The REST
+    behaviour must stay identical: the existing `EstimationVersionResource*`,
+    export and `MerlinMergeResourceIT` tests are the proof.
   - |
     Configuration in `src/backend/implementation/src/main/resources/application.properties`
     (unprofiled: these are stage-invariant, so they are allowed outside the
@@ -259,18 +317,23 @@ steps:
       quarkus.http.auth.permission.mcp.policy=authenticated
     plus a comment block (task-218): the MCP endpoint authenticates through
     the active auth module like every `/api` path, and the switch lives in the
-    DB (`McpGate`), not here. Find out from the extension's config doc and
-    source what `quarkus.mcp.server.http.dns-rebinding-check.enabled` compares
-    (Host? Origin?). Pythia sits behind nginx, which forwards the external
-    `Host`, so the check must not reject a non-localhost Host. If the default
-    would, set it with a comment saying why. Either way the test in the
-    IT step below proves the behaviour.
+    DB (`McpGate`), not here. Leave
+    `quarkus.mcp.server.http.dns-rebinding-check.enabled` at its default and
+    say why in the comment: it reads `Origin` (not `Host`), is active only
+    while `quarkus.http.host` is localhost (dev/test), is off in the
+    container (`0.0.0.0`), and MCP clients send no `Origin` (see Current
+    state). Test cases 8 and 9 pin it.
   - |
     The gate. Create `src/backend/implementation/src/main/kotlin/io/pythia/mcp/McpGate.kt`,
     an `@ApplicationScoped` bean that observes `io.vertx.ext.web.Router`
     (`fun install(@Observes router: Router)`). It registers a handler on
-    `/api/mcp` and `/api/mcp/*` ordered BEFORE the MCP extension's own routes:
-    look up the order the extension uses and choose a lower one. The handler
+    `/api/mcp` and `/api/mcp/*` that must run BEFORE the MCP extension's own
+    route. The extension registers a framework route with no explicit order
+    (see Current state), so give the gate an explicit low `order(...)` and
+    let the tests decide: viewer → 404 while off (case 1) proves the gate runs
+    before the extension, anonymous → 401 while off (case 2) proves
+    authentication runs before the gate. If either fails, adjust the order
+    and record what worked in the class comment. The handler
     reads the switch OFF the event loop
     (`ctx.vertx().executeBlocking { QuarkusTransaction.requiringNew().call { settings.mcpEnabled() } }`).
     When the switch is on it calls `ctx.next()`. When it is off it ends with
@@ -299,13 +362,20 @@ steps:
     DEBUG with the result size.
   - |
     Backend test: `src/backend/implementation/src/test/kotlin/io/pythia/mcp/McpServerIT.kt`
-    (`@QuarkusTest`, RestAssured, raw JSON-RPC over Streamable HTTP. Send
-    `Accept: application/json, text/event-stream` and
-    `Content-Type: application/json`. If a response comes back as
-    `text/event-stream`, parse its `data:` line. Carry the
-    `Mcp-Session-Id` response header of `initialize` on later calls). The
-    setting is GLOBAL, so `@AfterEach` switches MCP off again (see
-    `SystemSettingsHoursPerDayIT`). Cases:
+    (`@QuarkusTest`). Add `testImplementation("io.quarkiverse.mcp:quarkus-mcp-server-test")`
+    (version from the same BOM) and use its `McpAssured` client for the
+    protocol cases (4–6: initialize, session header, SSE responses), with
+    the dev `Authorization` header set on the client. Use raw RestAssured for
+    the transport cases (1–3, 7–9), where the status code itself matters:
+    POST a JSON-RPC `initialize` with `Accept: application/json,
+    text/event-stream` and `Content-Type: application/json`. The setting is
+    GLOBAL, so `@AfterEach` switches MCP off again (see
+    `SystemSettingsHoursPerDayIT`). The `%test` profile seeds nothing, so
+    `@BeforeEach`/the test itself creates its fixture through the REST API as
+    `Dev dev-admin`: a project with a unique name, an estimation, a draft
+    imported from `/merlin/state.sql` (`POST …/versions/import/merlin`), the
+    draft submitted once (version 1), then a new draft created (so both
+    `"draft"` and `1` exist). Cases:
       1. Default state: `GET /api/system` has `mcpEnabled == false`, and an
          `initialize` POST as `Dev dev-viewer` → `404` with the JSON body.
       2. Anonymous `initialize` → `401`, with the switch off AND on.
@@ -313,19 +383,21 @@ steps:
          As `Dev dev-admin` → `204`, then `GET /api/system` shows `true`.
       4. Switched on, as `Dev dev-viewer`: `initialize` → 200 with
          `serverInfo`. `tools/list` returns exactly the six tool names.
-      5. `tools/call list_projects` returns the seeded project names (assert
-         one from `SeededProjects`, e.g. by reading `SeededProjects.ALL`).
-         `get_project` on that project includes its estimations.
-         `get_version` with `"draft"` and with a submitted number returns a
-         non-null `totalEffort`. `compare_versions` returns a comparison.
-         Pick ids by first calling `get_project`, or create the fixture via
-         the REST API like `SystemSettingsHoursPerDayIT` does, if the test
-         profile does not seed.
+      5. On the fixture: `tools/call list_projects` contains the fixture
+         project's name. `get_project` on it includes its estimation.
+         `get_version` with `"draft"` and with `1` returns a non-null
+         `totalEffort`. `compare_versions` (`1` vs `"draft"`) returns a
+         comparison. `list_versions` lists the draft first.
       6. `get_project` with an unknown UUID → result `isError == true`, text
          contains "not found".
       7. After switching off again, the same viewer's `tools/list` → `404`.
-      8. Switched on, an `initialize` carrying `Host: pythia.example.org` →
-         200 (the DNS-rebinding check does not break the reverse proxy).
+      8. Switched on, an `initialize` without an `Origin` header but with
+         `Host: pythia.example.org` → 200 (an MCP client sends no Origin; the
+         forwarded Host is not checked).
+      9. Switched on, an `initialize` with `Origin: https://pythia.example.org`
+         → 403 in `%test` (the check is on because `%test` binds localhost).
+         This pins the extension's behaviour: if it ever starts checking in
+         the cluster or reading `Host`, this test and case 8 say so.
     Also extend `SystemSettingsResourceIT` with an assertion that
     `GET /api/system` carries `mcpEnabled`.
   - |
@@ -333,14 +405,21 @@ steps:
     `McpGate`'s handler always call `ctx.next()`, run
     `./gradlew :backend:implementation:test --tests "io.pythia.mcp.McpServerIT"`
     and see cases 1 and 7 fail. Revert, then see them pass. Report both runs.
+    Prove `versionOr404` the same way: make it return the service result
+    without the null check (`!!`), and see the "unknown version" REST test
+    of `compareVersions` (or a new one in `McpServerIT`/an existing
+    resource IT asserting 404) fail. Revert.
   - |
     Frontend API + types. Run `./gradlew build` once so `openapi.json` and
-    `schema.d.ts` regenerate (commit both later, as the drift gate requires). In
+    `schema.d.ts` regenerate. Leave both in the working tree for the user to
+    commit with this change (CI's `verifyOpenApiSchemaCommitted` checks them).
+    `SystemSettingsDto` in `#lib/api/system.ts` comes from `schema.d.ts`, so
+    `mcpEnabled` arrives without a hand edit. In
     `src/frontend/src/lib/api/system.ts` add
       export async function updateMcpEnabled(enabled: boolean): Promise<void>
-    (PUT `${BASE}/mcp`, `assertOk(res, 'Failed to save the MCP setting')`).
-    If `$lib/api/types.ts` mirrors `SystemSettingsDto` by hand, add
-    `mcpEnabled` there too.
+    (PUT `${BASE}/mcp`, `assertOk(res, ...)` with a fallback message taken
+    from the catalog via `get(_)`, as the other functions there do; check
+    their pattern and follow it).
   - |
     Admin page, as wireframed. In `src/frontend/src/routes/admin/system/+page.svelte`
     add the section between Arbeitszeit and Standard-Aufwandstreiber.
@@ -352,7 +431,9 @@ steps:
     `log.info('admin/system: MCP interface saved', { mcpEnabled })`. Its
     `catch` surfaces via the page's existing error banner path, like
     `saveHoursPerDay`. Compute the endpoint as
-    `${window.location.origin}/api/mcp`. No bare `console.*`, no inline strings.
+    `${window.location.origin}/api/mcp` and render it in the
+    `system.mcp-endpoint-url` `<code>` as wireframed. No bare `console.*`, no
+    inline strings.
   - |
     i18n, both catalogs key-for-key under `admin.system`:
       | key          | de                                                   | en |
@@ -362,17 +443,18 @@ steps:
       | mcpLabel     | MCP-Schnittstelle aktivieren                         | Enable the MCP interface |
       | mcpSave      | KI-Schnittstelle speichern                           | Save AI interface |
       | mcpSaved     | KI-Schnittstelle gespeichert.                        | AI interface saved. |
-      | mcpEndpoint  | Endpunkt: {url}                                      | Endpoint: {url} |
+      | mcpEndpoint  | Endpunkt:                                            | Endpoint: |
       | mcpAuthHint  | Clients melden sich wie die Weboberfläche an (Bearer-Token des Mandanten). | Clients sign in like the web UI does (the tenant's bearer token). |
   - |
     Page Object + e2e. Extend `src/frontend/e2e/pages/SystemSettingsPage.ts`
     with `get mcpEnabledCheckbox()` (`system.mcp-enabled`), `get mcpEndpoint()`
-    (`system.mcp-endpoint`) and `async saveMcp(enabled: boolean)` (set the
+    (`system.mcp-endpoint`), `get mcpEndpointUrl()` (`system.mcp-endpoint-url`)
+    and `async saveMcp(enabled: boolean)` (set the
     checkbox, click `system.save-mcp`). Create
     `src/frontend/e2e/mcp-settings.test.ts`, importing from `'./pages'`:
       - The admin opens the page: the checkbox is unchecked and the endpoint
         is hidden.
-      - `saveMcp(true)`: the notice is visible, the endpoint text contains
+      - `saveMcp(true)`: the notice is visible, the endpoint URL ends with
         `/api/mcp`, and an API `POST /api/mcp` `initialize` with
         `Authorization: Dev dev-viewer` (via `request`, as `hours-per-day.test.ts`
         does) returns 200. After a reload the box is still checked.
@@ -385,9 +467,11 @@ steps:
     :5432 are free (`lsof -nP -iTCP:8090 -iTCP:5173 -iTCP:5432 -sTCP:LISTEN`).
     If any is bound, STOP and report. Start `./scripts/dev.sh` in the
     background. Run
-    `cd src/frontend && E2E_LANG=en npx playwright test e2e/mcp-settings.test.ts e2e/system-settings.test.ts e2e/hours-per-day.test.ts`,
-    then the same with `E2E_LANG=de`. Afterwards stop ONLY the `dev.sh` this
-    step started, with SIGTERM.
+    the FULL suite `cd src/frontend && E2E_LANG=en npx playwright test`,
+    then the same with `E2E_LANG=de` (the admin page and the shared version
+    glue are used by other specs). Afterwards stop ONLY the `dev.sh` this
+    step started, with SIGTERM, and confirm the ports are free and no Dev
+    Services PostgreSQL container is left.
   - |
     Documentation.
       - New `docs/mcp.md` (public, so no hostnames). It covers: what the
@@ -398,9 +482,15 @@ steps:
         Give an example client registration with placeholders, e.g.
         `claude mcp add --transport http pythia https://<your-host>/api/mcp --header "Authorization: Bearer <token>"`.
         Say that automatic OAuth discovery (RFC 9728) is not offered yet, and why.
-        Link it from `README.md` next to the other docs links.
+        Say that the extension's DNS-rebinding check matters only for a local
+        `quarkus dev` (a foreign `Origin` is refused there) and never for an
+        MCP client, which sends no `Origin`.
+        Link it from `README.md` next to the other docs links, and add one
+        sentence to `docs/authentication.md` that `/api/mcp` authenticates
+        through the same modules as every other `/api` path.
       - New `src/backend/implementation/src/main/kotlin/io/pythia/mcp/CLAUDE.md`.
         It covers: the gate (per-request, 404 when off, after authentication),
+        the route-order finding, the DNS-rebinding facts,
         why tools use `SecurityIdentity` not `CurrentUserProvider`, the
         "same DTO as the REST twin, no computation" rule, the BOM-pinned version,
         and read-only by decision. List it under "Detail next to the code" in
@@ -448,12 +538,21 @@ validation:
     grep -q 'Log\.' $T
     grep -q 'Log\.' src/backend/implementation/src/main/kotlin/io/pythia/mcp/McpGate.kt
   - |
-    # shared glue moved, not copied
-    ! grep -q 'private fun resolveVersion' src/backend/implementation/src/main/kotlin/io/pythia/rest/EstimationVersionResource.kt
-    grep -q 'fun resolveVersionForComparison' src/backend/implementation/src/main/kotlin/io/pythia/service/EstimationVersionService.kt
+    # shared glue moved, not copied; one 404 helper for all callers
+    R=src/backend/implementation/src/main/kotlin/io/pythia/rest/EstimationVersionResource.kt
+    ! grep -q 'private fun resolveVersion' $R
+    grep -q 'private fun versionOr404' $R
+    test "$(grep -c 'versionOr404(estimationId' $R)" -ge 4
+    grep -q 'fun resolveVersion(estimationId: UUID, ref: String): SubmittedEstimationVersion?' src/backend/implementation/src/main/kotlin/io/pythia/service/EstimationVersionService.kt
     grep -q 'fun versionSummaries' src/backend/implementation/src/main/kotlin/io/pythia/service/EstimationVersionService.kt
   - |
-    ./gradlew :backend:implementation:test --tests "io.pythia.mcp.McpServerIT" --tests "io.pythia.rest.SystemSettingsResourceIT"
+    # fixtures via REST (no seed in %test); the Origin cases are present
+    I=src/backend/implementation/src/test/kotlin/io/pythia/mcp/McpServerIT.kt
+    ! grep -q 'SeededProjects' $I
+    grep -q 'import/merlin' $I
+    grep -q 'Origin' $I
+    grep -q 'McpAssured' $I
+    ./gradlew :backend:implementation:test --tests "io.pythia.mcp.McpServerIT" --tests "io.pythia.rest.SystemSettingsResourceIT" --tests "io.pythia.rest.MerlinMergeResourceIT"
   - |
     # OpenAPI carries the new field and operation
     grep -q '"mcpEnabled"' src/frontend/src/lib/api/openapi.json
@@ -464,11 +563,30 @@ validation:
     grep -q 'data-testid="system.mcp-enabled"' $P
     grep -q 'data-testid="system.save-mcp"' $P
     grep -q 'data-testid="system.mcp-endpoint"' $P
+    grep -q 'data-testid="system.mcp-endpoint-url"' $P
     grep -q "log.info('admin/system: MCP interface saved'" $P
     ! grep -q 'console\.' $P
     for k in mcpSection mcpHint mcpLabel mcpSave mcpSaved mcpEndpoint mcpAuthHint; do
       jq -e ".admin.system.$k" src/frontend/src/lib/i18n/de.json >/dev/null &&
       jq -e ".admin.system.$k" src/frontend/src/lib/i18n/en.json >/dev/null || exit 1; done
+  - |
+    # catalog parity, every language
+    python3 - <<'PY'
+    import json, pathlib, sys
+    cats = {p.stem: json.loads(p.read_text())
+            for p in pathlib.Path('src/frontend/src/lib/i18n').glob('*.json')}
+    def flat(o, p=''):
+        s = set()
+        for k, v in o.items():
+            n = f'{p}.{k}' if p else k
+            s |= flat(v, n) if isinstance(v, dict) else {n}
+        return s
+    keys = {l: flat(d) for l, d in cats.items()}
+    ref = set().union(*keys.values())
+    bad = {l: sorted(ref - k) for l, k in keys.items() if ref - k}
+    print('missing keys:', bad or 'none')
+    sys.exit(1 if bad else 0)
+    PY
   - |
     # e2e via the Page Object
     grep -q 'system.mcp-enabled' src/frontend/e2e/pages/SystemSettingsPage.ts
@@ -476,6 +594,8 @@ validation:
   - |
     # docs
     test -f docs/mcp.md && grep -q 'docs/mcp.md' README.md
+    grep -q 'Origin' docs/mcp.md
+    grep -q '/api/mcp' docs/authentication.md
     test -f src/backend/implementation/src/main/kotlin/io/pythia/mcp/CLAUDE.md
     grep -q 'mcp/CLAUDE.md' src/backend/CLAUDE.md
     # no real host in the public doc
@@ -505,7 +625,6 @@ outputs:
   - modified: src/frontend/src/lib/api/openapi.json
   - modified: src/frontend/src/lib/api/schema.d.ts
   - modified: src/frontend/src/lib/api/system.ts
-  - modified: src/frontend/src/lib/api/types.ts   # only if it mirrors SystemSettingsDto by hand
   - modified: src/frontend/src/routes/admin/system/+page.svelte
   - modified: src/frontend/src/lib/i18n/de.json
   - modified: src/frontend/src/lib/i18n/en.json
@@ -513,5 +632,6 @@ outputs:
   - created: src/frontend/e2e/mcp-settings.test.ts
   - created: docs/mcp.md
   - modified: README.md
+  - modified: docs/authentication.md
   - modified: src/backend/CLAUDE.md
   - modified: compliance/oss-policy.json   # only if a new component needs a justified entry

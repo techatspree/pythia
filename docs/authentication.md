@@ -18,6 +18,10 @@ The REST API is **role-protected** — endpoints are not open. Using the
   estimation, create/update/submit/delete draft, archive) require
   **`ESTIMATOR`** (`@RolesAllowed("ESTIMATOR")` on the method).
 * The admin canary `GET /api/admin/ping` requires **`ADMIN`**.
+* The read-only MCP endpoint `/api/mcp` (task-218, [MCP interface](mcp.md))
+  authenticates through the same auth modules as every other `/api` path and
+  requires **`VIEWER`** for each tool; it answers only while an admin has
+  switched it on.
 
 One action is gated by **ownership** on top of a role (task-200): changing a
 project's owner, `PUT /api/projects/{id}/owner`. The role gate is

@@ -41,6 +41,8 @@ class SystemSettingsResourceIT {
             .`when`().get("/api/system")
             .then().statusCode(200)
             .body("hasCustomCss", equalTo(false))
+            // The MCP switch (task-218) is public too, and off unless an admin turned it on.
+            .body("mcpEnabled", equalTo(false))
     }
 
     @Test

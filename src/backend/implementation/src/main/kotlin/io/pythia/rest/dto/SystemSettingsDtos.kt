@@ -12,7 +12,17 @@ data class SystemSettingsDto(
     val customCssFilename: String?,
     val customCssUpdatedAt: String?,
     /** Hours of a working day: divides accompanying work's hours into person-days (task-213). */
-    val hoursPerDay: Double
+    val hoursPerDay: Double,
+    /** Whether the read-only MCP interface at /api/mcp answers (task-218); off by default. */
+    val mcpEnabled: Boolean
+)
+
+/**
+ * Body of `PUT /api/system/mcp` (task-218). Its own endpoint for the same
+ * reason as hours-per-day: a null `displayName` in `PUT /api/system` clears it.
+ */
+data class SystemSettingsMcpDto(
+    val enabled: Boolean
 )
 
 /**

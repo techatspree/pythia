@@ -145,6 +145,12 @@ dependencies {
     implementation("io.quarkus:quarkus-hibernate-validator")
     implementation("io.quarkus:quarkus-logging-json")
     implementation("io.quarkus:quarkus-arc")
+    // Read-only MCP server (task-218), Streamable HTTP at /api/mcp. Versioned by
+    // the Quarkus PLATFORM's own MCP BOM, which moves with quarkusPlatformVersion
+    // (3.40.1 pins 2.0.1). Not a hand-picked Quarkiverse version: the newer 2.0.4
+    // is built against Quarkus 3.33, and 2.1.0 is only a CR.
+    implementation(enforcedPlatform("$quarkusPlatformGroupId:quarkus-mcp-server-bom:$quarkusPlatformVersion"))
+    implementation("io.quarkiverse.mcp:quarkus-mcp-server-http")
     implementation("org.apache.poi:poi-ooxml:5.4.1")
     // Read-only, used by MerlinImporter via plain java.sql.DriverManager to read
     // an uploaded Merlin .mproject SQLite (Core Data) document — NOT a Quarkus
@@ -154,6 +160,8 @@ dependencies {
     testImplementation("io.quarkus:quarkus-junit5")
     testImplementation("io.rest-assured:rest-assured")
     testImplementation("org.mockito.kotlin:mockito-kotlin:5.4.0")
+    // McpAssured, the MCP test client (task-218); version from the MCP BOM above.
+    testImplementation("io.quarkiverse.mcp:quarkus-mcp-server-test")
 }
 
 // Open classes for the annotations Quarkus/Hibernate/JAX-RS require (mirrors

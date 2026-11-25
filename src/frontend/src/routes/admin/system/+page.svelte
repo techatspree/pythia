@@ -9,6 +9,7 @@
 		getSystemSettings,
 		updateSystemSettings,
 		updateHoursPerDay,
+		updateMcpEnabled,
 		getStandardDrivers,
 		replaceStandardDrivers,
 		uploadSystemCss,
@@ -27,6 +28,14 @@
 	// null while the field is empty.
 	let hoursPerDay = $state<number | null>(null);
 	let drivers = $state<EffortDriverDto[]>([]);
+	// The MCP interface (task-218): the checkbox, and what the SERVER holds, which
+	// alone decides whether the endpoint line shows.
+	let mcpEnabled = $state(false);
+	let mcpSavedEnabled = $state(false);
+	// Computed in the browser, so no host is ever in the code.
+	const mcpEndpointUrl = $derived(
+		typeof window === 'undefined' ? '/api/mcp' : `${window.location.origin}/api/mcp`
+	);
 	let bannerMessage = $state<string | null>(null);
 	let notice = $state<string | null>(null);
 	let cssInput = $state<HTMLInputElement | null>(null);
@@ -38,6 +47,8 @@
 			settings = await getSystemSettings();
 			displayName = settings.displayName ?? '';
 			hoursPerDay = settings.hoursPerDay;
+			mcpEnabled = settings.mcpEnabled;
+			mcpSavedEnabled = settings.mcpEnabled;
 			drivers = await getStandardDrivers();
 		} catch (e: unknown) {
 			log.error('admin/system: load failed', e);
@@ -63,6 +74,19 @@
 
 	// The backend enforces (0, 24] as well (400); checking here only spares the
 	// round trip and gives the translated message.
+	async function saveMcp() {
+		notice = null;
+		try {
+			await updateMcpEnabled(mcpEnabled);
+			mcpSavedEnabled = mcpEnabled;
+			notice = $_('admin.system.mcpSaved');
+			log.info('admin/system: MCP interface saved', { mcpEnabled });
+		} catch (e) {
+			log.error('admin/system: saving the MCP interface failed', e);
+			bannerMessage = e instanceof Error ? e.message : String(e);
+		}
+	}
+
 	async function saveHoursPerDay() {
 		notice = null;
 		if (hoursPerDay == null || !(hoursPerDay > 0 && hoursPerDay <= 24)) {
@@ -203,6 +227,32 @@
 			<div>
 				<Button data-testid="system.save-hours-per-day" onclick={saveHoursPerDay}>
 					{$_('admin.system.hoursSave')}
+				</Button>
+			</div>
+		</section>
+
+		<section class="mb-8 border rounded-lg p-4 bg-white">
+			<h2 class="text-lg font-semibold mb-1">{$_('admin.system.mcpSection')}</h2>
+			<p class="text-sm text-ink-muted mb-3">{$_('admin.system.mcpHint')}</p>
+			<label class="flex items-center gap-2 text-sm cursor-pointer mb-3">
+				<input
+					type="checkbox"
+					class="accent-brand-green"
+					data-testid="system.mcp-enabled"
+					bind:checked={mcpEnabled}
+				/>
+				<span>{$_('admin.system.mcpLabel')}</span>
+			</label>
+			{#if mcpSavedEnabled}
+				<p class="text-sm mb-1" data-testid="system.mcp-endpoint">
+					{$_('admin.system.mcpEndpoint')}
+					<code data-testid="system.mcp-endpoint-url">{mcpEndpointUrl}</code>
+				</p>
+				<p class="text-sm text-ink-muted mb-3">{$_('admin.system.mcpAuthHint')}</p>
+			{/if}
+			<div>
+				<Button data-testid="system.save-mcp" onclick={saveMcp}>
+					{$_('admin.system.mcpSave')}
 				</Button>
 			</div>
 		</section>

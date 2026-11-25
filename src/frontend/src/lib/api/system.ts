@@ -27,6 +27,16 @@ export async function updateSystemSettings(displayName: string | null): Promise<
 	await assertOk(res, 'Failed to save the system settings');
 }
 
+/** Admin: switch the read-only MCP interface on or off (task-218). Its own endpoint, like hours-per-day. */
+export async function updateMcpEnabled(enabled: boolean): Promise<void> {
+	const res = await apiFetch(`${BASE}/mcp`, {
+		method: 'PUT',
+		headers: { 'Content-Type': 'application/json' },
+		body: JSON.stringify({ enabled })
+	});
+	await assertOk(res, 'Failed to save the MCP setting');
+}
+
 /** Admin: hours of a working day (task-213). Its own endpoint — see the backend DTO. */
 export async function updateHoursPerDay(hoursPerDay: number): Promise<void> {
 	const res = await apiFetch(`${BASE}/hours-per-day`, {

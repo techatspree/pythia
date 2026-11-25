@@ -4,6 +4,7 @@ import io.pythia.auth.CurrentUserProvider
 import io.pythia.rest.dto.EffortDriverDto
 import io.pythia.rest.dto.SystemSettingsDto
 import io.pythia.rest.dto.SystemSettingsHoursPerDayDto
+import io.pythia.rest.dto.SystemSettingsMcpDto
 import io.pythia.rest.dto.SystemSettingsUpdateDto
 import io.pythia.service.SystemSettingsService
 import io.quarkus.logging.Log
@@ -40,6 +41,9 @@ import org.jboss.resteasy.reactive.multipart.FileUpload
 @ApplicationScoped
 @Path("/api/system")
 @Tag(name = "System", description = "Per-installation settings: name, standard effort drivers, custom CSS")
+// TooManyFunctions: one method per endpoint is the shape of a JAX-RS resource;
+// each setting with its own endpoint (hours-per-day, mcp) adds one (task-218).
+@Suppress("TooManyFunctions")
 class SystemSettingsResource(
     private val systemSettingsService: SystemSettingsService,
     private val currentUserProvider: CurrentUserProvider
@@ -154,6 +158,21 @@ class SystemSettingsResource(
         return Response.noContent().build()
     }
 
+    @PUT
+    @Path("/mcp")
+    @Consumes(MediaType.APPLICATION_JSON)
+    @RolesAllowed("ADMIN")
+    @Operation(summary = "Admin: switch the read-only MCP interface on or off")
+    @APIResponse(responseCode = "204", description = "Stored")
+    @APIResponse(responseCode = "401", description = "Not authenticated")
+    @APIResponse(responseCode = "403", description = "Not an administrator")
+    fun updateMcpEnabled(body: SystemSettingsMcpDto): Response {
+        val state = if (body.enabled) "enabled" else "disabled"
+        Log.info("MCP interface $state by ${currentUserProvider.get().subjectId}")
+        systemSettingsService.updateMcpEnabled(body.enabled)
+        return Response.noContent().build()
+    }
+
     private fun toDto(): SystemSettingsDto {
         val s = systemSettingsService.settings()
         return SystemSettingsDto(
@@ -161,7 +180,8 @@ class SystemSettingsResource(
             hasCustomCss = s.customCss != null,
             customCssFilename = s.customCssFilename,
             customCssUpdatedAt = s.customCssUpdatedAt?.toString(),
-            hoursPerDay = s.hoursPerDay
+            hoursPerDay = s.hoursPerDay,
+            mcpEnabled = s.mcpEnabled
         )
     }
 

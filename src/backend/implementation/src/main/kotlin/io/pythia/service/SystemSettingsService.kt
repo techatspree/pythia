@@ -27,6 +27,16 @@ class SystemSettingsService(
     /** Hours of a working day: the divisor for accompanying work's hours (task-213). */
     fun hoursPerDay(): Double = settingsRepository.get().hoursPerDay
 
+    /** Whether the read-only MCP interface answers (task-218); read fresh on every access. */
+    val mcpEnabled: Boolean
+        get() = settingsRepository.get().mcpEnabled
+
+    @Transactional
+    fun updateMcpEnabled(enabled: Boolean) {
+        settingsRepository.get().mcpEnabled = enabled
+        Log.info("MCP interface ${if (enabled) "enabled" else "disabled"}")
+    }
+
     @Transactional
     fun updateHoursPerDay(hoursPerDay: Double) {
         if (!(hoursPerDay > 0.0 && hoursPerDay <= MAX_HOURS_PER_DAY)) {

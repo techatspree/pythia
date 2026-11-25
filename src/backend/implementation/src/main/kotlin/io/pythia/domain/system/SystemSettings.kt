@@ -63,6 +63,11 @@ class SystemSettings {
     @Column(name = "hours_per_day", nullable = false)
     var hoursPerDay: Double = EstimationDefaults.HOURS_PER_DAY
 
+    // Whether the read-only MCP interface at /api/mcp answers (task-218).
+    // Off by default; mirrored from V22. McpGate reads it per request.
+    @Column(name = "mcp_enabled", nullable = false)
+    var mcpEnabled: Boolean = false
+
     @PrePersist
     fun onPrePersist() {
         createdAt = Instant.now()
